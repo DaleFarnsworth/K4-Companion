@@ -16,3 +16,5 @@ suggesions are greatly appreciated.
 
 Dale Farnsworth, W7DA
 dale@farnsworth.org
+
+![Screenshot](screenshot.png)
