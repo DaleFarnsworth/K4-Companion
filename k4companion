@@ -2758,25 +2758,25 @@ def popup(msg='', title='', timeout=None, font=None, color='yellow'):
         popup.after(timeout, popup.destroy)
     return popup
 
-def validate_config_options(dictionary, required, options, name=None):
+def validate_config_options(dictionary, requireds, options, name=None):
     if name == None:
         name = dictionary['item']
 
-    options.extend(required)
+    id = ''
+    for key in ['label', 'text', 'tabname']:
+        if key in dictionary:
+            id = dictionary[key]
+            break
+
+    options.extend(requireds)
     for option in dictionary.keys():
         if option not in options:
-            if 'text' in dictionary:
-                id=" ({text})".format(text=dictionary['text'])
-            else:
-                id=''
             raise Exception("Unrecognized option '{option}' in item '{name}'{id}.".format(option=option, name=name, id=id))
 
-    for option in required:
-        if option not in dictionary:
-            if 'text' in dictionary:
-                id=" ({text})".format(text=dictionary['text'])
-            else:
-                id=''
+    for option in requireds:
+        if option not in dictionary or dictionary[option] == None:
+            if id != '':
+                id = ' ({id})'.format(id=id)
             raise Exception("Required option '{option}' missing in item '{name}'{id}.".format(option=option, name=name, id=id))
 
 def hex_decode(string):
