@@ -654,23 +654,101 @@ class Server():
     def add_ignored_error(self, base):
         self.ignored_errors[base] = True
 
-class Container():
-    depth = -1
+class Widget():
+    blink_mS = 500
 
     def __init__(self, config_info, container):
         self.config_info = config_info
         self.container = container
+        self.bg = None
+        self.abg = None
+        self.fg = None
+        self.afg = None
+        self.cached_font = None
+        self.cached_button_font = None
+        self.cached_label_font = None
+
+        if 'server' in self.config_info:
+            self.server = Server.server(self.config_info['server'])
+        else:
+            if self.container != None:
+                self.server = self.container.server
+
+    def k4param(self, base):
+        if self.server.type == 'k4':
+            return self.server.k4_parameter(base)
+        else:
+            return None
+
+    def eval_value(self, s, value):
+        try:
+            ret = eval(str(s))
+        except Exception as err:
+            dprint('value: "{value}", eval("{s}")'.format(value=value, s=s))
+            dprint('exception: {err}'.format(err=err))
+            raise
+        return ret
+
+    def label_font(self):
+        if self.cached_label_font != None:
+            return self.cached_label_font
+        if 'label_font' in self.config_info:
+            font = self.config_info['label_font']
+            font = tkFont.Font(family=font['family'], size=font['size'], weight=font['weight'])
+        else:
+            font = self.container.label_font()
+            self.cached_label_font = font
+        return font
+
+    def button_font(self):
+        if self.cached_button_font != None:
+            return self.cached_button_font
+        if 'button_font' in self.config_info:
+            font = self.config_info['button_font']
+            font = tkFont.Font(family=font['family'], size=font['size'], weight=font['weight'])
+        else:
+            font = self.container.button_font()
+            self.cached_button_font = font
+        return font
+
+    def font(self):
+        if self.cached_font != None:
+            return self.cached_font
+        if 'font' in self.config_info:
+            font = self.config_info['font']
+            font = tkFont.Font(family=font['family'], size=font['size'], weight=font['weight'])
+        else:
+            font = self.button_font()
+            self.cached_font = font
+        return font
+
+    def add_leading(self, leading, container):
+        if leading == 0:
+            return False
+
+        family = self.label_font().cget('family')
+        weight = self.label_font().cget('weight')
+        leading_font = tkFont.Font(family=family, size=leading, weight=weight)
+        leading_label = tk.Label(container, text=' ', font=leading_font)
+        leading_label.grid(row=0, column=0, sticky='nw')
+        return True
+
+class Container(Widget):
+    depth = -1
+
+    def __init__(self, config_info, container):
+        super().__init__(config_info, container)
+
         if isinstance(self, Page):
-            self.server_name = config_info.get('server', Server.default_server_name)
-            self.label_font = config_info.get('label_font', Default.label_font)
-            self.button_font = config_info.get('button_font', Default.button_font)
+#            self.server_name = config_info.get('server', Server.default_server_name)
+#            self.label_font = config_info.get('label_font', Default.label_font)
+#            self.button_font = config_info.get('button_font', Default.button_font)
             self.childwidth = config_info.get('childwidth', None)
         else:
-            self.server_name = config_info.get('server', container.server_name)
-            self.label_font = config_info.get('label_font', container.label_font)
-            self.button_font = config_info.get('button_font', container.button_font)
+#            self.server_name = config_info.get('server', container.server_name)
+#            self.label_font = config_info.get('label_font', container.label_font)
+#            self.button_font = config_info.get('button_font', container.button_font)
             self.childwidth = config_info.get('childwidth', container.childwidth)
-        self.server = Server.server(self.server_name)
         self.columns = config_info.get('columns', len(self.config_info['contains']))
         self.row = 0
         self.column = 0
@@ -808,6 +886,21 @@ class Page(Container):
     def hide(self):
         self.frame.grid_forget()
 
+    def label_font(self):
+        font = self.config_info.get('label_font', Default.label_font)
+        return tkFont.Font(family=font['family'], size=font['size'], weight=font['weight'])
+
+    def button_font(self):
+        font = self.config_info.get('button_font', Default.button_font)
+        return tkFont.Font(family=font['family'], size=font['size'], weight=font['weight'])
+
+    def server(self):
+        if 'server' in self.config_info:
+            server = Server.server(self.config_info['server'])
+        else:
+            server = None
+        return server
+
 class Group(Container):
     default_leading = 0
     default_label_leading = 1
@@ -841,21 +934,14 @@ class Group(Container):
 
         outer_frame = tk.Frame(container.frame)
 
-        if leading == 0:
-            row = 0
-        else:
-            leading_font = tkFont.Font(family=self.label_font['family'], size=leading, weight=self.label_font['weight'])
-            leading_label = tk.Label(outer_frame, text=' ', font=leading_font)
-            leading_label.grid(row=0, column=0, sticky='nw')
-            row = 1
+        row = 1 if self.add_leading(leading, outer_frame) else 0
 
         if label == None:
             self.frame  = tk.Frame(outer_frame)
         else:
-            font = tkFont.Font(family=self.label_font['family'], size=self.label_font['size'], weight=self.label_font['weight'])
             self.frame = tk.LabelFrame(outer_frame,
                                        text=label,
-                                       font=font,
+                                       font=self.label_font(),
                                        labelanchor='nw',
                                        bd=4,
                                        relief='raised')
@@ -872,35 +958,6 @@ class Group(Container):
 
         if isinstance(container.frame, ttk.Notebook):
             container.frame.add(outer_frame, text=self.tabname)
-
-class Widget():
-    blink_mS = 500
-
-    def __init__(self, config_info, container):
-        self.config_info = config_info
-        self.container = container
-        self.bg = None
-        self.abg = None
-        self.fg = None
-        self.afg = None
-
-        server_name = config_info.get('server', container.server_name)
-        self.server = Server.server(server_name)
-
-    def k4param(self, base):
-        if self.server.type == 'k4':
-            return self.server.k4_parameter(base)
-        else:
-            return None
-
-    def eval_value(self, s, value):
-        try:
-            ret = eval(str(s))
-        except Exception as err:
-            dprint('value: "{value}", eval("{s}")'.format(value=value, s=s))
-            dprint('exception: {err}'.format(err=err))
-            raise
-        return ret
 
 class Button(Widget):
     def __init__(self, config_info, container):
@@ -920,7 +977,6 @@ class Button(Widget):
         if afg == None:
             afg = fg
         justify = config_info.get('justify', 'center')
-        button_font = config_info.get('font', config_info.get('button_font', container.button_font))
 
         width = container.items_width()
 
@@ -929,12 +985,10 @@ class Button(Widget):
         elif cmd != None:
             command = lambda: self.server.expand_and_send_cmds(cmd)
 
-        font = tkFont.Font(family=button_font['family'], size=button_font['size'], weight=button_font['weight'])
-
         button = tk.Button(container.frame,
                     bd='2',
                     text=text,
-                    font=font,
+                    font=self.font(),
                     width=width,
                     justify=justify,
                     relief='raised',
@@ -1010,12 +1064,9 @@ class Togglebutton(Widget):
 
         width = container.items_width()
 
-        button_font = config_info.get('font', config_info.get('button_font', container.button_font))
-        font = tkFont.Font(family=button_font['family'], size=button_font['size'], weight=button_font['weight'])
-
         self.button = tk.Button(container.frame,
                     bd='2',
-                    font=font,
+                    font=self.font(),
                     width=width,
                     relief='raised',
                     padx=2,
@@ -1127,8 +1178,6 @@ class Radiobutton(Widget):
         self.blink_state = False
         self.group_id = config_info.get('groupid', None)
 
-        button_font = config_info.get('font', config_info.get('button_font', container.button_font))
-
         self.parameters = {}
 
         if not self.group_id in Radiobutton.variables:
@@ -1137,12 +1186,10 @@ class Radiobutton(Widget):
 
         width = container.items_width()
 
-        font = tkFont.Font(family=button_font['family'], size=button_font['size'], weight=button_font['weight'])
-
         self.button = tk.Radiobutton(container.frame,
                     bd='2',
                     text=self.text,
-                    font=font,
+                    font=self.font(),
                     width=width,
                     relief='raised',
                     fg=fg,
@@ -1223,7 +1270,7 @@ class VFO(Widget):
 
     def __init__(self, config_info, container):
         required = ['item', 'AorB']
-        options = ['width', 'activecolor', 'transmitcolor', 'step_spinbox', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font']
+        options = ['width', 'activecolor', 'transmitcolor', 'step_spinbox', 'bg', 'abg', 'fg', 'afg', 'blink', 'font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1241,7 +1288,6 @@ class VFO(Widget):
         self.bg = config_info.get('bg', Default.bg)
         fg = config_info.get('fg', Default.fg)
         abg = config_info.get('abg', Default.abg)
-        vfo_font = config_info.get('font', container.button_font)
         step_spinbox = true_values(config_info.get('step_spinbox', 'false'))
         width = config_info.get('width', 0)
         self.active_color = config_info.get('activecolor', self.bg)
@@ -1251,8 +1297,6 @@ class VFO(Widget):
 
         frame = tk.Frame(container.frame)
 
-        font = tkFont.Font(family=vfo_font['family'], size=vfo_font['size'], weight=vfo_font['weight'])
-
         self.enter_frequency_wrapper = (Page.top.register(self.enter_frequency), '%P', '%V')
         self.vfo_sb = tk.Spinbox(
                 frame,
@@ -1261,7 +1305,7 @@ class VFO(Widget):
                 wrap=False,
                 command=self.on_frequency_change,
                 increment=self.step,
-                font=font,
+                font=self.font(),
                 width=width,
                 repeatdelay=300,
                 repeatinterval=1,
@@ -1279,7 +1323,7 @@ class VFO(Widget):
                 frame,
                 command=self.on_step_sb_changed,
                 values=tuple(VFO.texts),
-                font=font,
+                font=self.font(),
                 width=6,
                 justify='right',
                 state='readonly',
@@ -1300,7 +1344,7 @@ class VFO(Widget):
         self.step_cb = ttk.Combobox(
                 frame,
                 textvar=self.step_cb_val,
-                font=(vfo_font['family'], vfo_font['size']),
+                font=self.font(),
                 values=VFO.texts,
                 height=len(VFO.texts),
                 width=6,
@@ -1454,9 +1498,6 @@ class Slider(Widget):
         self.evalincrement = config_info.get('evalincrement', 1.0)
         bg = config_info.get('bg', Default.bg)
         fg = config_info.get('fg', Default.fg)
-        slider_font = config_info.get('font', container.button_font)
-
-        font = tkFont.Font(family=slider_font['family'], size=slider_font['size'], weight=slider_font['weight'])
 
         self.value = tk.DoubleVar()
         self.value.set(0.0)
@@ -1471,7 +1512,7 @@ class Slider(Widget):
                          resolution=resolution,
                          width=width,
                          length=length,
-                         font=font,
+                         font=self.font(),
                          bg=bg,
                          fg=fg,
                          variable=self.value,
@@ -1505,7 +1546,7 @@ class Slider(Widget):
 class Getvalue(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        options = ['cmd', 'response', 'evalresponse', 'bg', 'abg', 'fg', 'afg', 'font', 'button_font']
+        options = ['cmd', 'response', 'evalresponse', 'bg', 'abg', 'fg', 'afg', 'font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1520,15 +1561,12 @@ class Getvalue(Widget):
         if afg == None:
             afg = fg
         justify = config_info.get('justify', 'center')
-        label_font = config_info.get('font', config_info.get('button_font', container.button_font))
 
         self.server.expand_and_send_cmds(cmd)
 
-        font = tkFont.Font(family=label_font['family'], size=label_font['size'], weight=label_font['weight'])
-
         self.label = tk.Label(container.frame,
                     bd='2',
-                    font=font,
+                    font=sef.font(),
                     justify=justify,
                     fg=fg,
                     bg=bg,
@@ -1553,7 +1591,7 @@ class Bargraph(Widget):
         required = ['item']
         options = ['cmd', 'response', 'evalresponse', 'orient', 'maximum', 'evalmaximum',
                    'length', 'lengthpercent', 'lefttext', 'bottomtext', 'evalbottomtext',
-                   'label', 'bg', 'abg', 'fg', 'afg', 'font', 'button_font']
+                   'label', 'bg', 'abg', 'fg', 'afg', 'font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1577,9 +1615,6 @@ class Bargraph(Widget):
         self.bottomtext = config_info.get('bottomtext', '')
         self.evalbottomtext = config_info.get('evalbottomtext', None)
 
-        label_font = config_info.get('font', config_info.get('button_font', container.button_font))
-        font = tkFont.Font(family=label_font['family'], size=label_font['size'], weight=label_font['weight'])
-
         if 'label' in config_info:
             self.frame = tk.LabelFrame(container.frame, label=config_info['label'])
         else:
@@ -1592,7 +1627,7 @@ class Bargraph(Widget):
             left_label = tk.Label(self.left_frame,
                 text=self.left_text,
                 bd=0,
-                font=font,
+                font=self.font(),
                 justify='left',
                 fg=fg,
                 bg=bg,
@@ -1620,7 +1655,7 @@ class Bargraph(Widget):
             self.bottom_label = tk.Label(self.bottom_frame,
                 text=self.bottomtext,
                 bd=0,
-                font=font,
+                font=self.font(),
                 justify='left',
                 fg=fg,
                 bg=bg,
@@ -1666,7 +1701,7 @@ class Bargraph(Widget):
 class Text(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        options = ['text', 'length', 'bg', 'abg', 'fg', 'afg', 'justify', 'font', 'button_font']
+        options = ['text', 'length', 'bg', 'abg', 'fg', 'afg', 'justify', 'font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1681,13 +1716,10 @@ class Text(Widget):
             afg = fg
         justify = config_info.get('justify', 'center')
 
-        label_font = config_info.get('font', config_info.get('button_font', container.button_font))
-        font = tkFont.Font(family=label_font['family'], size=label_font['size'], weight=label_font['weight'])
-
         label = tk.Label(container.frame,
                     text=text,
                     bd='2',
-                    font=font,
+                    font=self.font(),
                     justify=justify,
                     fg=fg,
                     bg=bg,
@@ -1728,8 +1760,6 @@ class Dropdownbutton(Widget):
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
-
-        self.container = container
 
         texts = []
         self.text_to_index = {}
@@ -1796,9 +1826,6 @@ class Dropdownbutton(Widget):
         elif self.container.childwidth != None:
             width = self.container.childwidth
 
-        font = config_info.get('font', config_info.get('button_font', container.button_font))
-        font = tkFont.Font(family=font['family'], size=font['size'], weight=font['weight'])
-
         # Define the style for combobox widget
         self.style = ttk.Style()
         self.style.configure("TCombobox", background=bg, foreground=fg, selectbackground=self.selectbg, selectforeground=self.selectfg)
@@ -1808,7 +1835,7 @@ class Dropdownbutton(Widget):
         self.combobox = ttk.Combobox(
                 container.frame,
                 textvar=self.val,
-                font=font,
+                font=self.font(),
                 values=texts,
                 height=len(texts),
                 width=width,
@@ -1963,11 +1990,9 @@ class Menu_definition():
         self.widget = None
         self.changeable = ''
 
-        label_font = self.menu.label_font
-        font = tkFont.Font(family=label_font['family'], size=label_font['size'], weight=label_font['weight'])
         self.frame = tk.LabelFrame(self.menu.frame,
                                    text=self.desc,
-                                   font=font,
+                                   font=self.menu.label_font(),
                                    labelanchor='nw',
                                    bd=4,
                                    relief='raised')
@@ -1999,7 +2024,7 @@ class Menu_definition():
         self.locked_button = tk.Button(self.locked_frame,
                     bd='2',
                     text=self.locked,
-                    font=self.menu.font,
+                    font=self.menu.font(),
                     width=12,
                     justify='center',
                     relief='raised',
@@ -2016,7 +2041,7 @@ class Menu_definition():
         self.default_button = tk.Button(self.locked_frame,
                     bd='2',
                     text="Set to\nNormal",
-                    font=self.menu.font,
+                    font=self.menu.font(),
                     width=12,
                     justify='center',
                     relief='raised',
@@ -2113,7 +2138,7 @@ class Menu_definition():
         self.update_widget = self.listbox_update
         self.widget = tk.Listbox(
                 self.frame,
-                font=self.menu.font,
+                font=self.menu.font(),
                 justify='left',
                 bg=self.menu.bg,
                 fg=self.menu.fg,
@@ -2264,8 +2289,8 @@ class Menu_definition():
                          orient='vertical',
                          resolution=self.increment,
                          width=20,
-                         length=font_height(self.menu.font)*9,
-                         font=self.menu.font,
+                         length=font_height(self.menu.font())*9,
+                         font=self.menu.font(),
                          bg=self.menu.bg,
                          fg=self.menu.fg,
                          variable=self.value,
@@ -2292,7 +2317,7 @@ class Menu_definition():
         self.widget = tk.Label(self.frame,
             text=self.current,
             bd=2,
-            font=self.menu.font,
+            font=self.menu.font(),
             justify='left',
             fg=self.menu.fg,
             bg=self.menu.bg,
@@ -2315,7 +2340,7 @@ class Menu_definition():
         self.widget = tk.Entry(self.frame,
             textvariable=self.text_var,
             bd=2,
-            font=self.menu.font,
+            font=self.menu.font(),
             justify='left',
             fg=self.menu.fg,
             bg=self.menu.bg,
@@ -2379,12 +2404,6 @@ class Menu(Widget):
 
         entries_displayed = config_info.get('entries_displayed', Menu.entries_displayed)
 
-        self.font = config_info.get('font', container.button_font)
-        self.font = tkFont.Font(family=self.font['family'], size=self.font['size'], weight=self.font['weight'])
-        self.label_font = config_info.get('label_font', container.label_font)
-        self.label_font = tkFont.Font(family=self.label_font['family'], size=self.label_font['size'], weight=self.label_font['weight'])
-        self.server = config_info.get('server', container.server)
-
         self.current_md = None
 
         self.bg = config_info.get('bg', Default.bg)
@@ -2392,7 +2411,6 @@ class Menu(Widget):
         self.selectbg = config_info.get('selectbg', Default.bg)
         self.selectfg = config_info.get('selectfg', Default.fg)
 
-        self.container = container
         self.definitions = []
         self.lookup_definitions = {}
         self.definitions_requested = False
@@ -2404,7 +2422,7 @@ class Menu(Widget):
 
         self.listbox = tk.Listbox(
                 self.frame,
-                font=self.font,
+                font=self.font(),
                 height=entries_displayed,
                 justify='left',
                 bg=self.bg,
