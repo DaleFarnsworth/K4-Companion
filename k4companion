@@ -1552,7 +1552,8 @@ class Bargraph(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         options = ['cmd', 'response', 'evalresponse', 'orient', 'maximum', 'evalmaximum',
-                   'length', 'lengthpercent', 'lefttext', 'bottomtext', 'evalbottomtext', 'bg', 'abg', 'fg', 'afg', 'font', 'button_font']
+                   'length', 'lengthpercent', 'lefttext', 'bottomtext', 'evalbottomtext',
+                   'label', 'bg', 'abg', 'fg', 'afg', 'font', 'button_font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1579,7 +1580,10 @@ class Bargraph(Widget):
         label_font = config_info.get('font', config_info.get('button_font', container.button_font))
         font = tkFont.Font(family=label_font['family'], size=label_font['size'], weight=label_font['weight'])
 
-        self.frame = tk.Frame(container.frame)
+        if 'label' in config_info:
+            self.frame = tk.LabelFrame(container.frame, label=config_info['label'])
+        else:
+            self.frame = tk.Frame(container.frame)
 
         bar_frame = tk.Frame(self.frame)
 
