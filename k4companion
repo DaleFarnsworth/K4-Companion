@@ -656,6 +656,8 @@ class Server():
 
 class Widget():
     blink_mS = 500
+    default_leading = 0
+    default_label_leading = 1
 
     def __init__(self, config_info, container):
         self.config_info = config_info
@@ -673,6 +675,9 @@ class Widget():
         else:
             if self.container != None:
                 self.server = self.container.server
+
+        if self.container != None:
+            self.frame = self.label_and_leading_frame()
 
     def k4param(self, base):
         if self.server.type == 'k4':
@@ -722,16 +727,59 @@ class Widget():
             self.cached_font = font
         return font
 
-    def add_leading(self, leading, container):
-        if leading == 0:
-            return False
+    def label_and_leading_frame(self):
+        container = self.container
+        config_info = self.config_info
+        if 'column' in config_info:
+            column = config_info['column']
+            if column < container.column:
+                container.next_row()
+            container.column = column
 
-        family = self.label_font().cget('family')
-        weight = self.label_font().cget('weight')
-        leading_font = tkFont.Font(family=family, size=leading, weight=weight)
-        leading_label = tk.Label(container, text=' ', font=leading_font)
-        leading_label.grid(row=0, column=0, sticky='nw')
-        return True
+        columnspan = config_info.get('columnspan', 1)
+        rowspan = config_info.get('rowspan', 1)
+
+        self.outer_frame = tk.Frame(container.frame)
+
+        label = config_info.get('label', None)
+
+        if 'label' in config_info:
+            default_leading = Widget.default_label_leading
+        else:
+            default_leading = Widget.default_leading
+
+        leading = config_info.get('leading', default_leading)
+
+        self.outer_frame.grid(row=container.row,
+                        column=container.column,
+                        rowspan=rowspan,
+                        columnspan=columnspan,
+                        sticky='nw')
+
+        if label == None and leading == 0:
+            return self.outer_frame
+
+        row = 0
+        if leading != 0:
+            family = self.label_font().cget('family')
+            weight = self.label_font().cget('weight')
+            leading_font = tkFont.Font(family=family, size=leading, weight=weight)
+            leading_label = tk.Label(self.outer_frame, text=' ', font=leading_font)
+            leading_label.grid(row=0, column=0, sticky='nw')
+            row=1
+
+        if label == None:
+            inner_frame = tk.Frame(self.outer_frame)
+        else:
+            inner_frame = tk.LabelFrame(self.outer_frame,
+                                       text=label,
+                                       font=self.label_font(),
+                                       labelanchor='nw',
+                                       bd=4,
+                                       relief='raised')
+        inner_frame.grid(row=row, column=0, sticky='nw')
+
+        return inner_frame
 
 class Container(Widget):
     depth = -1
@@ -740,14 +788,8 @@ class Container(Widget):
         super().__init__(config_info, container)
 
         if isinstance(self, Page):
-#            self.server_name = config_info.get('server', Server.default_server_name)
-#            self.label_font = config_info.get('label_font', Default.label_font)
-#            self.button_font = config_info.get('button_font', Default.button_font)
             self.childwidth = config_info.get('childwidth', None)
         else:
-#            self.server_name = config_info.get('server', container.server_name)
-#            self.label_font = config_info.get('label_font', container.label_font)
-#            self.button_font = config_info.get('button_font', container.button_font)
             self.childwidth = config_info.get('childwidth', container.childwidth)
         self.columns = config_info.get('columns', len(self.config_info['contains']))
         self.row = 0
@@ -902,9 +944,6 @@ class Page(Container):
         return server
 
 class Group(Container):
-    default_leading = 0
-    default_label_leading = 1
-
     def __init__(self, config_info, container):
         required = ['item', 'contains']
         options = ['columns', 'column', 'columnspan', 'rowspan', 'childwidth',
@@ -912,57 +951,17 @@ class Group(Container):
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
-
-        if 'column' in config_info:
-            column = config_info['column']
-            if column < container.column:
-                container.next_row()
-            container.column = column
-        else:
-            column = container.column
-
-        columnspan = config_info.get('columnspan', 1)
-        rowspan = config_info.get('rowspan', 1)
         self.tabname = config_info.get('tabname', '')
-        label = config_info.get('label', None)
-
-        if label == None:
-            default_leading = Group.default_leading
-        else:
-            default_leading = Group.default_label_leading
-        leading = config_info.get('leading', default_leading)
-
-        outer_frame = tk.Frame(container.frame)
-
-        row = 1 if self.add_leading(leading, outer_frame) else 0
-
-        if label == None:
-            self.frame  = tk.Frame(outer_frame)
-        else:
-            self.frame = tk.LabelFrame(outer_frame,
-                                       text=label,
-                                       font=self.label_font(),
-                                       labelanchor='nw',
-                                       bd=4,
-                                       relief='raised')
-
-        self.frame.grid(row=row, column=0, sticky='nw')
-
-        outer_frame.grid(row=container.row,
-                        column=column,
-                        rowspan=rowspan,
-                        columnspan=columnspan,
-                        sticky='nw')
 
         self.show_widgets()
 
         if isinstance(container.frame, ttk.Notebook):
-            container.frame.add(outer_frame, text=self.tabname)
+            container.frame.add(self.outer_frame, text=self.tabname)
 
 class Button(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        options = ['text', 'cmd', 'directive', 'bg', 'abg', 'fg', 'afg', 'justify', 'font', 'button_font']
+        options = ['text', 'cmd', 'directive', 'bg', 'abg', 'fg', 'afg', 'justify', 'font', 'label', 'leading', 'button_font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -985,7 +984,7 @@ class Button(Widget):
         elif cmd != None:
             command = lambda: self.server.expand_and_send_cmds(cmd)
 
-        button = tk.Button(container.frame,
+        button = tk.Button(self.frame,
                     bd='2',
                     text=text,
                     font=self.font(),
@@ -1000,12 +999,12 @@ class Button(Widget):
                     pady=2,
                     command=command)
 
-        button.grid(row=container.row, column=container.column, sticky='w')
+        button.grid(row=0, column=0, sticky='w')
 
 class Togglebutton(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        options = ['wraparound', 'justify', 'selections']
+        options = ['wraparound', 'justify', 'selections', 'label', 'leading']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1064,7 +1063,7 @@ class Togglebutton(Widget):
 
         width = container.items_width()
 
-        self.button = tk.Button(container.frame,
+        self.button = tk.Button(self.frame,
                     bd='2',
                     font=self.font(),
                     width=width,
@@ -1074,7 +1073,7 @@ class Togglebutton(Widget):
                     command=selection['command'])
         self.configure()
 
-        self.button.grid(row=container.row, column=container.column, sticky='w')
+        self.button.grid(row=0, column=0, sticky='w')
 
         self.server.subscribe_connect(self.on_server_connect)
 
@@ -1156,7 +1155,7 @@ class Radiobutton(Widget):
 
     def __init__(self, config_info, container):
         required = ['item', 'groupid']
-        options = ['text', 'cmd', 'response', 'indicator', 'selectcolor', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font']
+        options = ['text', 'cmd', 'response', 'indicator', 'selectcolor', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1186,7 +1185,7 @@ class Radiobutton(Widget):
 
         width = container.items_width()
 
-        self.button = tk.Radiobutton(container.frame,
+        self.button = tk.Radiobutton(self.frame,
                     bd='2',
                     text=self.text,
                     font=self.font(),
@@ -1204,7 +1203,7 @@ class Radiobutton(Widget):
                     variable=variable,
                     value=Radiobutton.button_counter)
 
-        self.button.grid(row=container.row, column=container.column, sticky='w')
+        self.button.grid(row=0, column=0, sticky='w')
 
         cmds = self.server.expand_server_cmds(self.cmd)
         responses = self.server.expand_server_cmds(self.response)
@@ -1270,7 +1269,7 @@ class VFO(Widget):
 
     def __init__(self, config_info, container):
         required = ['item', 'AorB']
-        options = ['width', 'activecolor', 'transmitcolor', 'step_spinbox', 'bg', 'abg', 'fg', 'afg', 'blink', 'font']
+        options = ['width', 'activecolor', 'transmitcolor', 'step_spinbox', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'blink', 'font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1295,7 +1294,7 @@ class VFO(Widget):
 
         self.step = .1
 
-        frame = tk.Frame(container.frame)
+        frame = tk.Frame(self.frame)
 
         self.enter_frequency_wrapper = (Page.top.register(self.enter_frequency), '%P', '%V')
         self.vfo_sb = tk.Spinbox(
@@ -1359,7 +1358,7 @@ class VFO(Widget):
         else:
             self.step_cb.grid(row=0, column=1, sticky='w')
 
-        frame.grid(row=container.row, column=container.column, sticky='w')
+        frame.grid(row=0, column=0, sticky='w')
 
         self.server.subscribe_connect(self.on_server_connect)
 
@@ -1483,7 +1482,7 @@ class VFO(Widget):
 class Slider(Widget):
     def __init__(self, config_info, container):
         required = ['item', 'from', 'to', 'evalcmd', 'evalresponse']
-        options = ['orient', 'width', 'length', 'evalincrement', 'bg', 'abg', 'fg', 'afg', 'font']
+        options = ['orient', 'width', 'length', 'evalincrement', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1505,7 +1504,7 @@ class Slider(Widget):
 
         resolution=eval_value(self.evalincrement, self.value.get())
 
-        self.scale = tk.Scale(container.frame,
+        self.scale = tk.Scale(self.frame,
                          from_=self.from_,
                          to=self.to,
                          orient=orient,
@@ -1517,7 +1516,7 @@ class Slider(Widget):
                          fg=fg,
                          variable=self.value,
                          command=self.value_changed)
-        self.scale.grid(row=container.row, column=container.column, sticky='nw')
+        self.scale.grid(row=0, column=0, sticky='nw')
 
         self.server.subscribe_connect(self.on_server_connect)
 
@@ -1546,7 +1545,7 @@ class Slider(Widget):
 class Getvalue(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        options = ['cmd', 'response', 'evalresponse', 'bg', 'abg', 'fg', 'afg', 'font']
+        options = ['cmd', 'response', 'evalresponse', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1564,7 +1563,7 @@ class Getvalue(Widget):
 
         self.server.expand_and_send_cmds(cmd)
 
-        self.label = tk.Label(container.frame,
+        self.label = tk.Label(self.frame,
                     bd='2',
                     font=sef.font(),
                     justify=justify,
@@ -1575,7 +1574,7 @@ class Getvalue(Widget):
                     padx=2,
                     pady=2)
 
-        self.label.grid(row=container.row, column=container.column, sticky='w')
+        self.label.grid(row=0, column=0, sticky='w')
 
         self.server.subscribe_connect(self.on_server_connect)
 
@@ -1591,7 +1590,7 @@ class Bargraph(Widget):
         required = ['item']
         options = ['cmd', 'response', 'evalresponse', 'orient', 'maximum', 'evalmaximum',
                    'length', 'lengthpercent', 'lefttext', 'bottomtext', 'evalbottomtext',
-                   'label', 'bg', 'abg', 'fg', 'afg', 'font']
+                   'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1614,11 +1613,6 @@ class Bargraph(Widget):
         self.left_text = config_info.get('lefttext', '')
         self.bottomtext = config_info.get('bottomtext', '')
         self.evalbottomtext = config_info.get('evalbottomtext', None)
-
-        if 'label' in config_info:
-            self.frame = tk.LabelFrame(container.frame, label=config_info['label'])
-        else:
-            self.frame = tk.Frame(container.frame)
 
         bar_frame = tk.Frame(self.frame)
 
@@ -1667,8 +1661,6 @@ class Bargraph(Widget):
             self.bottom_label.grid(row=0, column=0, sticky='w')
         self.bottom_frame.grid(row=1, column=0, sticky='w')
 
-        self.frame.grid(row=container.row, column=container.column, sticky='w')
-
         self.server.subscribe_connect(self.on_server_connect)
 
     def on_server_connect(self):
@@ -1701,7 +1693,7 @@ class Bargraph(Widget):
 class Text(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        options = ['text', 'length', 'bg', 'abg', 'fg', 'afg', 'justify', 'font']
+        options = ['text', 'length', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'justify', 'font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1716,7 +1708,7 @@ class Text(Widget):
             afg = fg
         justify = config_info.get('justify', 'center')
 
-        label = tk.Label(container.frame,
+        label = tk.Label(self.frame,
                     text=text,
                     bd='2',
                     font=self.font(),
@@ -1728,7 +1720,7 @@ class Text(Widget):
                     padx=2,
                     pady=2)
 
-        label.grid(row=container.row, column=container.column, sticky='w')
+        label.grid(row=0, column=0, sticky='w')
 
 class Notebook(Container):
     def __init__(self, config_info, container):
@@ -1745,7 +1737,7 @@ class Notebook(Container):
         self.frame = None
         self.show_widgets()
 
-        notebook = ttk.Notebook(container.frame)
+        notebook = ttk.Notebook(self.frame)
         notebook.grid()
 
         for child in self.children:
@@ -1756,7 +1748,7 @@ class Notebook(Container):
 class Dropdownbutton(Widget):
     def __init__(self, config_info, container):
         required = ['item', 'selections']
-        options = ['bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg', 'width', 'justify', 'unexpectedresponse']
+        options = ['bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg', 'width', 'justify', 'unexpectedresponse', 'label', 'leading']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1833,7 +1825,7 @@ class Dropdownbutton(Widget):
         self.val = tk.StringVar()
 
         self.combobox = ttk.Combobox(
-                container.frame,
+                self.frame,
                 textvar=self.val,
                 font=self.font(),
                 values=texts,
@@ -1846,7 +1838,7 @@ class Dropdownbutton(Widget):
 
         self.val.trace('w', self.on_combobox_changed)
 
-        self.combobox.grid(row=container.row, column=container.column, sticky='e')
+        self.combobox.grid(row=0, column=0, sticky='e')
 
         self.server.subscribe_connect(self.on_server_connect)
 
@@ -2397,7 +2389,7 @@ class Menu(Widget):
 
     def __init__(self, config_info, container):
         required = ['item']
-        options = ['entries_displayed', 'bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg', 'font', 'label_font' ]
+        options = ['entries_displayed', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg', 'font', 'label_font' ]
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -2417,8 +2409,8 @@ class Menu(Widget):
 
         self.xv_band = 0
 
-        self.frame = tk.Frame(container.frame)
-        self.frame.grid(row=container.row, column=container.column)
+        self.frame = tk.Frame(self.frame)
+        self.frame.grid(row=0, column=0)
 
         self.listbox = tk.Listbox(
                 self.frame,
