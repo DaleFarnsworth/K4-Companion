@@ -44,8 +44,8 @@
         #include receiver-a-group
         - item: group
           contains: #{
-            #include receive-transmit-togglebutton-group
-            #include test-mode-togglebutton-group
+            #include receive-transmit-togglebutton
+            #include test-mode-togglebutton
           #}
         #include vfos-control-group
         - item: group
@@ -92,7 +92,7 @@
                 #include keyer-speed-slider-group
                 #include power-slider-group
               #}
-            #include audio-mx-togglebutton-group
+            #include audio-mx-togglebutton
           #}
       #}
     #}
@@ -102,9 +102,9 @@
 - item: group
   label: Volume
   contains: #{
-    #include main-volume-slider-group
-    #include sub-volume-slider-group
-    #include sidetone-slider-group
+    #include main-volume-slider
+    #include sub-volume-slider
+    #include sidetone-slider
   #}
 #end
 
@@ -128,7 +128,7 @@
   columns: 1
   contains: #{
     #include vfo-a
-    #include s-meter-a-bargraph-group
+    #include s-meter-a-bargraph
     #include rf-out-alc-group
     #include receiver-a-controls-group
   #}
@@ -137,8 +137,8 @@
 #define rf-out-alc-group
 - item: group
   contains: #{
-    #include rf-out-bargraph-group
-    #include alc-bargraph-group
+    #include rf-out-bargraph
+    #include alc-bargraph
   #}
 #end
 
@@ -147,12 +147,12 @@
   columns: 3
   childwidth: 7
   contains: #{
-    #include band-a-dropdown-button-group
-    #include mode-a-dropdown-button-group
-    #include bandwidth-a-dropdown-button-group
-    #include preamp-a-dropdown-button-group
-    #include atten-a-dropdown-button-group
-    #include rfgain-a-dropdown-button-group
+    #include band-a-dropdown-button
+    #include mode-a-dropdown-button
+    #include bandwidth-a-dropdown-button
+    #include preamp-a-dropdown-button
+    #include atten-a-dropdown-button
+    #include rfgain-a-dropdown-button
   #}
 #end
 
@@ -160,16 +160,9 @@
 - { item: vfo, AorB: A, width: 9, font: { family: Helvetica, size: 19, weight: normal }, activecolor: pink, transmitcolor: red }
 #end
 
-#define s-meter-a-bargraph-group
-- item: group
-  leading: 1
-  contains: #{
-    #include s-meter-a-bargraph
-  #}
-#end
-
 #define s-meter-a-bargraph
 - item: bargraph
+  leading: 1
   maximum: 42
   lengthpercent: 96
   cmd: SM1;
@@ -180,16 +173,9 @@
   evalresponse: '0 if len(value) < 4 else value.rstrip(";")[2:]'
 #end
 
-#define rf-out-bargraph-group
-- item: group
-  label: Power out
-  contains: #{
-    #include rf-out-bargraph
-  #}
-#end
-
 #define rf-out-bargraph
 - item: bargraph
+  label: Power out
   evalmaximum: "0 if len(self.k4param('PC')) < 4 else 11.7 if self.k4param('PC')[3] == 'L' else 117"
   lengthpercent: 100
   cmd: TM1;PC;
@@ -199,16 +185,9 @@
   evalresponse: "0 if len(self.k4param('TM')) < 4 else float(self.k4param('TM')[6:9])/10 if self.k4param('PC')[3] == 'L' else self.k4param('TM')[6:9]"
 #end
 
-#define alc-bargraph-group
-- item: group
-  label: ALC
-  contains: #{
-    #include alc-bargraph
-  #}
-#end
-
 #define alc-bargraph
 - item: bargraph
+  label: ALC
   maximum: 8
   lengthpercent: 100
   cmd: TM1;
@@ -218,16 +197,9 @@
   evalresponse: "0 if len(self.k4param('TM')) < 4 else float(self.k4param('TM')[0:3])"
 #end
 
-#define cmp-bargraph-group
-- item: group
-  label: CMP
-  contains: #{
-    #include cmp-bargraph
-  #}
-#end
-
 #define cmp-bargraph
 - item: bargraph
+  label: CMP
   maximum: 32
   lengthpercent: 100
   cmd: TM1;
@@ -237,16 +209,9 @@
   evalresponse: "0 if len(self.k4param('TM')) < 4 else float(self.k4param('TM')[3:6])"
 #end
 
-#define swr-bargraph-group
-- item: group
-  label: SWR
-  contains: #{
-    #include swr-bargraph
-  #}
-#end
-
 #define swr-bargraph
 - item: bargraph
+  label: SWR
   maximum: 35
   lengthpercent: 100
   cmd: TM1;TQ;TU;
@@ -256,16 +221,9 @@
   evalresponse: "0 if (len(self.k4param('TM')) < 4) or (self.k4param('TU') == None) or ((self.k4param('TQ') == '0') and (self.k4param('TU') == '0')) else float(self.k4param('TM')[9:12])-10"
 #end
 
-#define band-a-dropdown-button-group
-- item: group
-  label: Band
-  contains: #{
-    #include band-a-dropdown-button
-  #}
-#end
-
 #define band-a-dropdown-button
 - item: dropdownbutton
+  label: Band
   selections: #{
     - { text: "  6 m", cmd: BN10; }
     - { text: " 10 m", cmd: BN09; }
@@ -281,16 +239,9 @@
   #}
 #end
 
-#define mode-a-dropdown-button-group
-- item: group
-  label: Mode
-  contains: #{
-    #include mode-a-dropdown-button
-  #}
-#end
-
 #define mode-a-dropdown-button
 - item: dropdownbutton
+  label: Mode
   selections: #{
     - { text: "  CW", cmd: MD3; }
     - { text: " USB", cmd: MD2; }
@@ -301,16 +252,9 @@
   #}
 #end
 
-#define bandwidth-a-dropdown-button-group
-- item: group
-  label: BW
-  contains: #{
-    #include bandwidth-a-dropdown-button
-  #}
-#end
-
 #define bandwidth-a-dropdown-button
 - item: dropdownbutton
+  label: BW
   unexpectedresponse: 'str((float(value[2:6])*10))[0:3]+" Hz" if value[2:4]=="00" else "{a:.2f}".format(a=float(value[2:6])/100)+" kHz"'
   selections: #{
     - { text: "   50 Hz", cmd: BW0005; }
@@ -327,16 +271,9 @@
   #}
 #end
 
-#define preamp-a-dropdown-button-group
-- item: group
-  label: Preamp
-  contains: #{
-    #include preamp-a-dropdown-button
-  #}
-#end
-
 #define preamp-a-dropdown-button
 - item: dropdownbutton
+  label: Preamp
   selections: #{
     - { text: "0", cmd: PA00; }
     - { text: "1", cmd: PA11; }
@@ -345,16 +282,9 @@
   #}
 #end
 
-#define atten-a-dropdown-button-group
-- item: group
-  label: Attenuation
-  contains: #{
-    #include atten-a-dropdown-button
-  #}
-#end
-
 #define atten-a-dropdown-button
 - item: dropdownbutton
+  label: Attenuation
   selections: #{
     - { text: " 0 dB", cmd: RA000; }
     - { text: " 3 dB", cmd: RA031; }
@@ -367,16 +297,9 @@
   #}
 #end
 
-#define rfgain-a-dropdown-button-group
-- item: group
-  label: RF Gain
-  contains: #{
-    #include rfgain-a-dropdown-button
-  #}
-#end
-
 #define rfgain-a-dropdown-button
 - item: dropdownbutton
+  label: RF Gain
   selections: #{
     - { text: " -0 ", cmd: RG-00; }
     - { text: "-10 ", cmd: RG-10; }
@@ -389,7 +312,7 @@
   columns: 1
   contains: #{
   #include vfo-b
-  #include s-meter-b-bargraph-group
+  #include s-meter-b-bargraph
   #include swr-and-cmd-group
   #include receiver-b-controls-group
     #}
@@ -401,25 +324,19 @@
   columns: 3
   childwidth: 7
   contains: #{
-    #include band-b-dropdown-button-group
-    #include mode-B-dropdown-button-group
-    #include bandwidth-B-dropdown-button-group
-    #include preamb-B-dropdown-button-group
-    #include atten-B-dropdown-button-group
-    #include rfgain-B-dropdown-button-group
+    #include band-b-dropdown-button
+    #include mode-B-dropdown-button
+    #include bandwidth-B-dropdown-button
+    #include preamb-B-dropdown-button
+    #include atten-B-dropdown-button
+    #include rfgain-B-dropdown-button
 #end
 
 #define swr-and-cmd-group
 - item: group
   contains: #{
-    - item: group
-      contains: #{
-        #include swr-bargraph-group
-      #}
-    - item: group
-      contains: #{
-        #include cmp-bargraph-group
-      #}
+    #include swr-bargraph
+    #include cmp-bargraph
   #}
 #end
 
@@ -427,16 +344,9 @@
 - { item: vfo, AorB: B, width: 9, font: { family: Helvetica, size: 19, weight: normal }, activecolor: pink, transmitcolor: red }
 #end
 
-#define s-meter-b-bargraph-group
-- item: group
-  leading: 1
-  contains: #{
-    #include s-meter-b-bargraph
-  #}
-#end
-
 #define s-meter-b-bargraph
 - item: bargraph
+  leading: 1
   maximum: 42
   lengthpercent: 96
   cmd: SM1;
@@ -447,16 +357,9 @@
   evalresponse: '0 if len(value) < 5 else value.rstrip(";")[3:]'
 #end
 
-#define band-b-dropdown-button-group
-- item: group
-  label: Band
-  contains: #{
-    #include band-b-dropdown-button
-  #}
-#end
-
 #define band-b-dropdown-button
 - item: dropdownbutton
+  label: Band
   selections: #{
     - { text: "  6 m", cmd: BN$10; }
     - { text: " 10 m", cmd: BN$09; }
@@ -472,16 +375,9 @@
   #}
 #end
 
-#define mode-B-dropdown-button-group
-- item: group
-  label: Mode
-  contains: #{
-    #include mode-B-dropdown-button
-  #}
-#end
-
 #define mode-B-dropdown-button
 - item: dropdownbutton
+  label: Mode
   selections: #{
     - { text: "  CW", cmd: MD$3; }
     - { text: " USB", cmd: MD$2; }
@@ -492,16 +388,9 @@
   #}
 #end
 
-#define bandwidth-B-dropdown-button-group
-- item: group
-  label: BW
-  contains: #{
-    #include bandwidth-B-dropdown-button
-  #}
-#end
-
 #define bandwidth-B-dropdown-button
 - item: dropdownbutton
+  label: BW
   unexpectedresponse: 'str((float(value[3:7])*10))[0:3]+" Hz" if value[2:4]=="00" else "{a:.2f}".format(a=float(value[3:7])/100)+" kHz"'
   selections: #{
     - { text: "   50 Hz", cmd: BW$0005; }
@@ -518,16 +407,9 @@
   #}
 #end
 
-#define preamb-B-dropdown-button-group
-- item: group
-  label: Preamp
-  contains: #{
-    #include preamb-B-dropdown-button
-  #}
-#end
-
 #define preamb-B-dropdown-button
 - item: dropdownbutton
+  label: Preamp
   selections: #{
     - { text: "0", cmd: PA$00; }
     - { text: "1", cmd: PA$11; }
@@ -536,16 +418,9 @@
   #}
 #end
 
-#define atten-B-dropdown-button-group
-- item: group
-  label: Attenuation
-  contains: #{
-    #include atten-B-dropdown-button
-  #}
-#end
-
 #define atten-B-dropdown-button
 - item: dropdownbutton
+  label: Attenuation
   selections: #{
     - { text: " 0 dB", cmd: RA$000; }
     - { text: " 3 dB", cmd: RA$031; }
@@ -558,16 +433,9 @@
   #}
 #end
 
-#define rfgain-B-dropdown-button-group
-- item: group
-  label: RF Gain
-  contains: #{
-    #include rfgain-B-dropdown-button
-  #}
-#end
-
 #define rfgain-B-dropdown-button
 - item: dropdownbutton
+  label: RF Gain
   selections: #{
     - { text: " -0 ", cmd: RG$-00; }
     - { text: "-10 ", cmd: RG$-10; }
@@ -586,27 +454,11 @@
   #}
 #end
 
-#define vfos-linked-togglebutton-group
-- item: group
-  label: 'K4 Power Off'
-  contains: #{
-    #include vfos-linked-togglebutton
-  #}
-#end
-
 #define vfos-linked-togglebutton
 - item: togglebutton
   selections: #{
   - { text: "  Linked", cmd: FT0;BI0;#DPM0; }
   - { text: "Unlinked", cmd: FT0;BI1;#DPM2; }
-  #}
-#end
-
-#define vfos-locked-togglebutton-group
-- item: group
-  label: 'VFOs Locked'
-  contains: #{
-    #include vfos-locked-togglebutton
   #}
 #end
 
@@ -618,32 +470,18 @@
   #}
 #end
 
-#define test-mode-togglebutton-group
-- item: group
-  label: Tx
-  contains: #{
-    #include test-mode-togglebutton
-  #}
-#end
-
 #define test-mode-togglebutton
 - item: togglebutton
+  label: Tx
   selections: #{
     - { text: "Test On",  cmd: TS1;, bg: red, abg: red }
     - { text: "Test Off", cmd: TS0;,  }
   #}
 #end
 
-#define power-dropdown-button-group
-- item: group
-  label: Power
-  contains: #{
-    #include power-dropdown-button
-  #}
-#end
-
 #define power-dropdown-button
 - item: dropdownbutton
+  label: Power
   width: 6
   unexpectedresponse: 'str("" if len(value) < 5 else float(value[2:5])/10 if value[5] == "L" else float(value[2:5])/10000 if value[5] == "X" else float(value[2:5])) + " W"'
   selections: #{
@@ -660,17 +498,13 @@
 - item: group
   label: Power
   contains: #{
-    - item: group
-      leading: 0
-      label: (Watts)
-      contains: #{
-        #include power-slider
-      #}
+    #include power-slider
   #}
 #end
 
 #define power-slider
 - item: slider
+  label: (Watts)
   orient: vertical
   from: 110.0
   to: 0.0
@@ -680,17 +514,9 @@
   evalresponse: '0 if len(value) < 5 else float(value[2:5])/10 if value[5] == "L" else float(value[2:5])/10000 if value[5] == "X" else float(value[2:5])'
 #end
 
-#define main-volume-slider-group
-- item: group
-  leading: 0
-  label: Main
-  contains: #{
-    #include main-volume-slider
-  #}
-#end
-
 #define main-volume-slider
 - item: slider
+  label: Main
   orient: vertical
   from: 60
   to: 0
@@ -700,17 +526,9 @@
   evalresponse: 'float(value[2:5])'
 #end
 
-#define sub-volume-slider-group
-- item: group
-  leading: 0
-  label: Sub
-  contains: #{
-    #include sub-volume-slider
-  #}
-#end
-
 #define sub-volume-slider
 - item: slider
+  label: Sub
   orient: vertical
   from: 60
   to: 0
@@ -720,17 +538,9 @@
   evalresponse: 'float(value[3:6])'
 #end
 
-#define sidetone-slider-group
-- item: group
-  leading: 0
-  label: Sidetone
-  contains: #{
-    #include sidetone-slider
-  #}
-#end
-
 #define sidetone-slider
 - item: slider
+  label: Sidetone
   orient: vertical
   from: 60
   to: 0
@@ -744,17 +554,13 @@
 - item: group
   label: Keyer
   contains: #{
-    - item: group
-      leading: 0
-      label: Speed
-      contains: #{
-        #include keyer-speed-slider
-      #}
+    #include keyer-speed-slider
   #}
 #end
 
 #define keyer-speed-slider
 - item: slider
+  label: Speed
   orient: vertical
   from: 100
   to: 8
@@ -762,14 +568,6 @@
   evalincrement: '1'
   evalcmd: '"KS{:03d};".format(int(float(value)))'
   evalresponse: 'float(value[2:5])'
-#end
-
-#define atu-bypass-togglebutton-group
-- item: group
-  label: 'ATU Bypass'
-  contains: #{
-    #include atu-bypass-togglebutton
-  #}
 #end
 
 #define atu-bypass-togglebutton
@@ -780,28 +578,13 @@
   #}
 #end
 
-#define audio-mx-togglebutton-group
-- item: group
-  label: 'Audio Mix'
-  contains: #{
-    #include audio-mx-togglebutton
-  #}
-#end
-
 #define audio-mx-togglebutton
 - item: togglebutton
+  label: 'Audio Mix'
   selections: #{
     - { text: "Audio A+B", cmd: MXA.B; }
     - { text: "Audio A",   cmd: MXA.A; }
     - { text: "Audio B",   cmd: MXB.B }
-  #}
-#end
-
-#define atu-tune-togglebutton-group
-- item: group
-  label: 'ATU Tune'
-  contains: #{
-    #include atu-tune-togglebutton
   #}
 #end
 
@@ -813,27 +596,11 @@
   #}
 #end
 
-#define atu-extended-tune-togglebutton-group
-- item: group
-  label: 'ATU Extended Tune'
-  contains: #{
-    #include atu-extended-tune-togglebutton
-  #}
-#end
-
 #define atu-extended-tune-togglebutton
 - item: togglebutton
   selections: #{
     - { text: "TUNE", cmd: TU4;, bg: red }
     - { text: "TUNE", cmd: TU0; }
-  #}
-#end
-
-#define tune-button-group
-- item: group
-  label: 'Tune'
-    #include tune-button
-  contains: #{
   #}
 #end
 
@@ -845,27 +612,11 @@
   #}
 #end
 
-#define tune-lp-togglebutton-group
-- item: group
-  label: 'Tune LP'
-  contains: #{
-    #include tune-lp-togglebutton
-  #}
-#end
-
 #define tune-lp-togglebutton
 - item: togglebutton
   selections: #{
     - { text: "Tune LP", cmd: TU2;, bg: red }
     - { text: "Tune LP", cmd: TU0; }
-  #}
-#end
-
-#define  AB-swap-buttons-group
-- item: group
-  label: 'AB Swap Off'
-  contains: #{
-    #include AB-swap-buttons
   #}
 #end
 
@@ -878,24 +629,8 @@
 - { item: button, text: "all B->A", cmd:  AB4; }
 #end
 
-#define k4-power-off-button-group
-- item: group
-  label: 'K4 Power Off'
-  contains: #{
-    #include k4-power-off-button
-  #}
-#end
-
 #define k4-power-off-button
-- { item: button, text: 'Power Off', cmd:  PS0; }
-#end
-
-#define connect-togglebutton-group
-- item: group
-  label: 'Connect K4'
-  contains: #{
-    #include connect-togglebutton
-  #}
+    - { item: button, text: 'Power Off', cmd:  PS0; }
 #end
 
 #define connect-togglebutton
@@ -907,24 +642,8 @@
   #}
 #end
 
-#define exit-button-group
-- item: group
-  label: 'Exit'
-  contains: #{
-    #include exit-button
-  #}
-#end
-
 #define exit-button
 - { item: button, text: 'Exit', directive:  quit }
-#end
-
-#define split-togglebutton-group
-- item: group
-  label: 'Split'
-  contains: #{
-    #include split-togglebutton
-  #}
 #end
 
 #define split-togglebutton
@@ -932,14 +651,6 @@
   selections: #{
     - { text: 'Split on',   cmd: FT1;, bg: yellow, abg: yellow }
     - { text: 'Split off', cmd: FT0; }
-  #}
-#end
-
-#define sub-receiver-togglebutton-group
-- item: group
-  label: 'Sub-Rcvr'
-  contains: #{
-    #include sub-receiver-togglebutton
   #}
 #end
 
@@ -951,20 +662,13 @@
   #}
 #end
 
-#define receive-transmit-togglebutton-group
-- item: group
-  label: 'Tx/Rx '
-  contains: #{
-    #include receive-transmit-togglebutton
-  #}
-#end
-
 #define receive-transmit-togglebutton
-  - item: togglebutton
-    selections: #{
-      - { text: 'Receive',   cmd: RX;TQ;, bg: white, abg: white, response: TQ0; }
-      - { text: 'Transmit',  cmd: TX;TQ;, bg: red,   abg: red,   response: TQ1; }
-    #}
+- item: togglebutton
+  label: 'Tx/Rx'
+  selections: #{
+    - { text: 'Receive',   cmd: RX;TQ;, bg: white, abg: white, response: TQ0; }
+    - { text: 'Transmit',  cmd: TX;TQ;, bg: red,   abg: red,   response: TQ1; }
+  #}
 #end
 
 # preprocessor directives:
