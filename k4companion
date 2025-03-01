@@ -2442,6 +2442,7 @@ class Menu(Widget):
                 self.server.send_str('ME{index:04d};'.format(index=md.index))   # request current values
 
         self.server.send_str('ME0043;')         # request updated IP address. We know this has changed.
+        self.server.send_str('ME0086;ME0078;ME0076;ME0079;ME0098;ME0077;')   # request current transverter band menu settings
 
         self.listbox.grid(row=0, column=0, sticky='w')
         self.scrollbar.grid(row=0, column=1, sticky='ns')
