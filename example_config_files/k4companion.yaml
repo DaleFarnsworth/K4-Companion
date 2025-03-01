@@ -17,6 +17,13 @@
   # Font used for buttons and other controls
   button_font: { family: Helvetica, size: 10, weight: normal }
 
+# Ports:
+#   9200: unauthenticated, unencrypted
+#   9205: authenticated, unencrypted
+#   9204; authenticated, encrypted (not yet supported)
+# Ports 9204 and 9205 require the K4 to accept remote client(s)
+# and the program will request the K4's remote password.
+#
 - item: server
   name: k4
   type: k4
@@ -190,7 +197,7 @@
   font: { family: DejaVu Sans Mono, size: 6, weight: normal }
   lefttext: ''
   evalbottomtext: "'' if len(self.k4param('PC')) < 4 else '0    2    4    6    8   10    ' if self.k4param('PC')[3] == 'L' else '0   20   40   60   80  100    '"
-  evalresponse: "0 if len(self.k4param('TM')) < 4 else float(self.k4param('TM')[6:9])/10 if self.k4param('PC')[3] == 'L' else self.k4param('TM')[6:9]"
+  evalresponse: "0 if len(self.k4param('TM')) < 4 or len(self.k4param('PC')) < 4 else float(self.k4param('TM')[6:9])/10 if self.k4param('PC')[3] == 'L' else self.k4param('TM')[6:9]"
 #end
 
 #define alc-bargraph

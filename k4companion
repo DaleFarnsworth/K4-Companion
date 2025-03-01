@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-
 # K4-Companion is an application written in python3 that can remotely
 # control and Elecraft K4 tranceiver via TCP/IP.  It currently controls
 # the main K4 features and is very useable as is, but new features are
@@ -37,6 +36,7 @@
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import ctypes
+import hashlib
 import math
 import queue
 import re
@@ -53,6 +53,7 @@ import tkinter.font as tkFont
 import yaml
 
 from optparse import OptionParser
+from tkinter import simpledialog
 
 version = "1.1.4"
 
@@ -82,6 +83,19 @@ class Default():
 class Server():
     server_dict = {}
     default_server_name = None
+
+    receive_poll_interval = 1           # poll every 1 mS
+    ping_poll_interval = 2000           # poll every 2 seconds
+    packet_header_len = 8
+    packet_trailer_len = 4
+    cat_packet_header_len = 3
+    begin_packet_marker = bytes((0xFE, 0xFD, 0xFC,  0xFB))
+    end_packet_marker = bytes((0xFB, 0xFC, 0xFD, 0xFE))
+    cat_packet_type = 0
+    cat_version_number = 0
+    cat_sequence_number = 0
+    cat_packet_header = bytes((cat_packet_type, cat_version_number, cat_sequence_number))
+
     k4_get_cmd_bases = [         # For future use
         '#A',
         'AC',
@@ -182,10 +196,11 @@ class Server():
         '#P',
         'PA$',
         'PC',
+        'PING',
         'PK',
         '#PKM',
         'PL$',
-        'PO',
+        'PONG',
         'PP',
         '#R',
         'RA$',
@@ -257,6 +272,8 @@ class Server():
         '#M': ['#MP'],
         '#N': ['#NBL', '#NB'],
         'PC': ['PCX'],
+        'PI': ['PING'],
+        'PO': ['PONG'],
         '#P': ['#PKM'],
         '#R': ['#REF'],
         'RR': ['RRT', 'RRC', 'RRP'],
@@ -279,6 +296,7 @@ class Server():
         'EC': True,
         'LI': True,     # where total length of cmd is <= 6 characters
         'MS': True,     # where total length of cmd is <= 4 characters
+        'PING': True,
         'RC$': True,
         'RC': True,
         'RD$': True,
@@ -312,6 +330,7 @@ class Server():
         'MA$': True,
         'MA': True,
         'OM': True,
+        'PONG': True,
         'PP': True,
         'RV': True,
         'SM$': True,
@@ -387,7 +406,7 @@ class Server():
         self.address = config_info['address']
         self.port = config_info['port']
         self.startup = config_info.get('startup', None)
-        connect_on_start = config_info.get('connect_on_start', True)
+        self.connect_on_start = true_values(config_info.get('connect_on_start', True))
         self.socket = None
         self.recv_buffer = ''
         self.send_queue = queue.Queue()
@@ -398,6 +417,7 @@ class Server():
         self.k4_subscriptions = {}
         self.k4_parameters = {}
         self.connect_callbacks = []
+        self.partial_packet = None
 
         self.ignored_errors = {}
 
@@ -407,9 +427,6 @@ class Server():
 
         self.subscribe_connect(self.on_server_connect)
 
-        if true_values(connect_on_start):
-            self.connect()
-
     def on_server_connect(self):
         self.subscribe_response('ER;', self.on_error_code, send=False)
 
@@ -417,9 +434,9 @@ class Server():
         response = response.rstrip(';')
         try:
             code, text = response.split(':', 1)
-            popup(msg=[code, text], title='Error', timeout=5000)
+            error_popup(msg=[code, text])
         except:
-            popup(msg=response, title='Error', timeout=5000)
+            error_popup(msg=response)
 
     def subscribe_connect(self, callback):
         if self.connected:
@@ -443,6 +460,7 @@ class Server():
     def connect(self):
         if self.connected:
             return
+
         vprint1('Connecting to {name}, address {addr}, port {port}'.format(
               name=self.name, addr=self.address, port=self.port))
 
@@ -457,13 +475,28 @@ class Server():
             self.recv_thread = threading.Thread(target=self.recv_loop, name=self.name+'.recv_thread')
             self.recv_thread.start()
             if self.type == 'k4':
+                if self.port == 9200:
+                    self.dequeue_k4_cat()
+                else:
+                    while True:
+                        password = password_popup(title="Connect to K4",
+                            msg="Enter your k4 remote password:")
+                        if password != '':
+                            break
+                    h = hashlib.sha384(password.encode()).hexdigest()
+                    self.send_str(h, force_as_string=True)
+                    self.send_str('RDY;')
+                    Poll.add_poll(Server.ping_poll_interval, self.ping)
+
+                if self.port == 9205:
+                    self.dequeue_k4_packets()
+
                 self.send_str('K41;')                # request K4 to respond in advanced mode
                 self.send_str('AI4;')                # request K4 to send updates immediately
                 self.send_str('ER1;')                # request long format error messages
                 self.send_cmds('MD;MD$;')            # cache the mode response for later use in setting the vfo step
                 if self.startup != None:
                     self.send_cmds(self.startup)     # send user-specified startup commands
-                Poll.add_poll(1, self.receive)
 
             for callback in self.connect_callbacks:
                 callback()
@@ -486,13 +519,34 @@ class Server():
         if self.recv_thread != None:
             self.recv_thread.join()
 
-    def send_str(self, cmd):
-        self.send_queue.put(cmd)
+    def send_str(self, cmd, force_as_string=False):
+        if self.port == 9200 or force_as_string:
+            self.send_queue.put((cmd.encode(), ))
+        else:
+            self.send_cat_packet(cmd.encode())
+
+    def send_cat_packet(self, bytes):
+#        b = bytearray(packet_header_len + cat_packet_header_len + len(bytes) + packet_header_trailer_len)
+#        v = memoryview(b)
+        self.send_queue.put((
+            Server.begin_packet_marker,
+            self.encode_len(len(bytes)+3), 
+            Server.cat_packet_header,
+            bytes, 
+            Server.end_packet_marker))
+#        v[0:3] = begin_packet_marker
+#        v[4:7] = self.encode_len(len(bytes))
+#        v[8-11] = cat_packet_header
+#        v[11:-4] = bytes
+#        v[-4:] = end_packet_marker
+#        self.send_queue_put(b)
+
+    def encode_len(self, l):
+        return bytearray(((l>>24)&0xff, (l>>16)&0xff, (l>>8)&0xff, l&0xff))
 
     def send_cmds(self, cmds):
         if not self.connected:
-            msg = "Server '{name}' not connected.".format(name=self.name)
-            popup(msg=msg, title='Warning', timeout=2000)
+            warning_popup("Server '{name}' not connected.".format(name=self.name))
         if isinstance(cmds, str):
             cmds = Server.split_cmd(cmds)
         for cmd in cmds:
@@ -505,14 +559,22 @@ class Server():
 
     def send_loop(self):
         while True:
-            cmd = self.send_queue.get()
+            bs = self.send_queue.get()
             if not self.connected:
                 return
             try:
-                self.socket.sendall(cmd.encode())
-                dprint1('{name}: sent: {cmd}'.format(name=self.name, cmd=cmd))
+                try:
+                    self.socket.sendmsg(bs)
+                except:
+                    tprint('sendmsg failed')
+                    for b in bs:
+                        self.socket.sendall(b)
+                #dprint1('{name}: sent: {bs}'.format(name=self.name, bs=bs))
+                if Options.debug >= 1 and len(bs) > 3 and bs[2][0] == 0:
+                    cmds = bs[3].decode()
+                    dprint1('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
             except OSError:
-                print("Failed to send command, '{cmd}' to '{name}'".format(cmd=cmd, name=self.name))
+                print("Failed to send command, '{bs}' to '{name}'".format(bs=bs, name=self.name))
 
     def expand_cmds(self, cmds):
         if isinstance(cmds, str):
@@ -563,36 +625,113 @@ class Server():
         for cmd in self.server_cmds(cmds):
             self.subscribe_response(cmd, callback)
 
-    def receive(self):
+    def ping(self):
+        self.send_str('PING;')
+
+    def dequeue_k4_packets(self):
+        packet_offset = 0
+
         while True:
             try:
-                responses = self.recv_queue.get_nowait()
-                for response in responses:
-                    if self.type == 'k4':
-                        base = cmd_base(response)
-                        if Options.debug >= 1:
-                            if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM'):
-                                dprint3('{name}: received: {response}'.format(name=self.name, response=response))
-                            else:
-                                dprint1('{name}: received: {response}'.format(name=self.name, response=response))
-                        response = response[len(base):]
-                        if response == '?' and base not in self.ignored_errors:
-                            if Options.debug > 0:
-                                raise Exception('Received error response from K4: ', base + response)
-                            else:
-                                msg='Received error response from K4: ' + base + response
-                                popup(msg=msg, title="Warning", timeout=2000)
-                        self.update_k4_parameter(base, response)
+                rb = self.recv_queue.get_nowait()
+                if self.partial_packet != None:
+                    rb = self.partial_packet + rb
+                    self.partial_packet = None
 
-                    # For now, ignore responses from non-K4 servers
+                while True:
+                    remaining_length = len(rb)
+                    if remaining_length < 8:
+                        self.partial_packet = rb
+                        break
+                    if rb[0:4] != Server.begin_packet_marker:
+                        raise Exception('bad received packet header', rb[0:4])
+                    payload_length = (rb[4]<<24) | rb[5]<<16 | rb[6]<<8 | rb[7]
+                    end_offset = 12 + payload_length
+                    if remaining_length < end_offset:
+                        self.partial_packet = rb
+                        break
+                    if rb[end_offset-4:end_offset] != Server.end_packet_marker:
+                        raise Exception('bad received packet trailer', rb[end_offset-4:end_offset])
+                    #tprint('payload type', rb[8], 'version', rb[9], 'sequence', rb[10])
+
+                    payload_type = rb[8]
+                    payload = rb[11:end_offset-4]
+                    if payload_type == 0:
+                        self.received_cat(payload)
+                    elif payload_type == 1:
+                        self.received_audio(payload)
+                    elif payload_type == 2:
+                        self.received_pan(payload)
+                    elif payload_type == 3:
+                        self.received_minipan(payload)
+
+                    if remaining_length == end_offset:
+                        break
+                    rb = rb[end_offset:]
+
             except queue.Empty:
+                Poll.delayed_call(Server.receive_poll_interval, self.dequeue_k4_packets)
                 break
 
-    def recv_loop(self):
-        partial_response = ''
+    def received_cat(self, cmds):
+        #tprint('cat:', cmds.decode())
+        responses = cmds.decode().split(';')[:-1]
+        self.receive_k4_responses(responses)
 
+    def received_audio(self, data):
+        #tprint('audio: len:', len(data))
+        pass
+
+    def received_pan(self, data):
+        #tprint('pan: len:', len(data))
+        pass
+
+    def received_minipan(self, data):
+        #tprint('minipan: len:', len(data))
+        pass
+
+    def dequeue_k4_cat(self):
         while True:
             responses = []
+
+            try:
+                recv_bytes = self.recv_queue.get_nowait()
+                recv_str = recv_bytes.decode()
+                responses = recv_str.split(';')
+                if len(responses) == 0:
+                    continue
+
+                if self.partial_packet != None:
+                    responses[0] = self.partial_packet + responses[0]
+                    self.partial_packet = ''
+
+                if responses[-1] != '':
+                    self.partial_packet = responses[-1]
+
+                responses = responses[0:-1]
+                self.receive_k4_responses(responses)
+            except queue.Empty:
+                Poll.delayed_call(Server.receive_poll_interval, self.dequeue_k4_cat)
+                break
+
+    def receive_k4_responses(self, responses):
+        for response in responses:
+            base = cmd_base(response)
+            if Options.debug >= 1:
+                if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM'):
+                    dprint3('{name}: received: {response}'.format(name=self.name, response=response))
+                else:
+                    dprint1('{name}: received: {response}'.format(name=self.name, response=response))
+            response = response[len(base):]
+            if response == '?' and base not in self.ignored_errors:
+                if Options.debug > 0:
+                    raise Exception('Received error response from K4: ', base + response)
+                else:
+                    warning_popup('Received error response from K4: ' + base + response)
+            self.update_k4_parameter(base, response)
+
+    def recv_loop(self):
+        while True:
             readable, writable, in_error = select.select([self.socket.fileno()], [], [self.socket], 1)
             if not self.connected:
                 return
@@ -601,32 +740,15 @@ class Server():
             if len(readable) == 0:
                 continue
 
-            recv_bytes = self.socket.recv(4096)
+            recv_bytes = self.socket.recv(16384)
             if len(recv_bytes) == 0:
                 self.connected = False
                 return
 
-            if self.type != 'k4':
-                dprint1('{name}: received: {bytes}'.format(name=self.name, bytes=recv_bytes))
-                try:
-                    self.recv_queue.put([recv_bytes])
-                except queue.ShutDown:
-                    continue
-            else:
-                recv_str = recv_bytes.decode()
-                responses = recv_str.split(';')
-                if len(responses) == 0:
-                    continue
-
-                if partial_response != '':
-                    responses[0] = partial_response + responses[0]
-                    partial_response = ''
-
-                if responses[-1] != '':
-                    partial_response = responses[-1]
-
-                responses = responses[0:-1]
-                self.recv_queue.put(responses)
+            try:
+                self.recv_queue.put(recv_bytes)
+            except queue.ShutDown:
+                pass
 
     def subscribe_response(self, cmd, callback, send=True):
         base = cmd_base(cmd)
@@ -634,13 +756,13 @@ class Server():
             return                              # No use subscribing to set-only commands
         if not base in self.k4_subscriptions:
             self.k4_subscriptions[base] = []
-        parameter = self.k4_parameters.get(base, None)
-        if parameter != None:
-            callback(base + parameter + ';')
-        if send == True:
-            self.send_str(cmd_get_format(cmd))              # TODO Try sending only if not found is cached parameters
         if not callback in self.k4_subscriptions[base]:
             self.k4_subscriptions[base].append(callback)
+        if send == True:
+            parameter = self.k4_parameters.get(base, None)
+            if parameter != None:
+                callback(base + parameter + ';')
+            self.send_str(cmd_get_format(cmd))              # TODO Try sending only if not found is cached parameters
 
     def unsubscribe_response(self, base, callback):
         try:
@@ -2756,21 +2878,61 @@ def eval_value(s, value):
         raise
     return ret
 
+class Popup():
+    def __init__(self, title='', timeout=None, font=None, color='yellow'):
+        self.timeout = timeout
+        self.popup = tk.Toplevel(Page.top)
+        self.popup.title(title)
+        if font == None:
+            font = Page.main().font()
+        self.font = font
+        size = self.font.cget('size')
+        self.frame = tk.Frame(self.popup, padx=size*2, pady=size*2, bg=color)
+
+    def show(self):
+        self.frame.grid()
+        if self.timeout != None:
+            self.popup.after(self.timeout, self.popup.destroy)
+
+    def wait(self):
+        self.frame.grid()
+        self.frame.wait_window()
+
+    def destroy(self):
+        self.popup.destroy()
+
 def popup(msg='', title='', timeout=None, font=None, color='yellow'):
     if isinstance(msg, str):
         msg = [ msg ]
-    msg[0] = title + ": " + msg[0]
-    dprint1(msg[0])
     msg = "\n\n".join(msg)
-    popup = tk.Toplevel(Page.top)
-    popup.title(title)
-    size = Default.button_font['size']
-    if font == None:
-        font = tkFont.Font(family=Default.button_font['family'], size=size, weight=Default.button_font['weight'])
-    tk.Label(popup, text=msg, anchor='center', justify='left', padx=size*2, pady=size*2, font=font, bg='yellow').grid()
-    if timeout != None:
-        popup.after(timeout, popup.destroy)
-    return popup
+    popup = Popup(title=title, timeout=timeout, font=font, color=color)
+    tk.Label(popup.frame, text=msg, anchor='center', justify='left', font=font, bg=color).grid()
+    popup.show()
+
+def warning_popup(msg):
+    popup(msg='Warning: '+msg, title='Warning', timeout=2000)
+
+def error_popup(msg):
+    if isinstance(msg, str):
+        msg = 'Error: ' +  msg
+    else:
+        msg[0] = 'Error: ' + msg[0]
+    popup(msg=msg, title='Error', timeout=5000)
+
+def password_popup(msg='', title='', font=None, color='yellow'):
+    if isinstance(msg, str):
+        msg = [ msg ]
+    msg = "\n\n".join(msg)
+    popup = Popup(title=title, font=font, color=color)
+    tk.Label(popup.frame, text=msg, anchor='center', justify='left', font=font, bg=color).grid()
+    var = tk.StringVar()
+    entry = tk.Entry(popup.frame, textvariable=var, show='*', justify='left', font=font, bg='yellow')
+    entry.grid(row=1)
+    entry.focus()
+    entry.bind('<Return>', lambda event: popup.destroy())
+    entry.bind('<FocusOut>', lambda event: popup.destroy())
+    popup.wait()
+    return var.get()
 
 def validate_config_options(dictionary, requireds, options, name=None):
     if name == None:
@@ -2822,6 +2984,16 @@ def vprint2(*args, **kwargs):
 def tprint(*args, **kwargs):
     print(*args, **kwargs)
 
+main_page_was_visible = False
+def main_page_visible(self):
+    global main_page_was_visible
+    if not main_page_was_visible:
+        main_page_was_visible = True
+        page = Page.main()
+        server = page.server
+        if server.connect_on_start:
+            server.connect()
+
 def main():
     Options.Parse()
 
@@ -2833,7 +3005,9 @@ def main():
 
     read_config(Options.config_file)
 
-    Page.show_page(Page.main().name)
+    page = Page.main()
+    page.frame.bind('<Visibility>', main_page_visible)
+    Page.show_page(page.name)
 
     top.mainloop()
 
