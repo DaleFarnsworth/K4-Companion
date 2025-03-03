@@ -434,9 +434,9 @@ class Server():
         response = response.rstrip(';')
         try:
             code, text = response.split(':', 1)
-            error_popup(msg=[code, text])
+            Popup.warning(msg=[code, text])
         except:
-            error_popup(msg=response)
+            Popup.warning(msg=response)
 
     def subscribe_connect(self, callback):
         if self.connected:
@@ -478,11 +478,8 @@ class Server():
                 if self.port == 9200:
                     self.dequeue_k4_cat()
                 else:
-                    while True:
-                        password = password_popup(title="Connect to K4",
-                            msg="Enter your k4 remote password:")
-                        if password != '':
-                            break
+                    password = Popup.password(title="Connect to K4",
+                        msg="Enter your k4 remote password:")
                     h = hashlib.sha384(password.encode()).hexdigest()
                     self.send_str(h, force_as_string=True)
                     self.send_str('RDY;')
@@ -491,6 +488,7 @@ class Server():
                 if self.port == 9205:
                     self.dequeue_k4_packets()
 
+                self.send_str('PING;')               # Trigger a response: PONG;
                 self.send_str('K41;')                # request K4 to respond in advanced mode
                 self.send_str('AI4;')                # request K4 to send updates immediately
                 self.send_str('ER1;')                # request long format error messages
@@ -546,7 +544,7 @@ class Server():
 
     def send_cmds(self, cmds):
         if not self.connected:
-            warning_popup("Server '{name}' not connected.".format(name=self.name))
+            Popup.warning("Server '{name}' not connected.".format(name=self.name))
         if isinstance(cmds, str):
             cmds = Server.split_cmd(cmds)
         for cmd in cmds:
@@ -566,7 +564,6 @@ class Server():
                 try:
                     self.socket.sendmsg(bs)
                 except:
-                    tprint('sendmsg failed')
                     for b in bs:
                         self.socket.sendall(b)
                 #dprint1('{name}: sent: {bs}'.format(name=self.name, bs=bs))
@@ -574,7 +571,7 @@ class Server():
                     cmds = bs[3].decode()
                     dprint1('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
             except OSError:
-                print("Failed to send command, '{bs}' to '{name}'".format(bs=bs, name=self.name))
+                print("Failed to send command, '{bs}' to '{name}'".format(bs=bs[3], name=self.name))
 
     def expand_cmds(self, cmds):
         if isinstance(cmds, str):
@@ -727,7 +724,7 @@ class Server():
                 if Options.debug > 0:
                     raise Exception('Received error response from K4: ', base + response)
                 else:
-                    warning_popup('Received error response from K4: ' + base + response)
+                    Popup.warning('Received error response from K4: ' + base + response)
             self.update_k4_parameter(base, response)
 
     def recv_loop(self):
@@ -1004,14 +1001,21 @@ class Page(Container):
     @staticmethod
     def show_page(page_name):
         if len(Page.name_stack) > 0:
-            current_page_name = Page.name_stack[-1]
-            current_page = Page.pages[current_page_name]
-            current_page.hide()
+            #            current_page_name = Page.name_stack[-1]
+            #current_page = Page.pages[current_page_name]
+            #current_page.hide()
+            Page.current().hide()
         if page_name in Page.pages:
             Page.name_stack.append(page_name)
             Page.pages[page_name].show()
         else:
            raise Exception("Page:'{name}' not found.".format(name=page_name))
+
+    @staticmethod
+    def current():
+        if len(Page.name_stack) == 0:
+            return None
+        return Page.pages[Page.name_stack[-1]]
 
     @staticmethod
     def show_previous():
@@ -2604,10 +2608,7 @@ class Menu(Widget):
         md = self.definitions[index]
         self.current_md = md
 
-        if md.widget != None:
-            md.show()
-        else:
-            md.print() # tprint
+        md.show()
 
     def print_definitions(self):
         for definition in self.definitions:
@@ -2879,15 +2880,41 @@ def eval_value(s, value):
     return ret
 
 class Popup():
-    def __init__(self, title='', timeout=None, font=None, color='yellow'):
+    @staticmethod
+    def popup(msg='', title='', timeout=None, font=None, color='yellow'):
+        if isinstance(msg, str):
+            msg = [ msg ]
+        msg = "\n\n".join(msg)
+        popup = Popup(title=title, timeout=timeout, font=font, color=color)
+        label = tk.Label(popup.frame, text=msg, anchor='center', justify='left', font=font, bg=color)
+        label.grid(row=0, column=0)
+        popup.show()
+
+    @staticmethod
+    def warning(msg):
+        if isinstance(msg, str):
+            msg = 'Warning: ' +  msg
+        else:
+            msg[0] = 'Warning: ' + msg[0]
+        Popup.popup(msg=msg, title='Warning', timeout=2000, font=None, color='yellow')
+
+    @staticmethod
+    def error(msg):
+        if isinstance(msg, str):
+            msg = 'Warning: ' +  msg
+        else:
+            msg[0] = 'Warning: ' + msg[0]
+        Popup.popup(msg=msg, title='Error', timeout=5000, font=None, color='yellow')
+
+    def __init__(self, title='', timeout=None, font=None, color='yellow', modal=False):
         self.timeout = timeout
         self.popup = tk.Toplevel(Page.top)
         self.popup.title(title)
         if font == None:
             font = Page.main().font()
-        self.font = font
-        size = self.font.cget('size')
+        size = font.cget('size')
         self.frame = tk.Frame(self.popup, padx=size*2, pady=size*2, bg=color)
+        self.popup.attributes('-topmost', True)
 
     def show(self):
         self.frame.grid()
@@ -2898,41 +2925,50 @@ class Popup():
         self.frame.grid()
         self.frame.wait_window()
 
-    def destroy(self):
+    def close(self, event=None):
         self.popup.destroy()
 
-def popup(msg='', title='', timeout=None, font=None, color='yellow'):
-    if isinstance(msg, str):
-        msg = [ msg ]
-    msg = "\n\n".join(msg)
-    popup = Popup(title=title, timeout=timeout, font=font, color=color)
-    tk.Label(popup.frame, text=msg, anchor='center', justify='left', font=font, bg=color).grid()
-    popup.show()
+    def password_button_clicked(self):
+       if self.password_show_button.cget('text') == 'Show':
+           self.password_show_button.configure(text='Hide')
+           self.password_entry.configure(show='')
+       else:
+           self.password_show_button.configure(text='Show')
+           self.password_entry.configure(show='*')
 
-def warning_popup(msg):
-    popup(msg='Warning: '+msg, title='Warning', timeout=2000)
+    def password_entered(self, event=None):
+        if self.password_var.get() != '':
+            self.close()
 
-def error_popup(msg):
-    if isinstance(msg, str):
-        msg = 'Error: ' +  msg
-    else:
-        msg[0] = 'Error: ' + msg[0]
-    popup(msg=msg, title='Error', timeout=5000)
-
-def password_popup(msg='', title='', font=None, color='yellow'):
-    if isinstance(msg, str):
-        msg = [ msg ]
-    msg = "\n\n".join(msg)
-    popup = Popup(title=title, font=font, color=color)
-    tk.Label(popup.frame, text=msg, anchor='center', justify='left', font=font, bg=color).grid()
-    var = tk.StringVar()
-    entry = tk.Entry(popup.frame, textvariable=var, show='*', justify='left', font=font, bg='yellow')
-    entry.grid(row=1)
-    entry.focus()
-    entry.bind('<Return>', lambda event: popup.destroy())
-    entry.bind('<FocusOut>', lambda event: popup.destroy())
-    popup.wait()
-    return var.get()
+    def password(msg='', title='', font=None, color='yellow'):
+        if isinstance(msg, str):
+            msg = [ msg ]
+        msg = "\n\n".join(msg)
+        popup = Popup(title=title, font=font, color=color, modal=True)
+        label = tk.Label(popup.frame, text=msg, anchor='w', justify='left', font=font, bg=color)
+        label.grid(row=0, column=0, sticky='w')
+        var = tk.StringVar()
+        frame = tk.Frame(popup.frame, bg=color)
+        frame.grid(row=1, column=0, sticky='w')
+        entry = tk.Entry(frame, textvariable=var, show='*', justify='left', font=font, bg=color)
+        entry.grid(row=0, column=0)
+        entry.focus()
+        entry.bind('<Return>', popup.password_entered)
+        show_button = tk.Button(frame, text='Show', font=font, bg=color,
+                                command=popup.password_button_clicked)
+        show_button.grid(row=0, column=1)
+        submit_button = tk.Button(popup.frame, text='Submit', font=font, bg=color,
+                                command=popup.close)
+        submit_button.grid(row=2, column=0, sticky='w')
+        popup.password_var = var
+        popup.password_entry = entry
+        popup.password_show_button = show_button
+        popup.frame.grid()
+        popup.popup.transient(Page.top)
+        popup.popup.grab_set()
+        popup.popup.protocol('WM_DELETE_WINDOW', popup.close)
+        Page.top.wait_window(popup.popup)
+        return var.get()
 
 def validate_config_options(dictionary, requireds, options, name=None):
     if name == None:
