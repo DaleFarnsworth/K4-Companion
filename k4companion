@@ -55,7 +55,7 @@ import yaml
 from optparse import OptionParser
 from tkinter import simpledialog
 
-version = "1.1.5"
+version = "1.1.6"
 
 class Default():
 # may be overriden by values in the config file
