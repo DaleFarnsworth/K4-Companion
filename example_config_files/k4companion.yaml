@@ -88,17 +88,6 @@
             #include tune-lp-togglebutton
           #}
       #}
-    - item: group
-      contains: #{
-        - item: group
-          contains: #{
-            #include k4-power-off-button
-          #}
-        - item: group
-          contains: #{
-            #include exit-button
-          #}
-      #}
   #}
 #end
 
@@ -117,6 +106,12 @@
             #include power-slider-group
           #}
         #include audio-mx-togglebutton
+        - item: group
+          label: ''
+          contains: #{
+            #include k4-power-off-button
+            #include exit-button
+          #}
       #}
   #}
 #end
@@ -645,7 +640,7 @@
 #end
 
 #define k4-power-off-button
-    - { item: button, text: 'Power Off', cmd:  PS0; }
+- { item: button, text: 'Power Off', cmd:  PS0; }
 #end
 
 #define connect-togglebutton
