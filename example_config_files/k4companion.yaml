@@ -727,7 +727,10 @@
 #   contains: The list of items this group contains
 
 # button options:
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
 #   text: button text
+#   font: the font in which the text is to be displayed
 #   server: The server name of the server referenced by this button
 #   cmd: Either:
 #     a text string to be sent to k4, or
@@ -745,11 +748,14 @@
 #   justify: 'left', 'right', 'center' to justify text within the Button
 
 # togglebutton options:
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
 #   wraparound: true or false. whether the button wraps back around to the first selection
 #     defaults to true
 #   justify: 'left', 'right', 'center' to justify text within the Button
 #   selections: a list of selections, each of which may have the following elements
 #       text: button text
+#       font: the font in which the text is to be displayed
 #       server: The server name of the server referenced by this button
 #       cmd: Either:
 #         a text string to be sent to k4, or
@@ -763,9 +769,12 @@
 #       blink: If set to true, the button will blink.
 
 # radiobutton options:
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
 #   groupid: a string shared by all buttons in this group, unique to all groups
 #   indicator: Set to 0 if no indicator is to be displayed
 #   text: button text
+#   font: the font in which the text is to be displayed
 #   server: The server name of the server referenced by this button
 #   cmd: Either:
 #     a text string to be sent to k4, or
@@ -779,6 +788,8 @@
 #   blink: If set to true, the button will blink.
 
 # slider options:
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
 #   from: The lowest value of the slider
 #   to: The highest value of he slider
 #   orient: Either:
@@ -795,6 +806,8 @@
 #   bg: background color
 
 # vfo options:
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
 #   AorB: 'A' for vfo A and 'B' for vfo B
 #   fg: foreground color
 #   bg: background color
@@ -807,6 +820,8 @@
 # Each group it contains must have a tabname option
 
 # bargraph options
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
 #   orient: Either:
 #     vertical: Specifies a vertical bar graph
 #     horizontal: Specifies a horizontal bar graph
@@ -822,7 +837,17 @@
 #   evalbottomtext: A python expression to generate a text label placed below the bar graph
 #   lengthpercent: Length of bar graph as a percentage of the length of bottomtext
 
+# text options
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
+#   text: the text to be displayed
+#   font: the font in which the text is to be displayed
+#   fg: foreground color
+#   bg: background color
+
 # menu options:
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
 #   entries_displayed: The number of menu items to display at a time
 #   fg: foreground color
 #   bg: background color

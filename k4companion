@@ -506,7 +506,9 @@ class Server():
         except OSError:
             print('Failed to connect to {name}, address {addr}, port {port}'.format(
                   name=self.name, addr=self.address, port=self.port))
-            if not Options.debug > 0:
+            if Options.debug > 0:
+                raise
+            else:
                 cleanup_and_exit()
 
     def close(self):
@@ -1819,17 +1821,14 @@ class Bargraph(Widget):
 class Text(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        options = ['text', 'length', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'justify', 'font']
+        options = ['text', 'label', 'leading', 'fg', 'bg', 'justify', 'font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
         text = config_info.get('text', '')
-        length = config_info.get('length', 100)
-        bg = config_info.get('bg', Default.bg)
         fg = config_info.get('fg', Default.fg)
-        abg = config_info.get('abg', Default.abg)
-        afg = config_info.get('afg', Default.afg)
+        bg = config_info.get('bg', Default.bg)
         if afg == None:
             afg = fg
         justify = config_info.get('justify', 'center')
@@ -1841,8 +1840,6 @@ class Text(Widget):
                     justify=justify,
                     fg=fg,
                     bg=bg,
-                    activebackground=abg,
-                    activeforeground=afg,
                     padx=2,
                     pady=2)
 
