@@ -1829,8 +1829,6 @@ class Text(Widget):
         text = config_info.get('text', '')
         fg = config_info.get('fg', Default.fg)
         bg = config_info.get('bg', Default.bg)
-        if afg == None:
-            afg = fg
         justify = config_info.get('justify', 'center')
 
         label = tk.Label(self.frame,
