@@ -28,7 +28,7 @@
   name: k4
   type: k4
   address: K4-SNxxxxx.local      # match your serial number in the string
-  port: 9200
+  port: 9205
   startup: TS1;                   # Set test mode
   connect_on_start: True
 
