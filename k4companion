@@ -43,7 +43,6 @@ import opuslib
 import pyaudio
 import queue
 import re
-import resampy
 import select
 import socket
 import sys
@@ -530,8 +529,8 @@ class Server():
         p = pyaudio.PyAudio()
         self.audio_out = p.open(format=pyaudio.paFloat32,
                                 channels=2,
-                                rate=44100,
-                                frames_per_buffer=480*2,
+                                rate=48000,
+                                frames_per_buffer=480*2*4,
                                 output=True,
                                 output_device_index=1,
                                 )
@@ -541,8 +540,11 @@ class Server():
             pcm = dec.decode_float(bytes(packet), frame_size)
             a = numpy.frombuffer(pcm, dtype=numpy.float32)
             a = a * 20
-            resampled = resampy.resample(a.reshape((-1, 2)), 12000, 44100).reshape(-1).tobytes()
-            self.audio_out.write(resampled)
+            a = a.reshape((-1, 2))
+            a = a.repeat(4)
+            a = a.reshape(-1)
+            a = a.tobytes()
+            self.audio_out.write(a)
 
     def close(self):
         self.audio_out.close()
