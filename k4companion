@@ -530,7 +530,7 @@ class Server():
         self.audio_out = p.open(format=pyaudio.paFloat32,
                                 channels=2,
                                 rate=48000,
-                                frames_per_buffer=480*2*4,
+                                frames_per_buffer=480,
                                 output=True,
                                 output_device_index=1,
                                 )
