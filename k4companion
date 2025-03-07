@@ -38,10 +38,12 @@
 import ctypes
 import hashlib
 import math
+import numpy
 import opuslib
 import pyaudio
 import queue
 import re
+import resampy
 import select
 import socket
 import sys
@@ -528,7 +530,7 @@ class Server():
         p = pyaudio.PyAudio()
         self.audio_out = p.open(format=pyaudio.paFloat32,
                                 channels=2,
-                                rate=12000,
+                                rate=44100,
                                 frames_per_buffer=480*2,
                                 output=True,
                                 output_device_index=1,
@@ -537,7 +539,9 @@ class Server():
         while True:
             packet = self.output_audio_queue.get()
             pcm = dec.decode_float(bytes(packet), frame_size)
-            self.audio_out.write(pcm)
+            a = numpy.frombuffer(pcm, dtype=numpy.float32)
+            resampled = resampy.resample(a.reshape((-1, 2)), 12000, 44100).reshape(-1).tobytes()
+            self.audio_out.write(resampled)
 
     def close(self):
         self.audio_out.close()
