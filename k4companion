@@ -540,6 +540,7 @@ class Server():
             packet = self.output_audio_queue.get()
             pcm = dec.decode_float(bytes(packet), frame_size)
             a = numpy.frombuffer(pcm, dtype=numpy.float32)
+            a = a * 20
             resampled = resampy.resample(a.reshape((-1, 2)), 12000, 44100).reshape(-1).tobytes()
             self.audio_out.write(resampled)
 
