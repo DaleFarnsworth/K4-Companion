@@ -1435,7 +1435,7 @@ class VFO(Widget):
                 font=self.font(),
                 width=width,
                 repeatdelay=300,
-                repeatinterval=1,
+                repeatinterval=50,
                 format='%5.3f',
                 justify='right',
                 state='normal',
