@@ -40,6 +40,7 @@ import hashlib
 import math
 import numpy
 import opuslib
+import os
 import pyaudio
 import queue
 import re
@@ -414,6 +415,7 @@ class Server():
         self.recv_buffer = ''
         self.send_queue = queue.Queue()
         self.recv_queue = queue.Queue()
+        self.output_audio_queue = None
         self.send_thread = None
         self.recv_thread = None
         self.connected = False
@@ -481,6 +483,8 @@ class Server():
                 if self.port == 9200:
                     self.dequeue_k4_cat()
                 else:
+                    self.output_audio_queue = queue.Queue()
+
                     password = Popup.password(title="Connect to K4",
                         msg="Enter your k4 remote password:")
                     h = hashlib.sha384(password.encode()).hexdigest()
@@ -488,10 +492,7 @@ class Server():
                     self.send_str('RDY;')
                     Poll.add_poll(Server.ping_poll_interval, self.ping)
 
-#                    self.audio_out = open('audio.k4', 'w')
-                    self.output_audio_queue = queue.Queue()
-                    self.output_audio_thread = threading.Thread(target=self.output_audio_loop, name=self.name+'.output_audio_thread')
-                    self.output_audio_thread.start()
+                    Audio.output_queue(self.output_audio_queue)
 
                 if self.port == 9205:
                     self.dequeue_k4_packets()
@@ -519,37 +520,11 @@ class Server():
             else:
                 cleanup_and_exit()
 
-    def output_audio_loop(self):
-        sample_rate = 12000
-        channels = 2
-        bytes_per_sample = 2
-        dec = opuslib.Decoder(sample_rate, channels)
-        frame_size = 480
-
-        p = pyaudio.PyAudio()
-        self.audio_out = p.open(format=pyaudio.paFloat32,
-                                channels=2,
-                                rate=48000,
-                                frames_per_buffer=480,
-                                output=True,
-                                output_device_index=1,
-                                )
-
-        while True:
-            packet = self.output_audio_queue.get()
-            pcm = dec.decode_float(bytes(packet), frame_size)
-            a = numpy.frombuffer(pcm, dtype=numpy.float32)
-            a = a * 20
-            a = a.reshape((-1, 2))
-            a = a.repeat(4)
-            a = a.reshape(-1)
-            a = a.tobytes()
-            self.audio_out.write(a)
-
     def close(self):
-        self.audio_out.close()
         self.connected = False
         self.send_queue.put('shutdown')
+        if self.output_audio_queue != None:
+            self.output_audio_queue.put([])
         if self.send_thread != None:
             self.send_thread.join()
         if self.recv_thread != None:
@@ -713,7 +688,7 @@ class Server():
         self.receive_k4_responses(responses)
 
     def received_audio(self, data):
-        self.output_audio_queue.put(data[4:])
+        self.output_audio_queue.put(data)
 
     def received_pan(self, data):
         #tprint('pan: len:', len(data))
@@ -2676,6 +2651,81 @@ class Menu(Widget):
         if md.index > Menu.last_index:
             dprint1('received menu with higher index: {index:04d} {desc}'.format(index=md.index, desc=md.desc))
 
+class Audio():
+    singleton = None
+
+    @staticmethod
+    def output_queue(queue):
+        if Audio.singleton == None:
+            Audio.singleton = Audio()
+
+        self = Audio.singleton
+        self.output_queue = queue
+        self.output_thread = threading.Thread(target=self.output_loop, name='audio_output_thread')
+        self.output_thread.start()
+
+    @staticmethod
+    def close():
+        if Audio.singleton == None:
+            return
+
+        self = Audio.singleton
+        if self.output_thread != None:
+            self.output_thread.join()
+
+    def __init__(self):
+        self.output_thread = None
+
+    def output_loop(self):
+        output_stream = None
+
+        while True:
+            packet = self.output_queue.get()
+            if len(packet) == 0:
+                return
+
+            if output_stream == None:
+                encode_mode = packet[0]
+                if encode_mode != 3:
+                    raise Exception('Unsupported audio encode mode:', encode_mode)
+                # encode_mode = opus float32
+
+                frame_size = packet[2] << 8 | packet[1]
+
+                sample_rate = packet[3]
+                if sample_rate != 0:
+                    raise Exception('Unsupported audio sample rate:', sample_rate)
+                sample_rate = 12000
+
+                channels = 2
+
+                dec = opuslib.Decoder(sample_rate, channels)
+
+                output_sample_rate = 48000
+
+                fd = os.dup(2)
+                os.close(2)              # pyaudio outputs a bunch of disquieting messages
+                p = pyaudio.PyAudio()
+                os.dup2(fd, 2)
+                os.close(fd)
+
+                output_stream = p.open(format=pyaudio.paFloat32,
+                                        channels=channels,
+                                        rate=output_sample_rate,
+                                        frames_per_buffer=frame_size,
+                                        output=True,
+                                        output_device_index=1,
+                                        )
+
+            pcm = dec.decode_float(bytes(packet[4:]), frame_size)
+            a = numpy.frombuffer(pcm, dtype=numpy.float32)
+            a = a * 20
+            a = a.reshape((-1, 2))
+            a = a.repeat(4)
+            a = a.reshape(-1)
+            a = a.tobytes()
+            output_stream.write(a)
+
 class Config():
     main_block_name = ' main'
 
@@ -2898,6 +2948,8 @@ class Options():
 def cleanup_and_exit():
     for server in Server.servers():
         server.close()
+
+    Audio.close()
 
     quit()
 
