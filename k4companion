@@ -689,6 +689,10 @@ class Server():
         self.receive_k4_responses(responses)
 
     def received_audio(self, data):
+        # If we're behind in emptying the queue, don't bother adding to it.
+        if self.output_audio_queue.qsize() > 1:
+            return
+
         self.output_audio_queue.put(data)
 
     def received_pan(self, data):
