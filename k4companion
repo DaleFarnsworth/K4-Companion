@@ -1464,9 +1464,10 @@ class VFO(Widget):
 
         self.step_cb_val = tk.StringVar()
 
-        # Define the style for combobox widget
+        # Define the style for vfo widget
+        stylename = str(self) + '.TCombobox'
         style = ttk.Style()
-        style.configure("TCombobox", background=self.bg, foreground=fg, selectbackground=self.bg, selectforeground=fg)
+        style.configure(stylename, background=self.bg, foreground=fg)
 
         self.step_cb = ttk.Combobox(
                 frame,
@@ -1477,7 +1478,7 @@ class VFO(Widget):
                 width=6,
                 justify='right',
                 state='readonly',
-                style='TCombobox',
+                style=stylename,
                 )
         self.step_cb_val.trace('w', self.on_step_cb_changed)
 
@@ -1939,9 +1940,10 @@ class Dropdownbutton(Widget):
         elif self.container.childwidth != None:
             width = self.container.childwidth
 
-        # Define the style for combobox widget
+        # Define the style for this dropdown widget
+        self.stylename = str(self) + '.TCombobox'
         self.style = ttk.Style()
-        self.style.configure("TCombobox", background=bg, foreground=fg, selectbackground=self.selectbg, selectforeground=self.selectfg)
+        self.style.configure(self.stylename, background=bg, foreground=fg, selectbackground=self.selectbg, selectforeground=self.selectfg)
 
         self.val = tk.StringVar()
 
@@ -1954,7 +1956,7 @@ class Dropdownbutton(Widget):
                 width=width,
                 state='readonly',
                 justify=justify,
-                style='TCombobox',
+                style=self.stylename,
                 )
 
         self.val.trace('w', self.on_combobox_changed)
@@ -2020,9 +2022,9 @@ class Dropdownbutton(Widget):
     def blink(self):
         self.blink_state = not self.blink_state
         if self.blink_state:
-            self.style.configure("TCombobox", selectbackground=self.selectfg, selectforeground=selectbg)
+            self.style.configure(self.stylename, selectbackground=self.selectfg, selectforeground=selectbg)
         else:
-            self.style.configure("TCombobox", selectbackground=self.selectbg, selectforeground=selectfg)
+            self.style.configure(self.stylename, selectbackground=self.selectbg, selectforeground=selectfg)
 
 def cmd_base(cmd):
     ucmd = cmd.upper()
