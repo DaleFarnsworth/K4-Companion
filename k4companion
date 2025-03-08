@@ -42,6 +42,7 @@ import numpy
 import opuslib
 import os
 import pyaudio
+import pydub
 import queue
 import re
 import select
@@ -2701,12 +2702,12 @@ class Audio():
 
                 dec = opuslib.Decoder(sample_rate, channels)
 
-                output_sample_rate = 48000
+                output_sample_rate = 44100
 
                 fd = os.dup(2)
-                os.close(2)              # pyaudio outputs a bunch of disquieting messages
+                os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
                 p = pyaudio.PyAudio()
-                os.dup2(fd, 2)
+                os.dup2(fd, 2)           # restore stderr
                 os.close(fd)
 
                 output_stream = p.open(format=pyaudio.paFloat32,
@@ -2718,13 +2719,20 @@ class Audio():
                                         )
 
             pcm = dec.decode_float(bytes(packet[4:]), frame_size)
+
+            # pydub doesn't support float32, so we convert to int32
             a = numpy.frombuffer(pcm, dtype=numpy.float32)
-            a = a * 20
-            a = a.reshape((-1, 2))
-            a = a.repeat(4)
-            a = a.reshape(-1)
-            a = a.tobytes()
-            output_stream.write(a)
+            a = (a * (2 ** 30 - 1)).clip(-2 ** 30, (2 ** 30 - 1)).astype(numpy.int32)
+
+            aseg = pydub.AudioSegment(data=a.tobytes(), sample_width=4, frame_rate=12000, channels=2)
+            aseg = aseg.set_frame_rate(output_sample_rate)
+
+            # Now we convert back to float32 so we can get some amplification
+            channel_sounds = aseg.split_to_mono()
+            samples = [s.get_array_of_samples() for s in channel_sounds]
+            a = numpy.array(samples).T.astype(numpy.float32)
+            a /= (2**30 - 1) / 8              # multiply by 8 for some amplification
+            output_stream.write(a.tobytes())
 
 class Config():
     main_block_name = ' main'
