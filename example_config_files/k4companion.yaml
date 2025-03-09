@@ -38,6 +38,7 @@
   contains: #{
     #include maintab-group
     #include menutab-group
+    #include settingstab-group
   #}
 #}
 
@@ -55,6 +56,14 @@
   tabname: Menu
   contains: #{
     #include menu
+  #}
+#end
+
+#define settingstab-group
+- item: group
+  tabname: Settings
+  contains: #{
+    #include settings 
   #}
 #end
 
@@ -129,6 +138,11 @@
 #define menu
 - item: menu
   entries_displayed: 18
+  selectbg: pink
+#end
+
+#define settings
+- item: settings
   selectbg: pink
 #end
 
