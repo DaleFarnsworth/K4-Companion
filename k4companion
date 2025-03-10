@@ -426,6 +426,7 @@ class Server():
         self.k4_parameters = {}
         self.connect_callbacks = []
         self.partial_packet = None
+        self.password = None
 
         self.ignored_errors = {}
 
@@ -488,9 +489,10 @@ class Server():
                 else:
                     self.output_audio_queue = queue.Queue()
 
-                    password = Popup.password(title="Connect to K4",
-                        msg="Enter your k4 remote password:")
-                    h = hashlib.sha384(password.encode()).hexdigest()
+                    if self.password == None:
+                        self.password = Popup.password(title="Connect to K4",
+                            msg="Enter your k4 remote password:")
+                    h = hashlib.sha384(self.password.encode()).hexdigest()
                     self.send_str(h, force_as_string=True)
                     self.send_str('RDY;')
                     Poll.add_poll(Server.ping_poll_interval, self.ping)
@@ -793,6 +795,9 @@ class Server():
 
     def add_ignored_error(self, base):
         self.ignored_errors[base] = True
+
+    def set_password(self, password):
+        self.password = password
 
 class Widget():
     blink_mS = 500
@@ -2479,10 +2484,7 @@ class Menu_definition():
             font=self.menu.font(),
             justify='left',
             fg=self.menu.fg,
-            bg=self.menu.bg,
-            activebackground=self.menu.abg,
-            activeforeground=self.menu.afg,
-            )
+            bg=self.menu.bg)
         self.widget.grid(row=0, column=0)
         self.widget.bind('<Return>', self.set_text)
         self.widget.bind('<FocusOut>', self.set_text)
@@ -2901,16 +2903,11 @@ class Audio():
             output_stream.write(a.tobytes())
 
 class Settings(Widget):
-    settings = {
-        'input_device_name': Audio.input_device_name,
-        'output_device_name': Audio.output_device_name,
-    }
-
     settings_filename = 'settings.ini'
 
     def __init__(self, config_info, container):
         required = ['item']
-        options = [ 'label', 'leading', 'bg', 'fg', 'selectbg', 'selectfg', 'font', 'label_font' ]
+        options = [ 'label', 'leading', 'bg', 'fg', 'abg', 'afg', 'selectbg', 'selectfg', 'font', 'label_font' ]
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -2929,21 +2926,77 @@ class Settings(Widget):
 
         self.bg = config_info.get('bg', Default.bg)
         self.fg = config_info.get('fg', Default.fg)
+        self.abg = config_info.get('abg', Default.abg)
+        self.afg = config_info.get('afg', Default.afg)
+        if self.afg == None:
+            self.afg = self.fg
         self.selectbg = config_info.get('selectbg', Default.bg)
         self.selectfg = config_info.get('selectfg', Default.fg)
 
-        self.frame = tk.Frame(self.frame)
+        self.frame = tk.LabelFrame(self.frame,
+                              text='Settings',
+                              font=self.label_font(),
+                              labelanchor='nw',
+                              bd=4,
+                              padx=4,
+                              pady=4,
+                              relief='raised')
         self.frame.grid(row=0, column=0)
 
+        password_frame = self.password_settings()
+        password_frame.grid(row=0, column=0, sticky='w')
         audio_frame = self.audio_settings()
-        audio_frame.grid(row=0, column=0, sticky='e')
+        audio_frame.grid(row=1, column=0, sticky='w')
+
+    def password_settings(self):
+        frame = tk.LabelFrame(self.frame,
+                              text='K4 Remote Password',
+                              font=self.label_font(),
+                              labelanchor='nw',
+                              bd=4,
+                              padx=4,
+                              pady=4,
+                              relief='raised')
+
+        self.password_var = tk.StringVar()
+        h = self.get_setting('Elecraft K4', 'insecure_password_hash')
+        if h == None:
+            pw = ''
+        else:
+            pw = Reversable_hash.unhash(h)
+        if pw != '':
+            self.server.set_password(pw)
+
+        self.password_var.set(pw)
+        entry = tk.Entry(frame,
+            textvariable=self.password_var,
+            bd=2,
+            font=self.font(),
+            show='*',
+            justify='left',
+            fg=self.fg,
+            bg=self.bg)
+        entry.grid(row=0, column=0)
+        entry.bind('<Return>', self.set_text)
+        entry.bind('<FocusOut>', self.set_text)
+
+        return frame
+
+    def set_text(self, event):
+        pw = self.password_var.get()
+        h = Reversable_hash.hash(pw)
+        Settings.password_hash = h
+        self.put_setting('Elecraft K4', 'insecure_password_hash', h)
+        self.server.set_password(pw)
 
     def audio_settings(self):
-        frame = tk.LabelFrame(self.outer_frame,
+        frame = tk.LabelFrame(self.frame,
                               text='Audio Devices',
                               font=self.label_font(),
                               labelanchor='nw',
                               bd=4,
+                              padx=4,
+                              pady=4,
                               relief='raised')
 
         audio_input_frame = self.audio_input_settings(frame)
@@ -3111,6 +3164,33 @@ class Settings(Widget):
     def load_settings(self):
         filename = self.platform_settings_filename(Settings.settings_filename)
         self.settings.read(filename)
+
+# A simple reversable string hash function
+# Not in any way cryptographically secure
+class Reversable_hash():
+    @classmethod
+    def rhash(cls, n):
+        return "%08x" % (n * 387420489 % 4000000000)
+
+    @classmethod
+    def un_rhash(cls, h):
+        return int(h, 16) * 3513180409 % 4000000000
+
+    @classmethod
+    def hash(cls, s):
+        hashes = []
+        for c in s:
+            hashes.append(cls.rhash(ord(c)))
+        return ''.join(hashes)
+
+    @classmethod
+    def unhash(cls, s):
+        i = 0
+        chars = []
+        for i in range(0, len(s), 8):
+            h = s[i:i+8]
+            chars.append(chr(cls.un_rhash(h)))
+        return ''.join(chars)
 
 class Config():
     main_block_name = ' main'
