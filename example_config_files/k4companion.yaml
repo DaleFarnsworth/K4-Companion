@@ -669,8 +669,9 @@
 - item: togglebutton
   wraparound: False
   selections: #{
-    - { text: 'Connect', cmd: k4;, response: k41;, bg: red, abg: red, blink: on }
-    - { text: 'Connected', directive: connect }
+    - { text: 'Connect', bg: red, abg: red, blink: on }
+    - { text: 'Connecting', directive: connect }
+    - { text: 'Connected', response: PONG; }
   #}
 #end
 
