@@ -585,7 +585,10 @@ class Server():
                 #dprint1('{name}: sent: {bs}'.format(name=self.name, bs=bs))
                 if Options.debug >= 1 and len(bs) > 3 and bs[2][0] == 0:
                     cmds = bs[3].decode()
-                    dprint1('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
+                    if cmds in ['PING;']:
+                        dprint3('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
+                    else:
+                        dprint1('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
             except OSError:
                 print("Failed to send command, '{bs}' to '{name}'".format(bs=bs[3], name=self.name))
 
@@ -733,7 +736,7 @@ class Server():
         for response in responses:
             base = cmd_base(response)
             if Options.debug >= 1:
-                if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM'):
+                if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG'):
                     dprint3('{name}: received: {response}'.format(name=self.name, response=response))
                 else:
                     dprint1('{name}: received: {response}'.format(name=self.name, response=response))
