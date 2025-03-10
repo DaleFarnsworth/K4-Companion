@@ -35,6 +35,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import configparser
 import ctypes
 import hashlib
 import math
@@ -60,6 +61,7 @@ import yaml
 from optparse import OptionParser
 from tkinter import simpledialog
 
+appname = 'k4companion'
 version = "1.1.8"
 
 class Default():
@@ -2729,6 +2731,16 @@ class Audio():
         return self.device_infos[self.output_device_index]
 
     @classmethod
+    def input_device_index(cls):
+        self = cls.get_singleton()
+        return self.input_device_index
+
+    @classmethod
+    def output_device_index(cls):
+        self = cls.get_singleton()
+        return self.output_device_index
+
+    @classmethod
     def input_device_names(cls):
         self = cls.get_singleton()
         names = []
@@ -2840,7 +2852,7 @@ class Audio():
                                         rate=Audio.output_sample_rate(),
                                         frames_per_buffer=frame_size,
                                         output=True,
-                                        output_device_index=1,
+                                        output_device_index=self.output_device_index,
                                         )
 
             pcm = dec.decode_float(bytes(packet[4:]), frame_size)
@@ -2865,12 +2877,26 @@ class Settings(Widget):
         'output_device_name': Audio.output_device_name,
     }
 
+    settings_filename = 'settings.ini'
+
     def __init__(self, config_info, container):
         required = ['item']
         options = [ 'label', 'leading', 'bg', 'fg', 'selectbg', 'selectfg', 'font', 'label_font' ]
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
+
+        self.settings = configparser.ConfigParser()
+        self.settings_changed = False
+        self.load_settings()
+
+        input_device_name = self.get_setting('Audio', 'input_device_name')
+        if input_device_name != None:
+            Audio.set_input_device_name(input_device_name)
+
+        output_device_name = self.get_setting('Audio', 'output_device_name')
+        if output_device_name != None:
+            Audio.set_output_device_name(output_device_name)
 
         self.bg = config_info.get('bg', Default.bg)
         self.fg = config_info.get('fg', Default.fg)
@@ -2892,19 +2918,26 @@ class Settings(Widget):
                               relief='raised')
 
         audio_input_frame = self.audio_input_settings(frame)
-        audio_input_frame.grid(row=0, column=0, sticky='w')
+#        Disable display of input settings for now
+#        audio_input_frame.grid(row=0, column=0, sticky='w')
         audio_output_frame = self.audio_output_settings(frame)
         audio_output_frame.grid(row=1, column=0, sticky='w')
 
         return frame
 
     def audio_input_settings(self, frame):
+        input_device_name = self.get_setting('Audio', 'input_device_name')
+        if input_device_name == None:
+            input_device_name = Audio.input_device_name()
+
         input_frame = tk.LabelFrame(frame,
-                                     text='Current Input Device',
-                                     font=self.label_font(),
-                                     labelanchor='nw',
-                                     bd=4,
-                                     relief='raised')
+                                    text='Current Input Device',
+                                    font=self.label_font(),
+                                    labelanchor='nw',
+                                    bd=4,
+                                    padx=4,
+                                    pady=4,
+                                    relief='raised')
 
         # Define the style for this dropdown widget
         stylename = str(self) + 'input.TCombobox'
@@ -2918,7 +2951,7 @@ class Settings(Widget):
                 width = len(name)
 
         self.input_val = tk.StringVar()
-        self.input_val.set(Audio.input_device_name())
+        self.input_val.set(input_device_name)
 
         input_combobox = ttk.Combobox(
                 input_frame,
@@ -2942,15 +2975,21 @@ class Settings(Widget):
         if input_name == '':
             return
 
-        Settings.settings['input_device_name'] = input_name
+        self.put_setting('Audio', 'input_device_name', input_name)
         Audio.set_input_device_name(input_name)
 
     def audio_output_settings(self, frame):
+        output_device_name = self.get_setting('Audio', 'output_device_name')
+        if output_device_name == None:
+            output_device_name = Audio.output_device_name()
+
         output_frame = tk.LabelFrame(frame,
                                      text='Current Output Device',
                                      font=self.label_font(),
                                      labelanchor='nw',
                                      bd=4,
+                                     padx=4,
+                                     pady=4,
                                      relief='raised')
 
         # Define the style for this dropdown widget
@@ -2965,7 +3004,7 @@ class Settings(Widget):
                 width = len(name)
 
         self.output_val = tk.StringVar()
-        self.output_val.set(Audio.output_device_name())
+        self.output_val.set(output_device_name)
 
         output_combobox = ttk.Combobox(
                 output_frame,
@@ -2989,8 +3028,60 @@ class Settings(Widget):
         if output_name == '':
             return
 
-        Settings.settings['output_device_name'] = output_name
+        self.put_setting('Audio', 'output_device_name', output_name)
         Audio.set_output_device_name(output_name)
+
+    def put_setting(self, category, setting, value):
+        if not category in self.settings:
+            self.settings[category] = {}
+        previous_value = self.settings[category].get(setting, None)
+        if value != previous_value:
+            self.settings[category][setting] = value
+            self.settings_changed = True
+            self.save_settings()
+
+    def get_setting(self, category, setting):
+        if category not in self.settings:
+            return None
+        if setting not in self.settings[category]:
+            return None
+        return self.settings[category][setting]
+
+    def platform_settings_filename(self, filename):
+        if sys.platform == 'darwin':
+            from AppKit import NSSearchPathForDirectoriesInDomains
+            # http://developer.apple.com/DOCUMENTATION/Cocoa/Reference/Foundation/Miscellaneous/Foundation_Functions/Reference/reference.html#//apple_ref/c/func/NSSearchPathForDirectoriesInDomains
+            # NSApplicationSupportDirectory = 14
+            # NSUserDomainMask = 1
+            # True for expanding the tilde into a fully qualified path
+            filename = os.path.join(NSSearchPathForDirectoriesInDomains(14, 1, True)[0], appname, filename)
+        elif sys.platform == 'win32':
+            filename = os.path.join(os.environ['APPDATA'], appname, filename)
+        else:
+            home_dir = os.path.expanduser('~')
+            config_dir = os.path.join(home_dir, '.config')
+            if os.path.isdir(config_dir):
+                config_dir = os.path.join(config_dir, appname)
+            else:
+                config_dir = os.path.join(home_dir, '.' + appname)
+            if not os.path.isdir(config_dir):
+                os.mkdir(config_dir, 0o755)
+            filename = os.path.join(config_dir, filename)
+
+        return filename
+
+    def save_settings(self):
+        if not self.settings_changed:
+            return
+
+        filename = self.platform_settings_filename(Settings.settings_filename)
+        with open(filename, 'w') as settingsfile:
+            self.settings.write(settingsfile)
+        self.settings_changed = False
+
+    def load_settings(self):
+        filename = self.platform_settings_filename(Settings.settings_filename)
+        self.settings.read(filename)
 
 class Config():
     main_block_name = ' main'
