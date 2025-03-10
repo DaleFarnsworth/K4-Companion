@@ -505,6 +505,14 @@ class Server():
                 self.send_str('AI4;')                # request K4 to send updates immediately
                 self.send_str('ER1;')                # request long format error messages
                 self.send_cmds('MD;MD$;')            # cache the mode response for later use in setting the vfo step
+
+                self.send_str('SIDA0;')              # Disable AI4 delivery of DAP info reports
+                self.send_str('SIDD0;')              # Disable AI4 delivery of DDC info reports
+                self.send_str('SIDU0;')              # Disable AI4 delivery of DUC info reports
+                self.send_str('SIFP0;')              # Disable AI4 delivery of FP info reports
+                self.send_str('SIRF0;')              # Disable AI4 delivery of RFB info reports
+                self.send_str('SIRC0;')              # Disable AI4 delivery of RMT connection info
+
                 if self.startup != None:
                     self.send_cmds(self.startup)     # send user-specified startup commands
 
