@@ -114,7 +114,11 @@
             #include keyer-speed-slider-group
             #include power-slider-group
           #}
-        #include audio-mx-togglebutton
+        - item: group
+          contains: #{
+            #include audio-mx-togglebutton
+            #include autospot-button
+          #}
         - item: group
           label: ''
           contains: #{
@@ -655,6 +659,10 @@
 
 #define k4-power-off-button
 - { item: button, text: 'Power Off', cmd:  PS0; }
+#end
+
+#define autospot-button
+- { item: button, label: ' ', text: 'Spot', cmd:  SP3; }
 #end
 
 #define connect-togglebutton
