@@ -690,7 +690,9 @@
 #define sub-receiver-togglebutton
 - item: togglebutton
   selections: #{
-    - { text: 'Sub on',   cmd: SB1; }
+    - { text: 'Div on',   cmd: DV1; }
+    - { text: 'Div off',  cmd: DV0;SB1; }
+    - { text: 'Sub on',   cmd: DV0;SB1 }
     - { text: 'Sub off' , cmd: SB0; }
   #}
 #end
