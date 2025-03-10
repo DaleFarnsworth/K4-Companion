@@ -2703,6 +2703,12 @@ class Audio():
         self.input_device_index = dev_info['index']
 
     @classmethod
+    def set_output_device_name(cls, name):
+        self = cls.get_singleton()
+        dev_info = self.device_info_by_name(name)
+        self.output_device_index = dev_info['index']
+
+    @classmethod
     def input_device_name(cls):
         self = cls.get_singleton()
         dev_info = self.device_infos[self.input_device_index]
@@ -2713,12 +2719,6 @@ class Audio():
         self = cls.get_singleton()
         dev_info = self.device_infos[self.output_device_index]
         return dev_info['name']
-
-    @classmethod
-    def set_output_device_name(cls, name):
-        self = cls.get_singleton()
-        dev_info = self.device_info_by_name(name)
-        self.output_device_index = dev_info['index']
 
     @classmethod
     def input_device_info(cls):
@@ -2770,8 +2770,6 @@ class Audio():
         fd = os.dup(2)
         os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
         pa = pyaudio.PyAudio()
-        os.dup2(fd, 2)           # restore stderr
-        os.close(fd)
 
         info = pa.get_host_api_info_by_index(0)
         numdevices = info.get('deviceCount')
@@ -2786,28 +2784,34 @@ class Audio():
             default_sample_rate = info['defaultSampleRate']
             device_info = { 'default_sample_rate': int(default_sample_rate), 'input_channels': 0, 'output_channels': 0 }
 
-            if pa.is_format_supported(default_sample_rate,
-                         input_device=info['index'],
-                         input_channels=1,
-                         input_format=pyaudio.paFloat32):
-                    device_info['index'] = info['index']
-                    device_info['name'] = info['name']
-                    device_info['input_channels'] = info['maxInputChannels']
-                    if info['index'] == default_input_device_index:
-                        self.input_device_index = info['index']
+            try:
+                if pa.is_format_supported(default_sample_rate,
+                             input_device=info['index'],
+                             input_channels=1,
+                             input_format=pyaudio.paFloat32):
+                        device_info['index'] = info['index']
+                        device_info['name'] = info['name']
+                        device_info['input_channels'] = info['maxInputChannels']
+                        if info['index'] == default_input_device_index:
+                            self.input_device_index = info['index']
 
-            if pa.is_format_supported(default_sample_rate,
-                         output_device=info['index'],
-                         output_channels=1,
-                         output_format=pyaudio.paFloat32):
-                    device_info['index'] = info['index']
-                    device_info['name'] = info['name']
-                    device_info['output_channels'] = info['maxOutputChannels']
-                    if info['index'] == default_output_device_index:
-                        self.output_device_index = info['index']
+                if pa.is_format_supported(default_sample_rate,
+                             output_device=info['index'],
+                             output_channels=1,
+                             output_format=pyaudio.paFloat32):
+                        device_info['index'] = info['index']
+                        device_info['name'] = info['name']
+                        device_info['output_channels'] = info['maxOutputChannels']
+                        if info['index'] == default_output_device_index:
+                            self.output_device_index = info['index']
+            except:
+                pass
 
             if 'index' in device_info:
                 self.device_infos[device_info['index']] = device_info
+
+        os.dup2(fd, 2)           # restore stderr
+        os.close(fd)
 
     def device_info_by_name(self, name):
         for index in self.device_infos:
@@ -2818,13 +2822,16 @@ class Audio():
 
     def output_loop(self):
         output_stream = None
+        current_index = None
+        warned = False
 
         while True:
             packet = self.output_queue.get()
             if len(packet) == 0:
                 return
 
-            if output_stream == None:
+            if current_index != self.output_device_index:
+                current_index = self.output_device_index
                 encode_mode = packet[0]
                 if encode_mode != 3:
                     raise Exception('Unsupported audio encode mode:', encode_mode)
@@ -2847,13 +2854,24 @@ class Audio():
                 os.dup2(fd, 2)           # restore stderr
                 os.close(fd)
 
-                output_stream = pa.open(format=pyaudio.paFloat32,
-                                        channels=channels,
-                                        rate=Audio.output_sample_rate(),
-                                        frames_per_buffer=frame_size,
-                                        output=True,
-                                        output_device_index=self.output_device_index,
-                                        )
+                if output_stream != None:
+                    output_stream.close()
+                    output_stream = None
+
+                try:
+                    output_stream = pa.open(format=pyaudio.paFloat32,
+                                            channels=channels,
+                                            rate=Audio.output_sample_rate(),
+                                            frames_per_buffer=frame_size,
+                                            output=True,
+                                            output_device_index=self.output_device_index,
+                                            )
+                    warned = False
+                except:
+                    if not warned:
+                        Popup.warning('Failed to open: ' + self.output_device_name())
+                        warned = True
+                    continue
 
             pcm = dec.decode_float(bytes(packet[4:]), frame_size)
 
