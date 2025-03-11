@@ -102,6 +102,7 @@ class Server():
     cat_version_number = 0
     cat_sequence_number = 0
     cat_packet_header = bytes((cat_packet_type, cat_version_number, cat_sequence_number))
+    control_k4_audio_cmd_bases = { 'MX', 'AG', 'AG$' }
 
     k4_get_cmd_bases = [         # For future use
         '#A',
@@ -427,6 +428,7 @@ class Server():
         self.connect_callbacks = []
         self.partial_packet = None
         self.password = None
+        self.control_k4_audio = true_values(Settings.get('Audio', 'control_k4_audio_settings'))
 
         self.ignored_errors = {}
 
@@ -569,6 +571,10 @@ class Server():
             if cmd == '':
                 continue
             base = cmd_base(cmd)
+            if base in Server.control_k4_audio_cmd_bases:
+                Audio.control_k4_cmd(base, cmd)
+                if not self.control_k4_audio:
+                    continue
             if Server.k4_set_only_cmd(base, cmd) or self.update_k4_parameter(base, cmd[len(base):]):
                 cmd += ';'
                 self.send_str(cmd)
@@ -737,11 +743,15 @@ class Server():
     def receive_k4_responses(self, responses):
         for response in responses:
             base = cmd_base(response)
+            if base == 'SB':
+                Audio.control_k4_cmd(base, response)
             if Options.debug >= 1:
                 if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG'):
                     dprint3('{name}: received: {response}'.format(name=self.name, response=response))
                 else:
                     dprint1('{name}: received: {response}'.format(name=self.name, response=response))
+            if not self.control_k4_audio and base in self.control_k4_audio_cmd_bases:
+                continue
             response = response[len(base):]
             if response == '?' and base not in self.ignored_errors:
                 if Options.debug > 0:
@@ -798,6 +808,18 @@ class Server():
 
     def set_password(self, password):
         self.password = password
+
+    def set_control_k4_audio(self, val):
+        self.control_k4_audio = val
+
+    def local_audio_responses(self, responses):
+        responses = responses.split(';')[:-1]
+        for response in responses:
+            base = cmd_base(response)
+            response=response[len(base):]
+            self.update_k4_parameter(base, response)
+        if self.control_k4_audio:
+            self.receive_k4_responses(responses)
 
 class Widget():
     blink_mS = 500
@@ -986,7 +1008,7 @@ class Container(Widget):
             elif widget_type == 'menu':
                child = Menu(config_info, self)
             elif widget_type == 'settings':
-               child = Settings(config_info, self)
+               child = Settings_widget(config_info, self)
             else:
                 raise Exception('Error: config file: unknown item "{type}"'.format(type=widget_type))
 
@@ -2773,12 +2795,46 @@ class Audio():
                 names.append(device_info['name'])
         return names
 
+    @classmethod
+    def control_k4_cmd(cls, base, cmd):
+        self = cls.get_singleton()
+        cmd = cmd[len(base):]
+
+        if base == 'MX':
+            Settings.put('Audio', 'Mixer', cmd)
+            self.ab = cmd.lower()
+        elif base == 'AG':
+            Settings.put('Audio', 'main_volume', cmd)
+            self.a_volume = float(cmd) / 60.0
+        elif base == 'AG$':
+            Settings.put('Audio', 'sub_volume', cmd)
+            self.b_volume = float(cmd) / 60.0
+        elif base == 'SB':
+            self.sub_on = cmd == '1'
+
     def __init__(self):
         self.input_thread = None
         self.output_thread = None
         self.input_device_index = 0
         self.output_device_index = 0
         self.device_infos = {}
+        self.sub_on = True
+        ab = Settings.get('Audio', 'mixer')
+        if ab == None:
+            ab = 'A.B'
+        responses = 'MX' + ab + ';'
+        self.ab = ab.lower()
+        a_volume = Settings.get('Audio', 'main_volume')
+        if a_volume == None:
+            a_volume = '000'
+        responses += 'AG' + a_volume + ';'
+        self.a_volume = float(a_volume) / 60.0
+        b_volume = Settings.get('Audio', 'sub_volume')
+        if b_volume == None:
+            b_volume = '000'
+        responses += 'AG$' + b_volume + ';'
+        self.b_volume = float(b_volume) / 60.0
+        Page.main().server.local_audio_responses(responses)
 
         fd = os.dup(2)
         os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
@@ -2889,22 +2945,113 @@ class Audio():
             pcm = dec.decode_float(bytes(packet[4:]), frame_size)
 
             # pydub doesn't support float32, so we convert to int32
-            a = numpy.frombuffer(pcm, dtype=numpy.float32)
-            a = (a * (2 ** 30 - 1)).clip(-2 ** 30, (2 ** 30 - 1)).astype(numpy.int32)
+            stereo = numpy.frombuffer(pcm, dtype=numpy.float32)
+            stereo = (stereo * (2 ** 30 - 1)).clip(-2 ** 30, (2 ** 30 - 1)).astype(numpy.int32)
 
-            aseg = pydub.AudioSegment(data=a.tobytes(), sample_width=4, frame_rate=sample_rate, channels=2)
-            aseg = aseg.set_frame_rate(Audio.output_sample_rate())
+            aseg = pydub.AudioSegment(data=stereo.tobytes(), sample_width=4, frame_rate=sample_rate, channels=2)
+            aseg = aseg.set_frame_rate(Audio.output_sample_rate())  # resample to devices preferred sample rate
+            a, b = aseg.split_to_mono()                             # a is main audio, b is sub audio
 
-            # Now we convert back to float32 so we can get some amplification
-            channel_sounds = aseg.split_to_mono()
-            samples = [s.get_array_of_samples() for s in channel_sounds]
-            a = numpy.array(samples).T.astype(numpy.float32)
-            a /= (2**30 - 1) / 8              # multiply by 8 for some amplification
-            output_stream.write(a.tobytes())
+            a = numpy.array(a.get_array_of_samples())
+            a = a.T.astype(numpy.float32)                       # convert to float32
+            if self.a_volume == 0.0:
+                a *= 0.0
+            else:
+                a /= (2**30 - 1) / (self.a_volume * 16)         # multiply by 16 for some amplification
 
-class Settings(Widget):
+            b = numpy.array(b.get_array_of_samples())
+            b = b.T.astype(numpy.float32)                       # convert to float32
+            if self.b_volume == 0.0:
+                b *= 0.0
+            else:
+                b /= (2**30 - 1) / (self.b_volume * 16)         # multiply by 16 for some amplification
+
+            ab = self.ab
+            if not self.sub_on:
+                ab = 'a.a'
+
+            if ab == 'a.a':
+                left, right = a, a
+            elif ab == 'b.b':
+                left, right = b, b
+            else:
+                left, right = a, b
+
+            stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
+            stereo[0::2] = left
+            stereo[1::2] = right
+            output_stream.write(stereo.tobytes())
+
+class Settings():
     settings_filename = 'settings.ini'
+    settings = configparser.ConfigParser()
+    settings_loaded = False
+    settings_changed = False
 
+    @classmethod
+    def put(cls, category, setting, value):
+        if not cls.settings_loaded:
+            cls.load_settings()
+        value = str(value)
+        if not category in cls.settings:
+            cls.settings[category] = {}
+        previous_value = cls.settings[category].get(setting, None)
+        if value != previous_value:
+            cls.settings[category][setting] = value
+            cls.settings_changed = True
+            cls.save_settings()
+
+    @classmethod
+    def get(cls, category, setting):
+        if not cls.settings_loaded:
+            cls.load_settings()
+        if category not in cls.settings:
+            return None
+        if setting not in cls.settings[category]:
+            return None
+        return cls.settings[category][setting]
+
+    @classmethod
+    def platform_settings_filename(cls, filename):
+        if sys.platform == 'darwin':
+            from AppKit import NSSearchPathForDirectoriesInDomains
+            # http://developer.apple.com/DOCUMENTATION/Cocoa/Reference/Foundation/Miscellaneous/Foundation_Functions/Reference/reference.html#//apple_ref/c/func/NSSearchPathForDirectoriesInDomains
+            # NSApplicationSupportDirectory = 14
+            # NSUserDomainMask = 1
+            # True for expanding the tilde into a fully qualified path
+            filename = os.path.join(NSSearchPathForDirectoriesInDomains(14, 1, True)[0], appname, filename)
+        elif sys.platform == 'win32':
+            filename = os.path.join(os.environ['APPDATA'], appname, filename)
+        else:
+            home_dir = os.path.expanduser('~')
+            config_dir = os.path.join(home_dir, '.config')
+            if os.path.isdir(config_dir):
+                config_dir = os.path.join(config_dir, appname)
+            else:
+                config_dir = os.path.join(home_dir, '.' + appname)
+            if not os.path.isdir(config_dir):
+                os.mkdir(config_dir, 0o755)
+            filename = os.path.join(config_dir, filename)
+
+        return filename
+
+    @classmethod
+    def save_settings(cls):
+        if not cls.settings_changed:
+            return
+
+        filename = cls.platform_settings_filename(cls.settings_filename)
+        with open(filename, 'w') as settingsfile:
+            cls.settings.write(settingsfile)
+        cls.settings_changed = False
+
+    @classmethod
+    def load_settings(cls):
+        filename = cls.platform_settings_filename(cls.settings_filename)
+        cls.settings.read(filename)
+        cls.settings_loaded = True
+
+class Settings_widget(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         options = [ 'label', 'leading', 'bg', 'fg', 'abg', 'afg', 'selectbg', 'selectfg', 'font', 'label_font' ]
@@ -2912,15 +3059,11 @@ class Settings(Widget):
 
         super().__init__(config_info, container)
 
-        self.settings = configparser.ConfigParser()
-        self.settings_changed = False
-        self.load_settings()
-
-        input_device_name = self.get_setting('Audio', 'input_device_name')
+        input_device_name = Settings.get('Audio', 'input_device_name')
         if input_device_name != None:
             Audio.set_input_device_name(input_device_name)
 
-        output_device_name = self.get_setting('Audio', 'output_device_name')
+        output_device_name = Settings.get('Audio', 'output_device_name')
         if output_device_name != None:
             Audio.set_output_device_name(output_device_name)
 
@@ -2959,7 +3102,7 @@ class Settings(Widget):
                               relief='raised')
 
         self.password_var = tk.StringVar()
-        h = self.get_setting('Elecraft K4', 'insecure_password_hash')
+        h = Settings.get('Elecraft K4', 'insecure_password_hash')
         if h == None:
             pw = ''
         else:
@@ -2985,13 +3128,12 @@ class Settings(Widget):
     def set_text(self, event):
         pw = self.password_var.get()
         h = Reversable_hash.hash(pw)
-        Settings.password_hash = h
-        self.put_setting('Elecraft K4', 'insecure_password_hash', h)
+        Settings.put('Elecraft K4', 'insecure_password_hash', h)
         self.server.set_password(pw)
 
     def audio_settings(self):
         frame = tk.LabelFrame(self.frame,
-                              text='Audio Devices',
+                              text='Audio Settings',
                               font=self.label_font(),
                               labelanchor='nw',
                               bd=4,
@@ -3004,11 +3146,13 @@ class Settings(Widget):
 #        audio_input_frame.grid(row=0, column=0, sticky='w')
         audio_output_frame = self.audio_output_settings(frame)
         audio_output_frame.grid(row=1, column=0, sticky='w')
+        audio_k4_control_frame = self.audio_k4_control_setting(frame)
+        audio_k4_control_frame.grid(row=2, column=0, sticky='w')
 
         return frame
 
     def audio_input_settings(self, frame):
-        input_device_name = self.get_setting('Audio', 'input_device_name')
+        input_device_name = Settings.get('Audio', 'input_device_name')
         if input_device_name == None:
             input_device_name = Audio.input_device_name()
 
@@ -3057,11 +3201,11 @@ class Settings(Widget):
         if input_name == '':
             return
 
-        self.put_setting('Audio', 'input_device_name', input_name)
+        Settings.put('Audio', 'input_device_name', input_name)
         Audio.set_input_device_name(input_name)
 
     def audio_output_settings(self, frame):
-        output_device_name = self.get_setting('Audio', 'output_device_name')
+        output_device_name = Settings.get('Audio', 'output_device_name')
         if output_device_name == None:
             output_device_name = Audio.output_device_name()
 
@@ -3110,60 +3254,62 @@ class Settings(Widget):
         if output_name == '':
             return
 
-        self.put_setting('Audio', 'output_device_name', output_name)
+        Settings.put('Audio', 'output_device_name', output_name)
         Audio.set_output_device_name(output_name)
 
-    def put_setting(self, category, setting, value):
-        if not category in self.settings:
-            self.settings[category] = {}
-        previous_value = self.settings[category].get(setting, None)
-        if value != previous_value:
-            self.settings[category][setting] = value
-            self.settings_changed = True
-            self.save_settings()
+    def audio_k4_control_setting(self, frame):
+        setting = true_values(Settings.get('Audio', 'control_k4_audio_settings'))
+        if setting == None:
+            setting = not self.server.port == 9205
+        self.server.set_control_k4_audio(setting)
 
-    def get_setting(self, category, setting):
-        if category not in self.settings:
-            return None
-        if setting not in self.settings[category]:
-            return None
-        return self.settings[category][setting]
+        control_frame = tk.LabelFrame(frame,
+                                     text='Control K4 Audio Settings?',
+                                     font=self.label_font(),
+                                     labelanchor='nw',
+                                     bd=4,
+                                     padx=4,
+                                     pady=4,
+                                     relief='raised')
 
-    def platform_settings_filename(self, filename):
-        if sys.platform == 'darwin':
-            from AppKit import NSSearchPathForDirectoriesInDomains
-            # http://developer.apple.com/DOCUMENTATION/Cocoa/Reference/Foundation/Miscellaneous/Foundation_Functions/Reference/reference.html#//apple_ref/c/func/NSSearchPathForDirectoriesInDomains
-            # NSApplicationSupportDirectory = 14
-            # NSUserDomainMask = 1
-            # True for expanding the tilde into a fully qualified path
-            filename = os.path.join(NSSearchPathForDirectoriesInDomains(14, 1, True)[0], appname, filename)
-        elif sys.platform == 'win32':
-            filename = os.path.join(os.environ['APPDATA'], appname, filename)
-        else:
-            home_dir = os.path.expanduser('~')
-            config_dir = os.path.join(home_dir, '.config')
-            if os.path.isdir(config_dir):
-                config_dir = os.path.join(config_dir, appname)
-            else:
-                config_dir = os.path.join(home_dir, '.' + appname)
-            if not os.path.isdir(config_dir):
-                os.mkdir(config_dir, 0o755)
-            filename = os.path.join(config_dir, filename)
+        # Define the style for this dropdown widget
+        stylename = str(self) + 'output.TCombobox'
+        style = ttk.Style()
+        style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg)
 
-        return filename
+        values = ('Yes', 'No')
+        width = 3
+        current_value = 'Yes' if setting else 'No'
 
-    def save_settings(self):
-        if not self.settings_changed:
+        self.k4_control_audio_val = tk.StringVar()
+        self.k4_control_audio_val.set(current_value)
+
+        control_combobox = ttk.Combobox(
+                control_frame,
+                textvar=self.k4_control_audio_val,
+                font=self.font(),
+                values=values,
+                height=len(values),
+                width=width,
+                state='readonly',
+                justify='left',
+                style=stylename,
+                )
+        control_combobox.grid(row=0, column=0, sticky='w')
+
+        self.k4_control_audio_val.trace('w', self.on_k4_control_audio_combobox_changed)
+
+        return control_frame
+
+    def on_k4_control_audio_combobox_changed(self, var, index, mode):
+        current_value = self.output_val.get()
+        if current_value == '':
             return
 
-        filename = self.platform_settings_filename(Settings.settings_filename)
-        with open(filename, 'w') as settingsfile:
-            self.settings.write(settingsfile)
-        self.settings_changed = False
+        setting = current_value == 'Yes'
 
-    def load_settings(self):
-        filename = self.platform_settings_filename(Settings.settings_filename)
-        self.settings.read(filename)
+        Settings.put('Audio', 'control_k4_audio_settings', setting)
+        self.server.set_control_k4_audio(setting)
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure
