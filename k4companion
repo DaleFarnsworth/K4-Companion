@@ -496,13 +496,17 @@ class Server():
                             msg="Enter your k4 remote password:")
                     h = hashlib.sha384(self.password.encode()).hexdigest()
                     self.send_str(h, force_as_string=True)
+
+                if self.port == 9205:
+                    self.dequeue_k4_packets()
+
+                    for callback in self.connect_callbacks:
+                        callback()
+
                     self.send_str('RDY;')
                     Poll.add_poll(Server.ping_poll_interval, self.ping)
 
                     Audio.output_queue(self.output_audio_queue)
-
-                if self.port == 9205:
-                    self.dequeue_k4_packets()
 
                 self.send_str('PING;')               # Trigger a response: PONG;
                 self.send_str('K41;')                # request K4 to respond in advanced mode
@@ -519,9 +523,6 @@ class Server():
 
                 if self.startup != None:
                     self.send_cmds(self.startup)     # send user-specified startup commands
-
-            for callback in self.connect_callbacks:
-                callback()
 
         except socket.gaierror:
             print('Address not found: {addr}'.format(addr=self.address))
