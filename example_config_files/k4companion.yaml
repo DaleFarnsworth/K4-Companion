@@ -612,7 +612,7 @@
   selections: #{
     - { text: "Audio A+B", cmd: MXA.B; }
     - { text: "Audio A",   cmd: MXA.A; }
-    - { text: "Audio B",   cmd: MXB.B }
+    - { text: "Audio B",   cmd: MXB.B; }
   #}
 #end
 
