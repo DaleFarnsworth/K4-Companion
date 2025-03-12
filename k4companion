@@ -43,7 +43,6 @@ import numpy
 import opuslib
 import os
 import pyaudio
-import pydub
 import queue
 import re
 import select
@@ -2730,7 +2729,8 @@ class Audio():
     @classmethod
     def output_sample_rate(cls):
         self = cls.get_singleton()
-        return self.device_infos[self.output_device_index]['default_sample_rate']
+        return 48000                    # Force output sample rate to 48000 Hz
+#        return self.device_infos[self.output_device_index]['default_sample_rate']
 
     @classmethod
     def set_input_device_name(cls, name):
@@ -2865,7 +2865,7 @@ class Audio():
                         if info['index'] == default_input_device_index:
                             self.input_device_index = info['index']
 
-                if pa.is_format_supported(default_sample_rate,
+                if pa.is_format_supported(Audio.output_sample_rate(),
                              output_device=info['index'],
                              output_channels=1,
                              output_format=pyaudio.paFloat32):
@@ -2945,31 +2945,19 @@ class Audio():
 
             pcm = dec.decode_float(bytes(packet[4:]), frame_size)
 
-            # pydub doesn't support float32, so we convert to int32
             stereo = numpy.frombuffer(pcm, dtype=numpy.float32)
-            stereo = (stereo * (2 ** 30 - 1)).clip(-2 ** 30, (2 ** 30 - 1)).astype(numpy.int32)
+            a = stereo[0::2]                    # main receiver
+            b = stereo[1::2]                    # sub receiver
 
-            aseg = pydub.AudioSegment(data=stereo.tobytes(), sample_width=4, frame_rate=sample_rate, channels=2)
-            aseg = aseg.set_frame_rate(Audio.output_sample_rate())  # resample to devices preferred sample rate
-            a, b = aseg.split_to_mono()                             # a is main audio, b is sub audio
-
-            a = numpy.array(a.get_array_of_samples())
-            a = a.T.astype(numpy.float32)                       # convert to float32
-            if self.a_volume == 0.0:
-                a *= 0.0
-            else:
-                a /= (2**30 - 1) / (self.a_volume * 16)         # multiply by 16 for some amplification
-
-            b = numpy.array(b.get_array_of_samples())
-            b = b.T.astype(numpy.float32)                       # convert to float32
-            if self.b_volume == 0.0:
-                b *= 0.0
-            else:
-                b /= (2**30 - 1) / (self.b_volume * 16)         # multiply by 16 for some amplification
-
+            mult = 1.0
             ab = self.ab
-            if not self.sub_on:
-                ab = 'a.a'
+            if not self.sub_on:                 # if sub is off,
+                ab = 'a.a'                      # take all audio from main
+            elif ab == 'a.b':
+                mult = 2.0                      # compensate for reduced volume. Why?
+
+            a = a * self.a_volume * 32 * mult   # add some amplification
+            b = b * self.b_volume * 32 * mult
 
             if ab == 'a.a':
                 left, right = a, a
@@ -2977,6 +2965,9 @@ class Audio():
                 left, right = b, b
             else:
                 left, right = a, b
+
+            left = left.repeat(4)               # resample to 48000 Hz
+            right = right.repeat(4)
 
             stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
