@@ -487,6 +487,10 @@ class Server():
             if self.type == 'k4':
                 if self.port == 9200:
                     self.dequeue_k4_cat()
+
+                    for callback in self.connect_callbacks:
+                        callback()
+
                     self.send_str('PING;')               # Trigger a response: PONG;
                 else:
                     self.output_audio_queue = queue.Queue()
