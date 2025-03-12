@@ -439,6 +439,7 @@ class Server():
 
     def on_server_connect(self):
         self.subscribe_response('ER;', self.on_error_code, send=False)
+        self.update_local_audio_parameters()
 
     def on_error_code(self, response):
         response = response.rstrip(';')
@@ -818,8 +819,8 @@ class Server():
     def set_control_k4_audio(self, val):
         self.control_k4_audio = val
 
-    def local_audio_responses(self, responses):
-        responses = responses.split(';')[:-1]
+    def update_local_audio_parameters(self):
+        responses = Audio.local_audio_responses()
         for response in responses:
             base = cmd_base(response)
             response=response[len(base):]
@@ -2734,8 +2735,8 @@ class Audio():
 
     @classmethod
     def output_sample_rate(cls):
-        self = cls.get_singleton()
         return 48000                    # Force output sample rate to 48000 Hz
+#        self = cls.get_singleton()
 #        return self.device_infos[self.output_device_index]['default_sample_rate']
 
     @classmethod
@@ -2819,6 +2820,25 @@ class Audio():
         elif base == 'SB':
             self.sub_on = cmd == '1'
 
+    @classmethod
+    def local_audio_responses(cls):
+        ab = Settings.get('Audio', 'mixer')
+        if ab == None:
+            ab = 'A.B'
+        responses = 'MX' + ab + ';'
+
+        a_volume = Settings.get('Audio', 'main_volume')
+        if a_volume == None:
+            a_volume = '000'
+        responses += 'AG' + a_volume + ';'
+
+        b_volume = Settings.get('Audio', 'sub_volume')
+        if b_volume == None:
+            b_volume = '000'
+        responses += 'AG$' + b_volume + ';'
+
+        return responses
+
     def __init__(self):
         self.input_thread = None
         self.output_thread = None
@@ -2826,22 +2846,21 @@ class Audio():
         self.output_device_index = 0
         self.device_infos = {}
         self.sub_on = True
+
         ab = Settings.get('Audio', 'mixer')
         if ab == None:
             ab = 'A.B'
-        responses = 'MX' + ab + ';'
         self.ab = ab.lower()
+
         a_volume = Settings.get('Audio', 'main_volume')
         if a_volume == None:
             a_volume = '000'
-        responses += 'AG' + a_volume + ';'
         self.a_volume = float(a_volume) / 60.0
+
         b_volume = Settings.get('Audio', 'sub_volume')
         if b_volume == None:
             b_volume = '000'
-        responses += 'AG$' + b_volume + ';'
         self.b_volume = float(b_volume) / 60.0
-        Page.main().server.local_audio_responses(responses)
 
         fd = os.dup(2)
         os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
@@ -2870,7 +2889,10 @@ class Audio():
                         device_info['input_channels'] = info['maxInputChannels']
                         if info['index'] == default_input_device_index:
                             self.input_device_index = info['index']
+            except:
+                pass
 
+            try:
                 if pa.is_format_supported(Audio.output_sample_rate(),
                              output_device=info['index'],
                              output_channels=1,
