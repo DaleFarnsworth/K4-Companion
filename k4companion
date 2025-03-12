@@ -487,8 +487,10 @@ class Server():
             if self.type == 'k4':
                 if self.port == 9200:
                     self.dequeue_k4_cat()
+                    self.send_str('PING;')               # Trigger a response: PONG;
                 else:
                     self.output_audio_queue = queue.Queue()
+                    Audio.output_queue(self.output_audio_queue)
 
                     if self.password == None:
                         self.password = Popup.password(title="Connect to K4",
@@ -496,18 +498,15 @@ class Server():
                     h = hashlib.sha384(self.password.encode()).hexdigest()
                     self.send_str(h, force_as_string=True)
 
-                if self.port == 9205:
+                    self.wait_for_k4_received_data()
                     self.dequeue_k4_packets()
+                    self.send_str('RDY;')
 
                     for callback in self.connect_callbacks:
                         callback()
 
-                    self.send_str('RDY;')
                     Poll.add_poll(Server.ping_poll_interval, self.ping)
 
-                    Audio.output_queue(self.output_audio_queue)
-
-                self.send_str('PING;')               # Trigger a response: PONG;
                 self.send_str('K41;')                # request K4 to respond in advanced mode
                 self.send_str('AI4;')                # request K4 to send updates immediately
                 self.send_str('ER1;')                # request long format error messages
@@ -651,6 +650,9 @@ class Server():
 
     def ping(self):
         self.send_str('PING;')
+
+    def wait_for_k4_received_data(self):
+        select.select([self.socket.fileno()], [], [self.socket], 1)
 
     def dequeue_k4_packets(self):
         packet_offset = 0
