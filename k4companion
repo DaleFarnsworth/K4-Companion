@@ -493,9 +493,6 @@ class Server():
                 if self.port == 9200:
                     self.dequeue_k4_cat()
 
-                    for callback in self.connect_callbacks:
-                        callback()
-
                     self.send_str('PING;')               # Trigger a response: PONG;
                 else:
                     self.output_audio_queue = queue.Queue()
@@ -509,10 +506,6 @@ class Server():
 
                     self.wait_for_k4_received_data()
                     self.dequeue_k4_packets()
-                    self.send_str('RDY;')
-
-                    for callback in self.connect_callbacks:
-                        callback()
 
                     Poll.add_poll(Server.ping_poll_interval, self.ping)
 
@@ -521,6 +514,11 @@ class Server():
                 self.send_str('ER1;')                # request long format error messages
                 self.send_cmds('MD;MD$;')            # cache the mode response for later use in setting the vfo step
 
+                if self.startup != None:
+                    self.send_cmds(self.startup)     # send user-specified startup commands
+
+                self.send_str('RDY;')
+
                 self.send_str('SIDA0;')              # Disable AI4 delivery of DAP info reports
                 self.send_str('SIDD0;')              # Disable AI4 delivery of DDC info reports
                 self.send_str('SIDU0;')              # Disable AI4 delivery of DUC info reports
@@ -528,8 +526,8 @@ class Server():
                 self.send_str('SIRF0;')              # Disable AI4 delivery of RFB info reports
                 self.send_str('SIRC0;')              # Disable AI4 delivery of RMT connection info
 
-                if self.startup != None:
-                    self.send_cmds(self.startup)     # send user-specified startup commands
+                for callback in self.connect_callbacks:
+                    callback()
 
         except socket.gaierror:
             print('Address not found: {addr}'.format(addr=self.address))
