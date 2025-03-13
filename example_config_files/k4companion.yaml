@@ -296,6 +296,7 @@
     - { text: "2.50 kHz", cmd: BW0250; }
     - { text: "3.50 kHz", cmd: BW0350; }
     - { text: "4.00 kHz", cmd: BW0400; }
+    - { text: "5.00 kHz", cmd: BW0500; }
   #}
 #end
 
