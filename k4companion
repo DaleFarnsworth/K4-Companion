@@ -101,6 +101,10 @@ class Server():
     cat_version_number = 0
     cat_sequence_number = 0
     cat_packet_header = bytes((cat_packet_type, cat_version_number, cat_sequence_number))
+    payload_type_cat = 0
+    payload_type_audio = 1
+    payload_type_pan = 2
+    payload_type_minipan = 3
     control_k4_audio_cmd_bases = { 'MX', 'AG', 'AG$' }
 
     k4_get_cmd_bases = [         # For future use
@@ -594,9 +598,16 @@ class Server():
                 except:
                     for b in bs:
                         self.socket.sendall(b)
-                #dprint1('{name}: sent: {bs}'.format(name=self.name, bs=bs))
-                if Options.debug >= 1 and len(bs) > 3 and bs[2][0] == 0:
-                    cmds = bs[3].decode()
+
+                if Options.debug >= 1:
+                    if self.port == 9200:
+                        cmds = bs[0]
+                    elif bs[0] == Server.begin_packet_marker and bs[2][0] == Server.payload_type_cat:
+                        cmds = bs[3]
+                    else:
+                        continue
+
+                    cmds = cmds.decode()
                     if cmds in ['PING;']:
                         dprint3('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
                     else:
@@ -687,13 +698,13 @@ class Server():
 
                     payload_type = rb[8]
                     payload = rb[11:end_offset-4]
-                    if payload_type == 0:
+                    if payload_type == self.payload_type_cat:
                         self.received_cat(payload)
-                    elif payload_type == 1:
+                    elif payload_type == self.payload_type_audio:
                         self.received_audio(payload)
-                    elif payload_type == 2:
+                    elif payload_type == self.payload_type_pan:
                         self.received_pan(payload)
-                    elif payload_type == 3:
+                    elif payload_type == self.payload_type_minipan:
                         self.received_minipan(payload)
 
                     if remaining_length == end_offset:
