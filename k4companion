@@ -750,7 +750,7 @@ class Server():
     def receive_k4_responses(self, responses):
         for response in responses:
             base = cmd_base(response)
-            if base == 'SB':
+            if base in ('SB', 'DV'):
                 Audio.control_k4_cmd(base, response)
             if Options.debug >= 1:
                 if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG'):
@@ -821,6 +821,7 @@ class Server():
 
     def update_local_audio_parameters(self):
         responses = Audio.local_audio_responses()
+        responses = responses.split(';')[:-1]
         for response in responses:
             base = cmd_base(response)
             response=response[len(base):]
@@ -2819,6 +2820,8 @@ class Audio():
             self.b_volume = float(cmd) / 60.0
         elif base == 'SB':
             self.sub_on = cmd == '1'
+        elif base == 'DV':
+            self.diversity_on = cmd == '1'
 
     @classmethod
     def local_audio_responses(cls):
@@ -2846,6 +2849,7 @@ class Audio():
         self.output_device_index = 0
         self.device_infos = {}
         self.sub_on = True
+        self.diversity_on = False
 
         ab = Settings.get('Audio', 'mixer')
         if ab == None:
@@ -2977,21 +2981,19 @@ class Audio():
             a = stereo[0::2]                    # main receiver
             b = stereo[1::2]                    # sub receiver
 
-            mult = 1.0
             ab = self.ab
-            if not self.sub_on:                 # if sub is off,
-                ab = 'a.a'                      # take all audio from main
-            elif ab == 'a.b':
-                mult = 2.0                      # compensate for reduced volume. Why?
-
-            a = a * self.a_volume * 32 * mult   # add some amplification
-            b = b * self.b_volume * 32 * mult
+            if self.diversity_on or not self.sub_on:
+                ab = 'a.a'                          # take all audio from main
 
             if ab == 'a.a':
+                a = a * self.a_volume * 32          # add some amplification
                 left, right = a, a
             elif ab == 'b.b':
+                b = b * self.b_volume * 32
                 left, right = b, b
             else:
+                a = a * self.a_volume * 32
+                b = b * self.b_volume * 32
                 left, right = a, b
 
             left = left.repeat(4)               # resample to 48000 Hz
