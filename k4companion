@@ -799,7 +799,6 @@ class Server():
             parameter = self.k4_parameters.get(base, None)
             if parameter != None:
                 callback(base + parameter + ';')
-            self.send_str(cmd_get_format(cmd))              # TODO Try sending only if not found is cached parameters
 
     def unsubscribe_response(self, base, callback):
         try:
