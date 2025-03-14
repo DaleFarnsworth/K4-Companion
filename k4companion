@@ -2683,6 +2683,10 @@ class Menu(Widget):
 
 class Audio():
     singleton = None
+    input_channels = 1
+    output_channels = 2
+    k4_sample_rate = 12000
+    max_output_sample_rate = 48000
 
     @classmethod
     def get_singleton(cls):
@@ -2708,22 +2712,6 @@ class Audio():
             self.output_thread.join()
 
     @classmethod
-    def device_infos(cls):
-        self = cls.get_singleton()
-        return self.device_infos
-
-    @classmethod
-    def input_sample_rate(cls):
-        self = cls.get_singleton()
-        return self.device_infos[self.input_device_index]['default_sample_rate']
-
-    @classmethod
-    def output_sample_rate(cls):
-        return 48000                    # Force output sample rate to 48000 Hz
-#        self = cls.get_singleton()
-#        return self.device_infos[self.output_device_index]['default_sample_rate']
-
-    @classmethod
     def set_input_device_name(cls, name):
         self = cls.get_singleton()
         dev_info = self.device_info_by_name(name)
@@ -2732,30 +2720,30 @@ class Audio():
     @classmethod
     def set_output_device_name(cls, name):
         self = cls.get_singleton()
-        dev_info = self.device_info_by_name(name)
+        dev_info = self.output_device_info_by_name(name)
         self.output_device_index = dev_info['index']
 
     @classmethod
     def input_device_name(cls):
         self = cls.get_singleton()
-        dev_info = self.device_infos[self.input_device_index]
+        dev_info = self.input_device_infos[self.input_device_index]
         return dev_info['name']
 
     @classmethod
     def output_device_name(cls):
         self = cls.get_singleton()
-        dev_info = self.device_infos[self.output_device_index]
+        dev_info = self.output_device_infos[self.output_device_index]
         return dev_info['name']
 
     @classmethod
     def input_device_info(cls):
         self = cls.get_singleton()
-        return self.device_infos[self.input_device_index]
+        return self.input_device_infos[self.input_device_index]
 
     @classmethod
     def output_device_info(cls):
         self = cls.get_singleton()
-        return self.device_infos[self.output_device_index]
+        return self.output_device_infos[self.output_device_index]
 
     @classmethod
     def input_device_index(cls):
@@ -2771,21 +2759,25 @@ class Audio():
     def input_device_names(cls):
         self = cls.get_singleton()
         names = []
-        for index in self.device_infos:
-            device_info = self.device_infos[index]
-            if device_info['input_channels'] > 0:
-                names.append(device_info['name'])
+        for index in self.input_device_infos:
+            device_info = self.input_device_infos[index]
+            names.append(device_info['name'])
         return names
 
     @classmethod
     def output_device_names(cls):
         self = cls.get_singleton()
         names = []
-        for index in self.device_infos:
-            device_info = self.device_infos[index]
-            if device_info['output_channels'] > 0:
-                names.append(device_info['name'])
+        for index in self.output_device_infos:
+            device_info = self.output_device_infos[index]
+            names.append(device_info['name'])
         return names
+
+    @classmethod
+    def output_device_sample_rate(cls):
+        self = cls.get_singleton()
+        info = self.output_device_infos[self.output_device_index]
+        return info['output_sample_rate']
 
     @classmethod
     def control_k4_cmd(cls, base, cmd):
@@ -2830,7 +2822,8 @@ class Audio():
         self.output_thread = None
         self.input_device_index = 0
         self.output_device_index = 0
-        self.device_infos = {}
+        self.input_device_infos = {}
+        self.output_device_infos = {}
         self.sub_on = True
         self.diversity_on = False
 
@@ -2864,43 +2857,68 @@ class Audio():
             if info['name'] in [ 'dmix', 'lavrate', 'samplerate', 'speexrate', 'pulse', 'speex', 'upmix', 'vdownmix' ]:
                 continue
             default_sample_rate = info['defaultSampleRate']
-            device_info = { 'default_sample_rate': int(default_sample_rate), 'input_channels': 0, 'output_channels': 0 }
+            input_device_info = { 'default_sample_rate': int(default_sample_rate), 'input_channels': 0 }
 
             try:
                 if pa.is_format_supported(default_sample_rate,
-                             input_device=info['index'],
-                             input_channels=1,
-                             input_format=pyaudio.paFloat32):
-                        device_info['index'] = info['index']
-                        device_info['name'] = info['name']
-                        device_info['input_channels'] = info['maxInputChannels']
-                        if info['index'] == default_input_device_index:
-                            self.input_device_index = info['index']
+                         input_device=info['index'],
+                         input_channels=Audio.input_channels,
+                         input_format=pyaudio.paFloat32):
+                    input_device_info['index'] = info['index']
+                    input_device_info['name'] = info['name']
+                    input_device_info['input_channels'] = info['maxInputChannels']
+                    if info['index'] == default_input_device_index:
+                        self.input_device_index = info['index']
             except:
+                raise
                 pass
 
-            try:
-                if pa.is_format_supported(Audio.output_sample_rate(),
-                             output_device=info['index'],
-                             output_channels=1,
-                             output_format=pyaudio.paFloat32):
-                        device_info['index'] = info['index']
-                        device_info['name'] = info['name']
-                        device_info['output_channels'] = info['maxOutputChannels']
+            if 'index' in input_device_info:
+                self.input_device_infos[input_device_info['index']] = input_device_info
+
+            output_device_info = { 'default_sample_rate': int(default_sample_rate), 'output_channels': 0 }
+
+            for output_sample_rate in range(Audio.k4_sample_rate, Audio.max_output_sample_rate, Audio.k4_sample_rate):
+                try:
+                    if pa.is_format_supported(output_sample_rate,
+                                 output_device=info['index'],
+                                 output_channels=Audio.output_channels,
+                                 output_format=pyaudio.paFloat32):
+                        output_device_info['index'] = info['index']
+                        output_device_info['name'] = info['name']
+                        output_device_info['output_channels'] = info['maxOutputChannels']
+                        output_device_info['output_sample_rate'] = output_sample_rate
                         if info['index'] == default_output_device_index:
                             self.output_device_index = info['index']
-            except:
-                pass
+                        break
+                except:
+                    pass
 
-            if 'index' in device_info:
-                self.device_infos[device_info['index']] = device_info
+            if 'index' in output_device_info:
+                self.output_device_infos[output_device_info['index']] = output_device_info
+            elif Options.debug > 0:
+                try:
+                    if pa.is_format_supported(default_sample_rate,
+                                 output_device=info['index'],
+                                 output_channels=Audio.output_channels,
+                                 output_format=pyaudio.paFloat32):
+                        dprint('Info:', info['name'], 'does not support multiple of K4 sample rate. supported rate:', default_sample_rate)
+                except:
+                    pass
 
         os.dup2(fd, 2)           # restore stderr
         os.close(fd)
 
-    def device_info_by_name(self, name):
-        for index in self.device_infos:
-            dev_info = self.device_infos[index]
+    def input_device_info_by_name(self, name):
+        for index in self.input_device_infos:
+            dev_info = self.input_device_infos[index]
+            if dev_info['name'] == name:
+                return dev_info
+        return None
+
+    def output_device_info_by_name(self, name):
+        for index in self.output_device_infos:
+            dev_info = self.output_device_infos[index]
             if dev_info['name'] == name:
                 return dev_info
         return None
@@ -2927,11 +2945,8 @@ class Audio():
                 sample_rate = packet[3]
                 if sample_rate != 0:
                     raise Exception('Unsupported audio sample rate:', sample_rate)
-                sample_rate = 12000
 
-                channels = 2
-
-                dec = opuslib.Decoder(sample_rate, channels)
+                dec = opuslib.Decoder(Audio.k4_sample_rate, Audio.output_channels)
 
                 fd = os.dup(2)
                 os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
@@ -2945,8 +2960,8 @@ class Audio():
 
                 try:
                     output_stream = pa.open(format=pyaudio.paFloat32,
-                                            channels=channels,
-                                            rate=Audio.output_sample_rate(),
+                                            channels=Audio.output_channels,
+                                            rate=Audio.output_device_sample_rate(),
                                             frames_per_buffer=frame_size,
                                             output=True,
                                             output_device_index=self.output_device_index,
@@ -2961,15 +2976,15 @@ class Audio():
             pcm = dec.decode_float(bytes(packet[4:]), frame_size)
 
             stereo = numpy.frombuffer(pcm, dtype=numpy.float32)
-            a = stereo[0::2]                    # main receiver
-            b = stereo[1::2]                    # sub receiver
+            a = stereo[0::2]                    # even samples are from the main receiver
+            b = stereo[1::2]                    # odd samples are from the sub receiver
 
             ab = self.ab
             if self.diversity_on or not self.sub_on:
-                ab = 'a.a'                          # take all audio from main
+                ab = 'a.a'                      # take all audio from main
 
             if ab == 'a.a':
-                a = a * self.a_volume * 32          # add some amplification
+                a = a * self.a_volume * 32      # add some amplification
                 left, right = a, a
             elif ab == 'b.b':
                 b = b * self.b_volume * 32
@@ -2979,8 +2994,10 @@ class Audio():
                 b = b * self.b_volume * 32
                 left, right = a, b
 
-            left = left.repeat(4)               # resample to 48000 Hz
-            right = right.repeat(4)
+            resample_multiple = int(Audio.output_device_sample_rate() / Audio.k4_sample_rate)
+            if resample_multiple > 1:
+                left = left.repeat(resample_multiple)
+                right = right.repeat(resample_multiple)
 
             stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
