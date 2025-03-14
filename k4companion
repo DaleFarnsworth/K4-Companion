@@ -2870,7 +2870,6 @@ class Audio():
                     if info['index'] == default_input_device_index:
                         self.input_device_index = info['index']
             except:
-                raise
                 pass
 
             if 'index' in input_device_info:
@@ -2878,7 +2877,10 @@ class Audio():
 
             output_device_info = { 'default_sample_rate': int(default_sample_rate), 'output_channels': 0 }
 
-            for output_sample_rate in range(Audio.k4_sample_rate, Audio.max_output_sample_rate, Audio.k4_sample_rate):
+            begin_rate = Audio.k4_sample_rate
+            end_rate = Audio.max_output_sample_rate + begin_rate
+            step = begin_rate
+            for output_sample_rate in range(begin_rate, end_rate, step):
                 try:
                     if pa.is_format_supported(output_sample_rate,
                                  output_device=info['index'],
