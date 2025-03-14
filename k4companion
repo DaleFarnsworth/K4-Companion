@@ -609,7 +609,7 @@ class Server():
                     if cmds in ['PING;']:
                         dprint3('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
                     else:
-                        dprint1('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
+                        dprint2('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
             except OSError:
                 print("Failed to send command, '{bs}' to '{name}'".format(bs=bs[3], name=self.name))
 
@@ -765,7 +765,7 @@ class Server():
                 if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG'):
                     dprint3('{name}: received: {response}'.format(name=self.name, response=response))
                 else:
-                    dprint1('{name}: received: {response}'.format(name=self.name, response=response))
+                    dprint2('{name}: received: {response}'.format(name=self.name, response=response))
             if not self.control_k4_audio and base in self.control_k4_audio_cmd_bases:
                 continue
             response = response[len(base):]
@@ -999,7 +999,7 @@ class Container(Widget):
                 if Options.debug > 0:
                     label = config_info.get('label', '')
                     indent = '    ' * Container.depth
-                    dprint('{indent}group {label}: row  {row}, column: {column}'.format(indent=indent, label=label, row=self.row, column=self.column))
+                    dprint2('{indent}group {label}: row  {row}, column: {column}'.format(indent=indent, label=label, row=self.row, column=self.column))
                 child = Group(config_info, self)
             elif widget_type == 'button':
                 child = Button(config_info, self)
@@ -1315,10 +1315,10 @@ class Togglebutton(Widget):
 
     def compare_parameters(self, text, parameters):
         for base in parameters.keys():
-            dprint2('commpare :{text} s: {s}, b: {b}'.format(text=text, s=self.server.k4_parameters.get(base, None), b=parameters[base]))
+            dprint3('commpare :{text} s: {s}, b: {b}'.format(text=text, s=self.server.k4_parameters.get(base, None), b=parameters[base]))
             if parameters[base] != self.server.k4_parameters.get(base, None):
                 return False
-        dprint2('Match')
+        dprint3('Match')
         return True
 
     def on_response_received(self, response):
@@ -1422,10 +1422,10 @@ class Radiobutton(Widget):
     def compare_parameters(self, group, text):
         parameters = self.parameters
         for base in parameters.keys():
-            dprint2('commpare {group}:{text} s: {s}, b: {b}'.format(group=group, text=text, s=self.server.k4_parameters.get(base, None), b=parameters[base]))
+            dprint3('commpare {group}:{text} s: {s}, b: {b}'.format(group=group, text=text, s=self.server.k4_parameters.get(base, None), b=parameters[base]))
             if parameters[base] != self.server.k4_parameters.get(base, None):
                 return False
-        dprint2('Match')
+        dprint3('Match')
         return True
 
     def on_response_received(self, response):
@@ -2048,10 +2048,10 @@ class Dropdownbutton(Widget):
 
     def compare_parameters(self, text, parameters):
         for base in parameters.keys():
-            dprint2('commpare :{text} s: {s}, b: {b}'.format(text=text, s=self.server.k4_parameters.get(base, None), b=parameters[base]))
+            dprint3('commpare :{text} s: {s}, b: {b}'.format(text=text, s=self.server.k4_parameters.get(base, None), b=parameters[base]))
             if parameters[base] != self.server.k4_parameters.get(base, None):
                 return False
-        dprint2('Match')
+        dprint3('Match')
         return True
 
     def on_response_received(self, response):
