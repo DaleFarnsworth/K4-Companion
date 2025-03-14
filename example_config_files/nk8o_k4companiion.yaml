@@ -704,13 +704,14 @@
 - item: togglebutton
   wraparound: False
   selections: #{
-  - { text: 'Connect', cmd: k4;, response: k41;, bg: red, abg: red, blink: on }
-  - { text: 'Connected', directive: connect }
+  - { text: 'Connect', bg: red, abg: red, blink: on }
+  - { text: 'Connecting', cmd: CONNECT!; }
+  - { text: 'Connected', response: PONG; }
   #}
 #end
 
 #define QUIT
-- { item: button, text: 'Exit', directive:  quit }
+- { item: button, text: 'Exit', cmd: QUIT!; }
 #end
 
 #define split
@@ -789,16 +790,16 @@
 # button options:
 #   text: button text
 #   server: The server name of the server referenced by this button
-#   cmd: Either:
-#     a text string to be sent to k4, or
-#     a python 'list' object containg server name/cmd pairs (python dict objects)
-#     to be sent, i.e. [ k4: k4cmd, s1: s1cmd ] would send 'k4cmd' to server k4, and
-#     then send 's1cmd' to server s1.
-#   directive:
-#     'connect', connects to the server if not previously connected
-#     'quit', terminates the program
-#     'show_previous_page', displays the previously-displayed page
-#     'show_page XXX', displays page with the name: XXX
+#   cmd: XXX, where XXX is one of:
+#     1. a text string to be sent to k4, or
+#     2. a python 'list' object containg server name/cmd pairs (python dict objects)
+#        to be sent, i.e. [ k4: k4cmd, s1: s1cmd ] would send 'k4cmd' to server k4, and
+#        then send 's1cmd' to server s1.
+#     3. a directive (a special command directed at the application, rather than the server):
+#       'CONNECT!;', connects to the server if not previously connected
+#       'QUIT!;', terminates the program
+#       'SHOW!PREVIOUS;', displays the previously-displayed page
+#       'SHOW!YYY;', displays page with the name: YYY
 #   fg: foreground color
 #   bg: background color
 #   abg: active background color
@@ -811,11 +812,16 @@
 #   selections: a list of selections, each of which may have the following elements
 #       text: button text
 #       server: The server name of the server referenced by this button
-#       cmd: Either:
-#         a text string to be sent to k4, or
-#         a python 'list' object containg server name/cmd pairs (python dict objects)
-#         to be sent, i.e. [ k4: k4cmd, s1: s1cmd ] would send 'k4cmd' to server k4, and
-#         then send 's1cmd' to server s1.
+#       cmd: XXX, where XXX is one of:
+#         1. a text string to be sent to k4; or
+#         2. a python 'list' object containg server name/cmd pairs (python dict objects)
+#            to be sent, i.e. [ k4: k4cmd, s1: s1cmd ] would send 'k4cmd' to server k4, and
+#            then send 's1cmd' to server s1; or
+#         3. a directive (a special command directed at the application, rather than the server):
+#           'CONNECT!;', connects to the server if not previously connected
+#           'QUIT!;', terminates the program
+#           'SHOW!PREVIOUS;', displays the previously-displayed page
+#           'SHOW!YYY;', displays page with the name: YYY
 #       fg: foreground color
 #       bg: background color
 #       abg: active background color

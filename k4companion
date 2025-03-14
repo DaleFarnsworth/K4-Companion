@@ -295,6 +295,10 @@ class Server():
         '#V': ['#VFA', '#VFB'],
         '#W': ['#WBS', '#WFC', '#WFH'],
         'XV': ['XVN', 'XVM', 'XVR', 'XVI', 'XVO', 'XVP '],
+# Directives:
+        'CO': ['CONNECT'],
+        'QU': ['QUIT'],
+        'SH': ['SHOW'],
     }
 
     # commands that end in +, -, /, \, ^, > are also pseudo set-only commands
@@ -324,6 +328,9 @@ class Server():
         'TX': True,
         'UPB': True,
         'UP': True,
+# Directives:
+        'QUIT': True,
+        'SHOW': True,
     }
 
     set_only_suffixes = {
@@ -568,20 +575,38 @@ class Server():
     def encode_len(self, l):
         return bytearray(((l>>24)&0xff, (l>>16)&0xff, (l>>8)&0xff, l&0xff))
 
+    def directive(self, base, cmd):
+        lcmd = cmd.lower()
+        if lcmd == 'connect!':
+            self.connect()
+        elif lcmd == 'quit!':
+            cleanup_and_exit()
+        elif base.lower() == 'show!':
+            page = lcmd[len(base):].strip()
+            if page == 'previous':
+                Page.show_previous()
+            else:
+                Page.show_page(page)
+        else:
+           raise Exception('Unknown directive: ', directive)
+
     def send_cmds(self, cmds):
-        if not self.connected:
-            Popup.warning("Server '{name}' not connected.".format(name=self.name))
         if isinstance(cmds, str):
             cmds = Server.split_cmd(cmds)
         for cmd in cmds:
             if cmd == '':
                 continue
             base = cmd_base(cmd)
+            if base[-1] == '!':
+                self.directive(base, cmd)
+                continue
             if base in Server.control_k4_audio_cmd_bases:
                 Audio.control_k4_cmd(base, cmd)
                 if self.port != 9200 and not self.control_k4_audio:
                     continue
             if Server.k4_set_only_cmd(base, cmd) or self.update_k4_parameter(base, cmd[len(base):]):
+                if not self.connected:
+                    Popup.warning("Server '{name}' not connected.".format(name=self.name))
                 cmd += ';'
                 self.send_str(cmd)
 
@@ -1153,14 +1178,13 @@ class Group(Container):
 class Button(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        options = ['text', 'cmd', 'directive', 'bg', 'abg', 'fg', 'afg', 'justify', 'font', 'label', 'leading', 'button_font']
+        options = ['text', 'cmd', 'bg', 'abg', 'fg', 'afg', 'justify', 'font', 'label', 'leading', 'button_font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
         text = str(config_info.get('text', ''))
         cmd = config_info.get('cmd', None)
-        directive = config_info.get('directive', None)
         bg = config_info.get('bg', Default.bg)
         fg = config_info.get('fg', Default.fg)
         abg = config_info.get('abg', Default.abg)
@@ -1171,9 +1195,7 @@ class Button(Widget):
 
         width = container.items_width()
 
-        if directive != None:
-            command = directive_command(self, directive)
-        elif cmd != None:
+        if cmd != None:
             command = lambda: self.server.expand_and_send_cmds(cmd)
 
         button = tk.Button(self.frame,
@@ -1215,7 +1237,7 @@ class Togglebutton(Widget):
             selection = {}
 
             required = []
-            options = ['text', 'cmd', 'response', 'directive', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font']
+            options = ['text', 'cmd', 'response', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font']
             validate_config_options(conf_sel, required, options, name='togglebutton.selection')
 
             selection['text'] = conf_sel.get('text', '')
@@ -1243,7 +1265,6 @@ class Togglebutton(Widget):
             selection['command'] = self.do_selection
 
             selection['cmd'] = cmd
-            selection['directive'] = conf_sel.get('directive', None)
             selection['bg'] = conf_sel.get('bg', Default.bg)
             selection['fg'] = conf_sel.get('fg', Default.fg)
             selection['abg'] = conf_sel.get('abg', Default.abg)
@@ -1302,13 +1323,8 @@ class Togglebutton(Widget):
         self.next_selection()
         selection = self.selections[self.index]
 
-        directive = selection['directive']
         cmd = selection['cmd']
-
-        if directive != None:
-            command = directive_command(self, directive)
-            command()
-        elif cmd != None:
+        if cmd != None:
             self.server.expand_and_send_cmds(cmd)
 
         self.configure()
@@ -2098,8 +2114,11 @@ def cmd_base(cmd):
             if ucmd.startswith(long_base):
                 base = long_base
                 break
-    if len(cmd) > len(base) and cmd[len(base)] == '$':
-        base += '$'
+    if len(cmd) > len(base):
+        if cmd[len(base)] == '$':
+            base += '$'
+        elif cmd[len(base)] == '!':
+            base += '!'
     return base
 
 def cmd_get_format(cmd):
@@ -2126,22 +2145,6 @@ def true_values(v):
 
     v = v.lower()
     return v == 'true' or v == 'on' or v == '1' or v == 'yes'
-
-def directive_command(self, directive):
-    special_strings = {
-        'connect': self.server.connect,
-        'quit': cleanup_and_exit,
-        'show_previous_page': Page.show_previous,
-    }
-
-    if directive in special_strings:
-        command = special_strings[directive]
-    elif directive.startswith('show_page '):
-        page_name = directive[len('show_page '):]
-        command = lambda: Page.show_page(page_name)
-    else:
-       raise Exception('Unknown directive: ', directive)
-    return command
 
 class Menu_definition():
     def __init__(self, menu, d):
