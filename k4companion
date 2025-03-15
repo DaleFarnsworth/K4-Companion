@@ -42,12 +42,14 @@ import math
 import numpy
 import opuslib
 import os
+import platform
 import pyaudio
 import queue
 import re
 import select
 import socket
 import socks
+import ssl
 import sys
 import tempfile
 import textwrap
@@ -64,6 +66,11 @@ from tkinter import simpledialog
 
 appname = 'k4companion'
 version = "1.2.1"
+
+v = platform.python_version_tuple()
+python_major = int(v[0])
+python_minor = int(v[1])
+python_patchlevel = int(v[2])
 
 class Default():
 # may be overriden by values in the config file
@@ -515,6 +522,15 @@ class Server():
         vprint1('Connecting to {name}, address {addr}, port {port}'.format(
               name=self.name, addr=self.address, port=self.port))
 
+        if python_major >= 3 and python_minor >= 13:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            context.maximum_version = ssl.TLSVersion.TLSv1_2
+            context.set_ciphers('PSK')
+            psk = '1234567890'.encode()
+            context.set_psk_client_callback(lambda hint: (None, psk))
+
         if self.proxy_address == '':
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         else:
@@ -526,6 +542,8 @@ class Server():
         try:
             sock.settimeout(5)
             sock.connect((self.address, self.port))
+            if python_major >= 3 and python_minor >= 13 and self.port == 9204:
+                sock = context.wrap_socket(sock)
             self.connected = True
             self.printed_connection_warning = False
             self.socket = sock
