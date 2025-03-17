@@ -94,18 +94,16 @@ class Server():
     ping_poll_interval = 2000           # poll every 2 seconds
     packet_header_len = 8
     packet_trailer_len = 4
-    cat_packet_header_len = 3
     begin_packet_marker = bytes((0xFE, 0xFD, 0xFC,  0xFB))
     end_packet_marker = bytes((0xFB, 0xFC, 0xFD, 0xFE))
-    cat_packet_type = 0
-    cat_version_number = 0
-    cat_sequence_number = 0
-    cat_packet_header = bytes((cat_packet_type, cat_version_number, cat_sequence_number))
     payload_type_cat = 0
     payload_type_audio = 1
     payload_type_pan = 2
     payload_type_minipan = 3
+    cat_version_number = 0
+    cat_sequence_number = 0
     control_k4_audio_cmd_bases = { 'MX', 'AG', 'AG$' }
+    audio_version_number = 0
 
     k4_get_cmd_bases = [         # For future use
         '#A',
@@ -437,6 +435,7 @@ class Server():
         self.partial_packet = None
         self.password = None
         self.control_k4_audio = true_values(Settings.get('Audio', 'control_k4_audio_settings'))
+        self.audio_sequence_number = 0
 
         self.ignored_errors = {}
 
@@ -449,6 +448,8 @@ class Server():
     def on_server_connect(self):
         self.subscribe_response('ER;', self.on_error_code, send=False)
         self.update_local_audio_parameters()
+        if self.type == 'k4' and self.port != 9200:
+            Audio.server_connected(self)
 
     def on_error_code(self, response):
         response = response.rstrip(';')
@@ -507,7 +508,6 @@ class Server():
                     self.send_str('PING;')               # Trigger a response: PONG;
                 else:
                     self.output_audio_queue = queue.Queue()
-                    Audio.output_queue(self.output_audio_queue)
 
                     if self.password == None:
                         self.password = Popup.password(title="Connect to K4",
@@ -564,13 +564,27 @@ class Server():
         else:
             self.send_cat_packet(cmd.encode())
 
-    def send_cat_packet(self, byts):
+    def send_cat_packet(self, cat_bytes):
         self.send_queue.put((
             Server.begin_packet_marker,
-            self.encode_len(len(byts)+3), 
-            Server.cat_packet_header,
-            byts, 
+            self.encode_len(len(cat_bytes)+3), 
+            bytes((Server.payload_type_cat, Server.cat_version_number, Server.cat_sequence_number)),
+            cat_bytes, 
             Server.end_packet_marker))
+
+    def send_audio_packet(self, audio_bytes, encode_mode, frame_size):
+        high = frame_size>>8
+        low = frame_size & 0xff
+        self.send_queue.put((
+            Server.begin_packet_marker,
+            self.encode_len(len(audio_bytes)+7),
+            bytes((Server.payload_type_audio, Server.audio_version_number, self.audio_sequence_number)),
+            bytes((encode_mode, low, high, Audio.k4_sample_rate_code)),
+            audio_bytes,
+            Server.end_packet_marker))
+        self.audio_sequence_number += 1
+        if self.audio_sequence_number > 0xff:
+            self.audio_sequence_number = 0
 
     def encode_len(self, l):
         return bytearray(((l>>24)&0xff, (l>>16)&0xff, (l>>8)&0xff, l&0xff))
@@ -631,7 +645,7 @@ class Server():
                 if cmds != None:
                     cmds = cmds.decode()
                     if cmds in ['PING;']:
-                        dprint3('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
+                        dprint4('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
                     else:
                         dprint2('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
 
@@ -785,10 +799,10 @@ class Server():
             if base in ('SB', 'DV'):
                 Audio.control_k4_cmd(base, response)
             if Options.debug >= 1:
-                if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG'):
-                    dprint3('{name}: received: {response}'.format(name=self.name, response=response))
+                if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG', 'DA'):
+                    dprint4('{name}: received: {response};'.format(name=self.name, response=response))
                 else:
-                    dprint2('{name}: received: {response}'.format(name=self.name, response=response))
+                    dprint2('{name}: received: {response};'.format(name=self.name, response=response))
             if not self.control_k4_audio and base in self.control_k4_audio_cmd_bases:
                 continue
             response = response[len(base):]
@@ -821,8 +835,6 @@ class Server():
 
     def subscribe_response(self, cmd, callback, send=True):
         base = cmd_base(cmd)
-        if Server.k4_set_only_cmd(base, cmd):
-            return                              # No use subscribing to set-only commands
         if not base in self.k4_subscriptions:
             self.k4_subscriptions[base] = []
         if not callback in self.k4_subscriptions[base]:
@@ -2668,9 +2680,17 @@ class Menu(Widget):
 class Audio():
     singleton = None
     input_channels = 1
+    input_frame_size = 240
     output_channels = 2
     k4_sample_rate = 12000
+    k4_sample_rate_code = 0
+    max_input_sample_rate = 48000
     max_output_sample_rate = 48000
+    encode_mode_raw32 = 0
+    encode_mode_raw16 = 1
+    encode_mode_opus = 2
+    encode_mode_opus_float = 3
+    input_encode_mode = encode_mode_raw32
 
     @classmethod
     def get_singleton(cls):
@@ -2680,18 +2700,14 @@ class Audio():
         return cls.singleton
 
     @classmethod
-    def output_queue(cls, queue):
-        self = cls.get_singleton()
-        self.output_queue = queue
-        self.output_thread = threading.Thread(target=self.output_loop, name='audio_output_thread')
-        self.output_thread.start()
-
-    @classmethod
     def close(cls):
         if cls.singleton == None:
             return
 
         self = cls.singleton
+        self.transmit_audio = False
+        if self.input_thread != None:
+            self.input_thread.join()
         if self.output_thread != None:
             self.output_thread.join()
 
@@ -2758,6 +2774,12 @@ class Audio():
         return names
 
     @classmethod
+    def input_device_sample_rate(cls):
+        self = cls.get_singleton()
+        info = self.input_device_infos[self.input_device_index]
+        return info['input_sample_rate']
+
+    @classmethod
     def output_device_sample_rate(cls):
         self = cls.get_singleton()
         info = self.output_device_infos[self.output_device_index]
@@ -2801,6 +2823,41 @@ class Audio():
 
         return responses
 
+    @classmethod
+    def server_connected(cls, server):
+        self = cls.get_singleton()
+        self.start_output_thread(server.output_audio_queue)
+        server.subscribe_response('RX;', lambda response: self.on_transmit_changed(server, response), send=False)
+        server.subscribe_response('TX;', lambda response: self.on_transmit_changed(server, response), send=False)
+
+    def pyaudio(self):
+        fd = os.dup(2)
+        os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
+        pa = pyaudio.PyAudio()
+        os.dup2(fd, 2)           # restore stderr
+        os.close(fd)
+        return pa
+
+    def pa_get_host_api_info_by_index(self, pa, index):
+        fd = os.dup(2)
+        os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
+        info = pa.get_host_api_info_by_index(index)
+        os.dup2(fd, 2)           # restore stderr
+        os.close(fd)
+        return info
+
+    def pa_is_format_supported(self, pa, sample_rate, **kwargs):
+        supported = False
+        fd = os.dup(2)
+        os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
+        try: 
+            supported = pa.is_format_supported(sample_rate, **kwargs)
+        except:
+            pass
+        os.dup2(fd, 2)           # restore stderr
+        os.close(fd)
+        return supported
+
     def __init__(self):
         self.input_thread = None
         self.output_thread = None
@@ -2810,6 +2867,7 @@ class Audio():
         self.output_device_infos = {}
         self.sub_on = True
         self.diversity_on = False
+        self.transmit_audio = False
 
         ab = Settings.get('Audio', 'mixer')
         if ab == None:
@@ -2826,11 +2884,9 @@ class Audio():
             b_volume = '000'
         self.b_volume = float(b_volume) / 60.0
 
-        fd = os.dup(2)
-        os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
-        pa = pyaudio.PyAudio()
+        pa = self.pyaudio()
+        info = self.pa_get_host_api_info_by_index(pa, 0)
 
-        info = pa.get_host_api_info_by_index(0)
         numdevices = info.get('deviceCount')
 
         default_input_device_index = pa.get_default_input_device_info()['index']
@@ -2841,23 +2897,33 @@ class Audio():
             if info['name'] in [ 'dmix', 'lavrate', 'samplerate', 'speexrate', 'pulse', 'speex', 'upmix', 'vdownmix' ]:
                 continue
             default_sample_rate = info['defaultSampleRate']
+
             input_device_info = { 'default_sample_rate': int(default_sample_rate), 'input_channels': 0 }
 
-            try:
-                if pa.is_format_supported(default_sample_rate,
-                         input_device=info['index'],
-                         input_channels=Audio.input_channels,
-                         input_format=pyaudio.paFloat32):
+            begin_rate = Audio.k4_sample_rate
+            end_rate = Audio.max_input_sample_rate + begin_rate
+            step = begin_rate
+            for input_sample_rate in range(begin_rate, end_rate, step):
+                if self.pa_is_format_supported(pa, input_sample_rate,
+                               input_device=info['index'],
+                               input_channels=Audio.input_channels,
+                               input_format=pyaudio.paFloat32):
                     input_device_info['index'] = info['index']
                     input_device_info['name'] = info['name']
                     input_device_info['input_channels'] = info['maxInputChannels']
+                    input_device_info['input_sample_rate'] = input_sample_rate
                     if info['index'] == default_input_device_index:
                         self.input_device_index = info['index']
-            except:
-                pass
+                    break
 
             if 'index' in input_device_info:
                 self.input_device_infos[input_device_info['index']] = input_device_info
+            elif Options.debug > 0:
+                if self.pa_is_format_supported(pa, default_sample_rate,
+                             input_device=info['index'],
+                             input_channels=Audio.input_channels,
+                             input_format=pyaudio.paFloat32):
+                    dprint('Info:', info['name'], 'does not support multiple of K4 sample rate. supported rate:', default_sample_rate)
 
             output_device_info = { 'default_sample_rate': int(default_sample_rate), 'output_channels': 0 }
 
@@ -2865,35 +2931,26 @@ class Audio():
             end_rate = Audio.max_output_sample_rate + begin_rate
             step = begin_rate
             for output_sample_rate in range(begin_rate, end_rate, step):
-                try:
-                    if pa.is_format_supported(output_sample_rate,
-                                 output_device=info['index'],
-                                 output_channels=Audio.output_channels,
-                                 output_format=pyaudio.paFloat32):
-                        output_device_info['index'] = info['index']
-                        output_device_info['name'] = info['name']
-                        output_device_info['output_channels'] = info['maxOutputChannels']
-                        output_device_info['output_sample_rate'] = output_sample_rate
-                        if info['index'] == default_output_device_index:
-                            self.output_device_index = info['index']
-                        break
-                except:
-                    pass
+                if self.pa_is_format_supported(pa, output_sample_rate,
+                                   output_device=info['index'],
+                                   output_channels=Audio.output_channels,
+                                   output_format=pyaudio.paFloat32):
+                    output_device_info['index'] = info['index']
+                    output_device_info['name'] = info['name']
+                    output_device_info['output_channels'] = info['maxOutputChannels']
+                    output_device_info['output_sample_rate'] = output_sample_rate
+                    if info['index'] == default_output_device_index:
+                        self.output_device_index = info['index']
+                    break
 
             if 'index' in output_device_info:
                 self.output_device_infos[output_device_info['index']] = output_device_info
             elif Options.debug > 0:
-                try:
-                    if pa.is_format_supported(default_sample_rate,
-                                 output_device=info['index'],
-                                 output_channels=Audio.output_channels,
-                                 output_format=pyaudio.paFloat32):
-                        dprint('Info:', info['name'], 'does not support multiple of K4 sample rate. supported rate:', default_sample_rate)
-                except:
-                    pass
-
-        os.dup2(fd, 2)           # restore stderr
-        os.close(fd)
+                if self.pa_is_format_supported(pa, default_sample_rate,
+                             output_device=info['index'],
+                             output_channels=Audio.output_channels,
+                             output_format=pyaudio.paFloat32):
+                    dprint('Info:', info['name'], 'does not support multiple of K4 sample rate. supported rate:', default_sample_rate)
 
     def input_device_info_by_name(self, name):
         for index in self.input_device_infos:
@@ -2909,6 +2966,11 @@ class Audio():
                 return dev_info
         return None
 
+    def start_output_thread(self, queue):
+        self.output_queue = queue
+        self.output_thread = threading.Thread(target=self.output_loop, name='audio_output_thread')
+        self.output_thread.start()
+
     def output_loop(self):
         output_stream = None
         current_index = None
@@ -2922,9 +2984,8 @@ class Audio():
             if current_index != self.output_device_index:
                 current_index = self.output_device_index
                 encode_mode = packet[0]
-                if encode_mode != 3:
+                if encode_mode != Audio.encode_mode_opus_float:
                     raise Exception('Unsupported audio encode mode:', encode_mode)
-                # encode_mode = opus float32
 
                 frame_size = packet[2] << 8 | packet[1]
 
@@ -2934,15 +2995,13 @@ class Audio():
 
                 dec = opuslib.Decoder(Audio.k4_sample_rate, Audio.output_channels)
 
-                fd = os.dup(2)
-                os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
-                pa = pyaudio.PyAudio()
-                os.dup2(fd, 2)           # restore stderr
-                os.close(fd)
+                pa = self.pyaudio()
 
                 if output_stream != None:
                     output_stream.close()
                     output_stream = None
+
+                resample_ratio = int(Audio.output_device_sample_rate() / Audio.k4_sample_rate)
 
                 try:
                     output_stream = pa.open(format=pyaudio.paFloat32,
@@ -2980,15 +3039,121 @@ class Audio():
                 b = b * self.b_volume * 32
                 left, right = a, b
 
-            resample_multiple = int(Audio.output_device_sample_rate() / Audio.k4_sample_rate)
-            if resample_multiple > 1:
-                left = left.repeat(resample_multiple)
-                right = right.repeat(resample_multiple)
+            if resample_ratio > 1:
+                left = left.repeat(resample_ratio)
+                right = right.repeat(resample_ratio)
 
             stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
             stereo[1::2] = right
             output_stream.write(stereo.tobytes())
+
+    def on_transmit_changed(self, server, response):
+        transmit = server.k4_parameters.get('TX', None) != None
+        tune = server.k4_parameters.get('TU', "0") != '0'
+        if transmit and not tune:
+            split = server.k4_parameters.get('FT') == '1'
+            if split:
+                mode = server.k4_parameters.get('MD$')
+            else:
+                mode = server.k4_parameters.get('MD')
+
+            if mode in ("1", "2", "4", "5"):        # LSB, USB, FM, AM
+                if not self.transmit_audio:
+                    self.transmit_audio = True
+                    self.start_input_thread(server)
+                return
+
+        self.transmit_audio = False
+        if self.input_thread != None:
+            self.input_thread.join()
+            self.input_thread = None
+
+    def start_input_thread(self, server):
+        self.input_thread = threading.Thread(target=lambda: self.input_loop(server), name='audio_input_thread')
+        self.input_thread.start()
+
+    def input_loop(self, server):
+        input_stream = None
+        current_index = None
+        warned = False
+
+        while True:
+            if current_index != self.input_device_index:
+                current_index = self.input_device_index
+
+#                enc = opuslib.Encoder(Audio.k4_sample_rate, Audio.input_channels, 'audio')
+
+                pa = self.pyaudio()
+
+                if input_stream != None:
+                    input_stream.close()
+                    input_stream = None
+
+                try:
+                    input_stream = pa.open(format=pyaudio.paFloat32,
+                                            channels=Audio.input_channels,
+                                            rate=Audio.input_device_sample_rate(),
+                                            frames_per_buffer=Audio.input_frame_size,
+                                            input=True,
+                                            input_device_index=self.input_device_index,
+                                            )
+                    warned = False
+                except:
+                    if not warned:
+                        Popup.warning('Failed to open: ' + self.input_device_name())
+                        warned = True
+                    continue
+                sampled = input_stream.read(Audio.input_frame_size, exception_on_overflow=False)
+                sampled = numpy.frombuffer(sampled, dtype=numpy.float32)
+                average = sum(numpy.abs(sampled)) / len(sampled)
+                if average == 0.0:
+                    Popup.warning("No input from audio device:\n  {name}".format(name=Audio.input_device_name()))
+                    return
+
+                resample_ratio = int(Audio.input_device_sample_rate() / Audio.k4_sample_rate)
+
+            sampled = input_stream.read(Audio.input_frame_size * resample_ratio, exception_on_overflow=False)
+            sampled = numpy.frombuffer(sampled, dtype=numpy.float32)
+
+            if resample_ratio == 1:
+                resampled = sampled
+            elif resample_ratio == 2:
+                s0 = sampled[0::2]
+                s1 = sampled[1::2]
+                resampled = (s0 + s1) / 2
+
+            elif resample_ratio == 3:
+                s0 = sampled[0::3]
+                s1 = sampled[1::3]
+                s2 = sampled[2::3]
+                resampled = sum((s0, s1, s2)) / 3
+
+            elif resample_ratio == 4:
+                s0 = sampled[0::4]
+                s1 = sampled[1::4]
+                s2 = sampled[2::4]
+                s3 = sampled[3::4]
+                resampled = sum((s0, s1, s2, s3)) / 4
+
+            resampled = resampled / 5000000
+
+            resampled = (resampled * (2 ** 30 - 1)).clip(-2 ** 30, (2 ** 30 - 1)).astype(numpy.int32)
+            resampled = resampled.repeat(2)             # double-up samples. This may be a K4 bug
+            resampled_bytes = resampled.tobytes()
+            audio_packet = resampled_bytes
+
+            frame_size = Audio.input_frame_size
+#            audio_packet = enc.encode_float(resampled_bytes, frame_size)
+
+            if not self.transmit_audio:
+                if input_stream != None:
+                    input_stream.close()
+                    input_stream = None
+                return
+
+#            tprint('frame_size', frame_size, 'len bytes', len(resampled_bytes), 'len audio_packet', len(audio_packet))
+            server.send_audio_packet(audio_packet, self.input_encode_mode, frame_size)
 
 class Settings():
     settings_filename = 'settings.ini'
@@ -3150,8 +3315,7 @@ class Settings_widget(Widget):
                               relief='raised')
 
         audio_input_frame = self.audio_input_settings(frame)
-#        Disable display of input settings for now
-#        audio_input_frame.grid(row=0, column=0, sticky='w')
+        audio_input_frame.grid(row=0, column=0, sticky='w')
         audio_output_frame = self.audio_output_settings(frame)
         audio_output_frame.grid(row=1, column=0, sticky='w')
         audio_k4_control_frame = self.audio_k4_control_setting(frame)
@@ -3767,6 +3931,10 @@ def dprint2(*args, **kwargs):
 
 def dprint3(*args, **kwargs):
     if Options.debug >= 3:
+        print(*args, file=sys.stderr, **kwargs)
+
+def dprint4(*args, **kwargs):
+    if Options.debug >= 4:
         print(*args, file=sys.stderr, **kwargs)
 
 def vprint1(*args, **kwargs):
