@@ -318,14 +318,12 @@ class Server():
         'RD': True,
         'RU$': True,
         'RU': True,
-        'RX': True,
         'SI': True,
         'SP$': True,
         'SP': True,
         'SWH': True,
         'SW': True,
         'SWT': True,
-        'TX': True,
         'UPB': True,
         'UP': True,
 # Directives:
@@ -469,6 +467,12 @@ class Server():
     def update_k4_parameter(self, base, parameter):
         old = self.k4_parameters.get(base, None)
         self.k4_parameters[base] = parameter
+
+        if base in ('TX', 'RX'):
+            if base == 'TX':
+                self.k4_parameters['RX'] = None
+            else:
+                self.k4_parameters['TX'] = None
 
         callbacks = self.k4_subscriptions.get(base, [])
         for callback in callbacks:
@@ -1253,12 +1257,6 @@ class Togglebutton(Widget):
                 responses = self.server.expand_server_cmds(orig_response)
                 for response in responses:
                     base = cmd_base(response)
-                    if Server.k4_set_only_cmd(base, response):
-                        if len(cmds) <= 1 and len(responses) <= 1:
-                            raise Exception("Set-only command: '{cmd}' not permitted in togglebutton".format(cmd=orig_response))
-                        continue
-                    if Server.k4_get_only_cmd(base) and len(cmds) <= 1 and len(responses) <= 1:
-                        raise Exception("Get-only command: '{cmd}' not permitted in togglebutton".format(cmd=orig_response))
                     response = response[len(base):]
                     selection['parameters'][base] = response
 
@@ -1417,12 +1415,6 @@ class Radiobutton(Widget):
         responses = self.server.expand_server_cmds(self.response)
         for response in responses:
             base = cmd_base(response)
-            if Server.k4_set_only_cmd(base, response):
-                if len(cmds) <= 1 and len(responses) <= 1:
-                    raise Exception("Set-only command: '{cmd}' not permitted in Radiobutton".format(cmd=self.response))
-                continue
-            if Server.k4_get_only_cmd(base) and len(cmds) <= 1 and len(responses) <= 1:
-                raise Exception("Get-only command: '{cmd}' not permitted in Radiobutton".format(cmd=self.response))
             response = response[len(base):]
             self.parameters[base] = response
 
@@ -2002,12 +1994,6 @@ class Dropdownbutton(Widget):
             responses = self.server.expand_server_cmds(orig_response)
             for response in responses:
                 base = cmd_base(response)
-                if Server.k4_set_only_cmd(base, response):
-                    if len(cmds) <= 1 and len(responses) <= 1:
-                        raise Exception("Set-only command: '{cmd}' not permitted in Dropdownbutton".format(cmd=orig_response))
-                    continue
-                if Server.k4_get_only_cmd(base) and len(cmds) <= 1 and len(responses) <= 1:
-                    raise Exception("Get-only command: '{cmd}' not permitted in Dropdownbutton".format(cmd=orig_response))
                 response = response[len(base):]
                 selection['parameters'][base] = response
 

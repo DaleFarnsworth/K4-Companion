@@ -736,8 +736,8 @@
   contains: #{
   - item: togglebutton
     selections: #{
-    - { text: 'Receive',   cmd: RX;TQ;, bg: '#00FF00', abg: white, response: TQ0; }
-    - { text: 'Transmit',  cmd: TX;TQ;, bg: red,   abg: red,   response: TQ1; }
+    - { text: 'Receive',   cmd: RX;, bg: '#00FF00', abg: white }
+    - { text: 'Transmit',  cmd: TX;, bg: red,   abg: red }
     #}
   #}
 #end

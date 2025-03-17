@@ -702,8 +702,8 @@
 - item: togglebutton
   label: 'Tx/Rx'
   selections: #{
-    - { text: 'Receive',   cmd: RX;TQ;, bg: white, abg: white, response: TQ0; }
-    - { text: 'Transmit',  cmd: TX;TQ;, bg: red,   abg: red,   response: TQ1; }
+    - { text: 'Receive',   cmd: RX;, bg: white, abg: white, }
+    - { text: 'Transmit',  cmd: TX;, bg: red,   abg: red, }
   #}
 #end
 
