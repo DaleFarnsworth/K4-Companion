@@ -1710,22 +1710,23 @@ class Slider(Widget):
                          to=self.to,
                          orient=orient,
                          resolution=resolution,
+                         repeatdelay=0,
                          width=width,
                          length=length,
                          font=self.font(),
                          bg=bg,
                          fg=fg,
-                         variable=self.value,
-                         command=self.value_changed)
+                         variable=self.value)
         self.scale.grid(row=0, column=0, sticky='nw')
 
+        self.value.trace('w', self.value_changed)
         self.server.subscribe_connect(self.on_server_connect)
 
     def on_server_connect(self):
         cmd = eval_value(self.evalcmd, self.value.get())
         self.server.subscribe_cmds(cmd, self.on_response_received)
 
-    def value_changed(self, event):
+    def value_changed(self, var, index, mode):
         value = self.value.get()
         next_value = value
         if self.previous_value == value:
