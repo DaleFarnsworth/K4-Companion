@@ -3312,7 +3312,7 @@ class Settings_widget(Widget):
         return control_frame
 
     def on_k4_control_audio_combobox_changed(self, var, index, mode):
-        current_value = self.output_val.get()
+        current_value = self.k4_control_audio_val.get()
         if current_value == '':
             return
 
