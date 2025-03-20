@@ -703,44 +703,44 @@ class Server():
         while True:
             try:
                 rb = self.recv_queue.get_nowait()
-                if self.partial_packet != None:
-                    rb = self.partial_packet + rb
-                    self.partial_packet = None
-
-                while True:
-                    remaining_length = len(rb)
-                    if remaining_length < 8:
-                        self.partial_packet = rb
-                        break
-                    if rb[0:4] != Server.begin_packet_marker:
-                        raise Exception('bad received packet header', rb[0:4])
-                    payload_length = (rb[4]<<24) | rb[5]<<16 | rb[6]<<8 | rb[7]
-                    end_offset = 12 + payload_length
-                    if remaining_length < end_offset:
-                        self.partial_packet = rb
-                        break
-                    if rb[end_offset-4:end_offset] != Server.end_packet_marker:
-                        raise Exception('bad received packet trailer', rb[end_offset-4:end_offset])
-                    #tprint('payload type', rb[8], 'version', rb[9], 'sequence', rb[10])
-
-                    payload_type = rb[8]
-                    payload = rb[11:end_offset-4]
-                    if payload_type == self.payload_type_cat:
-                        self.received_cat(payload)
-                    elif payload_type == self.payload_type_audio:
-                        self.received_audio(payload)
-                    elif payload_type == self.payload_type_pan:
-                        self.received_pan(payload)
-                    elif payload_type == self.payload_type_minipan:
-                        self.received_minipan(payload)
-
-                    if remaining_length == end_offset:
-                        break
-                    rb = rb[end_offset:]
-
             except queue.Empty:
                 Poll.delayed_call(Server.receive_poll_interval, self.dequeue_k4_packets)
                 break
+
+            if self.partial_packet != None:
+                rb = self.partial_packet + rb
+                self.partial_packet = None
+
+            while True:
+                remaining_length = len(rb)
+                if remaining_length < 8:
+                    self.partial_packet = rb
+                    break
+                if rb[0:4] != Server.begin_packet_marker:
+                    raise Exception('bad received packet header', rb[0:4])
+                payload_length = (rb[4]<<24) | rb[5]<<16 | rb[6]<<8 | rb[7]
+                end_offset = 12 + payload_length
+                if remaining_length < end_offset:
+                    self.partial_packet = rb
+                    break
+                if rb[end_offset-4:end_offset] != Server.end_packet_marker:
+                    raise Exception('bad received packet trailer', rb[end_offset-4:end_offset])
+                #tprint('payload type', rb[8], 'version', rb[9], 'sequence', rb[10])
+
+                payload_type = rb[8]
+                payload = rb[11:end_offset-4]
+                if payload_type == self.payload_type_cat:
+                    self.received_cat(payload)
+                elif payload_type == self.payload_type_audio:
+                    self.received_audio(payload)
+                elif payload_type == self.payload_type_pan:
+                    self.received_pan(payload)
+                elif payload_type == self.payload_type_minipan:
+                    self.received_minipan(payload)
+
+                if remaining_length == end_offset:
+                    break
+                rb = rb[end_offset:]
 
     def received_cat(self, cmds):
         responses = cmds.decode().split(';')[:-1]
@@ -767,23 +767,24 @@ class Server():
 
             try:
                 recv_bytes = self.recv_queue.get_nowait()
-                recv_str = recv_bytes.decode()
-                responses = recv_str.split(';')
-                if len(responses) == 0:
-                    continue
-
-                if self.partial_packet != None:
-                    responses[0] = self.partial_packet + responses[0]
-                    self.partial_packet = ''
-
-                if responses[-1] != '':
-                    self.partial_packet = responses[-1]
-
-                responses = responses[0:-1]
-                self.receive_k4_responses(responses)
             except queue.Empty:
                 Poll.delayed_call(Server.receive_poll_interval, self.dequeue_k4_cat)
                 break
+
+            recv_str = recv_bytes.decode()
+            responses = recv_str.split(';')
+            if len(responses) == 0:
+                continue
+
+            if self.partial_packet != None:
+                responses[0] = self.partial_packet + responses[0]
+                self.partial_packet = ''
+
+            if responses[-1] != '':
+                self.partial_packet = responses[-1]
+
+            responses = responses[0:-1]
+            self.receive_k4_responses(responses)
 
     def receive_k4_responses(self, responses):
         for response in responses:
