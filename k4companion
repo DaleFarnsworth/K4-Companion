@@ -3589,31 +3589,52 @@ def eval_value(s, value):
     return ret
 
 class Popup():
-    @staticmethod
-    def popup(msg='', title='', timeout=None, font=None, color='yellow'):
+    queue = queue.Queue()
+    poll_interval = 200          # 200 mS
+
+    @classmethod
+    def show_popup(cls, msg, title, timeout, font, color):
         if isinstance(msg, str):
             msg = [ msg ]
         msg = "\n\n".join(msg)
-        popup = Popup(title=title, timeout=timeout, font=font, color=color)
+        popup = cls(title=title, timeout=timeout, font=font, color=color)
         label = tk.Label(popup.frame, text=msg, anchor='center', justify='left', font=font, bg=color)
         label.grid(row=0, column=0)
         popup.show()
 
-    @staticmethod
-    def warning(msg):
-        if isinstance(msg, str):
-            msg = 'Warning: ' +  msg
-        else:
-            msg[0] = 'Warning: ' + msg[0]
-        Popup.popup(msg=msg, title='Warning', timeout=2000, font=None, color='yellow')
+    @classmethod
+    def show_popups(cls):
+        try:
+            msg, title, timeout, font, color = cls.queue.get_nowait()
+        except queue.Empty:
+            Poll.delayed_call(cls.poll_interval, cls.show_popups)
+            return
 
-    @staticmethod
-    def error(msg):
+        cls.show_popup(msg, title, timeout, font, color)
+        Poll.delayed_call(cls.poll_interval, cls.show_popups)
+
+    @classmethod
+    def popup(cls, msg='', title='', timeout=None, font=None, color='yellow'):
+        if threading.current_thread() == threading.main_thread():
+            cls.show_popup(msg, title, timeout, font, color)
+        else:
+            cls.queue.put((msg, title, timeout, font, color))
+
+    @classmethod
+    def warning(cls, msg):
         if isinstance(msg, str):
             msg = 'Warning: ' +  msg
         else:
             msg[0] = 'Warning: ' + msg[0]
-        Popup.popup(msg=msg, title='Error', timeout=5000, font=None, color='yellow')
+        cls.popup(msg=msg, title='Warning', timeout=2000, font=None, color='yellow')
+
+    @classmethod
+    def error(cls, msg):
+        if isinstance(msg, str):
+            msg = 'Warning: ' +  msg
+        else:
+            msg[0] = 'Warning: ' + msg[0]
+        cls.popup(msg=msg, title='Error', timeout=5000, font=None, color='yellow')
 
     def __init__(self, title='', timeout=None, font=None, color='yellow', modal=False):
         self.timeout = timeout
@@ -3753,6 +3774,8 @@ def main():
     page = Page.main()
     page.frame.bind('<Visibility>', main_page_visible)
     Page.show_page(page.name)
+
+    Popup.show_popups()
 
     top.mainloop()
 
