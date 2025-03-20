@@ -576,7 +576,7 @@
   length: 150
   evalincrement: '1'
   evalcmd: '"ML0{:03d};".format(int(float(value)))'
-  evalresponse: 'float(value[3:6])'
+  evalresponse: 'float(value[3:6]) if value[2] == "0" else -1'
 #end
 
 #define keyer-speed-slider-group

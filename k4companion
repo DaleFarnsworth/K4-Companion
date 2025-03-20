@@ -1740,6 +1740,8 @@ class Slider(Widget):
 
     def on_response_received(self, response):
         value = float(eval_value(self.evalresponse, response))
+        if value < 0:
+            return
         self.value.set(value)
         self.scale.configure(resolution=eval_value(self.evalincrement, value))
         self.previous_value = value
