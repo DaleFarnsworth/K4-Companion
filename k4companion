@@ -2392,6 +2392,7 @@ class Menu_definition():
         self.slider_update()
 
     def zmon(self):
+        self.current -= 1
         self.low -= 1
         self.high -= 1
         self.slider()
