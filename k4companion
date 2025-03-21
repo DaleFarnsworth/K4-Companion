@@ -615,28 +615,25 @@ class Server():
             bs = self.send_queue.get()
             if not self.connected:
                 return
+
             try:
-                try:
-                    self.socket.sendmsg(bs)
-                except:
-                    for b in bs:
-                        self.socket.sendall(b)
+                self.socket.sendmsg(bs)
+            except OSError:
+                print("Failed to send command, '{bs}' to '{name}'".format(bs=bs[3], name=self.name))
 
-                if Options.debug >= 1:
-                    if self.port == 9200:
-                        cmds = bs[0]
-                    elif bs[0] == Server.begin_packet_marker and bs[2][0] == Server.payload_type_cat:
-                        cmds = bs[3]
-                    else:
-                        continue
+            if Options.debug >= 1:
+                cmds = None
+                if self.port == 9200:
+                    cmds = bs[0]
+                elif bs[0] == Server.begin_packet_marker and bs[2][0] == Server.payload_type_cat:
+                    cmds = bs[3]
 
+                if cmds != None:
                     cmds = cmds.decode()
                     if cmds in ['PING;']:
                         dprint3('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
                     else:
                         dprint2('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
-            except OSError:
-                print("Failed to send command, '{bs}' to '{name}'".format(bs=bs[3], name=self.name))
 
     def expand_cmds(self, cmds):
         if isinstance(cmds, str):
