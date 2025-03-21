@@ -3693,6 +3693,42 @@ class Popup():
         Page.top.wait_window(popup.popup)
         return var.get()
 
+class Timer():
+    timers = {}
+
+    @classmethod
+    def timer(cls, name):
+        return cls.timers.get(name, None)
+
+    def __init__(self, name, entries):
+        self.entries = entries
+        self.times = []
+        self.index = 0
+        for i in range(0, entries):
+            self.times.append(0)
+        self.timers[name] = self
+
+    def add(self):
+        self.times[self.index] = time.time_ns()
+
+        self.index += 1
+        if self.index >= self.entries:
+            self.index = 0
+
+    def values(self):
+        return self.times
+
+    def deltas(self):
+        deltas = []
+        for i in range(self.entries):
+            if i == 0:
+                previous = self.entries - 1
+            else:
+                previous = i - 1
+            deltas.append(self.times[i] - self.times[previous])
+
+        return deltas
+
 def validate_config_options(dictionary, requireds, options, name=None):
     if name == None:
         name = dictionary['item']
