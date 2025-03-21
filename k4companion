@@ -542,15 +542,11 @@ class Server():
 
         except socket.gaierror:
             print('Address not found: {addr}'.format(addr=self.address))
-            if not Options.debug > 0:
-                cleanup_and_exit()
+            cleanup_and_exit()
         except OSError:
             print('Failed to connect to {name}, address {addr}, port {port}'.format(
                   name=self.name, addr=self.address, port=self.port))
-            if Options.debug > 0:
-                raise
-            else:
-                cleanup_and_exit()
+            cleanup_and_exit()
 
     def close(self):
         self.connected = False
