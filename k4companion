@@ -334,8 +334,6 @@ class Server():
         '-': True,
         '/': True,
         '\\': True,
-        '+': True,
-        '-': True,
     }
 
     k4_get_only_cmd_bases = {
