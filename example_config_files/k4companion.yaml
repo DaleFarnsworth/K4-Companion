@@ -37,6 +37,7 @@
   server: k4
   contains: #{
     #include main-tab-group
+    #include receive-tab-group
     #include transmit-tab-group
     #include menu-tab-group
     #include app-settings-tab-group
@@ -57,6 +58,16 @@
   tabname: Menu
   contains: #{
     #include menu
+  #}
+#end
+
+#define receive-tab-group
+- item: group
+  tabname: Receive
+  contains: #{
+    #include af-limiter-slider
+    #include main-apf-togglebutton
+    #include sub-apf-togglebutton
   #}
 #end
 
@@ -749,6 +760,40 @@
   evalincrement: '0.1'
   evalcmd: '"ES{mode}{bw:02d};".format(mode=1 if value > 2.8 else 0, bw=int(value*10))'
   evalresponse: '-1 if len(value) < 5 else float(value[3:5])/10'
+#end
+
+#define af-limiter-slider
+- item: slider
+  label: AF Limiter
+  orient: vertical
+  from: 30
+  to: 1
+  length: 150
+  evalincrement: '1'
+  evalcmd: '"AL{:02d};".format(int(value))'
+  evalresponse: 'float(value[2:4])'
+#end
+
+#define main-apf-togglebutton
+- item: togglebutton
+  label: Main APF
+  selections: #{
+    - { text:    "Off", cmd: AP00;  }
+    - { text:  "30 Hz", cmd: AP10; }
+    - { text:  "50 Hz", cmd: AP11; }
+    - { text: "150 Hz", cmd: AP12; }
+  #}
+#end
+
+#define sub-apf-togglebutton
+- item: togglebutton
+  label: Sub APF
+  selections: #{
+    - { text:    "Off", cmd: AP$00;  }
+    - { text:  "30 Hz", cmd: AP$10; }
+    - { text:  "50 Hz", cmd: AP$11; }
+    - { text: "150 Hz", cmd: AP$12; }
+  #}
 #end
 
 # preprocessor directives:
