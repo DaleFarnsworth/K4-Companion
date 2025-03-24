@@ -73,6 +73,8 @@
     #include audio-effects-togglebutton
     #include af-limiter-slider
     #include cw-pitch-slider
+    #include main-center-pitch-slider
+    #include sub-center-pitch-slider
   #}
 #end
 
@@ -841,6 +843,30 @@
     - { text: "Slow", cmd: GT$1; }
     - { text: "Fast", cmd: GT$2; }
   #}
+#end
+
+#define main-center-pitch-slider
+- item: slider
+  label: Main Center Pitch
+  orient: vertical
+  from: 900
+  to: 300
+  length: 150
+  evalincrement: '10'
+  evalcmd: '"IS{:04d};".format(int(int(value)/10))'
+  evalresponse: 'int(value[2:6])*10'
+#end
+
+#define sub-center-pitch-slider
+- item: slider
+  label: Sub Center Pitch
+  orient: vertical
+  from: 900
+  to: 300
+  length: 150
+  evalincrement: '10'
+  evalcmd: '"IS${:04d};".format(int(int(value)/10))'
+  evalresponse: 'int(value[3:7])*10'
 #end
 
 # preprocessor directives:
