@@ -64,12 +64,15 @@
 #define receive-tab-group
 - item: group
   tabname: Receive
+  columns: 5
   contains: #{
-    #include af-limiter-slider
+    #include main-agc-togglebutton
+    #include sub-agc-togglebutton
     #include main-apf-togglebutton
     #include sub-apf-togglebutton
-    #include cw-pitch-slider
     #include audio-effects-togglebutton
+    #include af-limiter-slider
+    #include cw-pitch-slider
   #}
 #end
 
@@ -817,6 +820,26 @@
     - { text: "Off",        cmd: FX0; }
     - { text: "Sim Stereo", cmd: FX1; }
     - { text: "Pitch Map",  cmd: FX2; }
+  #}
+#end
+
+#define main-agc-togglebutton
+- item: togglebutton
+  label: Main AGC
+  selections: #{
+    - { text: "Off",  cmd: GT0; }
+    - { text: "Slow", cmd: GT1; }
+    - { text: "Fast", cmd: GT2; }
+  #}
+#end
+
+#define sub-agc-togglebutton
+- item: togglebutton
+  label: Sub AGC
+  selections: #{
+    - { text: "Off",  cmd: GT$0; }
+    - { text: "Slow", cmd: GT$1; }
+    - { text: "Fast", cmd: GT$2; }
   #}
 #end
 
