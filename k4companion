@@ -1240,7 +1240,7 @@ class Togglebutton(Widget):
             selection = {}
 
             required = []
-            options = ['text', 'cmd', 'response', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font']
+            options = ['text', 'cmd', 'response', 'evalresponse', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font']
             validate_config_options(conf_sel, required, options, name='togglebutton.selection')
 
             selection['text'] = conf_sel.get('text', '')
@@ -1269,6 +1269,7 @@ class Togglebutton(Widget):
             if selection['afg'] == None:
                 selection['afg'] = selection['fg']
             selection['blink'] = conf_sel.get('blink', False)
+            selection['evalresponse'] = conf_sel.get('evalresponse', None)
             self.selections.append(selection)
 
         width = container.items_width()
@@ -1326,17 +1327,21 @@ class Togglebutton(Widget):
 
         self.configure()
 
-    def compare_parameters(self, text, parameters):
+    def compare_parameters(self, selection, parameters):
+        text = selection['text']
         for base in parameters.keys():
             dprint3('commpare :{text} s: {s}, b: {b}'.format(text=text, s=self.server.k4_parameters.get(base, None), b=parameters[base]))
-            if parameters[base] != self.server.k4_parameters.get(base, None):
+            k4_parameter = self.server.k4_parameters.get(base, None)
+            if selection['evalresponse'] != None and k4_parameter != None:
+                k4_parameter = self.eval_value(selection['evalresponse'], base + k4_parameter + ';')[len(base):].rstrip(';')
+            if parameters[base] != k4_parameter:
                 return False
         dprint3('Match')
         return True
 
     def on_response_received(self, response):
         for index, selection in enumerate(self.selections):
-            if self.compare_parameters(selection['text'], selection['parameters']):
+            if self.compare_parameters(selection,  selection['parameters']):
                 self.index = index
                 self.configure()
 
@@ -1681,7 +1686,7 @@ class VFO(Widget):
 
 class Slider(Widget):
     def __init__(self, config_info, container):
-        required = ['item', 'from', 'to', 'evalcmd', 'evalresponse']
+        required = ['item', 'evalcmd', 'from', 'to', 'evalresponse']
         options = ['orient', 'width', 'length', 'evalincrement', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font']
         validate_config_options(config_info, required, options)
 
@@ -1702,13 +1707,15 @@ class Slider(Widget):
         self.value.set(0.0)
         self.previous_value = 0.0
 
-        resolution=eval_value(self.evalincrement, self.value.get())
+        from_ = self.eval_value(self.from_, self.value.get())
+        to = self.eval_value(self.to, self.value.get())
+        resolution = self.eval_value(self.evalincrement, self.value.get())
 
         self.scale = tk.Scale(self.frame,
-                         from_=self.from_,
-                         to=self.to,
-                         orient=orient,
+                         from_=from_,
+                         to=to,
                          resolution=resolution,
+                         orient=orient,
                          repeatdelay=0,
                          width=width,
                          length=length,
@@ -1722,7 +1729,7 @@ class Slider(Widget):
         self.server.subscribe_connect(self.on_server_connect)
 
     def on_server_connect(self):
-        cmd = eval_value(self.evalcmd, self.value.get())
+        cmd = self.eval_value(self.evalcmd, self.value.get())
         self.server.subscribe_cmds(cmd, self.on_response_received)
 
     def value_changed(self, var, index, mode):
@@ -1731,18 +1738,19 @@ class Slider(Widget):
         if self.previous_value == value:
             return
         if self.previous_value < value:
-            next_value = value + eval_value(self.evalincrement, value)
-        self.scale.configure(resolution=eval_value(self.evalincrement, next_value))
-        cmd = eval_value(self.evalcmd, value)
+            next_value = value + self.eval_value(self.evalincrement, value)
+        self.scale.configure(resolution=self.eval_value(self.evalincrement, next_value))
+        cmd = self.eval_value(self.evalcmd, value)
         self.previous_value = value
         self.server.send_cmds(cmd)
 
     def on_response_received(self, response):
-        value = float(eval_value(self.evalresponse, response))
+        value = float(self.eval_value(self.evalresponse, response))
         if value < 0:
             return
+        self.scale.configure(resolution=self.eval_value(self.evalincrement, value))
+        self.scale.configure(from_=self.eval_value(self.from_, value), to=self.eval_value(self.to, value))
         self.value.set(value)
-        self.scale.configure(resolution=eval_value(self.evalincrement, value))
         self.previous_value = value
 
 class Getvalue(Widget):
@@ -1785,7 +1793,7 @@ class Getvalue(Widget):
         self.server.subscribe_cmds(response, self.on_response_received)
 
     def on_response_received(self, response):
-        value = eval_value(self.evalresponse, response)
+        value = self.eval_value(self.evalresponse, response)
         self.label.configure(text=value)
 
 class Bargraph(Widget):
@@ -2073,7 +2081,7 @@ class Dropdownbutton(Widget):
                 found = True
         if not found:
             if self.unexpected_response != '':
-                text = eval_value(self.unexpected_response, response)
+                text = self.eval_value(self.unexpected_response, response)
             else:
                 text = ''
 
@@ -3729,15 +3737,6 @@ def cleanup_and_exit():
     Audio.close()
 
     quit()
-
-def eval_value(s, value):
-    try:
-        ret = eval(str(s))
-    except Exception as err:
-        dprint('value: "{value}", eval("{s}")'.format(value=value, s=s))
-        dprint('exception: {err}'.format(err=err))
-        raise
-    return ret
 
 class Popup():
     queue = queue.Queue()

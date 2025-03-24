@@ -36,13 +36,14 @@
   name: main
   server: k4
   contains: #{
-    #include maintab-group
-    #include menutab-group
-    #include settingstab-group
+    #include main-tab-group
+    #include transmit-tab-group
+    #include menu-tab-group
+    #include settings-tab-group
   #}
 #}
 
-#define maintab-group
+#define main-tab-group
 - item: group
   tabname: Main
   contains: #{
@@ -51,7 +52,7 @@
     #}
 #end
 
-#define menutab-group
+#define menu-tab-group
 - item: group
   tabname: Menu
   contains: #{
@@ -59,11 +60,21 @@
   #}
 #end
 
-#define settingstab-group
+#define transmit-tab-group
+- item: group
+  tabname: Transmit
+  contains: #{
+    #include compression-level-slider
+    #include ssb-bandwidth-slider
+    #include essb-togglebutton
+  #}
+#end
+
+#define settings-tab-group
 - item: group
   tabname: Settings
   contains: #{
-    #include settings 
+    #include settings
   #}
 #end
 
@@ -707,6 +718,39 @@
   #}
 #end
 
+#define compression-level-slider
+- item: slider
+  label: CMP
+  orient: vertical
+  from: 30
+  to: 0
+  length: 150
+  evalincrement: '1'
+  evalcmd: '"CP{:03d};".format(int(value))'
+  evalresponse: 'float(value[2:5])'
+#end
+
+#define essb-togglebutton
+- item: togglebutton
+  label: ESSB
+  selections: #{
+    - { text: "On",  cmd: ES1;, evalresponse: 'value[0:3]+";"' } 
+    - { text: "Off", cmd: ES0;, evalresponse: 'value[0:3]+";"' }
+  #}
+#end
+
+#define ssb-bandwidth-slider
+- item: slider
+  label: SSB BW
+  orient: vertical
+  from: "4.5 if self.k4param('ES') == None or len(self.k4param('ES')) < 3 or self.k4param('ES')[0] == '1' else 2.8"
+  to: "2.4 if self.k4param('ES') == None or len(self.k4param('ES')) < 3 or self.k4param('ES')[0] == '0' else 3.0"
+  length: 150
+  evalincrement: '0.1'
+  evalcmd: '"ES{mode}{bw:02d};".format(mode=1 if value > 2.8 else 0, bw=int(value*10))'
+  evalresponse: '-1 if len(value) < 5 else float(value[3:5])/10'
+#end
+
 # preprocessor directives:
 #   #define <block_name>
 #     - defines a block, <block_name>,  containing all following lines until a #end directive
@@ -793,6 +837,8 @@
 #           'QUIT!;', terminates the program
 #           'SHOW!PREVIOUS;', displays the previously-displayed page
 #           'SHOW!YYY;', displays page with the name: YYY
+#       response: When this response is received, the selection will be selected.`
+#       evalresponse: A python expression to modify the response received before matching the selection.
 #       fg: foreground color
 #       bg: background color
 #       abg: active background color
