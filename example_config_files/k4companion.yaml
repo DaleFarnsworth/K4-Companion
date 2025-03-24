@@ -68,6 +68,7 @@
     #include af-limiter-slider
     #include main-apf-togglebutton
     #include sub-apf-togglebutton
+    #include cw-pitch-slider
   #}
 #end
 
@@ -794,6 +795,18 @@
     - { text:  "50 Hz", cmd: AP$11; }
     - { text: "150 Hz", cmd: AP$12; }
   #}
+#end
+
+#define cw-pitch-slider
+- item: slider
+  label: CW Pitch
+  orient: vertical
+  from: 900
+  to: 300
+  length: 150
+  evalincrement: '10'
+  evalcmd: '"CW{:02d};".format(int(int(value)/10))'
+  evalresponse: 'int(value[2:4])*10'
 #end
 
 # preprocessor directives:
