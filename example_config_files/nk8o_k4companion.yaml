@@ -85,6 +85,7 @@
     #include compression-level-slider
     #include ssb-bandwidth-slider
     #include essb-togglebutton
+    #include mic-gain-slider
   #}
 #end
 
@@ -867,6 +868,18 @@
   evalincrement: '10'
   evalcmd: '"IS${:04d};".format(int(int(value)/10))'
   evalresponse: 'int(value[3:7])*10'
+#end
+
+#define mic-gain-slider
+- item: slider
+  label: Mic Gain
+  orient: vertical
+  from: 80
+  to: 0
+  length: 150
+  evalincrement: '1'
+  evalcmd: '"MG{:03d};".format(int(value))'
+  evalresponse: 'int(value[2:5])'
 #end
 
 # preprocessor directives:
