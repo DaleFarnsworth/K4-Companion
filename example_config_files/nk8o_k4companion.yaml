@@ -75,6 +75,8 @@
     #include cw-pitch-slider
     #include main-center-pitch-slider
     #include sub-center-pitch-slider
+    #include main-auto-notch-togglebutton
+    #include sub-auto-notch-togglebutton
   #}
 #end
 
@@ -895,6 +897,24 @@
   evalincrement: '1'
   evalcmd: '"ML2{:03d};".format(int(value))'
   evalresponse: 'int(value[3:6])'
+#end
+
+#define main-auto-notch-togglebutton
+- item: togglebutton
+  label: Main Auto Notch
+  selections: #{
+    - { text: "Off", cmd: NA0; }
+    - { text:  "On", cmd: NA1; }
+  #}
+#end
+
+#define sub-auto-notch-togglebutton
+- item: togglebutton
+  label: Sub Auto Notch
+  selections: #{
+    - { text: "Off", cmd: NA$0; }
+    - { text:  "On", cmd: NA$1; }
+  #}
 #end
 
 # preprocessor directives:
