@@ -1051,7 +1051,7 @@ class Container(Widget):
                child = Dropdownbutton(config_info, self)
             elif widget_type == 'menu':
                child = Menu(config_info, self)
-            elif widget_type == 'settings':
+            elif widget_type == 'appsettings':
                child = Settings_widget(config_info, self)
             else:
                 raise Exception('Error: config file: unknown item "{type}"'.format(type=widget_type))

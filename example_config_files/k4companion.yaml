@@ -39,7 +39,7 @@
     #include main-tab-group
     #include transmit-tab-group
     #include menu-tab-group
-    #include settings-tab-group
+    #include app-settings-tab-group
   #}
 #}
 
@@ -70,11 +70,11 @@
   #}
 #end
 
-#define settings-tab-group
+#define app-settings-tab-group
 - item: group
-  tabname: Settings
+  tabname: App
   contains: #{
-    #include settings
+    #include app-settings
   #}
 #end
 
@@ -156,8 +156,8 @@
   selectbg: pink
 #end
 
-#define settings
-- item: settings
+#define app-settings
+- item: appsettings
   selectbg: pink
 #end
 
