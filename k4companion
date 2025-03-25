@@ -896,7 +896,7 @@ class Widget():
         else:
             return None
 
-    def eval_value(self, s, value):
+    def eval_value(self, s, value=""):
         try:
             ret = eval(str(s))
         except Exception as err:
@@ -1240,12 +1240,13 @@ class Togglebutton(Widget):
             selection = {}
 
             required = []
-            options = ['text', 'cmd', 'response', 'evalresponse', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font']
+            options = ['text', 'cmd', 'evalcmd', 'response', 'evalresponse', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font']
             validate_config_options(conf_sel, required, options, name='togglebutton.selection')
 
             selection['text'] = conf_sel.get('text', '')
 
             cmd = conf_sel.get('cmd', None)
+            evalcmd = conf_sel.get('evalcmd', None)
             orig_response = conf_sel.get('response', cmd)
             selection['response'] = orig_response
 
@@ -1269,6 +1270,7 @@ class Togglebutton(Widget):
             if selection['afg'] == None:
                 selection['afg'] = selection['fg']
             selection['blink'] = conf_sel.get('blink', False)
+            selection['evalcmd'] = conf_sel.get('evalcmd', None)
             selection['evalresponse'] = conf_sel.get('evalresponse', None)
             self.selections.append(selection)
 
@@ -1322,6 +1324,9 @@ class Togglebutton(Widget):
         selection = self.selections[self.index]
 
         cmd = selection['cmd']
+        evalcmd = selection['evalcmd']
+        if evalcmd != None:
+            cmd = self.eval_value(evalcmd)
         if cmd != None:
             self.server.expand_and_send_cmds(cmd)
 
