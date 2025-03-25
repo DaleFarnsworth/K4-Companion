@@ -1246,7 +1246,6 @@ class Togglebutton(Widget):
             selection['text'] = conf_sel.get('text', '')
 
             cmd = conf_sel.get('cmd', None)
-            evalcmd = conf_sel.get('evalcmd', None)
             orig_response = conf_sel.get('response', cmd)
             selection['response'] = orig_response
 
@@ -1332,8 +1331,9 @@ class Togglebutton(Widget):
 
         self.configure()
 
-    def compare_parameters(self, selection, parameters):
+    def compare_parameters(self, selection):
         text = selection['text']
+        parameters = selection['parameters']
         for base in parameters.keys():
             dprint3('commpare :{text} s: {s}, b: {b}'.format(text=text, s=self.server.k4_parameters.get(base, None), b=parameters[base]))
             k4_parameter = self.server.k4_parameters.get(base, None)
@@ -1346,7 +1346,7 @@ class Togglebutton(Widget):
 
     def on_response_received(self, response):
         for index, selection in enumerate(self.selections):
-            if self.compare_parameters(selection,  selection['parameters']):
+            if self.compare_parameters(selection):
                 self.index = index
                 self.configure()
 
@@ -1957,7 +1957,8 @@ class Notebook(Container):
 class Dropdownbutton(Widget):
     def __init__(self, config_info, container):
         required = ['item', 'selections']
-        options = ['bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg', 'width', 'justify', 'unexpectedresponse', 'label', 'leading']
+        options = ['bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg', 'width', 'height',
+                   'justify', 'unexpectedresponse', 'label', 'leading']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1979,6 +1980,7 @@ class Dropdownbutton(Widget):
         self.selectbg = config_info.get('selectbg', bg)
         self.selectfg = config_info.get('selectfg', fg)
         justify = config_info.get('justify', 'right')
+        height = config_info.get('height', 0)
 
         self.unexpected_response = config_info.get('unexpectedresponse', '')
 
@@ -1990,7 +1992,7 @@ class Dropdownbutton(Widget):
             selection = {}
 
             required = []
-            options = ['text', 'cmd', 'response', 'blink']
+            options = ['text', 'cmd', 'evalcmd', 'response', 'evalresponse', 'blink']
             validate_config_options(conf_sel, required, options, name='dropdownbutton.selection')
 
             text = conf_sel.get('text', '')
@@ -2014,12 +2016,17 @@ class Dropdownbutton(Widget):
 
             selection['cmd'] = cmd
             selection['blink'] = conf_sel.get('blink', False)
+            selection['evalcmd'] = conf_sel.get('evalcmd', None)
+            selection['evalresponse'] = conf_sel.get('evalresponse', None)
             self.selections.append(selection)
 
         if config_info.get('width', None) != None:
             width = config_info['width']
         elif self.container.childwidth != None:
             width = self.container.childwidth
+
+        if height == 0:
+            height = len(texts)
 
         # Define the style for this dropdown widget
         self.stylename = str(self) + '.TCombobox'
@@ -2033,7 +2040,7 @@ class Dropdownbutton(Widget):
                 textvar=self.val,
                 font=self.font(),
                 values=texts,
-                height=len(texts),
+                height=height,
                 width=width,
                 state='readonly',
                 justify=justify,
@@ -2060,13 +2067,21 @@ class Dropdownbutton(Widget):
             self.index = index
             selection = self.selections[self.index]
             cmd = selection['cmd']
+            evalcmd = selection['evalcmd']
+            if evalcmd != None:
+                cmd = self.eval_value(evalcmd)
             if cmd != None:
                 self.server.expand_and_send_cmds(cmd)
 
-    def compare_parameters(self, text, parameters):
+    def compare_parameters(self, selection):
+        text = selection['text']
+        parameters = selection['parameters']
         for base in parameters.keys():
             dprint3('commpare :{text} s: {s}, b: {b}'.format(text=text, s=self.server.k4_parameters.get(base, None), b=parameters[base]))
-            if parameters[base] != self.server.k4_parameters.get(base, None):
+            k4_parameter = self.server.k4_parameters.get(base, None)
+            if selection['evalresponse'] != None and k4_parameter != None:
+                k4_parameter = self.eval_value(selection['evalresponse'], base + k4_parameter + ';')[len(base):].rstrip(';')
+            if parameters[base] != k4_parameter:
                 return False
         dprint3('Match')
         return True
@@ -2074,7 +2089,7 @@ class Dropdownbutton(Widget):
     def on_response_received(self, response):
         found = False
         for index, selection in enumerate(self.selections):
-            if self.compare_parameters(selection['text'], selection['parameters']):
+            if self.compare_parameters(selection):
                 self.index = index
                 self.combobox.state='normal'
                 self.val.set(selection['text'])

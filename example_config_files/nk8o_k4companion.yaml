@@ -98,6 +98,8 @@
     #include compression-level-slider
     #include mic-gain-slider
     #include voice-monitor-level-slider
+    #include ctcss-togglebutton
+    #include ctcss-dropdown-button
   #}
 #end
 
@@ -1007,6 +1009,75 @@
   evalcmd: '"NR${v:02d}{on};".format(v=int(value), on=0 if self.k4param("NR$") == None else self.k4param("NR$")[0] if len(self.k4param("NR$")) < 2 else self.k4param("NR$")[2])'
   evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
 #end
+
+#define ctcss-togglebutton
+- item: togglebutton
+  label: CTCSS
+  selections: #{
+    - { text: "On",  cmd: PL1;, evalcmd: '"PL{v}1;".format(v=self.k4param("PL")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' } 
+    - { text: "Off", cmd: PL0;, evalcmd: '"PL{v}0;".format(v=self.k4param("PL")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' }
+  #}
+#end
+
+#define ctcss-dropdown-button
+- item: dropdownbutton
+  label: CTCSS
+  width: 6
+  height: 10
+  selections: #{
+    - { text: " 67.0", cmd: PL01;, evalcmd: '"PL01{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' } 
+    - { text: " 69.3", cmd: PL02;, evalcmd: '"PL02{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 71.9", cmd: PL03;, evalcmd: '"PL03{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 74.4", cmd: PL04;, evalcmd: '"PL04{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 77.0", cmd: PL05;, evalcmd: '"PL05{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 79.7", cmd: PL06;, evalcmd: '"PL06{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 82.5", cmd: PL07;, evalcmd: '"PL07{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 85.4", cmd: PL08;, evalcmd: '"PL08{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 88.5", cmd: PL09;, evalcmd: '"PL09{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 91.5", cmd: PL10;, evalcmd: '"PL10{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 94.8", cmd: PL11;, evalcmd: '"PL11{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' } 
+    - { text: " 97.4", cmd: PL12;, evalcmd: '"PL12{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "100.0", cmd: PL13;, evalcmd: '"PL13{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "103.5", cmd: PL14;, evalcmd: '"PL14{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "107.2", cmd: PL15;, evalcmd: '"PL15{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "110.9", cmd: PL16;, evalcmd: '"PL16{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "114.8", cmd: PL17;, evalcmd: '"PL17{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "118.8", cmd: PL18;, evalcmd: '"PL18{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "123.0", cmd: PL19;, evalcmd: '"PL19{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "127.3", cmd: PL20;, evalcmd: '"PL20{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "131.8", cmd: PL21;, evalcmd: '"PL21{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' } 
+    - { text: "136.5", cmd: PL22;, evalcmd: '"PL22{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "141.3", cmd: PL23;, evalcmd: '"PL23{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "146.2", cmd: PL24;, evalcmd: '"PL24{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "151.4", cmd: PL25;, evalcmd: '"PL25{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "156.7", cmd: PL26;, evalcmd: '"PL26{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "159.8", cmd: PL27;, evalcmd: '"PL27{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "162.2", cmd: PL28;, evalcmd: '"PL28{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "165.5", cmd: PL29;, evalcmd: '"PL29{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "167.9", cmd: PL30;, evalcmd: '"PL30{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "171.3", cmd: PL31;, evalcmd: '"PL31{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' } 
+    - { text: "173.8", cmd: PL32;, evalcmd: '"PL32{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "177.3", cmd: PL33;, evalcmd: '"PL33{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "179.9", cmd: PL34;, evalcmd: '"PL34{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "183.5", cmd: PL35;, evalcmd: '"PL35{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "186.2", cmd: PL36;, evalcmd: '"PL36{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "189.9", cmd: PL37;, evalcmd: '"PL37{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "192.8", cmd: PL38;, evalcmd: '"PL38{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "196.6", cmd: PL39;, evalcmd: '"PL39{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "199.5", cmd: PL40;, evalcmd: '"PL40{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "203.5", cmd: PL41;, evalcmd: '"PL41{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' } 
+    - { text: "206.5", cmd: PL42;, evalcmd: '"PL42{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "210.7", cmd: PL43;, evalcmd: '"PL43{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "218.1", cmd: PL44;, evalcmd: '"PL44{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "225.7", cmd: PL45;, evalcmd: '"PL45{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "229.1", cmd: PL46;, evalcmd: '"PL46{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "233.6", cmd: PL47;, evalcmd: '"PL47{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "241.8", cmd: PL48;, evalcmd: '"PL48{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "250.3", cmd: PL49;, evalcmd: '"PL49{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "254.1", cmd: PL50;, evalcmd: '"PL50{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+  #}
+#end
+
 
 # preprocessor directives:
 #   #define <block_name>
