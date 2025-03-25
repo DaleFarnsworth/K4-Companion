@@ -77,6 +77,10 @@
     #include sub-center-pitch-slider
     #include main-auto-notch-togglebutton
     #include sub-auto-notch-togglebutton
+    #include main-noise-blanker-togglebutton
+    #include sub-noise-blanker-togglebutton
+    #include main-noise-blanker-slider
+    #include sub-noise-blanker-slider
   #}
 #end
 
@@ -886,7 +890,6 @@
   evalresponse: 'int(value[2:5])'
 #end
 
-
 #define voice-monitor-level-slider
 - item: slider
   label: Monitor Level
@@ -915,6 +918,48 @@
     - { text: "Off", cmd: NA$0; }
     - { text:  "On", cmd: NA$1; }
   #}
+#end
+
+#define main-noise-blanker-togglebutton
+- item: togglebutton
+  label: Main NB
+  selections: #{
+    - { text: "On",  cmd: NB1;, evalresponse: 'value if len(value) < 5 else value[0:2]+value[4]+";"' } 
+    - { text: "Off", cmd: NB0;, evalresponse: 'value if len(value) < 5 else value[0:2]+value[4]+";"' }
+  #}
+#end
+
+#define sub-noise-blanker-togglebutton
+- item: togglebutton
+  label: Sub NB
+  selections: #{
+    - { text: "On",  cmd: NB$1;, evalresponse: 'value if len(value) < 6 else value[0:3]+value[5]+";"' } 
+    - { text: "Off", cmd: NB$0;, evalresponse: 'value if len(value) < 6 else value[0:3]+value[5]+";"' }
+  #}
+#end
+
+#define main-noise-blanker-slider
+- item: slider
+  label: Main NB Level
+  orient: vertical
+  from: 15
+  to: 0
+  length: 150
+  evalincrement: '1'
+  evalcmd: '"NB{v:02d}{on};".format(v=int(value), on=0 if self.k4param("NB") == None else self.k4param("NB")[0] if len(self.k4param("NB")) < 2 else self.k4param("NB")[2])'
+  evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
+#end
+
+#define sub-noise-blanker-slider
+- item: slider
+  label: Sub NB Level
+  orient: vertical
+  from: 15
+  to: 0
+  length: 150
+  evalincrement: '1'
+  evalcmd: '"NB${v:02d}{on};".format(v=int(value), on=0 if self.k4param("NB$") == None else self.k4param("NB$")[0] if len(self.k4param("NB$")) < 2 else self.k4param("NB$")[2])'
+  evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
 #end
 
 # preprocessor directives:

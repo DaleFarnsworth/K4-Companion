@@ -3938,7 +3938,7 @@ def vprint2(*args, **kwargs):
         print(*args, **kwargs)
 
 def tprint(*args, **kwargs):
-    print(*args, **kwargs)
+    print(*args, file=sys.stderr, **kwargs)
 
 main_page_was_visible = False
 def main_page_visible(self):
