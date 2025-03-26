@@ -231,6 +231,7 @@ class Server():
         '#SCL',
         'SD',
         '#SFL',
+        'SI',
         'SL',
         'SM$',
         'SMH',
@@ -286,6 +287,7 @@ class Server():
         '#P': ['#PKM'],
         '#R': ['#REF'],
         'RR': ['RRT', 'RRC', 'RRP'],
+        'SI': ['SIDA', 'SIDD', 'SIDU', 'SIFP', 'SIRF', 'SIRC'],         # SIDU is first after param dump
         'SM': ['SMH'],
         '#S': ['#SCL', '#SFL', '#SPM', '#SPN'],
         'SW': ['SWT', 'SWH'],
