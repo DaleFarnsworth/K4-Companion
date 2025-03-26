@@ -39,6 +39,7 @@
     #include main-tab-group
     #include receive-tab-group
     #include transmit-tab-group
+    #include equalizers-tab-group
     #include menu-tab-group
     #include app-settings-tab-group
   #}
@@ -100,6 +101,14 @@
     #include voice-monitor-level-slider
     #include ctcss-togglebutton
     #include ctcss-dropdown-button
+  #}
+#end
+
+#define equalizers-tab-group
+- item: group
+  tabname: Equalizers
+  contains: #{
+    #include equalizers
   #}
 #end
 
@@ -1078,6 +1087,10 @@
   #}
 #end
 
+#define equalizers
+- item: equalizers
+  length: 150
+#end
 
 # preprocessor directives:
 #   #define <block_name>

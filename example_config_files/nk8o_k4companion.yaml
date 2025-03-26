@@ -1089,7 +1089,6 @@
 
 #define equalizers
 - item: equalizers
-  label: Equalizer
   length: 150
 #end
 
