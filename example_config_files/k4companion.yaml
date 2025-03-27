@@ -864,7 +864,7 @@
 - item: slider
   label: Main Center Pitch
   orient: vertical
-  from: 900
+  from: 3000
   to: 300
   length: 150
   evalincrement: '10'
@@ -876,7 +876,7 @@
 - item: slider
   label: Sub Center Pitch
   orient: vertical
-  from: 900
+  from: 3000
   to: 300
   length: 150
   evalincrement: '10'
