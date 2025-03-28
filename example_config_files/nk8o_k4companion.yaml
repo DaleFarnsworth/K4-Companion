@@ -65,42 +65,23 @@
 #define receive-tab-group
 - item: group
   tabname: Receive
-  columns: 5
+  columns: 1
   contains: #{
-    #include main-agc-togglebutton
-    #include sub-agc-togglebutton
-    #include main-apf-togglebutton
-    #include sub-apf-togglebutton
-    #include audio-effects-togglebutton
-    #include af-limiter-slider
-    #include cw-pitch-slider
-    #include main-center-pitch-slider
-    #include sub-center-pitch-slider
-    #include main-auto-notch-togglebutton
-    #include sub-auto-notch-togglebutton
-    #include main-noise-blanker-togglebutton
-    #include sub-noise-blanker-togglebutton
-    #include main-noise-blanker-slider
-    #include sub-noise-blanker-slider
-    #include main-noise-reduction-togglebutton
-    #include sub-noise-reduction-togglebutton
-    #include main-noise-reduction-slider
-    #include sub-noise-reduction-slider
+    #include receive-tab-row-one-group
+    #include receive-tab-row-two-group
   #}
 #end
 
 #define transmit-tab-group
 - item: group
   tabname: Transmit
-  columns: 5
   contains: #{
     #include essb-togglebutton
     #include ssb-bandwidth-slider
     #include compression-level-slider
     #include mic-gain-slider
     #include voice-monitor-level-slider
-    #include ctcss-togglebutton
-    #include ctcss-dropdown-button
+    #include ctcss-group
   #}
 #end
 
@@ -179,6 +160,27 @@
             #include exit-button
           #}
       #}
+  #}
+#end
+
+#define receive-tab-row-one-group
+- item: group
+  contains: #{
+    #include agc-group
+    #include apf-group
+    #include auto-notch-group
+    #include audio-effects-togglebutton
+  #}
+#end
+
+#define receive-tab-row-two-group
+- item: group
+  contains: #{
+    #include af-limiter-slider
+    #include cw-pitch-slider
+    #include af-center-pitch-group
+    #include noise-blanker-group
+    #include noise-reduction-group
   #}
 #end
 
@@ -805,9 +807,19 @@
   evalresponse: 'float(value[2:4])'
 #end
 
+#define apf-group
+- item: group
+  label: APF
+  contains: #{
+    #include main-apf-togglebutton
+    #include sub-apf-togglebutton
+  #}
+#end
+
 #define main-apf-togglebutton
 - item: togglebutton
-  label: Main APF
+  label: Main
+  leading: 0
   selections: #{
     - { text:    "Off", cmd: AP00;  }
     - { text:  "30 Hz", cmd: AP10; }
@@ -818,7 +830,8 @@
 
 #define sub-apf-togglebutton
 - item: togglebutton
-  label: Sub APF
+  label: Sub
+  leading: 0
   selections: #{
     - { text:    "Off", cmd: AP$00;  }
     - { text:  "30 Hz", cmd: AP$10; }
@@ -849,9 +862,19 @@
   #}
 #end
 
+#define agc-group
+- item: group
+  label: AGC
+  contains: #{
+    #include main-agc-togglebutton
+    #include sub-agc-togglebutton
+  #}
+#end
+
 #define main-agc-togglebutton
 - item: togglebutton
-  label: Main AGC
+  label: Main
+  leading: 0
   selections: #{
     - { text: "Off",  cmd: GT0; }
     - { text: "Slow", cmd: GT1; }
@@ -861,7 +884,8 @@
 
 #define sub-agc-togglebutton
 - item: togglebutton
-  label: Sub AGC
+  label: Sub
+  leading: 0
   selections: #{
     - { text: "Off",  cmd: GT$0; }
     - { text: "Slow", cmd: GT$1; }
@@ -869,9 +893,18 @@
   #}
 #end
 
-#define main-center-pitch-slider
+#define af-center-pitch-group
+- item: group
+  label: AF Center Pitch
+  contains: #{
+    #include main-af-center-pitch-slider
+    #include sub-af-center-pitch-slider
+  #}
+#end
+
+#define main-af-center-pitch-slider
 - item: slider
-  label: Main Center Pitch
+  label: Main
   orient: vertical
   from: 3000
   to: 300
@@ -881,9 +914,9 @@
   evalresponse: 'int(value[2:6])*10'
 #end
 
-#define sub-center-pitch-slider
+#define sub-af-center-pitch-slider
 - item: slider
-  label: Sub Center Pitch
+  label: Sub
   orient: vertical
   from: 3000
   to: 300
@@ -917,9 +950,19 @@
   evalresponse: 'int(value[3:6])'
 #end
 
+#define auto-notch-group
+- item: group
+  label: Auto Notch
+  contains: #{
+    #include main-auto-notch-togglebutton
+    #include sub-auto-notch-togglebutton
+  #}
+#end
+
 #define main-auto-notch-togglebutton
 - item: togglebutton
-  label: Main Auto Notch
+  label: Main
+  leading: 0
   selections: #{
     - { text: "Off", cmd: NA0; }
     - { text:  "On", cmd: NA1; }
@@ -928,16 +971,47 @@
 
 #define sub-auto-notch-togglebutton
 - item: togglebutton
-  label: Sub Auto Notch
+  label: Sub
+  leading: 0
   selections: #{
     - { text: "Off", cmd: NA$0; }
     - { text:  "On", cmd: NA$1; }
   #}
 #end
 
+#define noise-blanker-group
+- item: group
+  label: NB
+  contains: #{
+    #include main-noise-blanker-group
+    #include sub-noise-blanker-group
+  #}
+#end
+
+#define main-noise-blanker-group
+- item: group
+  label: Main
+  leading: 0
+  columns: 1
+  contains: #{
+    #include main-noise-blanker-togglebutton
+    #include main-noise-blanker-slider
+  #}
+#end
+
+#define sub-noise-blanker-group
+- item: group
+  label: Sub
+  leading: 0
+  columns: 1
+  contains: #{
+    #include sub-noise-blanker-togglebutton
+    #include sub-noise-blanker-slider
+  #}
+#end
+  
 #define main-noise-blanker-togglebutton
 - item: togglebutton
-  label: Main NB
   selections: #{
     - { text: "On",  cmd: NB1;, evalresponse: 'value if len(value) < 5 else value[0:2]+value[4]+";"' } 
     - { text: "Off", cmd: NB0;, evalresponse: 'value if len(value) < 5 else value[0:2]+value[4]+";"' }
@@ -946,7 +1020,6 @@
 
 #define sub-noise-blanker-togglebutton
 - item: togglebutton
-  label: Sub NB
   selections: #{
     - { text: "On",  cmd: NB$1;, evalresponse: 'value if len(value) < 6 else value[0:3]+value[5]+";"' } 
     - { text: "Off", cmd: NB$0;, evalresponse: 'value if len(value) < 6 else value[0:3]+value[5]+";"' }
@@ -955,7 +1028,6 @@
 
 #define main-noise-blanker-slider
 - item: slider
-  label: Main NB Level
   orient: vertical
   from: 15
   to: 0
@@ -967,7 +1039,6 @@
 
 #define sub-noise-blanker-slider
 - item: slider
-  label: Sub NB Level
   orient: vertical
   from: 15
   to: 0
@@ -977,9 +1048,39 @@
   evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
 #end
 
+#define noise-reduction-group
+- item: group
+  label: NR
+  contains: #{
+    #include main-noise-reduction-group
+    #include sub-noise-reduction-group
+  #}
+#end
+
+#define main-noise-reduction-group
+- item: group
+  label: Main
+  leading: 0
+  columns: 1
+  contains: #{
+    #include main-noise-reduction-togglebutton
+    #include main-noise-reduction-slider
+  #}
+#end
+
+#define sub-noise-reduction-group
+- item: group
+  label: Sub
+  leading: 0
+  columns: 1
+  contains: #{
+    #include sub-noise-reduction-togglebutton
+    #include sub-noise-reduction-slider
+  #}
+#end
+
 #define main-noise-reduction-togglebutton
 - item: togglebutton
-  label: Main NR
   selections: #{
     - { text: "On",  cmd: NR1;, evalcmd: '"NR{v}1;".format(v=self.k4param("NR")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' } 
     - { text: "Off", cmd: NR0;, evalcmd: '"NR{v}0;".format(v=self.k4param("NR")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' }
@@ -988,7 +1089,6 @@
 
 #define sub-noise-reduction-togglebutton
 - item: togglebutton
-  label: Sub NR
   selections: #{
     - { text: "On",  cmd: NR$1;, evalcmd: '"NR${v}1;".format(v=self.k4param("NR$")[0:2])', evalresponse: 'value[0:3]+value[5]+";"' } 
     - { text: "Off", cmd: NR$0;, evalcmd: '"NR${v}0;".format(v=self.k4param("NR$")[0:2])', evalresponse: 'value[0:3]+value[5]+";"' }
@@ -997,7 +1097,6 @@
 
 #define main-noise-reduction-slider
 - item: slider
-  label: Main NR Level
   orient: vertical
   from: 10
   to: 0
@@ -1009,7 +1108,6 @@
 
 #define sub-noise-reduction-slider
 - item: slider
-  label: Sub NR Level
   orient: vertical
   from: 10
   to: 0
@@ -1019,9 +1117,18 @@
   evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
 #end
 
+#define ctcss-group
+- item: group
+  label: CTCSS
+  columns: 1
+  contains: #{
+    #include ctcss-togglebutton
+    #include ctcss-dropdown-button
+  #}
+#end
+
 #define ctcss-togglebutton
 - item: togglebutton
-  label: CTCSS
   selections: #{
     - { text: "On",  cmd: PL1;, evalcmd: '"PL{v}1;".format(v=self.k4param("PL")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' } 
     - { text: "Off", cmd: PL0;, evalcmd: '"PL{v}0;".format(v=self.k4param("PL")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' }
@@ -1030,7 +1137,6 @@
 
 #define ctcss-dropdown-button
 - item: dropdownbutton
-  label: CTCSS
   width: 6
   height: 10
   selections: #{
