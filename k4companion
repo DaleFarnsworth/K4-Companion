@@ -446,7 +446,7 @@ class Server():
         self.subscribe_connect(self.on_server_connect)
 
     def on_server_connect(self):
-        self.subscribe_response('ER;', self.on_error_code, send=False)
+        self.subscribe_cmds('ER;', self.on_error_code, send=False)
         self.update_local_audio_parameters()
         if self.type == 'k4' and self.port != 9200:
             Audio.server_connected(self)
@@ -694,9 +694,13 @@ class Server():
                 ret.append(cmd)
         return ret
 
-    def subscribe_cmds(self, cmds, callback):
+    def subscribe_cmds(self, cmds, callback, send=True):
         for cmd in self.server_cmds(cmds):
-            self.subscribe_response(cmd, callback)
+            self.subscribe_response(cmd, callback, send=send)
+
+    def unsubscribe_cmds(self, cmds, callback):
+        for cmd in self.server_cmds(cmds):
+            self.unsubscribe_response(cmd, callback)
 
     def ping(self):
         self.send_str('PING;')
@@ -839,7 +843,8 @@ class Server():
             if parameter != None:
                 callback(base + parameter + ';')
 
-    def unsubscribe_response(self, base, callback):
+    def unsubscribe_response(self, cmd, callback):
+        base = cmd_base(cmd)
         try:
             self.k4_subscriptions[base].remove(callback)
         except:
@@ -1575,15 +1580,16 @@ class VFO(Widget):
     def on_server_connect(self):
         self.enter_frequency_wrapper = (Page.top.register(self.enter_frequency), '%P', '%V')
         self.vfo_sb.configure(validate='all', validatecommand=self.enter_frequency_wrapper)
-        self.server.subscribe_cmds('F{vfo}'.format(vfo=self.AorB), self.on_frequency_received)
+        self.server.subscribe_cmds('F{vfo};'.format(vfo=self.AorB), self.on_frequency_received)
         step_cmd = 'VT'
         if self.AorB == 'B':
             step_cmd += '$'
+        step_cmd += ';'
         self.server.subscribe_cmds(step_cmd, self.on_step_received)
 
         # subscribe to split and transmit on/off changes
-        self.server.subscribe_cmds('FT', self.set_vfo_bg)
-        self.server.subscribe_cmds('TQ', self.set_vfo_bg)
+        self.server.subscribe_cmds('FT;', self.set_vfo_bg)
+        self.server.subscribe_cmds('TQ;', self.set_vfo_bg)
         self.vfo_sb.bind('<Visibility>', self.set_vfo_bg)
 
     def enter_frequency(self, p, v):
@@ -2633,7 +2639,7 @@ class Menu(Widget):
         self.scrollbar.config(command=self.listbox.yview)
 
         self.listbox.bind('<<ListboxSelect>>', self.on_listbox_selected)
-        self.server.subscribe_response('MEDF;', self.on_received_definition, send=False)
+        self.server.subscribe_cmds('MEDF;', self.on_received_definition, send=False)
 
     def update_definition_list(self):
         self.listbox.delete(0, tk.END)
@@ -2649,7 +2655,7 @@ class Menu(Widget):
         self.listbox.configure(width=width)
 
     def received_all_definitions(self):
-        self.server.subscribe_response('ME;', self.on_received_current, send=False)
+        self.server.subscribe_cmds('ME;', self.on_received_current, send=False)
 
         self.definitions = sorted(self.definitions, key=lambda d:d.current_desc().casefold())
         self.update_definition_list()
@@ -2850,8 +2856,8 @@ class Audio():
     def server_connected(cls, server):
         self = cls.get_singleton()
         self.start_output_thread(server.output_audio_queue)
-        server.subscribe_response('RX;', lambda response: self.on_transmit_changed(server, response), send=False)
-        server.subscribe_response('TX;', lambda response: self.on_transmit_changed(server, response), send=False)
+        server.subscribe_cmds('RX;', lambda response: self.on_transmit_changed(server, response), send=False)
+        server.subscribe_cmds('TX;', lambda response: self.on_transmit_changed(server, response), send=False)
 
     def pyaudio(self):
         fd = os.dup(2)
