@@ -897,14 +897,33 @@
 - item: group
   label: AF Center Pitch
   contains: #{
+    #include main-af-center-pitch-group
+    #include sub-af-center-pitch-group
+  #}
+#end
+
+#define main-af-center-pitch-group
+- item: group
+  columns: 1
+  contains: #{
     #include main-af-center-pitch-slider
+    #include main-af-center-pitch-normal-button
+  #}
+#end
+
+#define sub-af-center-pitch-group
+- item: group
+  columns: 1
+  contains: #{
     #include sub-af-center-pitch-slider
+    #include sub-af-center-pitch-normal-button
   #}
 #end
 
 #define main-af-center-pitch-slider
 - item: slider
   label: Main
+  leading: 0
   orient: vertical
   from: 3000
   to: 300
@@ -917,6 +936,7 @@
 #define sub-af-center-pitch-slider
 - item: slider
   label: Sub
+  leading: 0
   orient: vertical
   from: 3000
   to: 300
@@ -924,6 +944,18 @@
   evalincrement: '10'
   evalcmd: '"IS${:04d};".format(int(int(value)/10))'
   evalresponse: 'int(value[3:7])*10'
+#end
+
+#define main-af-center-pitch-normal-button
+- item: button
+  text: Normal
+  cmd: is9000;
+#end
+
+#define sub-af-center-pitch-normal-button
+- item: button
+  text: Normal
+  cmd: is$9000;
 #end
 
 #define mic-gain-slider
