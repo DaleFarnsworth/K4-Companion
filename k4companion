@@ -437,6 +437,8 @@ class Server():
         self.password = None
         self.control_k4_audio = true_values(Settings.get('Audio', 'control_k4_audio_settings'))
         self.audio_sequence_number = 0
+        self.received_initial_parameters = False
+        self.received_initial_parameters_callbacks = []
 
         self.ignored_errors = {}
 
@@ -445,6 +447,7 @@ class Server():
         Server.server_dict[self.name] = self
 
         self.subscribe_connect(self.on_server_connect)
+        self.subscribe_response('SIDU', self.on_received_initial_parameters)
 
     def on_server_connect(self):
         self.subscribe_cmds('ER;', self.on_error_code, send=False)
@@ -521,26 +524,6 @@ class Server():
 
                     Poll.add_poll(Server.ping_poll_interval, self.ping)
 
-                self.send_str('K41;')                # request K4 to respond in advanced mode
-                self.send_str('AI4;')                # request K4 to send updates immediately
-                self.send_str('ER1;')                # request long format error messages
-                self.send_cmds('MD;MD$;')            # cache the mode response for later use in setting the vfo step
-
-                if self.startup != None:
-                    self.send_cmds(self.startup)     # send user-specified startup commands
-
-                self.send_str('RDY;')
-
-                self.send_str('SIDA0;')              # Disable AI4 delivery of DAP info reports
-                self.send_str('SIDD0;')              # Disable AI4 delivery of DDC info reports
-                self.send_str('SIDU0;')              # Disable AI4 delivery of DUC info reports
-                self.send_str('SIFP0;')              # Disable AI4 delivery of FP info reports
-                self.send_str('SIRF0;')              # Disable AI4 delivery of RFB info reports
-                self.send_str('SIRC0;')              # Disable AI4 delivery of RMT connection info
-
-                self.send_str('RL;')                 # Request the software release line
-                self.send_str('RT$;')                # Request the VFO B RIT on/off status
-
                 for callback in self.connect_callbacks:
                     callback()
 
@@ -551,6 +534,38 @@ class Server():
             print('Failed to connect to {name}, address {addr}, port {port}'.format(
                   name=self.name, addr=self.address, port=self.port))
             cleanup_and_exit()
+
+    def request_initial_parameters(self):
+        self.send_str('K41;')                # request K4 to respond in advanced mode
+        self.send_str('AI4;')                # request K4 to send updates immediately
+        self.send_str('ER1;')                # request long format error messages
+        self.send_cmds('MD;MD$;')            # cache the mode response for later use in setting the vfo step
+
+        if self.startup != None:
+            self.send_cmds(self.startup)     # send user-specified startup commands
+
+        self.send_str('RDY;')
+
+        self.send_str('SIDA0;')              # Disable AI4 delivery of DAP info reports
+        self.send_str('SIDD0;')              # Disable AI4 delivery of DDC info reports
+        self.send_str('SIFP0;')              # Disable AI4 delivery of FP info reports
+        self.send_str('SIRF0;')              # Disable AI4 delivery of RFB info reports
+        self.send_str('SIRC0;')              # Disable AI4 delivery of RMT connection info
+
+        self.send_str('RL;')                 # Request the software release line
+        self.send_str('RT$;')                # Request the VFO B RIT on/off status
+
+    def subscribe_received_initial_parameters(self, callback):
+        if self.received_initial_parameters:
+            callback(self)
+        else:
+            self.received_initial_parameters_callbacks.append(callback)
+
+    def on_received_initial_parameters(self, response):
+        self.send_str('SIDU0;')              # Disable AI4 delivery of DUC info reports
+        self.received_initial_parameters = True
+        for callback in self.received_initial_parameters_callbacks:
+            callback(self)
 
     def close(self):
         self.connected = False
@@ -1154,6 +1169,11 @@ class Page(Container):
             self.frame = tk.Frame(Page.top)
 
         self.show_widgets()
+
+        self.server.subscribe_connect(self.on_server_connect)
+
+    def on_server_connect(self):
+        self.server.request_initial_parameters()
 
     def show(self):
         self.frame.grid()
@@ -3168,6 +3188,7 @@ class Audio():
     encode_mode_opus = 2
     encode_mode_opus_float = 3
     input_encode_mode = encode_mode_raw32
+    server = None
 
     @classmethod
     def get_singleton(cls):
@@ -3303,9 +3324,15 @@ class Audio():
     @classmethod
     def server_connected(cls, server):
         self = cls.get_singleton()
-        self.start_output_thread(server.output_audio_queue)
+        cls.server = server
         server.subscribe_cmds('RX;', lambda response: self.on_transmit_changed(server, response), send=False)
         server.subscribe_cmds('TX;', lambda response: self.on_transmit_changed(server, response), send=False)
+        server.subscribe_received_initial_parameters(cls.on_received_initial_parameters)
+
+    @classmethod
+    def on_received_initial_parameters(cls, server):
+        self = cls.get_singleton()
+        self.start_output_thread(cls.server.output_audio_queue)
 
     def pyaudio(self):
         fd = os.dup(2)
