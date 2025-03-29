@@ -40,7 +40,7 @@
     #include receive-tab-group
     #include transmit-tab-group
     #include equalizers-tab-group
-    #include menu-tab-group
+    #include misc-tab-group
     #include app-settings-tab-group
   #}
 #}
@@ -54,11 +54,12 @@
     #}
 #end
 
-#define menu-tab-group
+#define misc-tab-group
 - item: group
-  tabname: Menu
+  tabname: Misc
   contains: #{
     #include menu
+    #include sw-release-group
   #}
 #end
 
@@ -196,6 +197,7 @@
 
 #define menu
 - item: menu
+  label: Menu
   entries_displayed: 18
   selectbg: pink
 #end
@@ -1228,6 +1230,32 @@
 #define equalizers
 - item: equalizers
   length: 150
+#end
+
+#define sw-release-group
+- item: group
+  label: "Software Release"
+  columns: 1
+  contains: #{
+    #include sw-release-dropdown-button
+    #include sw-release-apply-button
+  #}
+#end
+
+#define sw-release-dropdown-button
+- item: dropdownbutton
+  width: 13
+  justify: left
+  selections: #{
+    - { text: Production, cmd: RLP; }
+    - { text: Beta, cmd: RLB; }
+    - { text: "Previous Prod.", cmd: RLX; }
+  #}
+#end
+#define sw-release-apply-button
+- item: button
+  text: "Apply and\nReboot"
+  cmd: PS88;
 #end
 
 # preprocessor directives:
