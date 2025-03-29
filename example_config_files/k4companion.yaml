@@ -170,7 +170,7 @@
     #include agc-group
     #include apf-group
     #include auto-notch-group
-    #include audio-effects-togglebutton
+    #include audio-effects-group
   #}
 #end
 
@@ -854,9 +854,18 @@
   evalresponse: 'int(value[2:4])*10'
 #end
 
+#define audio-effects-group
+- item: group
+  label: Audio
+  contains: #{
+    #include audio-effects-togglebutton
+  #}
+#end
+
 #define audio-effects-togglebutton
 - item: togglebutton
-  label: Audio Effects
+  label: Effects
+  leading: 0
   selections: #{
     - { text: "Off",        cmd: FX0; }
     - { text: "Sim Stereo", cmd: FX1; }
