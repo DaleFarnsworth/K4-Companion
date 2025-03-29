@@ -40,7 +40,7 @@
     #include receive-tab-group
     #include transmit-tab-group
     #include equalizers-tab-group
-    #include menu-tab-group
+    #include misc-tab-group
     #include app-settings-tab-group
   #}
 #}
@@ -54,11 +54,12 @@
     #}
 #end
 
-#define menu-tab-group
+#define misc-tab-group
 - item: group
-  tabname: Menu
+  tabname: Misc
   contains: #{
     #include menu
+    #include sw-release-group
   #}
 #end
 
@@ -82,6 +83,7 @@
     #include mic-gain-slider
     #include voice-monitor-level-slider
     #include ctcss-group
+    #include rit-xit-group
   #}
 #end
 
@@ -169,7 +171,7 @@
     #include agc-group
     #include apf-group
     #include auto-notch-group
-    #include audio-effects-togglebutton
+    #include audio-effects-group
   #}
 #end
 
@@ -181,6 +183,7 @@
     #include af-center-pitch-group
     #include noise-blanker-group
     #include noise-reduction-group
+    #include rit-group
   #}
 #end
 
@@ -196,6 +199,7 @@
 
 #define menu
 - item: menu
+  label: Menu
   entries_displayed: 18
   selectbg: pink
 #end
@@ -852,9 +856,18 @@
   evalresponse: 'int(value[2:4])*10'
 #end
 
+#define audio-effects-group
+- item: group
+  label: Audio
+  contains: #{
+    #include audio-effects-togglebutton
+  #}
+#end
+
 #define audio-effects-togglebutton
 - item: togglebutton
-  label: Audio Effects
+  label: Effects
+  leading: 0
   selections: #{
     - { text: "Off",        cmd: FX0; }
     - { text: "Sim Stereo", cmd: FX1; }
@@ -897,14 +910,33 @@
 - item: group
   label: AF Center Pitch
   contains: #{
+    #include main-af-center-pitch-group
+    #include sub-af-center-pitch-group
+  #}
+#end
+
+#define main-af-center-pitch-group
+- item: group
+  columns: 1
+  contains: #{
     #include main-af-center-pitch-slider
+    #include main-af-center-pitch-normal-button
+  #}
+#end
+
+#define sub-af-center-pitch-group
+- item: group
+  columns: 1
+  contains: #{
     #include sub-af-center-pitch-slider
+    #include sub-af-center-pitch-normal-button
   #}
 #end
 
 #define main-af-center-pitch-slider
 - item: slider
   label: Main
+  leading: 0
   orient: vertical
   from: 3000
   to: 300
@@ -917,6 +949,7 @@
 #define sub-af-center-pitch-slider
 - item: slider
   label: Sub
+  leading: 0
   orient: vertical
   from: 3000
   to: 300
@@ -924,6 +957,18 @@
   evalincrement: '10'
   evalcmd: '"IS${:04d};".format(int(int(value)/10))'
   evalresponse: 'int(value[3:7])*10'
+#end
+
+#define main-af-center-pitch-normal-button
+- item: button
+  text: Normal
+  cmd: is9000;
+#end
+
+#define sub-af-center-pitch-normal-button
+- item: button
+  text: Normal
+  cmd: is$9000;
 #end
 
 #define mic-gain-slider
@@ -1196,6 +1241,134 @@
 #define equalizers
 - item: equalizers
   length: 150
+#end
+
+#define sw-release-group
+- item: group
+  label: "Software Release"
+  columns: 1
+  contains: #{
+    #include sw-release-dropdown-button
+    #include sw-release-apply-button
+  #}
+#end
+
+#define sw-release-dropdown-button
+- item: dropdownbutton
+  width: 13
+  justify: left
+  selections: #{
+    - { text: Production, cmd: RLP; }
+    - { text: Beta, cmd: RLB; }
+    - { text: "Previous Prod.", cmd: RLX; }
+  #}
+#end
+
+#define sw-release-apply-button
+- item: button
+  text: "Apply and\nReboot"
+  cmd: PS88;
+#end
+
+#define rit-xit-group
+- item: group
+  columns: 1
+  contains: #{
+    #include xit-togglebutton
+    #include rit-group
+  #}
+#end
+
+#define rit-group
+- item: group
+  label: RIT
+  contains: #{
+    #include vfoa-rit-group
+    #include vfob-rit-group
+  #}
+#end
+
+#define xit-togglebutton
+- item: togglebutton
+  label: XIT
+  selections: #{
+    - { text: "On",  cmd: XT1; } 
+    - { text: "Off", cmd: XT0; }
+  #}
+#end
+
+#define vfoa-rit-group
+- item: group
+  label: VFO A
+  leading: 0
+  columns: 1
+  contains: #{
+    #include vfoa-rit-togglebutton
+    #include vfoa-ritxit-offset-slider
+    #include vfoa-ritxit-clear-button
+  #}
+#end
+
+#define vfob-rit-group
+- item: group
+  label: VFO B
+  leading: 0
+  columns: 1
+  contains: #{
+    #include vfob-rit-togglebutton
+    #include vfob-ritxit-offset-slider
+    #include vfob-ritxit-clear-button
+  #}
+#end
+
+#define vfoa-rit-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: RT1; } 
+    - { text: "Off", cmd: RT0; }
+  #}
+#end
+
+#define vfob-rit-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: RT$1; } 
+    - { text: "Off", cmd: RT$0; }
+  #}
+#end
+
+#define vfoa-ritxit-offset-slider
+- item: slider
+  orient: vertical
+  from: 9.99
+  to: -9.99
+  length: 150
+  evalincrement: '.01'
+  evalcmd: '"RO{:+05d};".format(int(float(value)*1000))'
+  evalresponse: 'float(value[2:6])/100'
+#end
+
+#define vfoa-ritxit-clear-button
+- item: button
+  text: Clear
+  cmd: RO+0000
+#end
+
+#define vfob-ritxit-offset-slider
+- item: slider
+  orient: vertical
+  from: 9.99
+  to: -9.99
+  length: 150
+  evalincrement: '.01'
+  evalcmd: '"RO${:+05d};".format(int(float(value)*1000))'
+  evalresponse: 'float(value[3:7])/100'
+#end
+
+#define vfob-ritxit-clear-button
+- item: button
+  text: Clear
+  cmd: RO$+0000
 #end
 
 # preprocessor directives:
