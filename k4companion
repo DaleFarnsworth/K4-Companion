@@ -539,6 +539,7 @@ class Server():
                 self.send_str('SIRC0;')              # Disable AI4 delivery of RMT connection info
 
                 self.send_str('RL;')                 # Request the software release line
+                self.send_str('RT$;')                # Request the VFO B RIT on/off status
 
                 for callback in self.connect_callbacks:
                     callback()
