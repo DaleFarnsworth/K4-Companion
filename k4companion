@@ -529,7 +529,6 @@ class Server():
 
         except socket.gaierror:
             print('Address not found: {addr}'.format(addr=self.address))
-            cleanup_and_exit()
         except OSError:
             print('Failed to connect to {name}, address {addr}, port {port}'.format(
                   name=self.name, addr=self.address, port=self.port))
@@ -874,6 +873,12 @@ class Server():
 
     def add_ignored_error(self, base):
         self.ignored_errors[base] = True
+
+    def set_address(self, address):
+        self.address = address
+
+    def set_port(self, port):
+        self.port = port
 
     def set_password(self, password):
         self.password = password
@@ -3781,14 +3786,109 @@ class Settings_widget(Widget):
                               relief='raised')
         self.frame.grid(row=0, column=0)
 
-        password_frame = self.password_settings()
-        password_frame.grid(row=0, column=0, sticky='w')
+        remote_frame = self.remote_settings()
+        remote_frame.grid(row=0, column=0, sticky='w')
         audio_frame = self.audio_settings()
-        audio_frame.grid(row=1, column=0, sticky='w')
+        audio_frame.grid(row=1, column=0, sticky='w', pady=8)
 
-    def password_settings(self):
+    def remote_settings(self):
         frame = tk.LabelFrame(self.frame,
-                              text='K4 Remote Password',
+                              text='K4 Remote',
+                              font=self.label_font(),
+                              labelanchor='nw',
+                              bd=4,
+                              padx=4,
+                              pady=4,
+                              relief='raised')
+
+        address_frame = self.k4_address_settings(frame)
+        address_frame.grid(row=0, column=0, sticky='w')
+
+        port_frame = self.k4_port_settings(frame)
+        port_frame.grid(row=1, column=0, sticky='w', pady=4)
+
+        password_frame = self.k4_password_settings(frame)
+        password_frame.grid(row=2, column=0, sticky='w')
+
+        return frame
+
+    def k4_address_settings(self, remote_frame):
+        frame = tk.LabelFrame(remote_frame,
+                              text='Address',
+                              font=self.label_font(),
+                              labelanchor='nw',
+                              bd=4,
+                              padx=4,
+                              pady=4,
+                              relief='raised')
+
+        self.k4_address_var = tk.StringVar()
+        k4_address = Settings.get('Elecraft K4', 'address')
+        if k4_address == None:
+            k4_address = ''
+
+        self.k4_address_var.set(k4_address)
+        self.set_k4_server_address()
+
+        entry = tk.Entry(frame,
+            textvariable=self.k4_address_var,
+            bd=2,
+            font=self.font(),
+            justify='left',
+            fg=self.fg,
+            bg=self.bg)
+        entry.grid(row=0, column=0)
+        entry.bind('<Return>', self.set_k4_server_address)
+        entry.bind('<FocusOut>', self.set_k4_server_address)
+
+        return frame
+
+    def set_k4_server_address(self, event=None):
+        address = self.k4_address_var.get()
+        Settings.put_save('Elecraft K4', 'address', address)
+        if address != '':
+            self.server.set_address(address)
+
+    def k4_port_settings(self, remote_frame):
+        frame = tk.LabelFrame(remote_frame,
+                              text='Port',
+                              font=self.label_font(),
+                              labelanchor='nw',
+                              bd=4,
+                              padx=4,
+                              pady=4,
+                              relief='raised')
+
+        self.k4_port_var = tk.StringVar()
+        k4_port = Settings.get('Elecraft K4', 'port')
+        if k4_port == None:
+            k4_port = ''
+
+        self.k4_port_var.set(k4_port)
+        self.set_k4_server_port()
+
+        entry = tk.Entry(frame,
+            textvariable=self.k4_port_var,
+            bd=2,
+            font=self.font(),
+            justify='left',
+            fg=self.fg,
+            bg=self.bg)
+        entry.grid(row=0, column=0)
+        entry.bind('<Return>', self.set_k4_server_port)
+        entry.bind('<FocusOut>', self.set_k4_server_port)
+
+        return frame
+
+    def set_k4_server_port(self, event=None):
+        port = self.k4_port_var.get()
+        Settings.put_save('Elecraft K4', 'port', port)
+        if port != '':
+            self.server.set_port(int(port))
+
+    def k4_password_settings(self, remote_frame):
+        frame = tk.LabelFrame(remote_frame,
+                              text='Password',
                               font=self.label_font(),
                               labelanchor='nw',
                               bd=4,
@@ -3815,12 +3915,12 @@ class Settings_widget(Widget):
             fg=self.fg,
             bg=self.bg)
         entry.grid(row=0, column=0)
-        entry.bind('<Return>', self.set_text)
-        entry.bind('<FocusOut>', self.set_text)
+        entry.bind('<Return>', self.set_k4_password)
+        entry.bind('<FocusOut>', self.set_k4_password)
 
         return frame
 
-    def set_text(self, event):
+    def set_k4_password(self, event=None):
         pw = self.password_var.get()
         h = Reversable_hash.hash(pw)
         Settings.put_save('Elecraft K4', 'insecure_password_hash', h)
@@ -3839,7 +3939,7 @@ class Settings_widget(Widget):
         audio_input_frame = self.audio_input_settings(frame)
         audio_input_frame.grid(row=0, column=0, sticky='w')
         audio_output_frame = self.audio_output_settings(frame)
-        audio_output_frame.grid(row=1, column=0, sticky='w')
+        audio_output_frame.grid(row=1, column=0, sticky='w', pady=4)
         audio_k4_control_frame = self.audio_k4_control_setting(frame)
         audio_k4_control_frame.grid(row=2, column=0, sticky='w')
 
