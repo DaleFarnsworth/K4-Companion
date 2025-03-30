@@ -104,7 +104,7 @@ class Server():
     cat_version_number = 0
     cat_sequence_number = 0
     control_k4_audio_cmd_bases = { 'MX', 'AG', 'AG$' }
-    audio_version_number = 0
+    audio_version_number = 1
 
     k4_get_cmd_bases = [         # For future use
         '#A',
@@ -3177,6 +3177,7 @@ class Menu(Widget):
 class Audio():
     singleton = None
     input_channels = 1
+    k4_input_channels = 2               # The K4 requires stereo, even though it transmits mono
     input_frame_size = 240
     output_channels = 2
     k4_sample_rate = 12000
@@ -3187,7 +3188,7 @@ class Audio():
     encode_mode_raw16 = 1
     encode_mode_opus = 2
     encode_mode_opus_float = 3
-    input_encode_mode = encode_mode_raw32
+    input_encode_mode = encode_mode_opus_float
     server = None
 
     @classmethod
@@ -3497,7 +3498,7 @@ class Audio():
                 if sample_rate != 0:
                     raise Exception('Unsupported audio sample rate:', sample_rate)
 
-                dec = opuslib.Decoder(Audio.k4_sample_rate, Audio.output_channels)
+                opus = opuslib.Decoder(Audio.k4_sample_rate, Audio.output_channels)
 
                 pa = self.pyaudio()
 
@@ -3522,7 +3523,7 @@ class Audio():
                         warned = True
                     continue
 
-            pcm = dec.decode_float(bytes(packet[4:]), frame_size)
+            pcm = opus.decode_float(bytes(packet[4:]), frame_size)
 
             stereo = numpy.frombuffer(pcm, dtype=numpy.float32)
             a = stereo[0::2]                    # even samples are from the main receiver
@@ -3533,7 +3534,7 @@ class Audio():
                 ab = 'a.a'                      # take all audio from main
 
             if ab == 'a.a':
-                a = a * self.a_volume * 32      # add some amplification
+                a = a * self.a_volume * 32      # apply some amplification
                 left, right = a, a
             elif ab == 'b.b':
                 b = b * self.b_volume * 32
@@ -3586,7 +3587,7 @@ class Audio():
             if current_index != self.input_device_index:
                 current_index = self.input_device_index
 
-#                enc = opuslib.Encoder(Audio.k4_sample_rate, Audio.input_channels, 'audio')
+                opus = opuslib.Encoder(Audio.k4_sample_rate, Audio.k4_input_channels, 'audio')
 
                 pa = self.pyaudio()
 
@@ -3640,15 +3641,13 @@ class Audio():
                 s3 = sampled[3::4]
                 resampled = sum((s0, s1, s2, s3)) / 4
 
-            resampled = resampled / 2000000
+            resampled = resampled / 32                  # apply some attenuation
 
-            resampled = (resampled * (2 ** 30 - 1)).clip(-2 ** 30, (2 ** 30 - 1)).astype(numpy.int32)
-            resampled = resampled.repeat(2)             # double-up samples. This may be a K4 bug
+            resampled = resampled.repeat(2)             # double-up samples. I consider this a K4 bug
             resampled_bytes = resampled.tobytes()
-            audio_packet = resampled_bytes
 
             frame_size = Audio.input_frame_size
-#            audio_packet = enc.encode_float(resampled_bytes, frame_size)
+            audio_packet = opus.encode_float(resampled_bytes, frame_size)
 
             if not self.transmit_audio:
                 if input_stream != None:
@@ -3656,7 +3655,6 @@ class Audio():
                     input_stream = None
                 return
 
-#            tprint('frame_size', frame_size, 'len bytes', len(resampled_bytes), 'len audio_packet', len(audio_packet))
             server.send_audio_packet(audio_packet, self.input_encode_mode, frame_size)
 
 class Settings():
