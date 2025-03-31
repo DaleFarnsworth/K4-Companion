@@ -3670,6 +3670,7 @@ class Audio():
                                                 input_device_index=self.input_device_index,
                                                 )
                         warned = False
+                        break
                     except:
                         if retry >= retries:
                             if not warned:
