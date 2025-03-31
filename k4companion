@@ -3507,20 +3507,24 @@ class Audio():
 
                 resample_ratio = int(Audio.output_device_sample_rate() / Audio.k4_sample_rate)
 
-                try:
-                    output_stream = pa.open(format=pyaudio.paFloat32,
-                                            channels=Audio.output_channels,
-                                            rate=Audio.output_device_sample_rate(),
-                                            frames_per_buffer=frame_size,
-                                            output=True,
-                                            output_device_index=self.output_device_index,
-                                            )
-                    warned = False
-                except:
-                    if not warned:
-                        Popup.warning('Failed to open: ' + self.output_device_name())
-                        warned = True
-                    continue
+                retries = 2
+                for retry in range(retries+1):
+                    try:
+                        output_stream = pa.open(format=pyaudio.paFloat32,
+                                                channels=Audio.output_channels,
+                                                rate=Audio.output_device_sample_rate(),
+                                                frames_per_buffer=frame_size,
+                                                output=True,
+                                                output_device_index=self.output_device_index,
+                                                )
+                        warned = False
+                        break
+                    except:
+                        if retry >= retries:
+                            if not warned:
+                                Popup.warning('Failed to open: ' + self.output_device_name())
+                                warned = True
+                        continue
 
             pcm = opus.decode_float(bytes(packet[4:]), frame_size)
 
@@ -3610,20 +3614,24 @@ class Audio():
                     input_stream.close()
                     input_stream = None
 
-                try:
-                    input_stream = pa.open(format=pyaudio.paFloat32,
-                                            channels=Audio.input_channels,
-                                            rate=Audio.input_device_sample_rate(),
-                                            frames_per_buffer=Audio.input_frame_size,
-                                            input=True,
-                                            input_device_index=self.input_device_index,
-                                            )
-                    warned = False
-                except:
-                    if not warned:
-                        Popup.warning('Failed to open: ' + self.input_device_name())
-                        warned = True
-                    continue
+                retries = 2
+                for retry in range(retries+1):
+                    try:
+                        input_stream = pa.open(format=pyaudio.paFloat32,
+                                                channels=Audio.input_channels,
+                                                rate=Audio.input_device_sample_rate(),
+                                                frames_per_buffer=Audio.input_frame_size,
+                                                input=True,
+                                                input_device_index=self.input_device_index,
+                                                )
+                        warned = False
+                    except:
+                        if retry >= retries:
+                            if not warned:
+                                Popup.warning('Failed to open: ' + self.input_device_name())
+                                warned = True
+                        continue
+
                 sampled = input_stream.read(Audio.input_frame_size, exception_on_overflow=False)
                 sampled = numpy.frombuffer(sampled, dtype=numpy.float32)
                 average = sum(numpy.abs(sampled)) / len(sampled)
