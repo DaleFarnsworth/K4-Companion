@@ -288,6 +288,7 @@ class Server():
         '#P': ['#PKM'],
         '#R': ['#REF'],
         'RR': ['RRT', 'RRC', 'RRP'],
+        'SD': ['SD0C', 'SD1C','SD0V', 'SD1V','SD0D', 'SD1D', 'SDC', 'SDV'],           # Differentiate between the cmd variants
         'SI': ['SIDA', 'SIDD', 'SIDU', 'SIFP', 'SIRF', 'SIRC'],         # SIDU is first after param dump
         'SM': ['SMH'],
         '#S': ['#SCL', '#SFL', '#SPM', '#SPN'],
@@ -470,14 +471,17 @@ class Server():
             self.connect_callbacks.append(callback)
 
     def update_k4_parameter(self, base, parameter):
-        old = self.k4_parameters.get(base, None)
-        self.k4_parameters[base] = parameter
-
-        if base in ('TX', 'RX'):
+        if base in ('TX', 'RX', 'SD0C', 'SD1C','SD0V', 'SD1V','SD0D', 'SD1D'):
             if base == 'TX':
                 self.k4_parameters['RX'] = None
-            else:
+            elif base == 'RX':
                 self.k4_parameters['TX'] = None
+            elif base in ('SD0C', 'SD1C','SD0V', 'SD1V','SD0D', 'SD1D'):   # Differentiate between the variants
+                parameter = base[2] + parameter
+                base = base[0:2] + base[3]
+
+        old = self.k4_parameters.get(base, None)
+        self.k4_parameters[base] = parameter
 
         callbacks = self.k4_subscriptions.get(base, [])
         for callback in callbacks:
@@ -1371,10 +1375,10 @@ class Togglebutton(Widget):
         text = selection['text']
         parameters = selection['parameters']
         for base in parameters.keys():
-            dprint3('commpare :{text} s: {s}, b: {b}'.format(text=text, s=self.server.k4_parameters.get(base, None), b=parameters[base]))
             k4_parameter = self.server.k4_parameters.get(base, None)
             if selection['evalresponse'] != None and k4_parameter != None:
                 k4_parameter = self.eval_value(selection['evalresponse'], base + k4_parameter + ';')[len(base):].rstrip(';')
+            dprint3('compare :{text} s: {s}, b: {b}'.format(text=text, s=k4_parameter, b=parameters[base]))
             if parameters[base] != k4_parameter:
                 dprint3(text, 'No match')
                 return False
@@ -1476,7 +1480,7 @@ class Radiobutton(Widget):
     def compare_parameters(self, group, text):
         parameters = self.parameters
         for base in parameters.keys():
-            dprint3('commpare {group}:{text} s: {s}, b: {b}'.format(group=group, text=text, s=self.server.k4_parameters.get(base, None), b=parameters[base]))
+            dprint3('compare {group}:{text} s: {s}, b: {b}'.format(group=group, text=text, s=self.server.k4_parameters.get(base, None), b=parameters[base]))
             if parameters[base] != self.server.k4_parameters.get(base, None):
                 dprint3(text, 'No match')
                 return False
@@ -1747,13 +1751,13 @@ class Slider(Widget):
         bg = config_info.get('bg', Default.bg)
         fg = config_info.get('fg', Default.fg)
 
-        self.value = tk.DoubleVar()
-        self.value.set(0.0)
+        self.value_var = tk.DoubleVar()
+        self.value_var.set(0.0)
         self.previous_value = 0.0
 
-        from_ = self.eval_value(self.from_, self.value.get())
-        to = self.eval_value(self.to, self.value.get())
-        resolution = self.eval_value(self.evalincrement, self.value.get())
+        from_ = self.eval_value(self.from_, self.value_var.get())
+        to = self.eval_value(self.to, self.value_var.get())
+        resolution = self.eval_value(self.evalincrement, self.value_var.get())
 
         self.scale = tk.Scale(self.frame,
                          from_=from_,
@@ -1766,18 +1770,19 @@ class Slider(Widget):
                          font=self.font(),
                          bg=bg,
                          fg=fg,
-                         variable=self.value)
+                         variable=self.value_var)
         self.scale.grid(row=0, column=0, sticky='nw')
 
-        self.value.trace('w', self.value_changed)
+        self.value_var.trace('w', self.value_changed)
         self.server.subscribe_connect(self.on_server_connect)
 
     def on_server_connect(self):
-        cmd = self.eval_value(self.evalcmd, self.value.get())
-        self.server.subscribe_cmds(cmd, self.on_response_received)
+        cmd = self.eval_value(self.evalcmd, self.value_var.get())
+        if cmd != "":
+            self.server.subscribe_cmds(cmd, self.on_response_received)
 
     def value_changed(self, var, index, mode):
-        value = self.value.get()
+        value = self.value_var.get()
         next_value = value
         if self.previous_value == value:
             return
@@ -1794,7 +1799,7 @@ class Slider(Widget):
             return
         self.scale.configure(resolution=self.eval_value(self.evalincrement, value))
         self.scale.configure(from_=self.eval_value(self.from_, value), to=self.eval_value(self.to, value))
-        self.value.set(value)
+        self.value_var.set(value)
         self.previous_value = value
 
 class Getvalue(Widget):
@@ -2115,10 +2120,10 @@ class Dropdownbutton(Widget):
         text = selection['text']
         parameters = selection['parameters']
         for base in parameters.keys():
-            dprint3('commpare :{text} s: {s}, b: {b}'.format(text=text, s=self.server.k4_parameters.get(base, None), b=parameters[base]))
             k4_parameter = self.server.k4_parameters.get(base, None)
             if selection['evalresponse'] != None and k4_parameter != None:
                 k4_parameter = self.eval_value(selection['evalresponse'], base + k4_parameter + ';')[len(base):].rstrip(';')
+            dprint3('compare :{text} s: {s}, b: {b}'.format(text=text, s=k4_parameter, b=parameters[base]))
             if parameters[base] != k4_parameter:
                 dprint3(text, 'No match')
                 return False

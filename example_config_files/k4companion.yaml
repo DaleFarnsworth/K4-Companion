@@ -76,13 +76,30 @@
 #define transmit-tab-group
 - item: group
   tabname: Transmit
+  columns: 1
+  contains: #{
+    #include transmit-tab-row-one-group
+    #include transmit-tab-row-two-group
+  #}
+#end
+
+#define transmit-tab-row-one-group
+- item: group
   contains: #{
     #include essb-togglebutton
     #include ssb-bandwidth-slider
     #include compression-level-slider
     #include mic-gain-slider
     #include voice-monitor-level-slider
+    #include qsk-group
+    #include vox-group
     #include ctcss-group
+  #}
+#end
+
+#define transmit-tab-row-two-group
+- item: group
+  contains: #{
     #include rit-xit-group
   #}
 #end
@@ -1369,6 +1386,68 @@
 - item: button
   text: Clear
   cmd: RO$+0000
+#end
+
+#define qsk-group
+- item: group
+  label: QSK
+  columns: 1
+  contains: #{
+    #include qsk-togglebutton
+    #include qsk-delay-slider
+  #}
+#end
+
+# Note that k4parm swaps characters 2 and 3 from the actual commands/responses
+#define qsk-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: SDC1;, evalcmd: '"" if self.k4param("SDC") == None else "SD1C{d:03s};".format(d=self.k4param("SDC")[1:4])', evalresponse: '"SDC"+self.k4param("SDC")[0]+";"' } 
+    - { text: "Off", cmd: SDC0;, evalcmd: '"" if self.k4param("SDC") == None else "SD0C{d:03s};".format(d=self.k4param("SDC")[1:4])', evalresponse: '"SDC"+self.k4param("SDC")[0]+";"' } 
+  #}
+#end
+
+# Note that k4parm swaps characters 2 and 3 from the actual commands/responses
+#define qsk-delay-slider
+- item: slider
+  orient: vertical
+  from: 2.55
+  to: 0
+  length: 150
+  evalincrement: "-.01"
+  evalcmd: '"" if self.k4param("SDC") == None else "SD{f}C{d:03d};".format(f=self.k4param("SDC")[0], d=int(float(value)*100))'
+  evalresponse: 'float(value[3:6])/100'
+#end
+
+#define vox-group
+- item: group
+  label: VOX
+  columns: 1
+  contains: #{
+    #include vox-togglebutton
+    #include vox-delay-slider
+  #}
+#end
+
+# Note that k4parm swaps characters 2 and 3 from the actual commands/responses
+#define vox-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: SDV1;, evalcmd: '"" if self.k4param("SDV") == None else "SD1V{d:03s};".format(d=self.k4param("SDV")[1:4])', evalresponse: '"SDV"+self.k4param("SDV")[0]+";"' } 
+    - { text: "Off", cmd: SDV0;, evalcmd: '"" if self.k4param("SDV") == None else "SD0V{d:03s};".format(d=self.k4param("SDV")[1:4])', evalresponse: '"SDV"+self.k4param("SDV")[0]+";"' } 
+  #}
+#end
+
+# Note that k4parm swaps characters 2 and 3 from the actual commands/responses
+#define vox-delay-slider
+- item: slider
+  orient: vertical
+  from: 2.55
+  to: 0
+  length: 150
+  evalincrement: "-.01"
+  evalcmd: '"" if self.k4param("SDV") == None else "SD{f}V{d:03d};".format(f=self.k4param("SDV")[0], d=int(float(value)*100))'
+  evalresponse: 'float(value[3:6])/100'
 #end
 
 # preprocessor directives:
