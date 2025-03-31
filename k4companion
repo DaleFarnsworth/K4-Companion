@@ -1283,7 +1283,7 @@ class Togglebutton(Widget):
             selection = {}
 
             required = []
-            options = ['text', 'cmd', 'evalcmd', 'response', 'evalresponse', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font']
+            options = ['text', 'cmd', 'evalcmd', 'response', 'evalresponse', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font', 'hidden']
             validate_config_options(conf_sel, required, options, name='togglebutton.selection')
 
             selection['text'] = conf_sel.get('text', '')
@@ -1312,6 +1312,7 @@ class Togglebutton(Widget):
             selection['blink'] = conf_sel.get('blink', False)
             selection['evalcmd'] = conf_sel.get('evalcmd', None)
             selection['evalresponse'] = conf_sel.get('evalresponse', None)
+            selection['hidden'] = true_values(conf_sel.get('hidden', False))
             self.selections.append(selection)
 
         width = container.items_width()
@@ -1351,12 +1352,18 @@ class Togglebutton(Widget):
             self.blinkoff(selection)
 
     def next_selection(self):
-        self.index += 1
-        if self.index >= len(self.selections):
-            if self.wraparound:
-                self.index = 0
-            else:
-                self.index = len(self.selections) - 1
+        while True:
+            self.index += 1
+            if self.index >= len(self.selections):
+                if self.wraparound:
+                    self.index = 0
+                else:
+                    self.index = len(self.selections) - 1
+
+            selection = self.selections[self.index]
+            if not selection['hidden']:
+                break
+
         self.configure()
 
     def do_selection(self):

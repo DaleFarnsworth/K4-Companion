@@ -687,9 +687,16 @@
 - item: togglebutton
   label: 'Audio Mix'
   selections: #{
-    - { text: "Audio A+B", cmd: MXA.B; }
-    - { text: "Audio A",   cmd: MXA.A; }
-    - { text: "Audio B",   cmd: MXB.B; }
+    - { text: 'Audio A+B', cmd: 'MXA.B;' }
+    - { text: 'Audio A',   cmd: 'MXA.A;' }
+    - { text: 'Audio B',   cmd: 'MXB.B;' }
+    - { text: 'L=AB,R=AB', cmd: 'MXAB.AB;', hidden: True }
+    - { text: 'L=A,R=-A',  cmd: 'MXA.-A;',  hidden: True }
+    - { text: 'L=A,R=AB',  cmd: 'MXA.AB;',  hidden: True }
+    - { text: 'L=AB,R=B',  cmd: 'MXAB.A;',  hidden: True }
+    - { text: 'L=AB,R=A',  cmd: 'MXAB.A;',  hidden: True }
+    - { text: 'L=B,R=AB',  cmd: 'MXB.AB;',  hidden: True }
+    - { text: 'L=B,R=A',   cmd: 'MXB.A',    hidden: True }
   #}
 #end
 
