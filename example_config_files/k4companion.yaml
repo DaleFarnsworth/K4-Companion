@@ -938,7 +938,7 @@
   label: Main
   leading: 0
   orient: vertical
-  from: 3000
+  from: '1500 if self.k4param("MD") == "3" else 3000'
   to: 300
   length: 150
   evalincrement: '10'
@@ -951,7 +951,7 @@
   label: Sub
   leading: 0
   orient: vertical
-  from: 3000
+  from: '1500 if self.k4param("MD$") == "3" else 3000'
   to: 300
   length: 150
   evalincrement: '10'
