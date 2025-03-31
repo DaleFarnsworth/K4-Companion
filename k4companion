@@ -3532,32 +3532,41 @@ class Audio():
             a = stereo[0::2]                    # even samples are from the main receiver
             b = stereo[1::2]                    # odd samples are from the sub receiver
 
-# Possible self.ab settings
-# a.b
-# ab.ab
-# a.-a
-# a.ab
-# ab.b
-# ab.a
-# b.ab
-# b.b
-# b.a
-# a.a
+            a = a * self.a_volume * 32          # apply some amplification
+            b = b * self.b_volume * 32
+                                                # Possible self.ab settings
+                                                # a.b
+                                                # ab.ab
+                                                # a.-a
+                                                # a.ab
+                                                # ab.b
+                                                # ab.a
+                                                # b.ab
+                                                # b.b
+                                                # b.a
+                                                # a.a
 
             ab = self.ab
             if self.diversity_on or not self.sub_on:
                 ab = 'a.a'                      # take all audio from main
 
-            if ab == 'a.a':
-                a = a * self.a_volume * 32      # apply some amplification
-                left, right = a, a
-            elif ab == 'b.b':
-                b = b * self.b_volume * 32
-                left, right = b, b
-            else:
-                a = a * self.a_volume * 32
-                b = b * self.b_volume * 32
-                left, right = a, b
+            leftsel, rightsel = self.ab.split('.')
+
+            if leftsel == 'a':
+                left = a
+            elif leftsel == 'b':
+                left = b
+            elif leftsel == 'ab':
+                left = (a + b) / 2
+
+            if rightsel == 'b':
+                right = b
+            elif rightsel == 'a':
+                right = a
+            elif rightsel == 'ab':
+                right = (a + b) / 2
+            elif rightsel == '-a':
+                right = -a
 
             if resample_ratio > 1:
                 left = left.repeat(resample_ratio)
@@ -3591,7 +3600,6 @@ class Audio():
 
     def on_mx_changed(self, server, response):
         self.ab = response[2:].lower().rstrip(';')
-        tprint('MX', response, 'ab', self.ab)
 
     def start_input_thread(self, server):
         self.input_thread = threading.Thread(target=lambda: self.input_loop(server), name='audio_input_thread')
