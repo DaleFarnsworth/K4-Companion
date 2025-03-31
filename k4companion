@@ -103,7 +103,7 @@ class Server():
     payload_type_minipan = 3
     cat_version_number = 0
     cat_sequence_number = 0
-    control_k4_audio_cmd_bases = { 'MX', 'AG', 'AG$' }
+    control_k4_audio_cmd_bases = { 'AG', 'AG$' }
     audio_version_number = 1
 
     k4_get_cmd_bases = [         # For future use
@@ -557,6 +557,7 @@ class Server():
 
         self.send_str('RL;')                 # Request the software release line
         self.send_str('RT$;')                # Request the VFO B RIT on/off status
+        self.send_str('MX;')                 # Request the audio mixer status
 
     def subscribe_received_initial_parameters(self, callback):
         if self.received_initial_parameters:
@@ -3299,10 +3300,7 @@ class Audio():
         self = cls.get_singleton()
         cmd = cmd[len(base):]
 
-        if base == 'MX':
-            Settings.put_save('Audio', 'Mixer', cmd)
-            self.ab = cmd.lower()
-        elif base == 'AG':
+        if base == 'AG':
             Settings.put_save('Audio', 'main_volume', cmd)
             self.a_volume = float(cmd) / 60.0
         elif base == 'AG$':
@@ -3315,15 +3313,10 @@ class Audio():
 
     @classmethod
     def local_audio_responses(cls):
-        ab = Settings.get('Audio', 'mixer')
-        if ab == None:
-            ab = 'A.B'
-        responses = 'MX' + ab + ';'
-
         a_volume = Settings.get('Audio', 'main_volume')
         if a_volume == None:
             a_volume = '000'
-        responses += 'AG' + a_volume + ';'
+        responses = 'AG' + a_volume + ';'
 
         b_volume = Settings.get('Audio', 'sub_volume')
         if b_volume == None:
@@ -3338,6 +3331,7 @@ class Audio():
         cls.server = server
         server.subscribe_cmds('RX;', lambda response: self.on_transmit_changed(server, response), send=False)
         server.subscribe_cmds('TX;', lambda response: self.on_transmit_changed(server, response), send=False)
+        server.subscribe_cmds('MX;', lambda response: self.on_mx_changed(server, response), send=False)
         server.subscribe_received_initial_parameters(cls.on_received_initial_parameters)
 
     @classmethod
@@ -3383,11 +3377,6 @@ class Audio():
         self.sub_on = True
         self.diversity_on = False
         self.transmit_audio = False
-
-        ab = Settings.get('Audio', 'mixer')
-        if ab == None:
-            ab = 'A.B'
-        self.ab = ab.lower()
 
         a_volume = Settings.get('Audio', 'main_volume')
         if a_volume == None:
@@ -3539,6 +3528,18 @@ class Audio():
             a = stereo[0::2]                    # even samples are from the main receiver
             b = stereo[1::2]                    # odd samples are from the sub receiver
 
+# Possible self.ab settings
+# a.b
+# ab.ab
+# a.-a
+# a.ab
+# ab.b
+# ab.a
+# b.ab
+# b.b
+# b.a
+# a.a
+
             ab = self.ab
             if self.diversity_on or not self.sub_on:
                 ab = 'a.a'                      # take all audio from main
@@ -3583,6 +3584,10 @@ class Audio():
         if self.input_thread != None:
             self.input_thread.join()
             self.input_thread = None
+
+    def on_mx_changed(self, server, response):
+        self.ab = response[2:].lower().rstrip(';')
+        tprint('MX', response, 'ab', self.ab)
 
     def start_input_thread(self, server):
         self.input_thread = threading.Thread(target=lambda: self.input_loop(server), name='audio_input_thread')
