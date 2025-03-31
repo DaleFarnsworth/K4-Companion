@@ -47,6 +47,7 @@ import queue
 import re
 import select
 import socket
+import socks
 import sys
 import tempfile
 import textwrap
@@ -419,9 +420,11 @@ class Server():
 
         self.name = config_info['name']
         self.type = config_info.get('type', '').lower()
+        self.startup = config_info.get('startup', None)
         self.address = config_info['address']
         self.port = config_info['port']
-        self.startup = config_info.get('startup', None)
+        self.proxy_address = ''
+        self.proxy_port = ''
         self.connect_on_start = true_values(config_info.get('connect_on_start', True))
         self.socket = None
         self.recv_buffer = ''
@@ -499,7 +502,14 @@ class Server():
         vprint1('Connecting to {name}, address {addr}, port {port}'.format(
               name=self.name, addr=self.address, port=self.port))
 
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if self.proxy_address == '':
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        else:
+            sock = socks.socksocket(socket.AF_INET, socket.SOCK_STREAM)
+            if self.proxy_port == '':
+                sock.set_proxy(socks.SOCKS5, self.proxy_address) # SOCKS5 uses port 1080 by default
+            else:
+                sock.set_proxy(socks.SOCKS5, self.proxy_address, self.proxy_port)
         try:
             sock.settimeout(5)
             sock.connect((self.address, self.port))
@@ -536,7 +546,12 @@ class Server():
         except OSError:
             print('Failed to connect to {name}, address {addr}, port {port}'.format(
                   name=self.name, addr=self.address, port=self.port))
-            cleanup_and_exit()
+            if self.proxy_address != '':
+                port = self.proxy_port
+                if port == '':
+                    port = 'default'
+                print('  via proxy address {addr}, port {port}'.format(
+                      name=self.name, addr=self.proxy_address, port=port))
 
     def request_initial_parameters(self):
         self.send_str('K41;')                # request K4 to respond in advanced mode
@@ -879,11 +894,24 @@ class Server():
     def add_ignored_error(self, base):
         self.ignored_errors[base] = True
 
-    def set_address(self, address):
-        self.address = address
+    def get_address_port(self, string):
+        match = re.search('^(.*):([0-9]+)', string)
+        if match == None:
+            return string, ''
+        return match[1], match[2]
 
-    def set_port(self, port):
-        self.port = port
+    def set_address(self, address):
+        address, port = self.get_address_port(address)
+        if address != '':
+            self.address = address
+        if port != '':
+            self.port = int(port)
+
+    def set_proxy(self, address):
+        address, port = self.get_address_port(address)
+        self.proxy_address = address
+        if port != '':
+            self.proxy_port = int(port)
 
     def set_password(self, password):
         self.password = password
@@ -3835,19 +3863,19 @@ class Settings_widget(Widget):
                               relief='raised')
 
         address_frame = self.k4_address_settings(frame)
-        address_frame.grid(row=0, column=0, sticky='w')
-
-        port_frame = self.k4_port_settings(frame)
-        port_frame.grid(row=1, column=0, sticky='w', pady=4)
+        address_frame.grid(row=0, column=0, sticky='w', pady=2)
 
         password_frame = self.k4_password_settings(frame)
-        password_frame.grid(row=2, column=0, sticky='w')
+        password_frame.grid(row=1, column=0, sticky='w', pady=2)
+
+        proxy_frame = self.k4_proxy_settings(frame)
+        proxy_frame.grid(row=2, column=0, sticky='w', pady=2)
 
         return frame
 
     def k4_address_settings(self, remote_frame):
         frame = tk.LabelFrame(remote_frame,
-                              text='Address',
+                              text='Address:Port',
                               font=self.label_font(),
                               labelanchor='nw',
                               bd=4,
@@ -3881,43 +3909,6 @@ class Settings_widget(Widget):
         Settings.put_save('Elecraft K4', 'address', address)
         if address != '':
             self.server.set_address(address)
-
-    def k4_port_settings(self, remote_frame):
-        frame = tk.LabelFrame(remote_frame,
-                              text='Port',
-                              font=self.label_font(),
-                              labelanchor='nw',
-                              bd=4,
-                              padx=4,
-                              pady=4,
-                              relief='raised')
-
-        self.k4_port_var = tk.StringVar()
-        k4_port = Settings.get('Elecraft K4', 'port')
-        if k4_port == None:
-            k4_port = ''
-
-        self.k4_port_var.set(k4_port)
-        self.set_k4_server_port()
-
-        entry = tk.Entry(frame,
-            textvariable=self.k4_port_var,
-            bd=2,
-            font=self.font(),
-            justify='left',
-            fg=self.fg,
-            bg=self.bg)
-        entry.grid(row=0, column=0)
-        entry.bind('<Return>', self.set_k4_server_port)
-        entry.bind('<FocusOut>', self.set_k4_server_port)
-
-        return frame
-
-    def set_k4_server_port(self, event=None):
-        port = self.k4_port_var.get()
-        Settings.put_save('Elecraft K4', 'port', port)
-        if port != '':
-            self.server.set_port(int(port))
 
     def k4_password_settings(self, remote_frame):
         frame = tk.LabelFrame(remote_frame,
@@ -3958,6 +3949,43 @@ class Settings_widget(Widget):
         h = Reversable_hash.hash(pw)
         Settings.put_save('Elecraft K4', 'insecure_password_hash', h)
         self.server.set_password(pw)
+
+    def k4_proxy_settings(self, remote_frame):
+        frame = tk.LabelFrame(remote_frame,
+                              text='SOCKS5 Address:Port',
+                              font=self.label_font(),
+                              labelanchor='nw',
+                              bd=4,
+                              padx=4,
+                              pady=4,
+                              relief='raised')
+
+        self.k4_proxy_var = tk.StringVar()
+        k4_proxy = Settings.get('Elecraft K4', 'proxy_address')
+        if k4_proxy == None:
+            k4_proxy = ''
+
+        self.k4_proxy_var.set(k4_proxy)
+        self.set_k4_server_proxy()
+
+        entry = tk.Entry(frame,
+            textvariable=self.k4_proxy_var,
+            bd=2,
+            font=self.font(),
+            justify='left',
+            fg=self.fg,
+            bg=self.bg)
+        entry.grid(row=0, column=0)
+        entry.bind('<Return>', self.set_k4_server_proxy)
+        entry.bind('<FocusOut>', self.set_k4_server_proxy)
+
+        return frame
+
+    def set_k4_server_proxy(self, event=None):
+        proxy = self.k4_proxy_var.get()
+        Settings.put_save('Elecraft K4', 'proxy_address', proxy)
+        if proxy != '':
+            self.server.set_proxy(proxy)
 
     def audio_settings(self):
         frame = tk.LabelFrame(self.frame,
