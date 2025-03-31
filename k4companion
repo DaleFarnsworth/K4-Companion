@@ -1119,6 +1119,8 @@ class Container(Widget):
                child = Menu(config_info, self)
             elif widget_type == 'appsettings':
                child = Settings_widget(config_info, self)
+            elif widget_type == 'fwversions':
+               child = FWversions(config_info, self)
             else:
                 raise Exception('Error: config file: unknown item "{type}"'.format(type=widget_type))
 
@@ -1999,7 +2001,7 @@ class Text(Widget):
         bg = config_info.get('bg', Default.bg)
         justify = config_info.get('justify', 'center')
 
-        label = tk.Label(self.frame,
+        self.label = tk.Label(self.frame,
                     text=text,
                     bd='2',
                     font=self.font(),
@@ -2009,7 +2011,7 @@ class Text(Widget):
                     padx=2,
                     pady=2)
 
-        label.grid(row=0, column=0, sticky='w')
+        self.label.grid(row=0, column=0, sticky='w')
 
 class Notebook(Container):
     def __init__(self, config_info, container):
@@ -4165,6 +4167,26 @@ class Settings_widget(Widget):
 
         Settings.put_save('Audio', 'control_k4_audio_settings', setting)
         self.server.set_control_k4_audio(setting)
+
+class FWversions(Text):
+    def __init__(self, config_info, container):
+
+        config_info['justify'] = 'left'
+        super().__init__(config_info, container)
+
+        self.width = 0
+        self.height = 1
+        self.text = ''
+
+        self.server.subscribe_cmds('RV;', self.on_received_versions)
+
+    def on_received_versions(self, response):
+        version = response.rstrip(';').lstrip('RV.')
+        if len(version) > self.width:
+            self.width = len(version)
+        self.height += 1
+        self.text += version + "\n"
+        self.label.configure(text=self.text, height=self.height, width=self.width)
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure

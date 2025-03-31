@@ -60,6 +60,7 @@
   contains: #{
     #include menu
     #include sw-release-group
+    #include fwversions
   #}
 #end
 
@@ -1455,6 +1456,11 @@
   evalincrement: "-.01"
   evalcmd: '"" if self.k4param("SDV") == None else "SD{f}V{d:03d};".format(f=self.k4param("SDV")[0], d=int(float(value)*100))'
   evalresponse: 'float(value[3:6])/100'
+#end
+
+#define fwversions
+- item: fwversions
+  label: FW Versions
 #end
 
 # preprocessor directives:
