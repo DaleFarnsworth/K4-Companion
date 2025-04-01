@@ -519,8 +519,14 @@ class Server():
             self.connected = True
             self.socket = sock
             self.send_thread = threading.Thread(target=self.send_loop, name=self.name+'.send_thread')
+
             self.send_thread.start()
-            self.recv_thread = threading.Thread(target=self.recv_loop, name=self.name+'.recv_thread')
+            if self.cat_only:
+                recv_loop = self.cat_only_recv_loop
+            else:
+                recv_loop = self.recv_loop
+
+            self.recv_thread = threading.Thread(target=recv_loop, name=self.name+'.recv_thread')
             self.recv_thread.start()
             if self.type == 'k4':
                 if self.cat_only:
@@ -819,6 +825,26 @@ class Server():
                 else:
                     Popup.warning('Received error response from K4: ' + base + response)
             self.update_k4_parameter(base, response)
+
+    def cat_only_recv_loop(self):
+        while True:
+            readable, writable, in_error = select.select([self.socket.fileno()], [], [self.socket], 1)
+            if not self.connected:
+                return
+            if len(in_error) > 0:
+                raise Exception("Socket error reading from server '{name}'".format(name=self.name))
+            if len(readable) == 0:
+                continue
+
+            recv_bytes = self.socket.recv(16384)
+            if len(recv_bytes) == 0:
+                self.connected = False
+                return
+
+            try:
+                self.recv_queue.put(recv_bytes)
+            except queue.ShutDown:
+                pass
 
     def recv_loop(self):
         packet_offset = 0
