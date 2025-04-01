@@ -91,6 +91,8 @@ class Default():
 class Server():
     server_dict = {}
     default_server_name = None
+    address_port = None
+    proxy_address_port = None
 
     receive_poll_interval = 1           # poll every 1 mS
     ping_poll_interval = 2000           # poll every 2 seconds
@@ -545,22 +547,28 @@ class Server():
                     self.wait_for_k4_received_data()
                     self.receive_non_audio_packets()
 
-                    Poll.add_poll(Server.ping_poll_interval, self.ping)
+                    Poll.add(Server.ping_poll_interval, self.ping)
 
                 for callback in self.connect_callbacks:
                     callback()
+            error = None
 
         except socket.gaierror:
-            print('Address not found: {addr}'.format(addr=self.address))
+            error = 'Address not found: {addr}'.format(addr=self.address)
         except OSError:
-            print('Failed to connect to {name}, address {addr}, port {port}'.format(
-                  name=self.name, addr=self.address, port=self.port))
+            error = "Failed to connect to {name}, address {addr}, port {port}\n".format(
+                name=self.name, addr=self.address, port=self.port)
             if self.proxy_address != '':
                 port = self.proxy_port
                 if port == '':
                     port = 'default'
-                print('  via proxy address {addr}, port {port}'.format(
-                      name=self.name, addr=self.proxy_address, port=port))
+                error += '  via proxy address {addr}, port {port}'.format(
+                      name=self.name, addr=self.proxy_address, port=port)
+
+        if error != None:
+            dprint(error)
+            error += "\n\nCheck the K4 address in the App tab."
+            Popup.error(error, timeout=None)
 
     def request_initial_parameters(self):
         self.send_str('K41;')                # request K4 to respond in advanced mode
@@ -641,7 +649,7 @@ class Server():
         if lcmd == 'connect!':
             self.connect()
         elif lcmd == 'quit!':
-            cleanup_and_exit()
+            clean_up_and_exit()
         elif base.lower() == 'show!':
             page = lcmd[len(base):].strip()
             if page == 'previous':
@@ -680,7 +688,7 @@ class Server():
             try:
                 self.socket.sendmsg(bs)
             except OSError:
-                print("Failed to send command, '{bs}' to '{name}'".format(bs=bs[3], name=self.name))
+                dprint("Failed to send command, '{bs}' to '{name}'".format(bs=bs[3], name=self.name))
 
             if Options.debug >= 1:
                 cmds = None
@@ -929,18 +937,27 @@ class Server():
             return string, ''
         return match[1], match[2]
 
-    def set_address(self, address):
-        address, port = self.get_address_port(address)
+    def set_address(self, address_port):
+        address, port = self.get_address_port(address_port)
         if address != '':
             self.address = address
         if port != '':
             self.port = int(port)
+        previous_address_port = self.address_port
+        self.__class__.address_port = address_port
+        if address_port != previous_address_port and previous_address_port != None:
+            restart()
 
-    def set_proxy(self, address):
-        address, port = self.get_address_port(address)
-        self.proxy_address = address
+    def set_proxy(self, proxy_address_port):
+        address, port = self.get_address_port(proxy_address_port)
+        if address != '':
+            self.proxy_address = address
         if port != '':
             self.proxy_port = int(port)
+        previous_proxy_address_port = self.proxy_address_port
+        self.__class__.proxy_address_port = proxy_address_port
+        if proxy_address_port != previous_proxy_address_port and previous_proxy_address_port != None:
+            restart()
 
     def set_password(self, password):
         self.password = password
@@ -1459,10 +1476,10 @@ class Togglebutton(Widget):
                 self.configure()
 
     def blinkon(self, selection):
-        Poll.add_poll(Widget.blink_mS, self.blink)
+        Poll.add(Widget.blink_mS, self.blink)
 
     def blinkoff(self, selection):
-        Poll.remove_poll(Widget.blink_mS, self.blink)
+        Poll.remove(Widget.blink_mS, self.blink)
 
     def blink(self):
         selection = self.selections[self.index]
@@ -1565,10 +1582,10 @@ class Radiobutton(Widget):
                 self.blinkoff()
 
     def blinkon(self):
-        Poll.add_poll(Widget.blink_mS, self.blink)
+        Poll.add(Widget.blink_mS, self.blink)
 
     def blinkoff(self):
-        Poll.remove_poll(Widget.blink_mS, self.blink)
+        Poll.remove(Widget.blink_mS, self.blink)
 
     def blink(self):
         self.blink_state = not self.blink_state
@@ -1725,10 +1742,10 @@ class VFO(Widget):
         freq -= mod
         if mod != 0:
             self.set_vfo_sb(freq/1000)
-        Poll.add_poll(50, self.send_frequency)
+        Poll.add(50, self.send_frequency)
 
     def send_frequency(self):
-        Poll.remove_poll(50, self.send_frequency)
+        Poll.remove(50, self.send_frequency)
         freq = int(float(self.vfo_sb.get()) * 1000)
         freq11 = "{:011d}".format(freq)
         cmd = "F{vfo}{freq};".format(vfo=self.AorB, freq=freq11)
@@ -2221,10 +2238,10 @@ class Dropdownbutton(Widget):
             self.combobox.state='readonly'
 
     def blinkon(self):
-        Poll.add_poll(Widget.blink_mS, self.blink)
+        Poll.add(Widget.blink_mS, self.blink)
 
     def blinkoff(self):
-        Poll.remove_poll(Widget.blink_mS, self.blink)
+        Poll.remove(Widget.blink_mS, self.blink)
 
     def blink(self):
         self.blink_state = not self.blink_state
@@ -3128,17 +3145,17 @@ class Menu_definition():
         return n
 
     def print(self):
-        print('index', self.index)
-        print('desc', self.desc)
-        print('area', self.area)
-        print('type', self.type)
-        print('locked', self.locked)
-        print('low', self.low)
-        print('high', self.high)
-        print('default', self.default)
-        print('current', self.current)
-        print('increment', self.increment)
-        print('values', self.values)
+        dprint('index', self.index)
+        dprint('desc', self.desc)
+        dprint('area', self.area)
+        dprint('type', self.type)
+        dprint('locked', self.locked)
+        dprint('low', self.low)
+        dprint('high', self.high)
+        dprint('default', self.default)
+        dprint('current', self.current)
+        dprint('increment', self.increment)
+        dprint('values', self.values)
 
 class Menu(Widget):
     entries_displayed = 15
@@ -3945,8 +3962,7 @@ class Settings_widget(Widget):
     def set_k4_server_address(self, event=None):
         address = self.k4_address_var.get()
         Settings.put_save('Elecraft K4', 'address', address)
-        if address != '':
-            self.server.set_address(address)
+        self.server.set_address(address)
 
     def k4_password_settings(self, remote_frame):
         frame = tk.LabelFrame(remote_frame,
@@ -4022,8 +4038,7 @@ class Settings_widget(Widget):
     def set_k4_server_proxy(self, event=None):
         proxy = self.k4_proxy_var.get()
         Settings.put_save('Elecraft K4', 'proxy_address', proxy)
-        if proxy != '':
-            self.server.set_proxy(proxy)
+        self.server.set_proxy(proxy)
 
     def audio_settings(self):
         frame = tk.LabelFrame(self.frame,
@@ -4391,7 +4406,7 @@ def read_config(config_file_name):
         try:
             config = yaml.safe_load(stream)
         except yaml.YAMLError as exc:
-            print(exc)
+            dprint(exc)
 
         for config_info in config:
             item = config_info['item']
@@ -4408,37 +4423,69 @@ def font_height(font):
     return font.metrics("linespace")
 
 class Poll:
-    poll_callbacks = {}
+    entries = {}
     polls = {}
+    id = {}
     top = None
 
     def __init__(self, top):
         Poll.top = top
 
     def poll(interval):
-        for callback in tuple(Poll.poll_callbacks[interval]):
+        for entry in tuple(Poll.entries[interval]):
+            callback, repeat = entry
+            if not repeat:
+                Poll.remove_entry(interval, entry)
             callback()
-        if len(Poll.poll_callbacks[interval]) == 0:
-            del Poll.poll_callbacks[interval]
+
+        if len(Poll.entries[interval]) == 0:
+            del Poll.entries[interval]
+            del Poll.polls[interval]
+            del Poll.id[interval]
         else:
-            Poll.top.after(interval, Poll.polls[interval])
+            Poll.id[interval] = Poll.top.after(interval, Poll.polls[interval])
 
-    def add_poll(interval, callback):
-        if interval not in Poll.poll_callbacks:
-            Poll.poll_callbacks[interval] = []
+    def add(interval, callback, repeat=True):
+        if interval not in Poll.entries:
+            Poll.entries[interval] = []
             Poll.polls[interval] = lambda: Poll.poll(interval)
-            Poll.top.after(interval, Poll.polls[interval])
-        if not callback in Poll.poll_callbacks[interval]:
-            Poll.poll_callbacks[interval].append(callback)
+            Poll.id[interval] = Poll.top.after(interval, Poll.polls[interval])
+        entry = (callback, repeat)
+        if not entry in Poll.entries[interval]:
+            Poll.entries[interval].append(entry)
 
-    def remove_poll(interval, callback):
+    def callback_repeats(interval, acallback):
+        for entry in Poll.entries[interval]:
+            callback, repeat = entry
+            if acallback == callback:
+                return repeat
+        return None
+
+    def remove_entry(interval, entry):
         try:
-            Poll.poll_callbacks[interval].remove(callback)
+            Poll.entries[interval].remove(entry)
+        except:
+            pass
+
+    def remove(interval, callback):
+        try:
+            repeat = callback_repeats(interval, callback)
+            entry = (callback, repeat)
+            Poll.remove_entry(entry)
         except:
             pass
 
     def delayed_call(delay, callback):
-        Poll.top.after(delay, callback)
+        Poll.add(delay, callback, repeat=False)
+
+    def remove_all():
+        for interval in list(Poll.id):
+            id = Poll.id[interval]
+            Poll.top.after_cancel(id)
+
+            for entry in Poll.entries[interval]:
+                Poll.remove_entry(interval, entry)
+            Poll.poll(interval)
 
 class Options():
     config_file = None
@@ -4470,17 +4517,21 @@ class Options():
         if len(args) != 0:
             parser.error("Unexpected argument '{arg}'".format(arg=args[0]))
 
-def cleanup_and_exit():
+def clean_up():
     for server in Server.servers():
         server.close()
 
     Audio.close()
+    Poll.remove_all()
 
+def clean_up_and_exit():
+    clean_up()
     quit()
 
 class Popup():
     queue = queue.Queue()
     poll_interval = 200          # 200 mS
+    previous_popup = None
 
     @classmethod
     def show_popup(cls, msg, title, timeout, font, color):
@@ -4494,14 +4545,19 @@ class Popup():
 
     @classmethod
     def show_popups(cls):
-        try:
-            msg, title, timeout, font, color = cls.queue.get_nowait()
-        except queue.Empty:
-            Poll.delayed_call(cls.poll_interval, cls.show_popups)
-            return
+        cls.remove_previous()
+        cls.dequeue_popups()
 
-        cls.show_popup(msg, title, timeout, font, color)
-        Poll.delayed_call(cls.poll_interval, cls.show_popups)
+    @classmethod
+    def dequeue_popups(cls):
+        while True:
+            try:
+                msg, title, timeout, font, color = cls.queue.get_nowait()
+                cls.show_popup(msg, title, timeout, font, color)
+            except queue.Empty:
+                break
+
+        Poll.delayed_call(cls.poll_interval, cls.dequeue_popups)
 
     @classmethod
     def popup(cls, msg='', title='', timeout=None, font=None, color='yellow'):
@@ -4511,22 +4567,34 @@ class Popup():
             cls.queue.put((msg, title, timeout, font, color))
 
     @classmethod
-    def warning(cls, msg):
+    def warning(cls, msg, timeout=2000):
         if isinstance(msg, str):
             msg = 'Warning: ' +  msg
         else:
             msg[0] = 'Warning: ' + msg[0]
-        cls.popup(msg=msg, title='Warning', timeout=2000, font=None, color='yellow')
+        cls.popup(msg=msg, title='Warning', timeout=timeout, font=None, color='yellow')
 
     @classmethod
-    def error(cls, msg):
+    def error(cls, msg, timeout=5000):
         if isinstance(msg, str):
-            msg = 'Warning: ' +  msg
+            msg = 'Error: ' +  msg
         else:
-            msg[0] = 'Warning: ' + msg[0]
-        cls.popup(msg=msg, title='Error', timeout=5000, font=None, color='yellow')
+            msg[0] = 'Error: ' + msg[0]
+        cls.popup(msg=msg, title='Error', timeout=timeout, font=None, color='yellow')
+
+    @classmethod
+    def remove_previous(cls):
+        if cls.previous_popup != None:
+            try:
+                cls.previous_popup.destroy()
+            except:
+                pass
+            cls.previous_popup = None
 
     def __init__(self, title='', timeout=None, font=None, color='yellow', modal=False):
+        self.__class__.remove_previous()
+        if timeout == 0:
+            timeout = None
         self.timeout = timeout
         self.popup = tk.Toplevel(Page.top)
         self.popup.title(title)
@@ -4535,11 +4603,12 @@ class Popup():
         size = font.cget('size')
         self.frame = tk.Frame(self.popup, padx=size*2, pady=size*2, bg=color)
         self.popup.attributes('-topmost', True)
+        self.__class__.previous_popup = self.popup
 
     def show(self):
         self.frame.grid()
         if self.timeout != None:
-            self.popup.after(self.timeout, self.popup.destroy)
+            Poll.delayed_call(self.timeout, self.popup.destroy)
 
     def wait(self):
         self.frame.grid()
@@ -4683,24 +4752,15 @@ def tprint(*args, **kwargs):
 def backtrace():
     traceback.print_stack()
 
-main_page_was_visible = False
 def main_page_visible(self):
-    global main_page_was_visible
-    if not main_page_was_visible:
-        main_page_was_visible = True
-        page = Page.main()
-        server = page.server
-        if server.connect_on_start:
-            server.connect()
+    page = Page.main()
+    server = page.server
+    if server.connect_on_start:
+        server.connect()
 
-def main():
-    Options.Parse()
-
-    top = tk.Tk()
-    top.title('K4-Companion')
-    top.protocol("WM_DELETE_WINDOW", cleanup_and_exit)
-    Page.top = top
-    Poll(top)
+def start():
+    Poll(Page.top)
+    Popup.show_popups()
 
     read_config(Options.config_file)
 
@@ -4708,7 +4768,20 @@ def main():
     page.frame.bind('<Visibility>', main_page_visible)
     Page.show_page(page.name)
 
-    Popup.show_popups()
+def restart():
+    clean_up()
+    Page.main().frame.destroy()
+    start()
+
+def main():
+    Options.Parse()
+
+    top = tk.Tk()
+    top.title('K4-Companion')
+    top.protocol("WM_DELETE_WINDOW", clean_up_and_exit)
+    Page.top = top
+
+    start()
 
     top.mainloop()
 
