@@ -443,6 +443,7 @@ class Server():
         self.audio_sequence_number = 0
         self.received_initial_parameters = False
         self.received_initial_parameters_callbacks = []
+        self.cat_only = False
 
         self.ignored_errors = {}
 
@@ -456,7 +457,7 @@ class Server():
     def on_server_connect(self):
         self.subscribe_cmds('ER;', self.on_error_code, send=False)
         self.update_local_audio_parameters()
-        if self.type == 'k4' and self.port != 9200:
+        if self.type == 'k4' and not self.cat_only:
             Audio.server_connected(self)
 
     def on_error_code(self, response):
@@ -499,6 +500,8 @@ class Server():
         if self.connected:
             return
 
+        self.cat_only = self.port == 9200
+
         vprint1('Connecting to {name}, address {addr}, port {port}'.format(
               name=self.name, addr=self.address, port=self.port))
 
@@ -520,7 +523,7 @@ class Server():
             self.recv_thread = threading.Thread(target=self.recv_loop, name=self.name+'.recv_thread')
             self.recv_thread.start()
             if self.type == 'k4':
-                if self.port == 9200:
+                if self.cat_only:
                     self.dequeue_k4_cat()
 
                     self.send_str('PING;')               # Trigger a response: PONG;
@@ -597,7 +600,7 @@ class Server():
             self.recv_thread.join()
 
     def send_str(self, cmd, force_as_string=False):
-        if self.port == 9200 or force_as_string:
+        if self.cat_only or force_as_string:
             self.send_queue.put((cmd.encode(), ))
         else:
             self.send_cat_packet(cmd.encode())
@@ -654,7 +657,7 @@ class Server():
                 continue
             if base in Server.control_k4_audio_cmd_bases:
                 Audio.control_k4_cmd(base, cmd)
-                if self.port != 9200 and not self.control_k4_audio:
+                if not self.cat_only and not self.control_k4_audio:
                     continue
             if Server.k4_set_only_cmd(base, cmd) or self.update_k4_parameter(base, cmd[len(base):]):
                 if not self.connected:
@@ -675,7 +678,7 @@ class Server():
 
             if Options.debug >= 1:
                 cmds = None
-                if self.port == 9200:
+                if self.cat_only:
                     cmds = bs[0]
                 elif bs[0] == Server.begin_packet_marker and bs[2][0] == Server.payload_type_cat:
                     cmds = bs[3]
@@ -4122,7 +4125,7 @@ class Settings_widget(Widget):
     def audio_k4_control_setting(self, frame):
         setting = true_values(Settings.get('Audio', 'control_k4_audio_settings'))
         if setting == None:
-            setting = not self.server.port == 9205
+            setting = self.cat_only
         self.server.set_control_k4_audio(setting)
 
         control_frame = tk.LabelFrame(frame,
