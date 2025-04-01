@@ -3678,12 +3678,16 @@ class Audio():
                                 warned = True
                         continue
 
-                sampled = input_stream.read(Audio.input_frame_size, exception_on_overflow=False)
-                sampled = numpy.frombuffer(sampled, dtype=numpy.float32)
-                average = sum(numpy.abs(sampled)) / len(sampled)
-                if average == 0.0:
-                    Popup.warning("No input from audio device:\n  {name}".format(name=Audio.input_device_name()))
-                    return
+                tries = 10
+                for i in range(tries):
+                    sampled = input_stream.read(Audio.input_frame_size, exception_on_overflow=False)
+                    sampled = numpy.frombuffer(sampled, dtype=numpy.float32)
+                    average = sum(numpy.abs(sampled)) / len(sampled)
+                    if average != 0.0:
+                        break
+                    if i == tries-1:
+                        Popup.warning("No input from audio device:\n  {name}".format(name=Audio.input_device_name()))
+                        return
 
                 resample_ratio = int(Audio.input_device_sample_rate() / Audio.k4_sample_rate)
 
