@@ -12,10 +12,11 @@ K4Macro-Python, created by Charles Powell, NK8O. It has now grown far
 beyond a simple macro-sending program into a full-fledged remote control
 program for the K4.
 
-Charles has created a User Manual for it. Take a look at
-https://github.com/DaleFarnsworth/K4-Companion/blob/main/Documentation/K4%20Companion%20User%20Manual.pdf
+Charles has created a User Manual for it. Check it out
+[here](https://github.com/DaleFarnsworth/K4-Companion/blob/main/Documentation/K4%20Companion%20User%20Manual.pdf)
 
-It may not be pretty, but it is functional.
+K4-Companion may not be pretty, but it is functional and improving
+quickly.
 
 Please send problem reports either: by sending an email, by entering
 an issue on github, or by making a pull request. Problem reports and
