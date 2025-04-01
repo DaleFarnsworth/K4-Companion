@@ -3291,13 +3291,15 @@ class Audio():
     def set_input_device_name(cls, name):
         self = cls.get_singleton()
         dev_info = self.input_device_info_by_name(name)
-        self.input_device_index = dev_info['index']
+        if dev_info != None:
+            self.input_device_index = dev_info['index']
 
     @classmethod
     def set_output_device_name(cls, name):
         self = cls.get_singleton()
         dev_info = self.output_device_info_by_name(name)
-        self.output_device_index = dev_info['index']
+        if dev_info != None:
+            self.output_device_index = dev_info['index']
 
     @classmethod
     def input_device_name(cls):
