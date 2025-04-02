@@ -3934,7 +3934,7 @@ class Settings_widget(Widget):
 
     def k4_address_settings(self, remote_frame):
         frame = tk.LabelFrame(remote_frame,
-                              text='Address:Port',
+                              text='Address',
                               font=self.label_font(),
                               labelanchor='nw',
                               bd=4,
