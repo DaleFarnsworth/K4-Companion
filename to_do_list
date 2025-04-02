@@ -4,10 +4,19 @@ order in which the items appear doesn't represent their priority
 nor order of possible implementation.
 
 Implement a Mic gain control.
+
 Implement an anti-Vox level control.
+
 Add a CW tab with editable buttons for messages to be sent.
+
 Convert warning and error messages to modal?) popups.
+
 Add padx, pady to grid calls, when passed as options for widgets.
+
 Add a tab for K4 status as returned by the SI* responses.
+
 Reconnect on connect failure without redrawing the GUI widgets.
+
 Check for no response from the K4 after connection and prompt for a new password
+
+Implement panadapter and waterfall, as well as minipan
