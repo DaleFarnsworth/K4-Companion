@@ -555,6 +555,10 @@ class Server():
                     callback()
             error = None
 
+            if not self.cat_only:
+                self.received_cat_cmd = False
+                Poll.delayed_callback(4000, self.check_for_received_cat_cmd)
+
         except socket.gaierror:
             error = 'Address not found: {addr}'.format(addr=self.address)
         except OSError:
@@ -570,6 +574,12 @@ class Server():
         if error != None:
             dprint(error)
             error += "\n\nCheck the K4 address in the App tab."
+            Popup.error(error, timeout=None)
+
+    def check_for_received_cat_cmd(self):
+        if not self.received_cat_cmd:
+            error = 'No response received from: {name}'.format(name=self.name)
+            error += "\n\nCheck the K4 password in the App tab."
             Popup.error(error, timeout=None)
 
     def request_initial_parameters(self):
@@ -782,7 +792,7 @@ class Server():
             try:
                 payload_type, payload = self.recv_queue.get_nowait()
             except queue.Empty:
-                Poll.delayed_call(Server.receive_poll_interval, self.receive_non_audio_packets)
+                Poll.delayed_callback(Server.receive_poll_interval, self.receive_non_audio_packets)
                 break
 
             if payload_type == self.payload_type_cat:
@@ -808,7 +818,7 @@ class Server():
             try:
                 recv_bytes = self.recv_queue.get_nowait()
             except queue.Empty:
-                Poll.delayed_call(Server.receive_poll_interval, self.dequeue_k4_cat)
+                Poll.delayed_callback(Server.receive_poll_interval, self.dequeue_k4_cat)
                 break
 
             recv_str = recv_bytes.decode()
@@ -827,6 +837,7 @@ class Server():
             self.receive_k4_responses(responses)
 
     def receive_k4_responses(self, responses):
+        self.received_cat_cmd = True
         for response in responses:
             base = cmd_base(response)
             if base in ('SB', 'DV'):
@@ -4497,7 +4508,7 @@ class Poll:
         except:
             pass
 
-    def delayed_call(delay, callback):
+    def delayed_callback(delay, callback):
         Poll.add(delay, callback, repeat=False)
 
     def remove_all():
@@ -4579,7 +4590,7 @@ class Popup():
             except queue.Empty:
                 break
 
-        Poll.delayed_call(cls.poll_interval, cls.dequeue_popups)
+        Poll.delayed_callback(cls.poll_interval, cls.dequeue_popups)
 
     @classmethod
     def popup(cls, msg='', title='', timeout=None, font=None, color='yellow'):
@@ -4630,7 +4641,7 @@ class Popup():
     def show(self):
         self.frame.grid()
         if self.timeout != None:
-            Poll.delayed_call(self.timeout, self.popup.destroy)
+            Poll.delayed_callback(self.timeout, self.popup.destroy)
 
     def wait(self):
         self.frame.grid()

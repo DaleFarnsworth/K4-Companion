@@ -13,6 +13,4 @@ Add a tab for K4 status as returned by the SI* responses.
 
 Reconnect on connect failure without redrawing the GUI widgets.
 
-Check for no response from the K4 after connection and prompt for a new password
-
 Implement panadapter and waterfall, as well as minipan
