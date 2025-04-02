@@ -93,6 +93,7 @@ class Server():
     default_server_name = None
     address_port = None
     proxy_address_port = None
+    password = None
 
     receive_poll_interval = 1           # poll every 1 mS
     ping_poll_interval = 2000           # poll every 2 seconds
@@ -964,7 +965,11 @@ class Server():
             restart()
 
     def set_password(self, password):
+        previous_password = self.password
         self.password = password
+        self.__class__.password = password
+        if password != previous_password and previous_password != None:
+            restart()
 
     def set_control_k4_audio(self, val):
         self.control_k4_audio = val
