@@ -687,8 +687,12 @@ class Server():
 
             try:
                 self.socket.sendmsg(bs)
-            except OSError:
-                dprint("Failed to send command, '{bs}' to '{name}'".format(bs=bs[3], name=self.name))
+            except:
+                try:
+                    for b in bs:
+                        self.socket.send(b)
+                except:
+                    dprint("Failed to send command, '{bs}' to '{name}'".format(bs=bs[3], name=self.name))
 
             if Options.debug >= 1:
                 cmds = None
