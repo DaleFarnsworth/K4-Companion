@@ -1418,6 +1418,7 @@
 # Note that k4parm swaps characters 2 and 3 from the actual commands/responses
 #define qsk-delay-slider
 - item: slider
+  label: Delay
   orient: vertical
   from: 2.55
   to: 0
@@ -1433,7 +1434,16 @@
   columns: 1
   contains: #{
     #include vox-togglebutton
+    #include vox-slider-group
+  #}
+#end
+
+#define vox-slider-group
+- item: group
+  contains: #{
     #include vox-delay-slider
+    #include vox-gain-slider
+    #include vox-anti-slider
   #}
 #end
 
@@ -1449,6 +1459,7 @@
 # Note that k4parm swaps characters 2 and 3 from the actual commands/responses
 #define vox-delay-slider
 - item: slider
+  label: Delay
   orient: vertical
   from: 2.55
   to: 0
@@ -1456,6 +1467,30 @@
   evalincrement: "-.01"
   evalcmd: '"" if self.k4param("SDV") == None else "SD{f}V{d:03d};".format(f=self.k4param("SDV")[0], d=int(float(value)*100))'
   evalresponse: 'float(value[3:6])/100'
+#end
+
+#define vox-gain-slider
+- item: slider
+  label: Gain
+  orient: vertical
+  from: 60
+  to: 0
+  length: 150
+  evalincrement: '1'
+  evalcmd: '"VGD{:03d};".format(int(value))'
+  evalresponse: 'float(value[3:6])'
+#end
+
+#define vox-anti-slider
+- item: slider
+  label: Anti
+  orient: vertical
+  from: 60
+  to: 0
+  length: 150
+  evalincrement: '1'
+  evalcmd: '"VI{:03d};".format(int(value))'
+  evalresponse: 'float(value[2:5])'
 #end
 
 #define fwversions

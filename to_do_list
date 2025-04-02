@@ -5,11 +5,7 @@ nor order of possible implementation.
 
 Implement a Mic gain control.
 
-Implement an anti-Vox level control.
-
 Add a CW tab with editable buttons for messages to be sent.
-
-Convert warning and error messages to modal?) popups.
 
 Add padx, pady to grid calls, when passed as options for widgets.
 

@@ -298,6 +298,7 @@ class Server():
         '#S': ['#SCL', '#SFL', '#SPM', '#SPN'],
         'SW': ['SWT', 'SWH'],
         'UP': ['UPB'],
+        'VG': ['VGV', 'VGD'],
         '#V': ['#VFA', '#VFB'],
         '#W': ['#WBS', '#WFC', '#WFH'],
         'XV': ['XVN', 'XVM', 'XVR', 'XVI', 'XVO', 'XVP '],
