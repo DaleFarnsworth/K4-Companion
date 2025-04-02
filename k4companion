@@ -662,6 +662,9 @@ class Server():
            raise Exception('Unknown directive: ', directive)
 
     def send_cmds(self, cmds):
+        if not self.connected:
+            self.warn_not_connected()
+            return
         if isinstance(cmds, str):
             cmds = Server.split_cmd(cmds)
         for cmd in cmds:
@@ -677,9 +680,12 @@ class Server():
                     continue
             if Server.k4_set_only_cmd(base, cmd) or self.update_k4_parameter(base, cmd[len(base):]):
                 if not self.connected:
-                    Popup.warning("Server '{name}' not connected.".format(name=self.name))
+                    self.warn_not_connected()
                 cmd += ';'
                 self.send_str(cmd)
+
+    def warn_not_connected(self):
+        Popup.warning("Server '{name}' not connected.".format(name=self.name))
 
     def send_loop(self):
         while True:
@@ -1453,6 +1459,9 @@ class Togglebutton(Widget):
         self.configure()
 
     def do_selection(self):
+        if not self.server.connected:
+            self.server.warn_not_connected()
+            return
         self.next_selection()
         selection = self.selections[self.index]
 
@@ -2195,6 +2204,9 @@ class Dropdownbutton(Widget):
             self.server.subscribe_cmds(selection['response'], self.on_response_received)
 
     def on_combobox_changed(self, var, index, mode):
+        if not self.server.connected:
+            self.server.warn_not_connected()
+            return
         text = self.val.get()
         if text == '':
             return
