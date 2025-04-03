@@ -713,11 +713,14 @@ class Server():
             try:
                 self.socket.sendmsg(bs)
             except:
-                try:
-                    for b in bs:
+                for b in bs:
+                    try:
                         self.socket.send(b)
-                except:
-                    dprint("Failed to send command, '{bs}' to '{name}'".format(bs=bs[3], name=self.name))
+                    except:
+                        dprint1('socket.send error')
+                        Popup.error('Lost connection to ' + self.name, timeout=None)
+                        self.connected = False
+                        return
 
             if Options.debug >= 1:
                 cmds = None
@@ -870,12 +873,20 @@ class Server():
             if not self.connected:
                 return
             if len(in_error) > 0:
-                raise Exception("Socket error reading from server '{name}'".format(name=self.name))
+                dprint1('select.select error')
+                Popup.error('Lost connection to ' + self.name, timeout=None)
+                self.connected = False
+                return
             if len(readable) == 0:
                 continue
 
-            recv_bytes = self.socket.recv(16384)
+            try:
+                recv_bytes = self.socket.recv(16384)
+            except:
+                dprint1('socket.recv error')
+                recv_bytes = []
             if len(recv_bytes) == 0:
+                Popup.error('Lost connection to ' + self.name, timeout=None)
                 self.connected = False
                 return
 
@@ -892,12 +903,20 @@ class Server():
             if not self.connected:
                 return
             if len(in_error) > 0:
-                raise Exception("Socket error reading from server '{name}'".format(name=self.name))
+                dprint1('select.select error')
+                Popup.error('Lost connection to ' + self.name, timeout=None)
+                self.connected = False
+                return
             if len(readable) == 0:
                 continue
 
-            rb = self.socket.recv(16384)
+            try:
+                rb = self.socket.recv(16384)
+            except:
+                dprint1('socket.recv error')
+                rb = []
             if len(rb) == 0:
+                Popup.error('Lost connection to ' + self.name, timeout=None)
                 self.connected = False
                 return
 

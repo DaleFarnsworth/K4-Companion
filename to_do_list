@@ -12,3 +12,5 @@ Add a tab for K4 status as returned by the SI* responses.
 Reconnect on connect failure without redrawing the GUI widgets.
 
 Implement panadapter and waterfall, as well as minipan
+
+Compiled versions don't like quit(). See if there is an alternative.
