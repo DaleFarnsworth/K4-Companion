@@ -684,6 +684,8 @@ class Server():
             if base[-1] == '!':
                 self.directive(base, cmd)
                 continue
+            if base == 'SB':
+                Audio.control_k4_cmd(base, cmd)
             if base in Server.control_k4_audio_cmd_bases:
                 Audio.control_k4_cmd(base, cmd)
                 if not self.cat_only and not self.control_k4_audio:
@@ -840,7 +842,7 @@ class Server():
         self.received_cat_cmd = True
         for response in responses:
             base = cmd_base(response)
-            if base in ('SB', 'DV'):
+            if base == 'SB':
                 Audio.control_k4_cmd(base, response)
             if Options.debug >= 1:
                 if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG', 'DA'):
@@ -3426,8 +3428,6 @@ class Audio():
             self.b_volume = float(cmd) / 60.0
         elif base == 'SB':
             self.sub_on = cmd == '1'
-        elif base == 'DV':
-            self.diversity_on = cmd == '1'
 
     @classmethod
     def local_audio_responses(cls):
@@ -3493,7 +3493,6 @@ class Audio():
         self.input_device_infos = {}
         self.output_device_infos = {}
         self.sub_on = True
-        self.diversity_on = False
         self.transmit_audio = False
 
         a_volume = Settings.get('Audio', 'main_volume')
@@ -3664,9 +3663,8 @@ class Audio():
                                                 # b.a
                                                 # a.a
 
-            ab = self.ab
-            if self.diversity_on or not self.sub_on:
-                ab = 'a.a'                      # take all audio from main
+            if not self.sub_on:
+                b = a                      # take all audio from main
 
             leftsel, rightsel = self.ab.split('.')
 
