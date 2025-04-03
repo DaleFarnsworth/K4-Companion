@@ -521,6 +521,7 @@ class Server():
             sock.settimeout(5)
             sock.connect((self.address, self.port))
             self.connected = True
+            self.printed_connection_warning = False
             self.socket = sock
             self.send_thread = threading.Thread(target=self.send_loop, name=self.name+'.send_thread')
 
@@ -672,8 +673,7 @@ class Server():
            raise Exception('Unknown directive: ', directive)
 
     def send_cmds(self, cmds):
-        if not self.connected:
-            self.warn_not_connected()
+        if self.warn_if_not_connected():
             return
         if isinstance(cmds, str):
             cmds = Server.split_cmd(cmds)
@@ -691,13 +691,18 @@ class Server():
                 if not self.cat_only and not self.control_k4_audio:
                     continue
             if Server.k4_set_only_cmd(base, cmd) or self.update_k4_parameter(base, cmd[len(base):]):
-                if not self.connected:
-                    self.warn_not_connected()
+                if self.warn_if_not_connected():
+                    return
                 cmd += ';'
                 self.send_str(cmd)
 
-    def warn_not_connected(self):
-        Popup.warning("Server '{name}' not connected.".format(name=self.name))
+    def warn_if_not_connected(self):
+        if self.connected:
+            return False
+        if not self.printed_connection_warning:
+            Popup.warning("Server '{name}' not connected.".format(name=self.name))
+        self.printed_connection_warning = True
+        return True
 
     def send_loop(self):
         while True:
@@ -1472,8 +1477,7 @@ class Togglebutton(Widget):
         self.configure()
 
     def do_selection(self):
-        if not self.server.connected:
-            self.server.warn_not_connected()
+        if self.server.warn_if_not_connected():
             return
         self.next_selection()
         selection = self.selections[self.index]
@@ -2217,8 +2221,7 @@ class Dropdownbutton(Widget):
             self.server.subscribe_cmds(selection['response'], self.on_response_received)
 
     def on_combobox_changed(self, var, index, mode):
-        if not self.server.connected:
-            self.server.warn_not_connected()
+        if self.server.warn_if_not_connected():
             return
         text = self.val.get()
         if text == '':
