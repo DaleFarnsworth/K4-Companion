@@ -4493,18 +4493,15 @@ class Poll:
         return None
 
     def remove_entry(interval, entry):
-        try:
+        if entry in Poll.entries[interval]:
             Poll.entries[interval].remove(entry)
-        except:
-            pass
 
     def remove(interval, callback):
-        try:
-            repeat = callback_repeats(interval, callback)
-            entry = (callback, repeat)
-            Poll.remove_entry(entry)
-        except:
-            pass
+        if interval not in Poll.entries:
+            return
+        repeat = Poll.callback_repeats(interval, callback)
+        entry = (callback, repeat)
+        Poll.remove_entry(interval, entry)
 
     def delayed_callback(delay, callback):
         Poll.add(delay, callback, repeat=False)
