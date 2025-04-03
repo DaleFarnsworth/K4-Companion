@@ -905,13 +905,13 @@
   label: AGC
   contains: #{
     #include main-agc-togglebutton
-    #include sub-agc-togglebutton
+#    #include sub-agc-togglebutton    # Contrary to documentation, AGC affects both main & sub
   #}
 #end
 
 #define main-agc-togglebutton
 - item: togglebutton
-  label: Main
+#  label: Main
   leading: 0
   selections: #{
     - { text: "Off",  cmd: GT0; }
