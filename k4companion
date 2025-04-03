@@ -3871,7 +3871,10 @@ class Settings():
             # True for expanding the tilde into a fully qualified path
             filename = os.path.join(NSSearchPathForDirectoriesInDomains(14, 1, True)[0], appname, filename)
         elif sys.platform == 'win32':
-            filename = os.path.join(os.environ['APPDATA'], appname, filename)
+            dirname = os.path.join(os.environ['APPDATA'], appname)
+            if not os.path.isdir(dirname):
+                os.mkdir(dirname, 0o755)
+            filename = os.path.join(dirname, filename)
         else:
             home_dir = os.path.expanduser('~')
             config_dir = os.path.join(home_dir, '.config')
