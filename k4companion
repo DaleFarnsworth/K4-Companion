@@ -1797,10 +1797,9 @@ class VFO(Widget):
         freq -= mod
         if mod != 0:
             self.set_vfo_sb(freq/1000)
-        Poll.add(50, self.send_frequency)
+        self.send_frequency()
 
     def send_frequency(self):
-        Poll.remove(50, self.send_frequency)
         freq = int(float(self.vfo_sb.get()) * 1000)
         freq11 = "{:011d}".format(freq)
         cmd = "F{vfo}{freq};".format(vfo=self.AorB, freq=freq11)
