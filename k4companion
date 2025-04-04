@@ -558,7 +558,7 @@ class Server():
 
             if not self.cat_only:
                 self.received_cat_cmd = False
-                Poll.delayed_callback(4000, self.check_for_received_cat_cmd)
+                Poll.call(4000, self.check_for_received_cat_cmd)
 
         except socket.gaierror:
             error = 'Address not found: {addr}'.format(addr=self.address)
@@ -802,7 +802,7 @@ class Server():
             try:
                 payload_type, payload = self.recv_queue.get_nowait()
             except queue.Empty:
-                Poll.delayed_callback(Server.receive_poll_interval, self.receive_non_audio_packets)
+                Poll.call(Server.receive_poll_interval, self.receive_non_audio_packets)
                 break
 
             if payload_type == self.payload_type_cat:
@@ -828,7 +828,7 @@ class Server():
             try:
                 recv_bytes = self.recv_queue.get_nowait()
             except queue.Empty:
-                Poll.delayed_callback(Server.receive_poll_interval, self.dequeue_k4_cat)
+                Poll.call(Server.receive_poll_interval, self.dequeue_k4_cat)
                 break
 
             recv_str = recv_bytes.decode()
@@ -1534,7 +1534,7 @@ class Togglebutton(Widget):
         Poll.add(Widget.blink_mS, self.blink)
 
     def blinkoff(self, selection):
-        Poll.remove(Widget.blink_mS, self.blink)
+        Poll.remove(self.blink)
 
     def blink(self):
         selection = self.selections[self.index]
@@ -1640,7 +1640,7 @@ class Radiobutton(Widget):
         Poll.add(Widget.blink_mS, self.blink)
 
     def blinkoff(self):
-        Poll.remove(Widget.blink_mS, self.blink)
+        Poll.remove(self.blink)
 
     def blink(self):
         self.blink_state = not self.blink_state
@@ -2297,7 +2297,7 @@ class Dropdownbutton(Widget):
         Poll.add(Widget.blink_mS, self.blink)
 
     def blinkoff(self):
-        Poll.remove(Widget.blink_mS, self.blink)
+        Poll.remove(self.blink)
 
     def blink(self):
         self.blink_state = not self.blink_state
@@ -4477,67 +4477,50 @@ def read_config(config_file_name):
 def font_height(font):
     return font.metrics("linespace")
 
-class Poll:
-    entries = {}
-    polls = {}
-    id = {}
-    top = None
+class poll_info():
+    def __init__(self, interval, id=None):
+        self.interval = interval
+        self.id = id
 
-    def __init__(self, top):
+class Poll():
+    infos = {}
+
+    def set_top(top):
         Poll.top = top
 
-    def poll(interval):
-        for entry in tuple(Poll.entries[interval]):
-            callback, repeat = entry
-            if not repeat:
-                Poll.remove_entry(interval, entry)
-            callback()
-
-        if len(Poll.entries[interval]) == 0:
-            del Poll.entries[interval]
-            del Poll.polls[interval]
-            del Poll.id[interval]
-        else:
-            Poll.id[interval] = Poll.top.after(interval, Poll.polls[interval])
-
     def add(interval, callback, repeat=True):
-        if interval not in Poll.entries:
-            Poll.entries[interval] = []
-            Poll.polls[interval] = lambda: Poll.poll(interval)
-            Poll.id[interval] = Poll.top.after(interval, Poll.polls[interval])
-        entry = (callback, repeat)
-        if not entry in Poll.entries[interval]:
-            Poll.entries[interval].append(entry)
+        if callback in Poll.infos:
+            Poll.remove(callback)
 
-    def callback_repeats(interval, acallback):
-        for entry in Poll.entries[interval]:
-            callback, repeat = entry
-            if acallback == callback:
-                return repeat
-        return None
+        callback_interval = interval
+        if not repeat:
+            callback_interval = None
+        info = poll_info(callback_interval)
+        Poll.infos[callback] = info
 
-    def remove_entry(interval, entry):
-        if entry in Poll.entries[interval]:
-            Poll.entries[interval].remove(entry)
+        info.id = Poll.top.after(interval, lambda: Poll.callback(callback))
 
-    def remove(interval, callback):
-        if interval not in Poll.entries:
+    def remove(callback):
+        info = Poll.infos.get(callback, None)
+        if info == None:
             return
-        repeat = Poll.callback_repeats(interval, callback)
-        entry = (callback, repeat)
-        Poll.remove_entry(interval, entry)
-
-    def delayed_callback(delay, callback):
-        Poll.add(delay, callback, repeat=False)
+        Poll.top.after_cancel(info.id)
+        del Poll.infos[callback]
 
     def remove_all():
-        for interval in list(Poll.id):
-            id = Poll.id[interval]
-            Poll.top.after_cancel(id)
+        for callback in list(Poll.infos):
+            Poll.remove(callback)
 
-            for entry in Poll.entries[interval]:
-                Poll.remove_entry(interval, entry)
-            Poll.poll(interval)
+    def callback(callback):
+        callback()
+        info = Poll.infos.get(callback, None)
+        if info == None or info.interval == None:
+            del Poll.infos[callback]
+        else:
+            info.id = Poll.top.after(info.interval, lambda : Poll.callback(callback))
+
+    def call(interval, callback):
+        Poll.add(interval, callback, repeat=False)
 
 class Options():
     config_file = None
@@ -4609,7 +4592,7 @@ class Popup():
             except queue.Empty:
                 break
 
-        Poll.delayed_callback(cls.poll_interval, cls.dequeue_popups)
+        Poll.call(cls.poll_interval, cls.dequeue_popups)
 
     @classmethod
     def popup(cls, msg='', title='', timeout=None, font=None, color='yellow'):
@@ -4660,7 +4643,7 @@ class Popup():
     def show(self):
         self.frame.grid()
         if self.timeout != None:
-            Poll.delayed_callback(self.timeout, self.popup.destroy)
+            Poll.call(self.timeout, self.popup.destroy)
 
     def wait(self):
         self.frame.grid()
@@ -4811,7 +4794,7 @@ def main_page_visible(self):
         server.connect()
 
 def start():
-    Poll(Page.top)
+    Poll.set_top(Page.top)
     Popup.show_popups()
 
     read_config(Options.config_file)
