@@ -303,9 +303,10 @@ class Server():
         '#W': ['#WBS', '#WFC', '#WFH'],
         'XV': ['XVN', 'XVM', 'XVR', 'XVI', 'XVO', 'XVP '],
 # Directives:
-        'CO': ['CONNECT'],
-        'QU': ['QUIT'],
-        'SH': ['SHOW'],
+        'CO': ['CONNECT!'],
+        'EX': ['EXIT!'],
+        'QU': ['QUIT!'],
+        'SH': ['SHOW!'],
     }
 
     # commands that end in +, -, /, \, ^, > are also pseudo set-only commands
@@ -661,7 +662,7 @@ class Server():
         lcmd = cmd.lower()
         if lcmd == 'connect!':
             self.connect()
-        elif lcmd == 'quit!':
+        elif lcmd == 'quit!' or lcmd == 'exit!':
             clean_up_and_exit()
         elif base.lower() == 'show!':
             page = lcmd[len(base):].strip()
@@ -673,8 +674,6 @@ class Server():
            raise Exception('Unknown directive: ', directive)
 
     def send_cmds(self, cmds):
-        if self.warn_if_not_connected():
-            return
         if isinstance(cmds, str):
             cmds = Server.split_cmd(cmds)
         for cmd in cmds:
@@ -690,9 +689,9 @@ class Server():
                 Audio.control_k4_cmd(base, cmd)
                 if not self.cat_only and not self.control_k4_audio:
                     continue
+            if self.warn_if_not_connected():
+                return
             if Server.k4_set_only_cmd(base, cmd) or self.update_k4_parameter(base, cmd[len(base):]):
-                if self.warn_if_not_connected():
-                    return
                 cmd += ';'
                 self.send_str(cmd)
 
@@ -4421,10 +4420,10 @@ class Config():
             self.write_block(tmpfile, Config.main_block_name, '', 1)
 
         if self.errors > 0:
-            quit()
+            sys.exit()
 
         if Options.yaml_file != None:
-            quit()
+            sys.exit()
 
         tmpfile.seek(0)
         return tmpfile
@@ -4434,7 +4433,7 @@ class Config():
             previous_line_count = self.writing_blocks[block_name]
             dprint('Error ({filename}:{line_count}): #include {block_name}, recursively included, previously at {previous_line_count}'.format(filename=self.filename, line_count=line_count, block_name=block_name, previous_line_count=previous_line_count))
             self.errors += 1
-            quit()
+            sys.exit()
 
         self.writing_blocks[block_name] = line_count
 
@@ -4561,7 +4560,7 @@ def clean_up():
 
 def clean_up_and_exit():
     clean_up()
-    quit()
+    Page.top.destroy()
 
 class Popup():
     queue = queue.Queue()
