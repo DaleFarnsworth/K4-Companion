@@ -13,6 +13,4 @@ Reconnect on connect failure without redrawing the GUI widgets.
 
 Implement panadapter and waterfall, as well as minipan
 
-Why does it start up with ESSB enabled?
-
 See if we can recover from audio output_stream being None
