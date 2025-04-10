@@ -480,7 +480,7 @@ class Server():
             self.connect_callbacks.append(callback)
 
     def update_k4_parameter(self, base, parameter):
-        if base in ('TX', 'RX', 'SD0C', 'SD1C','SD0V', 'SD1V','SD0D', 'SD1D'):
+        if base in ('TX', 'RX', 'SD0C', 'SD1C','SD0V', 'SD1V','SD0D', 'SD1D', 'ES'):
             if base == 'TX':
                 self.k4_parameters['RX'] = None
             elif base == 'RX':
@@ -488,6 +488,11 @@ class Server():
             elif base in ('SD0C', 'SD1C','SD0V', 'SD1V','SD0D', 'SD1D'):   # Differentiate between the variants
                 parameter = base[2] + parameter
                 base = base[0:2] + base[3]
+            elif base == 'ES':
+                if parameter[0] == '0':
+                    self.update_k4_parameter('ES0', parameter[1:])
+                elif parameter[0] == '1':
+                    self.update_k4_parameter('ES1', parameter[1:])
 
         old = self.k4_parameters.get(base, None)
         self.k4_parameters[base] = parameter

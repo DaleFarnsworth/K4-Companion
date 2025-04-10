@@ -807,8 +807,8 @@
 - item: togglebutton
   label: ESSB
   selections: #{
-    - { text: "On",  cmd: ES1;, evalresponse: 'value[0:3]+";"' } 
-    - { text: "Off", cmd: ES0;, evalresponse: 'value[0:3]+";"' }
+    - { text: "On",  cmd: ES1;, evalcmd: '"ES1"+self.k4param("ES1")+";"', evalresponse: 'value[0:3]+";"' } 
+    - { text: "Off", cmd: ES0;, evalcmd: '"ES0"+self.k4param("ES0")+";"', evalresponse: 'value[0:3]+";"' }
   #}
 #end
 
@@ -821,7 +821,7 @@
   length: 150
   evalincrement: '0.1'
   evalcmd: '"ES{mode}{bw:02d};".format(mode=1 if value > 2.8 else 0, bw=int(value*10))'
-  evalresponse: '-1 if len(value) < 5 else float(value[3:5])/10'
+  evalresponse: 'float(self.k4param("ES0"))/10 if value[2] == "0" else float(self.k4param("ES1"))/10'
 #end
 
 #define af-limiter-slider
