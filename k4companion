@@ -3891,12 +3891,9 @@ class Settings():
             # NSApplicationSupportDirectory = 14
             # NSUserDomainMask = 1
             # True for expanding the tilde into a fully qualified path
-            filename = os.path.join(NSSearchPathForDirectoriesInDomains(14, 1, True)[0], appname, filename)
+            config_dir = os.path.join(NSSearchPathForDirectoriesInDomains(14, 1, True)[0], appname)
         elif sys.platform == 'win32':
-            dirname = os.path.join(os.environ['APPDATA'], appname)
-            if not os.path.isdir(dirname):
-                os.mkdir(dirname, 0o755)
-            filename = os.path.join(dirname, filename)
+            config_dir = os.path.join(os.environ['APPDATA'], appname)
         else:
             home_dir = os.path.expanduser('~')
             config_dir = os.path.join(home_dir, '.config')
@@ -3904,9 +3901,10 @@ class Settings():
                 config_dir = os.path.join(config_dir, appname)
             else:
                 config_dir = os.path.join(home_dir, '.' + appname)
-            if not os.path.isdir(config_dir):
-                os.mkdir(config_dir, 0o755)
-            filename = os.path.join(config_dir, filename)
+
+        if not os.path.isdir(config_dir):
+            os.mkdir(config_dir, 0o755)
+        filename = os.path.join(config_dir, filename)
 
         return filename
 
