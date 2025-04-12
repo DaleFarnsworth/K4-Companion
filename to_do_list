@@ -11,6 +11,10 @@ Add a tab for K4 status as returned by the SI* responses.
 
 Reconnect on connect failure without redrawing the GUI widgets.
 
-Implement panadapter and waterfall, as well as minipan
+Implement panadapter and waterfall, as well as minipan.
 
-See if we can recover from audio output_stream being None
+See if we can recover from audio output_stream being None.
+
+Add mic gain control to local audio setting.
+
+Add version display in k4companion on the App tab.
