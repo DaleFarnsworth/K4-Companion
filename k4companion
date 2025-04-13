@@ -2095,18 +2095,31 @@ class Bargraph(Widget):
 class Text(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        options = ['text', 'label', 'leading', 'fg', 'bg', 'justify', 'font']
+        options = ['text', 'evaltext', 'label', 'leading', 'fg', 'bg', 'justify', 'font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
         text = config_info.get('text', '')
+        evaltext = config_info.get('evaltext', None)
         fg = config_info.get('fg', Default.fg)
         bg = config_info.get('bg', Default.bg)
         justify = config_info.get('justify', 'center')
 
+        if evaltext != None:
+            text = self.eval_value(evaltext)
+
+        lines = text.split("\n")
+        height = len(lines)
+        width = 0
+        for line in lines:
+            if len(line) > width:
+                width = len(line)
+
         self.label = tk.Label(self.frame,
                     text=text,
+                    height=height,
+                    width=width,
                     bd='2',
                     font=self.font(),
                     justify=justify,

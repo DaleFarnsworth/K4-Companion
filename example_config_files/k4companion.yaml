@@ -118,6 +118,7 @@
   tabname: App
   contains: #{
     #include app-settings
+    #include app-version
   #}
 #end
 
@@ -225,6 +226,12 @@
 #define app-settings
 - item: appsettings
   selectbg: pink
+#end
+
+#define app-version
+- item: text
+  label: k4companion
+  evaltext: '"Version: " + version'
 #end
 
 #define receiver-a-group
