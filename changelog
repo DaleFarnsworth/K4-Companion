@@ -1,3 +1,16 @@
+v1.1.39:
+    Be more liberal in accepted audio encodings
+	Accept encode_mode_opus as well as encode_mode_int16.
+
+	Encode_mode_opus has been tested. Encode_mode_int16 has not.
+
+    Update Documentation/K4 Companion User Manual.pdf
+
+    Update k4companion.exe to v1.1.38
+
+    Update changelog for v1.1.38
+
+
 v1.1.38:
     Add version display to App tab
 
