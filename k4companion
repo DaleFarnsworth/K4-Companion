@@ -63,7 +63,7 @@ from optparse import OptionParser
 from tkinter import simpledialog
 
 appname = 'k4companion'
-version = "1.1.37"
+version = "1.1.38"
 
 class Default():
 # may be overriden by values in the config file
