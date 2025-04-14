@@ -1,3 +1,17 @@
+v1.1.40:
+    Request that the K4 send opus-float encoded audio
+	This is the default, but other software may change the format.
+	If so, we reset it to the preferred format.
+
+    Revert "Be more liberal in accepted audio encodings"
+	This reverts commit 4c734154999d1606813edf87ae308609e61b61ca.
+
+	Instead, we'll request that the K4 send us opus-encoded audio
+	via the EM3; command
+
+    Update changelog for v1.1.39
+
+
 v1.1.39:
     Be more liberal in accepted audio encodings
 	Accept encode_mode_opus as well as encode_mode_int16.
