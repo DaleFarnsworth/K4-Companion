@@ -3649,15 +3649,16 @@ class Audio():
             if current_index != self.output_device_index:
                 current_index = self.output_device_index
                 encode_mode = packet[0]
-                
-                if encode_mode == Audio.encode_mode_opus_float or encode_mode == Audio.encode_mode_opus:
-                    opus = opuslib.Decoder(Audio.k4_sample_rate, Audio.output_channels)
+                if encode_mode != Audio.encode_mode_opus_float:
+                    raise Exception('Unsupported audio encode mode:', encode_mode)
 
                 frame_size = packet[2] << 8 | packet[1]
 
                 sample_rate = packet[3]
                 if sample_rate != 0:
                     raise Exception('Unsupported audio sample rate:', sample_rate)
+
+                opus = opuslib.Decoder(Audio.k4_sample_rate, Audio.output_channels)
 
                 pa = self.pyaudio()
 
@@ -3686,21 +3687,9 @@ class Audio():
                                 warned = True
                         continue
 
-            if encode_mode == Audio.encode_mode_opus_float:
-                pcm = opus.decode_float(bytes(packet[4:]), frame_size)
-                dtype = numpy.float32
-            elif encode_mode == Audio.encode_mode_opus:
-                pcm = opus.decode_float(bytes(packet[4:]), frame_size)
-                dtype = numpy.float32
-            elif encode_mode == Audio.encode_mode_raw16:
-                tprint('encode_mode: encode_mode_raw16')
-                pcm = bytes(packet[4:])
-                dtype = numpy.int16
-            else:
-                raise Exception('Unsupported audio encode mode:', encode_mode)
+            pcm = opus.decode_float(bytes(packet[4:]), frame_size)
 
-            stereo = numpy.frombuffer(pcm, dtype=dtype)
-
+            stereo = numpy.frombuffer(pcm, dtype=numpy.float32)
             a = stereo[0::2]                    # even samples are from the main receiver
             b = stereo[1::2]                    # odd samples are from the sub receiver
 
@@ -3743,7 +3732,7 @@ class Audio():
                 left = left.repeat(resample_ratio)
                 right = right.repeat(resample_ratio)
 
-            stereo = numpy.empty((left.size + right.size,), dtype=dtype)
+            stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
             stereo[1::2] = right
             output_stream.write(stereo.tobytes())
