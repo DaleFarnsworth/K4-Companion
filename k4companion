@@ -591,6 +591,7 @@ class Server():
 
     def request_initial_parameters(self):
         self.send_str('K41;')                # request K4 to respond in advanced mode
+        self.send_str('EM3;')                # Request opus-float encoded audio
         self.send_str('AI4;')                # request K4 to send updates immediately
         self.send_str('ER1;')                # request long format error messages
         self.send_cmds('MD;MD$;')            # cache the mode response for later use in setting the vfo step
