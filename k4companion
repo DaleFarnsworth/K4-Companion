@@ -4834,7 +4834,7 @@ def main():
     Options.Parse()
 
     top = tk.Tk()
-    top.title('K4-Companion')
+    top.title('K4-Companion ' + version)
     top.protocol("WM_DELETE_WINDOW", clean_up_and_exit)
     Page.top = top
 
