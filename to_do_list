@@ -15,6 +15,4 @@ Implement panadapter and waterfall, as well as minipan.
 
 See if we can recover from audio output_stream being None.
 
-Add mic gain control to local audio setting.
-
 Get vox working.

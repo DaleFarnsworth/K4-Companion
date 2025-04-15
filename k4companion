@@ -107,7 +107,7 @@ class Server():
     payload_type_minipan = 3
     cat_version_number = 0
     cat_sequence_number = 0
-    control_k4_audio_cmd_bases = { 'AG', 'AG$' }
+    control_k4_audio_cmd_bases = { 'AG', 'AG$', 'MG' }
     audio_version_number = 1
 
     k4_get_cmd_bases = [         # For future use
@@ -3465,6 +3465,9 @@ class Audio():
         elif base == 'AG$':
             Settings.put_save('Audio', 'sub_volume', cmd)
             self.b_volume = float(cmd) / 60.0
+        elif base == 'MG':
+            Settings.put_save('Audio', 'mic_gain', cmd)
+            self.mic_gain = float(cmd) / 80.0
         elif base == 'SB':
             self.sub_on = cmd == '1'
 
@@ -3479,6 +3482,11 @@ class Audio():
         if b_volume == None:
             b_volume = '000'
         responses += 'AG$' + b_volume + ';'
+
+        mic_gain = Settings.get('Audio', 'mic_gain')
+        if mic_gain == None:
+            mic_gain = '020'
+        responses += 'MG' + mic_gain + ';'
 
         return responses
 
@@ -3536,13 +3544,18 @@ class Audio():
 
         a_volume = Settings.get('Audio', 'main_volume')
         if a_volume == None:
-            a_volume = '000'
+            a_volume = '015'
         self.a_volume = float(a_volume) / 60.0
 
         b_volume = Settings.get('Audio', 'sub_volume')
         if b_volume == None:
-            b_volume = '000'
+            b_volume = '010'
         self.b_volume = float(b_volume) / 60.0
+
+        mic_gain = Settings.get('Audio', 'mic_gain')
+        if mic_gain == None:
+            mic_gain = '040'
+        self.mic_gain = float(mic_gain) / 80.0
 
         pa = self.pyaudio()
         info = self.pa_get_host_api_info_by_index(pa, 0)
@@ -3838,7 +3851,7 @@ class Audio():
                 s3 = sampled[3::4]
                 resampled = sum((s0, s1, s2, s3)) / 4
 
-            resampled = resampled / 32                  # apply some attenuation
+            resampled = resampled * self.mic_gain / 8  # apply some attenuation
 
             resampled = resampled.repeat(2)             # double-up samples. I consider this a K4 bug
             resampled_bytes = resampled.tobytes()
