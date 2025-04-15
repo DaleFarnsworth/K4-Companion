@@ -591,7 +591,7 @@ class Server():
 
     def request_initial_parameters(self):
         self.send_str('K41;')                # request K4 to respond in advanced mode
-        self.send_str('EM3;')                # Request opus-float encoded audio
+        self.send_str('EM3;')                # request opus-float encoded audio
         self.send_str('AI4;')                # request K4 to send updates immediately
         self.send_str('ER1;')                # request long format error messages
         self.send_cmds('MD;MD$;')            # cache the mode response for later use in setting the vfo step
@@ -2332,78 +2332,99 @@ class Equalizers(Widget):
 
         super().__init__(config_info, container)
 
-        self.trmode_lower_dict = {}
-
         self.values = {}
 
         length = config_info.get('length', 150)
-        bg = config_info.get('bg', Default.bg)
+        self.bg = config_info.get('bg', Default.bg)
         fg = config_info.get('fg', Default.fg)
-        selectbg=config_info.get('selectbg', bg)
+        selectbg=config_info.get('selectbg', self.bg)
         selectfg=config_info.get('selectfg', fg)
 
-        # Define the style for equalzer comboboxex
+        enabled_frame = tk.LabelFrame(self.frame,
+                                   text='Equalizers',
+                                   font=self.label_font(),
+                                   labelanchor='n',
+                                   bd=4,
+                                   relief='raised')
+        enabled_frame.grid(row=0, column=0, sticky='w', pady=5)
+
+        self.enabled_var = tk.IntVar()
+        self.enabled_var.set(0)
+        self.enabled_checkbutton = tk.Checkbutton(enabled_frame, text='Disabled', var=self.enabled_var, onvalue=1, offvalue=0, indicatoron=False, fg=fg, bg='red', selectcolor=self.bg, width=len('Disabled'))
+        self.enabled_checkbutton.grid(row=0, column=0, sticky='w', pady=5)
+        self.enabled_var.trace('w', self.on_enabled_changed)
+
+        # Define the style for equalzer comboboxes
         self.stylename = str(self) + '.TCombobox'
         self.style = ttk.Style()
-        self.style.configure(self.stylename, background=bg, foreground=fg, selectbackground=selectbg, selectforeground=selectfg)
+        self.style.configure(self.stylename, background=self.bg, foreground=fg, selectbackground=selectbg, selectforeground=selectfg)
 
         self.trs = ('Receive', 'Transmit')
         self.modes = ('CW','SSB', 'AM', 'FM')
+        self.alternates = ['Main']
 
-        self.trmodes = []
-        for tr in self.trs:
-            for mode in self.modes:
-                trmode = self.trmode(tr, mode)
-                self.trmodes.append(trmode)
+        # 'Receive' or 'Transmit' currently displayed value sliders
+        self.tr = self.trs[0]
+
+        # Currently displayed alternate value sliders
+        self.alt = self.alternates[0]
+
+        # 'Receive' or 'Transmit' current K4 mode
+        self.k4_tr = self.trs[0]
+
+        # keys are tr+mode, values are alt
+        self.alternate = {}
+
+        # values are tr+mode
+        self.tr_modes = []
 
         self.active_alt_vars = {}
-        self.alternate_var = tk.StringVar()
-        self.vfo_var = tk.StringVar()
-        self.vfo_var.set('A')
+        for tr in self.trs:
+            self.values[tr] = {}
+            for alt in self.alternates + ['Flat']:
+                self.values[tr][alt] = [0, 0, 0, 0, 0, 0, 0, 0]
 
-        self.alternates = {}
-        self.alternate = {}
-        for trmode in self.trmodes:
-            self.alternates[trmode] = ['Main', 'Flat']
-            self.values[trmode] = {}
-            for alt in self.alternates[trmode]:
-                self.values[trmode][alt] = [0, 0, 0, 0, 0, 0, 0, 0]
-            self.alternate[trmode] = self.alternates[trmode][0]
-            self.active_alt_vars[trmode] = tk.StringVar()
-            self.active_alt_vars[trmode].set(self.alternates[trmode][0])
+            for mode in self.modes:
+                tr_mode = self.tr_mode(tr, mode)
+                self.tr_modes.append(tr_mode)
+
+                self.alternate[tr_mode] = self.alt
+                self.active_alt_vars[tr_mode] = tk.StringVar()
+                self.active_alt_vars[tr_mode].set(self.alt)
 
         self.load_settings()
 
-        actives_frame = tk.LabelFrame(self.frame,
+        self.actives_frame = tk.LabelFrame(self.frame,
                                    text='Active Equalizers',
                                    font=self.label_font(),
                                    labelanchor='n',
                                    bd=4,
                                    relief='raised')
-        actives_frame.grid(row=0, column=0, sticky='w', pady=5)
+        self.actives_frame.grid(row=1, column=0, sticky='w', pady=5)
 
+        self.actives_mode_labels = {}
         self.active_alt_comboboxes = {}
-
         row = 0
         for tr in self.trs:
-            frame = tk.Frame(actives_frame)
+            frame = tk.Frame(self.actives_frame)
             frame.grid(row=row, column=0, sticky='w')
-            label = tk.Label(frame, text=tr+':', font=self.font(), width=8, justify='right', fg=fg, bg=bg, padx=4, pady=2)
+            label = tk.Label(frame, text=tr+':', font=self.font(), width=8, justify='right', fg=fg, bg=self.bg, padx=4, pady=2)
             label.grid(row=row, column=0, sticky='w', pady=2)
-            frame = tk.Frame(actives_frame)
+            frame = tk.Frame(self.actives_frame)
             frame.grid(row=row, column=1, sticky='w', pady=2)
 
             for i, mode in enumerate(self.modes):
                 mode_frame = tk.Frame(frame)
                 mode_frame.grid(row=row, column=i, sticky='w', padx=2, pady=2)
-                trmode = self.trmode(tr, mode)
+                tr_mode = self.tr_mode(tr, mode)
 
-                label = tk.Label(mode_frame, text=mode+':', bd='2', font=self.font(), width=5, justify='left', fg=fg, bg=bg, padx=2, pady=2)
+                label = tk.Label(mode_frame, text=mode+':', bd='2', font=self.font(), width=5, justify='left', fg=fg, bg=self.bg, padx=2, pady=2)
                 label.grid(row=0, column=0, sticky='w')
+                self.actives_mode_labels[tr_mode] = label
 
                 combobox = ttk.Combobox(
                         mode_frame,
-                        textvar=self.active_alt_vars[trmode],
+                        textvar=self.active_alt_vars[tr_mode],
                         font=self.font(),
                         height=2,
                         width=3,
@@ -2414,16 +2435,19 @@ class Equalizers(Widget):
 
                 combobox.grid(row=0, column=1, sticky='w')
 
-                self.active_alt_comboboxes[trmode] = combobox
+                self.active_alt_comboboxes[tr_mode] = combobox
 
             row += 1
 
-        vfo_frame = tk.Frame(actives_frame)
+        vfo_frame = tk.Frame(self.actives_frame)
         vfo_frame.grid(row=row, column=0, columnspan=2, sticky='w', pady=5)
 
-        text = 'Equalizer follows mode on K4 VFO:'
-        label = tk.Label(vfo_frame, text=text, font=self.font(), width=len(text), justify='right', fg=fg, bg=bg, pady=2)
+        text = 'Receive equalizer follows mode on K4 VFO:'
+        label = tk.Label(vfo_frame, text=text, font=self.font(), width=len(text), justify='right', fg=fg, bg=self.bg, pady=2)
         label.grid(row=0, column=0, sticky='w')
+
+        self.vfo_var = tk.StringVar()
+        self.vfo_var.set('A')
 
         combobox = ttk.Combobox(
                 vfo_frame,
@@ -2444,43 +2468,36 @@ class Equalizers(Widget):
                                    labelanchor='n',
                                    bd=4,
                                    relief='raised')
-        self.equalizer_frame.grid(row=1, column=0, sticky='w', pady=10)
+        self.equalizer_frame.grid(row=2, column=0, sticky='w', pady=10)
 
         column0_frame = tk.Frame(self.equalizer_frame)
         column0_frame.grid(row=0, column=0, rowspan=6)
 
+        tr_alts = []
         width = 0
-        for trmode in self.trmodes:
-            if len(trmode) > width:
-                width = len(trmode)
+        for alt in self.alternates:
+            for tr in self.trs:
+                tr_alt = self.tr_alt(tr, alt)
+                if len(tr_alt) > width:
+                    width = len(tr_alt)
+                tr_alts.append(tr_alt)
 
-        self.alternate_combobox = ttk.Combobox(
+        self.tr_alt_var = tk.StringVar()
+        self.tr_alt_var.set(tr_alts[0])
+
+        self.tr_alt_combobox = ttk.Combobox(
                 column0_frame,
-                textvar=self.alternate_var,
+                textvar=self.tr_alt_var,
                 font=self.font(),
-                state='readonly',
-                justify='left',
-                style=self.stylename,
-                )
-
-        self.alternate_combobox.grid(row=1, column=0, sticky='w', pady=2)
-
-        self.trmode_var = tk.StringVar()
-
-        self.trmode_combobox = ttk.Combobox(
-                column0_frame,
-                textvar=self.trmode_var,
-                font=self.font(),
-                values=self.trmodes,
-                height=len(self.trmodes),
+                values=tr_alts,
+                height=len(tr_alts),
                 width=width,
                 state='readonly',
                 justify='left',
                 style=self.stylename,
                 )
 
-        self.trmode_combobox.grid(row=0, column=0, sticky='w', pady=5)
-        self.trmode_var.set(self.trmodes[0])
+        self.tr_alt_combobox.grid(row=0, column=0, sticky='w', pady=5)
 
         flat_button = tk.Button(column0_frame,
                     bd='2',
@@ -2490,37 +2507,38 @@ class Equalizers(Widget):
                     justify='center',
                     relief='raised',
                     fg=fg,
-                    bg=bg,
-                    activebackground=bg,
+                    bg=self.bg,
+                    activebackground=self.bg,
                     activeforeground=fg,
                     padx=2,
                     pady=2,
                     command=self.set_flat)
-        flat_button.grid(row=2, column=0, sticky='w', pady=5)
+        flat_button.grid(row=1, column=0, sticky='w', pady=5)
 
-        label = tk.Label(column0_frame, text='Add:', bd='2', font=self.font(), justify='center', fg=fg, bg=bg, padx=2, pady=2)
-        label.grid(row=3, column=0, sticky='w')
+        label = tk.Label(column0_frame, text='Add:', bd='2', font=self.font(), justify='center', fg=fg, bg=self.bg, padx=2, pady=2)
+        label.grid(row=2, column=0, sticky='w')
 
         self.add_var = tk.StringVar()
-        add_entry = tk.Entry(column0_frame, textvariable=self.add_var, width=width, justify='left', font=self.font(), fg=fg, bg=bg)
-        add_entry.grid(row=4, column=0, sticky='w')
+        add_entry = tk.Entry(column0_frame, textvariable=self.add_var, width=width, justify='left', font=self.font(), fg=fg, bg=self.bg)
+        add_entry.grid(row=3, column=0, sticky='w')
         add_entry.bind('<Return>', self.on_add_alt)
 
-        remove_button =  tk.Button(column0_frame,
+        self.remove_button =  tk.Button(column0_frame,
                     bd='2',
-                    text='Remove',
+                    text='',
+                    state='disabled',
                     font=self.font(),
-                    width=7,
+                    width=0,
                     justify='center',
                     relief='raised',
                     fg=fg,
-                    bg=bg,
-                    activebackground=bg,
+                    bg=self.bg,
+                    activebackground=self.bg,
                     activeforeground=fg,
                     padx=2,
                     pady=2,
                     command=self.on_remove_alt)
-        remove_button.grid(row=5, column=0, sticky='w', pady=2)
+        self.remove_button.grid(row=4, column=0, sticky='w', pady=2)
 
         self.scale_value_vars = []
         self.scales = []
@@ -2537,7 +2555,7 @@ class Equalizers(Widget):
                              repeatdelay=0,
                              length=length,
                              font=self.font(),
-                             bg=bg,
+                             bg=self.bg,
                              fg=fg,
                              variable=value)
             scale.grid(row=0, column=i+1, pady=0)
@@ -2550,28 +2568,50 @@ class Equalizers(Widget):
                              font=self.font(),
                              justify='center',
                              fg=fg,
-                             bg=bg)
+                             bg=self.bg)
             label.grid(row=1, column=i+1, pady=0)
 
         self.vfo_var.trace('w', self.on_vfo_changed)
-        self.alternate_var.trace('w', self.on_alternate_changed)
-        self.trmode_var.trace('w', self.on_trmode_changed)
-        for trmode in self.trmodes:
-            self.active_alt_vars[trmode].trace('w', lambda var, index, mode, trmode=trmode: self.on_active_changed(var, index, mode, trmode))
-        self.server.subscribe_cmds('MD;MD$;', self.on_mode_changed, send=False)
+        self.tr_alt_var.trace('w', self.on_tr_alt_changed)
+        for tr_mode in self.tr_modes:
+            self.active_alt_vars[tr_mode].trace('w', lambda var, index, mode, tr_mode=tr_mode: self.on_active_changed(var, index, mode, tr_mode))
+        self.server.subscribe_cmds('MD;MD$;FT;', self.on_mode_changed, send=False)
 
-        self.set_trmode(self.trmodes[0])
+        self.load_enabled_settings()
+
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
+    def on_received_initial_parameters(self, response):
         self.configure()
 
-    def trmode(self, tr, mode):
+    def on_enabled_changed(self, var, index, mode):
+        if self.enabled():
+            self.enabled_checkbutton.configure(text='Enabled')
+        else:
+            self.enabled_checkbutton.configure(text='Disabled')
+        self.configure()
+        self.save_settings()
+
+    def enabled(self):
+        return int(self.enabled_var.get()) != 0
+
+    def tr_mode(self, tr, mode):
         return '{tr} - {mode}'.format(tr=tr, mode=mode)
 
-    def k4_mode(self):
-        base = 'MD'
-        if self.vfo_var.get() == 'B':
-            base += '$'
+    def tr_alt(self, tr, alt):
+        return '{alt} - {tr}'.format(tr=tr, alt=alt)
 
-        k4_modes = (None, 'SSB', 'SSB', 'CW', 'FM', 'AM', None, 'CW', None, None)
+    def k4_mode(self, tr):
+        base = 'MD'
+        if tr == 'Receive':
+            if self.vfo_var.get() == 'B':
+                base += '$'
+        else:
+            split = self.server.k4_parameters.get('FT') == '1'
+            if split:
+                base += '$'
+
+        k4_modes = ('', 'SSB', 'SSB', 'CW', 'FM', 'AM', '', 'CW', '', '')
         k4_mode = self.k4param(base)
         if k4_mode ==  None or k4_mode == '':
             return None
@@ -2591,54 +2631,43 @@ class Equalizers(Widget):
         return values
 
     def set_k4_equalizers(self):
-        k4_mode = self.k4_mode()
-        if k4_mode == None:
+        if not self.enabled():
             return
 
         bases = ('RE', 'TE')
         for i, tr in enumerate(self.trs):
-            trmode = self.trmode(tr, k4_mode)
-            alt = self.active_alt_vars[trmode].get()
-            values = self.values[trmode][alt]
+            k4_mode = self.k4_mode(tr)
+            if k4_mode == None or k4_mode == '':
+                continue
+            tr_mode = self.tr_mode(tr, k4_mode)
+            alt = self.active_alt_vars[tr_mode].get()
+            values = self.values[tr][alt]
             cmd = bases[i] + self.values_str(values) + ';'
             self.server.send_cmds(cmd)
 
-    def on_active_changed(self, var, index, mode, trmode):
-        self.set_k4_equalizers()
+    def on_active_changed(self, var, index, mode, tr_mode):
+        self.alternate[tr_mode] = self.tr_alt_var.get()
+        self.configure()
         self.save_settings()
 
     def on_value_changed(self, var, index, mode, i):
-        trmode = self.trmode_var.get()
         value = self.scale_value_vars[i].get()
-        self.values[trmode][self.alternate[trmode]][i] = value
+        self.values[self.tr][self.alt][i] = value
         self.configure()
         self.save_settings()
 
-    def on_trmode_changed(self, var, index, mode):
-        trmode = self.trmode_var.get()
-        alt = self.active_alt_vars[trmode].get()
-        self.set_alternate(alt)
-        self.configure()
-        self.save_settings()
+    def on_tr_alt_changed(self, var, index, mode):
+        tr_alt = self.tr_alt_var.get()
+        self.alt, self.tr = tr_alt.split(' - ')
+        k4_mode = self.k4_mode(self.tr)
+        if k4_mode == None or k4_mode == '':
+            return
 
-    def on_alternate_changed(self, var, index, mode):
-        trmode = self.trmode_var.get()
-        alt = self.alternate_var.get()
-        self.set_alternate(alt)
         self.configure()
         self.save_settings()
 
     def on_mode_changed(self, response):
-        self.set_k4_equalizers()
-
-    def set_trmode(self, trmode):
-        self.trmode_var.set(trmode)
-
-    def set_alternate(self, alt):
-        trmode = self.trmode_var.get()
-        self.alternate[trmode] = alt
-        if self.alternate_var.get() != alt:
-            self.alternate_var.set(alt)
+        self.configure()
 
     def set_flat(self):
         for var in self.scale_value_vars:
@@ -2647,28 +2676,32 @@ class Equalizers(Widget):
         self.save_settings()
 
     def on_add_alt(self, event):
-        trmode = self.trmode_var.get()
         alt = self.add_var.get()
-        if alt in self.alternates[trmode]:
+        if alt in self.alternates:
             return
-        self.alternates[trmode].append(alt)
-        self.alternates[trmode].remove('Flat')
-        self.alternates[trmode].append('Flat')
-        self.values[trmode][alt] = [0, 0, 0, 0, 0, 0, 0, 0]
-        self.set_alternate(alt)
+        self.alternates.append(alt)
+        for tr in self.trs:
+            self.values[tr][alt] = [0, 0, 0, 0, 0, 0, 0, 0]
+        self.alt = alt
         self.add_var.set("")
         self.configure()
         self.save_settings()
 
     def on_remove_alt(self):
-        trmode = self.trmode_var.get()
-        alt = self.alternate[trmode]
-        if alt in ('Main', 'Flat'):
+        if self.alt == 'Main':
             return
 
-        self.alternates[trmode].remove(alt)
-        del self.values[trmode][alt]
-        self.set_alternate('Main')
+        self.alternates.remove(self.alt)
+        for tr in self.trs:
+            del self.values[tr][self.alt]
+
+            for mode in self.modes:
+                tr_mode = self.tr_mode(tr, mode)
+                if self.active_alt_vars[tr_mode].get() == self.alt:
+                    self.active_alt_vars[tr_mode].set('Main')
+
+        self.alt = self.alternates[0]
+
         self.configure()
         self.save_settings()
 
@@ -2677,35 +2710,53 @@ class Equalizers(Widget):
         self.save_settings()
 
     def configure(self):
-        trmode = self.trmode_var.get()
-        self.equalizer_frame.configure(text='{trmode} ({alt})'.format(trmode=trmode, alt=self.alternate[trmode]))
+        tr = self.tr
+        alt = self.alt
 
-        width = 0;
-        alts = self.alternates[trmode]
-        for alt in alts:
-            if len(alt) > width:
-                width = len(alt)
-        self.alternate_combobox.configure(values=alts, height=len(alts), width=width)
-
-        state = tk.NORMAL
-        if self.alternate[trmode] == 'Flat':
-            state = tk.DISABLED
-
-        for i, value in enumerate(self.values[trmode][self.alternate[trmode]]):
+        for i, value in enumerate(self.values[tr][alt]):
             if value != self.scale_value_vars[i].get():
                 self.scale_value_vars[i].set(value)
 
-        for scale in self.scales:
-            scale.configure(state=state)
+        tr_alt = self.tr_alt(tr, alt)
+        self.equalizer_frame.configure(text=tr_alt)
+        self.tr_alt_combobox.configure(width=len(tr_alt)+1)
+        self.tr_alt_var.set(tr_alt)
+        if alt == 'Main':
+            self.remove_button.configure(text='', width=0, state='disabled')
+        else:
+            text = 'Remove: ' + alt
+            self.remove_button.configure(text=text, width=len(text), state='normal')
 
-        for trmode in self.trmodes:
-            alts = self.alternates[trmode]
-            width = 0;
-            for alt in alts:
-                if len(alt) > width:
-                    width = len(alt)
+        tr_alts = []
+        width = 0;
+        for alt in self.alternates:
+            for tr in self.trs:
+                tr_alt = self.tr_alt(tr, alt)
+                if len(tr_alt) > width:
+                    width = len(tr_alt)
+                tr_alts.append(tr_alt)
+        self.tr_alt_combobox.configure(values=tr_alts, height=len(tr_alts), width=width)
 
-            self.active_alt_comboboxes[trmode].configure(values=alts, height=len(alts), width=width)
+        alts = self.alternates + ['Flat']
+        for tr in self.trs:
+            k4_mode = self.k4_mode(tr)
+            if k4_mode == None or k4_mode == '':
+                active_tr_mode = None
+            else:
+                active_tr_mode = self.tr_mode(tr, k4_mode)
+
+            for mode in self.modes:
+                tr_mode = self.tr_mode(tr, mode)
+                width = 0;
+                for alt in alts:
+                    if len(alt) > width:
+                        width = len(alt)
+
+                self.active_alt_comboboxes[tr_mode].configure(values=alts, height=len(alts), width=width)
+                if tr_mode == active_tr_mode and self.enabled():
+                    self.actives_mode_labels[tr_mode].configure(bg='lightgreen')
+                else:
+                    self.actives_mode_labels[tr_mode].configure(bg=self.bg)
 
         self.set_k4_equalizers()
 
@@ -2713,58 +2764,76 @@ class Equalizers(Widget):
         category = 'Equalizers'
         previous_settings = Settings.get_category(category)
         Settings.clear_category(category)
-        for trmode in self.trmodes:
-            for i, alt in enumerate(self.alternates[trmode]):
-                if alt == 'Flat':
-                    continue
-                setting = '.'.join((trmode, 'alternate', str(i)))
-                Settings.put(category, setting, alt)
 
-        for trmode in self.trmodes:
-                setting = '.'.join((trmode, 'active'))
-                active = self.active_alt_vars[trmode].get()
-                Settings.put(category, setting, active)
+        Settings.put(category, "enabled", str(self.enabled_var.get()))
 
-        for trmode in self.trmodes:
-            for alt in self.alternates[trmode]:
-                if alt == 'Flat':
-                    continue
-                setting = '.'.join((trmode, alt))
-                values = self.values[trmode][alt]
+        i = 0
+        for alt in self.alternates:
+            setting = '.'.join(('alternate', str(i)))
+            Settings.put(category, setting, alt)
+            i += 1
+
+        for tr in self.trs:
+            alt_values = dict(self.values[tr])
+            for alt in self.alternates:
+                setting = '.'.join((alt, tr))
+                values = alt_values[alt]
                 Settings.put(category, setting, self.values_str(values))
+
+        for tr in self.trs:
+            for mode in self.modes:
+                setting = '.'.join((tr, mode, 'active'))
+                tr_mode = self.tr_mode(tr, mode)
+                active = self.active_alt_vars[tr_mode].get()
+                Settings.put(category, setting, active)
 
         settings = Settings.get_category(category)
         if settings != previous_settings:
             Settings.save()
 
+    def load_enabled_settings(self):
+        category = 'Equalizers'
+        enabled = Settings.get(category, "enabled")
+        if enabled == None:
+            enabled = 0
+        self.enabled_var.set(int(enabled))
+
     def load_settings(self):
         category = 'Equalizers'
 
-        for trmode in self.trmodes:
-            i = 0
-            while True:
-                setting = '.'.join((trmode, 'alternate', str(i)))
-                alt = Settings.get(category, setting)
-                if alt == None:
-                    break
-                if alt not in self.alternates[trmode]:
-                    self.alternates[trmode].append(alt)
-                    self.alternates[trmode].remove('Flat')
-                    self.alternates[trmode].append('Flat')
-                i += 1
+        i = 0
+        while True:
+            setting = '.'.join(('alternate', str(i)))
+            alt = Settings.get(category, setting)
+            if alt == None:
+                break
+            if alt != 'Flat' and alt not in self.alternates:
+                self.alternates.append(alt)
+            i += 1
 
-            setting = '.'.join((trmode, 'active'))
-            active = Settings.get(category, setting)
-            if active == None:
-                return
-            self.active_alt_vars[trmode].set(active)
-
-            for alt in self.alternates[trmode]:
-                if alt == 'Flat':
-                    continue
-                setting = '.'.join((trmode, alt))
+        for tr in self.trs:
+            for alt in list(self.alternates):
+                setting = '.'.join((alt, tr))
                 value = Settings.get(category, setting)
-                self.values[trmode][alt] = self.str_values(value)
+                if value == None:
+                    if  alt == 'Main':
+                        value = "+00+00+00+00+00+00+00+00"
+                    else:
+                        self.alternates.remove(alt)
+                        continue
+
+                self.values[tr][alt] = self.str_values(value)
+
+        for tr in self.trs:
+            for mode in self.modes:
+                setting = '.'.join((tr, mode, 'active'))
+                active = Settings.get(category, setting)
+                if active == None:
+                    return
+                if active not in self.alternates:
+                    active = 'Main'
+                tr_mode = self.tr_mode(tr, mode)
+                self.active_alt_vars[tr_mode].set(active)
 
 def cmd_base(cmd):
     ucmd = cmd.upper()
