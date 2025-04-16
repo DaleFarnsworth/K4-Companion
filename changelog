@@ -1,3 +1,36 @@
+v1.2.0:
+    Fix bugs in equalizer code
+	There were a few. In particular, it would previously
+	unconditionally set the K4's equalizer settings on startup. Now,
+	we've added an Enable/Disable button. When disabled (default),
+	no equalizer changes are sent to eht K4. When enabled, changes are
+	still unconditionally sent at startup according to the equalizer
+	settings in k4companion.
+
+	This is a substantial rewrite of the equalizer code.
+
+    Update To Do list
+
+    Control app Mic Gain locally
+
+    Add Windows/k4companion-1.1.40-installer.exe
+
+    Update K4 Companion User's Manual.pdf to v1.1.40 (revised)
+
+    Update Windows/k4companion.exe to 1.1.40 revised
+
+    Update Windows/k4companion.exe to v1.1.40
+	Apparently, this didn't work last time.
+
+    Add version number to the displayed title
+
+    Update K4 Companion User's Manual.pdf to v1.1.40
+
+    Update Windows/k4companion.exe to v1.1.40
+
+    Update changelog for v1.1.40
+
+
 v1.1.40:
     Request that the K4 send opus-float encoded audio
 	This is the default, but other software may change the format.
