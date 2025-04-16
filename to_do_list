@@ -16,3 +16,7 @@ Implement panadapter and waterfall, as well as minipan.
 See if we can recover from audio output_stream being None.
 
 Get vox working.
+
+Add mouse-wheel tuning.
+
+VFO weirdness
