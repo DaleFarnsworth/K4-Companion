@@ -2074,7 +2074,8 @@ class Bargraph(Widget):
     def on_response_received(self, response):
         value = int(self.eval_value(self.evalresponse, response))
         self.progressvalue.set(value)
-        self.configure()
+        if self.server.connected:
+            self.configure()
 
     def configure(self, event=None):
         bottomtext = self.bottomtext
