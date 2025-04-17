@@ -3541,7 +3541,7 @@ class Audio():
             Settings.put_save('Audio', 'mic_gain', cmd)
             self.mic_gain = float(cmd) / 80.0
         elif base == 'SB':
-            self.sub_on = cmd == '1'
+            self.sub_on = cmd != '0'
 
     @classmethod
     def local_audio_responses(cls):
