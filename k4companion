@@ -2753,8 +2753,11 @@ class Equalizers(Widget):
                         width = len(alt)
 
                 self.active_alt_comboboxes[tr_mode].configure(values=alts, height=len(alts), width=width)
-                if tr_mode == active_tr_mode and self.enabled():
-                    self.actives_mode_labels[tr_mode].configure(bg='lightgreen')
+                if tr_mode == active_tr_mode:
+                    if self.enabled():
+                        self.actives_mode_labels[tr_mode].configure(bg='lightgreen')
+                    else:
+                        self.actives_mode_labels[tr_mode].configure(bg='pink')
                 else:
                     self.actives_mode_labels[tr_mode].configure(bg=self.bg)
 
