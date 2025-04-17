@@ -1,14 +1,46 @@
+v1.2.1:
+    Windows installer 1.2.0 update
+       Removed stale 1.1.40 Windows installer
+   
+    Update User Manual 2025-04-17
+
+    update Window/k4companion.exe 1.2.0
+
+    Update README.md 2025-04-17
+
+    Update opus.dll to version 1.5.2
+
+    Fix lost sub-receiver audio with 2 panadapters
+       When dual panadapter mode is selected, the K4 sends an SB3; response.
+       However the Programmer's Manual says the only valid responses are
+       SB0; (sub-receiver off) and SB1; (sub-receiver on). We treated an
+       SB3; response as meaning sub-receiver off. Now, we treat it as
+       sub-receiver on.
+   
+    equalizers: Show active equalizer when disabled
+       When the equalizers are disabled, we'll indicate the (pending) active
+       equalizers in pink, after enabling, they are indicated in light green.
+   
+    update Documentation/K4 Companion User Manual.pdf to version 1.2.0
+
+    updates to Documentation/K4 Companion User Manual.pdf
+
+    add Windows/k4companion-1.2.0-installer.exe
+
+    Add Windows/k4companion.exe 1.2.0
+
+    Update changelog for v1.2.0
+
 v1.2.0:
     Fix bugs in equalizer code
-	There were a few. In particular, it would previously
-	unconditionally set the K4's equalizer settings on startup. Now,
-	we've added an Enable/Disable button. When disabled (default),
-	no equalizer changes are sent to eht K4. When enabled, changes are
-	still unconditionally sent at startup according to the equalizer
-	settings in k4companion.
-
-	This is a substantial rewrite of the equalizer code.
-
+       There were a few. In particular, it would previously unconditionally
+       set the K4's equalizer settings on startup. Now, we've added an
+       Enable/Disable button. When disabled (default), no equalizer changes
+       are sent to eht K4. When enabled, changes are still unconditionally
+       sent at startup according to the equalizer settings in k4companion.
+       
+       This is a substantial rewrite of the equalizer code.
+   
     Update To Do list
 
     Control app Mic Gain locally
@@ -20,8 +52,8 @@ v1.2.0:
     Update Windows/k4companion.exe to 1.1.40 revised
 
     Update Windows/k4companion.exe to v1.1.40
-	Apparently, this didn't work last time.
-
+       Apparently, this didn't work last time.
+   
     Add version number to the displayed title
 
     Update K4 Companion User's Manual.pdf to v1.1.40
@@ -30,69 +62,63 @@ v1.2.0:
 
     Update changelog for v1.1.40
 
-
 v1.1.40:
     Request that the K4 send opus-float encoded audio
-	This is the default, but other software may change the format.
-	If so, we reset it to the preferred format.
-
+       This is the default, but other software may change the format.
+       If so, we reset it to the preferred format.
+   
     Revert "Be more liberal in accepted audio encodings"
-	This reverts commit 4c734154999d1606813edf87ae308609e61b61ca.
-
-	Instead, we'll request that the K4 send us opus-encoded audio
-	via the EM3; command
-
+       This reverts commit 4c734154999d1606813edf87ae308609e61b61ca.
+       
+       Instead, we'll request that the K4 send us opus-encoded audio
+       via the EM3; command
+   
     Update changelog for v1.1.39
-
 
 v1.1.39:
     Be more liberal in accepted audio encodings
-	Accept encode_mode_opus as well as encode_mode_int16.
-
-	Encode_mode_opus has been tested. Encode_mode_int16 has not.
-
+       Accept encode_mode_opus as well as encode_mode_int16.
+       
+       Encode_mode_opus has been tested. Encode_mode_int16 has not.
+   
     Update Documentation/K4 Companion User Manual.pdf
 
     Update k4companion.exe to v1.1.38
 
     Update changelog for v1.1.38
 
-
 v1.1.38:
     Add version display to App tab
 
     Update To Do list
-	Add mic gain control to local audio setting.
-
-	Add version display in k4companion on the App tab.
-
+       Add mic gain control to local audio setting.
+       
+       Add version display in k4companion on the App tab.
+   
     Update k4companion.exe to v1.1.37
-	I tried to do this earlier, but failed.
-
+       I tried to do this earlier, but failed.
+   
     Restore WIndows/k4companion.exe
-	I don't know how the deletion happened.
-
-	Revert "Update Windows/k4companion.exe to v1.1.37"
-
-	This reverts commit 1b3b6b02aabaeac66cf496e0088dfd72f0e2885b.
-
+       I don't know how the deletion happened.
+       
+       Revert "Update Windows/k4companion.exe to v1.1.37"
+       
+       This reverts commit 1b3b6b02aabaeac66cf496e0088dfd72f0e2885b.
+   
     Update Windows/k4companion.exe to v1.1.37
-
 
 v1.1.37:
     Workaround for no pyaudio default audio device
-	This is a problem reported by Margaret, K4ZMA, on Windows 11.
-
-
+       This is a problem reported by Margaret, K4ZMA, on Windows 11.
+   
 v1.1.36:
     Ensure we have a config dir on all platforms
-	If the config dir doesn't exist, create it on darwin, win32,
-	and Linux platforms.
-
+       If the config dir doesn't exist, create it on darwin, win32,
+       and Linux platforms.
+   
     Update k4companion.exe to v1.1.35
 
     Remove ESSB startup bug from To Do list
-
 
 v1.1.35:
     Fix ESSB togglebutton and SSB BW slider
@@ -104,71 +130,65 @@ v1.1.35:
     Update the Users Manual including Windows version
 
     Add Contributions/opus.dll and associated README
-	This is a Windows dll file needed for running k4companion.
-
-
+       This is a Windows dll file needed for running k4companion.
+   
 v1.1.34:
     Fix Exit button operation on lost connection
-	There were two problems. First the directive, QUIT!, was
-	missing the exclamation point.  The second was that after
-	losing connectins, we correctly didn't send commands to the
-	K4. Incorrectly, we also didn't act on internal directives
-	like QUIT!.
-
-	For good measure, instead of calling the quit() function, we
-	instead call the root.destroy() if tkinter is running, and we
-	call sys.exit() if tkinter is not running.
-
+       There were two problems. First the directive, QUIT!, was missing the
+       exclamation point.  The second was that after losing connectins, we
+       correctly didn't send commands to the K4. Incorrectly, we also didn't
+       act on internal directives like QUIT!.
+       
+       For good measure, instead of calling the quit() function, we instead
+       call the root.destroy() if tkinter is running, and we call sys.exit()
+       if tkinter is not running.
+   
     Update the To Do list
 
     Improve Poll class implementation
 
     Make vfo scanning smoother
-	We used to bunch up sending frequency changes every 50 mS.
-	That worked well before we added audio support.  Now, we send
-	them without delay for smoother audio reception.
-
-
+       We used to bunch up sending frequency changes every 50 mS.
+       That worked well before we added audio support.  Now, we send
+       them without delay for smoother audio reception.
+   
 v1.1.33:
     Handle lost connection to the K4 more gracefully
-	Popup a an error message on socket send or receive error and mark
-	the connection as closed.
-
+       Popup a an error message on socket send or receive error
+       and mark the connection as closed.
+   
     Create .ini file directory on Windows if needed
-
 
 v1.1.32:
     Only popup not-connected warning once
 
     Fix bug in direct frequency entry
-	The cursor would remain in the right side of the frequency spinbox
-	and wouldn't permit the entry to be changed. Fixed.
-
+       The cursor would remain in the right side of the frequency spinbox
+       and wouldn't permit the entry to be changed. Fixed.
+   
     Fix diversity audio and sub off audio
 
     Remove Sub AGC control
-	Contrary to the documentation, the K4 AGC control affects both
-	main and sub receivers.
-
+       Contrary to the documentation, the K4 AGC control affects both main and
+       sub receivers.
+   
     Remove mic gain fom to do list, already done
-
 
 v1.1.31:
     Show a popup for connected, but no response.
-	This occurs when the password is wrong. Suggest that the user
-	check the password in the App tab.
-
+       This occurs when the password is wrong. Suggest that the user
+       check the password in the App tab.
+   
     Avoid exceptions on controls when not connected
-	Some controls would generate an exception when changed while not
-	connected to a radio. We now warn instead.
-
+       Some controls would generate an exception when changed while not
+       connected to a radio. We now warn instead.
+   
     Add widgets for VOX gain and anti-vox
 
     Update To Do List
-	Add panadapter/waterfall
-
+       Add panadapter/waterfall
+   
     Update the user manual with changes from v1.1.30
-
 
 v1.1.30:
     Update to-do list
@@ -176,92 +196,86 @@ v1.1.30:
     Restart connection when password is changed
 
     Remove ":Port" from label for K4 address entry box
-	Generally, there is no need to enter the port number, as the
-	default port of 9205 is preferred. It will still be accepted
-	though.
-
+       Generally, there is no need to enter the port number, as the default
+       port of 9205 is preferred. It will still be accepted though.
+   
     Update nk8o_k4companion.yaml
 
     Call socket.send on socket.sendmsg failure
-
 
 v1.1.29:
     Reconnect to server when address/port changes
 
     Fix exception for non-existent audio device(s)
-	This exception occurred when the name of the audio device in the
-	.ini file doesn't exist on the current machine.
-
+       This exception occurred when the name of the audio device in the
+       .ini file doesn't exist on the current machine.
+   
     Add a to-do list
 
     Restore cat-only operation on port 9200
-	Commit b6be0efd, which introduced handling audio receive packets
-	in the server receive thread, broke cat-only operation. This
-	commit fixes it.
-
+       Commit b6be0efd, which introduced handling audio receive packets
+       in the server receive thread, broke cat-only operation. This
+       commit fixes it.
+   
     Introduce Server.cat_only variable - internal only
-	Replace the various checks for port == 9200 or 9205 with checks
-	for a Server.cat_only variable. No externally visible changes.
-
+       Replace the various checks for port == 9200 or 9205 with checks
+       for a Server.cat_only variable. No externally visible changes.
+   
     Read up to 10 frames before deciding: no audio
-	After opening the input device, read up to 10 frames of silence
-	before deciding that there is no input.
-
+       After opening the input device, read up to 10 frames of silence
+       before deciding that there is no input.
+   
     Update README
 
     Update README
 
     Add the User Manual to the Documentation directory
-	Also move screenshot.png into an images sub-subdirectory.
-
-
+       Also move screenshot.png into an images sub-subdirectory.
+   
 v1.1.28:
     Fix pyaudio open code retry code
-	In commit a0bcbb, I added two retries on opening the audio devices.
-	Unfortunately, I even retried opening the input device when the
-	previous opens succeeded. This commit should fix it.
-
+       In commit a0bcbb, I added two retries on opening the audio devices.
+       Unfortunately, I even retried opening the input device when the
+       previous opens succeeded. This commit should fix it.
+   
     Add FW versions widget
 
     Add SOCKS5 proxy support
 
-
 v1.1.27:
     Audio Mixer toggle button now displays all options
-	It still only allows selecting some audio mixer combinations,
-	but will correctly display other combinations if they are selected
-	via the menu setting.
-
+       It still only allows selecting some audio mixer combinations,
+       but will correctly display other combinations if they are selected
+       via the menu setting.
+   
     Implement all audio mixer combinations
 
     Retry opening PyAudio a couple of times
-	PyAudio sometimes fails to open. We'll retry it twice.  If this
-	doesn't work, we'll try to delay a second before retrying.
-
+       PyAudio sometimes fails to open. We'll retry it twice.
+       If this doesn't work, we'll try to delay a second before retrying.
+   
     Always send Audio MX commands to the K4
-	Previously, they weren't send if "Control K4 Audio Settings"
-	was set to No.
-
+       Previously, they weren't send if "Control K4 Audio Settings" was
+       set to No.
+   
     Add QSK and VOX widgets
 
     Limit range of af-center-pitch slider when in CW
-	In CW the range is 300-2000, otherwise it's 300-3000.
-
-
+       In CW the range is 300-2000, otherwise it's 300-3000.
+   
 v1.1.26:
     Add k4 address and port to App settings
 
     Change to Opus-encoded transmit audio
-	Thanks to Tom Blahovici, VA2FSQ, for a hint on setting the audio
-	packet version number.
-
-
+       Thanks to Tom Blahovici, VA2FSQ, for a hint on setting the audio
+       packet version number.
+   
 v1.1.25:
     Attempt to make server startup more reliable
-	There were race conditions where responses were sometimes received
-	from the K4 before we were prepared to receive them.  I hope this
-	commit addresses the problem.
-
+       There were race conditions where responses were sometimes
+       received from the K4 before we were prepared to receive them.
+       I hope this commit addresses the problem.
+   
     Update nk8o.k4companion.yaml
 
     Add RIT and XIT widgets
@@ -272,25 +286,23 @@ v1.1.25:
 
     Add "Normal" buttons for AF Center Pitch
 
-
 v1.1.24:
     Reorganize widgets on receive and transmit tabs
 
     Add equalizer tab
 
     Standardize calls to server.subscribe_cmds
-	Internal change only, no externally visible changes.
-
+       Internal change only, no externally visible changes.
+   
     Widen AF Center-Pitch settings
 
     Add SI parameters to the list
-	Include SIDA, SIDD, SIDU, SIFP, SIRF, and SIRC. These are not
-	fully documented in the Programmer's Reference Manual.
-
+       Include SIDA, SIDD, SIDU, SIFP, SIRF, and SIRC. These are not fully
+       documented in the Programmer's Reference Manual.
+   
     Add CTCSS toggle and dropdown buttons
 
     Add noise reduction toggles and sliders
-
 
 v1.1.23:
     Add noise blanker toggles and sliders
@@ -314,32 +326,29 @@ v1.1.23:
     nk8o_k4companion.yaml: Update to latest
 
     Rename the Settings tab to be App
-	Since all the parameters we can configure can be considered
-	settings, label the k4companion-specific settings "App".
-
+       Since all the parameters we can configure can be considered settings,
+       label the k4companion-specific settings "App".
+   
     Add transmit tab with compression and ssb bw
-	To the transmit tab, we add a compression slider, an ESSB on/off
-	togglebutton, and an SSB bandwidth slider.
-
-
+       To the transmit tab, we add a compression slider, an
+       ESSB on/off togglebutton, and an SSB bandwidth slider.
+   
 v1.1.22:
     Queue received audio in the receive thread
-	Previously, the main thread would dequeue audio packets from the
-	receive queue and then queue them on the audio queue to be picked
-	up by the audio input thread. Now, the received thread places
-	audio packets directly on the audio queue, reducing audio latency.
-
-	I attempted to drop received audio packets if *any* were already
-	queued.  This resulted in too many dropped packets and audible
-	artifacts.
-
+       Previously, the main thread would dequeue audio packets from the
+       receive queue and then queue them on the audio queue to be picked up
+       by the audio input thread. Now, the received thread places audio packets
+       directly on the audio queue, reducing audio latency.
+       
+       I attempted to drop received audio packets if *any* were already queued.
+       This resulted in too many dropped packets and audible artifacts.
+   
     Remove duplicate set_only suffixes
-	Internal change only, no visible impact.
-
+       Internal change only, no visible impact.
+   
     Change mic attenuation to a factor of 2000000
-	It was 5000000
-
-
+       It was 5000000
+   
 v1.1.21:
     Add initial audio transmit capability
 
@@ -351,165 +360,148 @@ v1.1.21:
 
     Clean up error handling on socket connect failure
 
-
 v1.1.20:
     Queue popup msgs, making them thread-safe
-	Popup messages would not display properly when called from threads
-	other than the main thread.
-
+       Popup messages would not display properly when called from threads
+       other than the main thread.
+   
     Move except clause after queue.get_nowait()
-	Code cleanup only. No change in behaviour
-
+       Code cleanup only. No change in behaviour
+   
     Fix the sidetone slider
-	The sidetone slider  now ignores "ML;" responses not representing
-	CW sidetone
-
+       The sidetone slider  now ignores "ML;" responses not representing CW sidetone
+   
     Update nk8o_k4companion.yaml
-	With Charles' latest.
-
+       With Charles' latest.
+   
     Improve reliability of slider controls
-	If a slider was moved rapidly, it was possible, though difficult,
-	to get the slider value out of sync with the value sent to the K4.
-	For example, the power slider might read 84 Watts, but the radio
-	would actually be set to 79 Watts. This commit should fix that
-	problem.
-
+       If a slider was moved rapidly, it was possible, though difficult,
+       to get the slider value out of sync with the value sent to the K4.
+       For example, the power slider might read 84 Watts, but the radio
+       would actually be set to 79 Watts. This commit should fix that problem.
+   
     bugfix: If audio input device is in settings
-	This is part of the preparation for handling transmit audio
-
-
+       This is part of the preparation for handling transmit audio
+   
 v1.1.19:
     bugfix: Fix Control K4 Audio setting
 
     Fix the Transmit/Receive togglebutton
-	Before, it would work when clicked, but did not track the K4's
-	state properly when the XMIT button on the K4 was pressed.
-
-
+       Before, it would work when clicked, but did not track the K4's state
+       properly when the XMIT button on the K4 was pressed.
+   
 v1.1.18:
     Fix audio on system without 12000 Hz sample rate
-	I obviously insufficiently tested commit e43a09ae "Resample to
-	least multiple of K4 sample rate"
-
-
+       I obviously insufficiently tested commit e43a09ae
+       "Resample to least multiple of K4 sample rate"
+   
 v1.1.17:
     Resample to least multiple of K4 sample rate
-	Instead of resampling only to 48000 Hz, resample to the least
-	integer multiple of the K4's sample rate. I.e, the first supported
-	rate of: 12000, 24000, 36000 or 48000 Hz. This will save CPU time
-	on devices that support one of the lower output sampling rates.
-
+       Instead of resampling only to 48000 Hz, resample to the least integer
+       multiple of the K4's sample rate. I.e, the first supported rate of:
+       12000, 24000, 36000 or 48000 Hz. This will save CPU time on devices that
+       support one of the lower output sampling rates.
+   
     Integrate "directives" into the cmd structure
-	Previously, buttons could have an option, "directive", indicating
-	actions to be performed by the application. Now, directives are
-	commands whose name ends in '!'. Examples:
-	  "directive: connect" becomes "cmd: CONNECT!;" "directive: quit"
-	  becomes "cmd: QUIT!;" "directive: show_previous_page" becomes
-	  "cmd: SHOW!PREVIOUS;" "directive: show_page XXX" becomes "cmd:
-	  SHOW!XXX;"
-
+       Previously, buttons could have an option, "directive", indicating
+       actions to be performed by the application. Now, directives are commands
+       whose name ends in '!'. Examples:
+         "directive: connect" becomes "cmd: CONNECT!;"
+         "directive: quit" becomes "cmd: QUIT!;"
+         "directive: show_previous_page" becomes "cmd: SHOW!PREVIOUS;"
+         "directive: show_page XXX" becomes "cmd: SHOW!XXX;"
+   
     Require debug_level >= 2 to print sent/received msgs
-	Then uncommon debug messages won't become lost in a sea of common
-	debug messages.
-
+       Then uncommon debug messages won't become lost in a sea of common
+       debug messages.
+   
     No longer specifically request menu definitions
-	Now that we get a dump of all K4 parameters at startup, we no
-	longer need to later request the menu definitions.
-
+       Now that we get a dump of all K4 parameters at startup, we no longer
+       need to later request the menu definitions.
+   
     Add 5 Khz receive bandwidth option to config file
-
 
 v1.1.16:
     Fix initial state of the Test Mode togglebutton
-	We do this by delaying sending the RDY; command requesting the
-	state of the transceiver until after we have sent our startup
-	commands.
-
+       We do this by delaying sending the RDY; command requesting the
+       state of the transceiver until after we have sent our startup
+       commands.
+   
     Always control K4's audio on port 9200
-	When receiving audio, we may not want to control the actual radio's
-	audio, but when not receiving audio in the app, we always want
-	to control the radio's audio.
-
+       When receiving audio, we may not want to control the actual radio's
+       audio, but when not receiving audio in the app, we always want to
+       control the radio's audio.
+   
     Fix debug msgs "sent: ..." on port 9200
 
     No longer request state for specific parameters
-	Because we now get a complete dump of the K4 state, we no longer
-	need to request the state of each parameter we're interested in.
-
-
+       Because we now get a complete dump of the K4 state, we no longer need
+       to request the state of each parameter we're interested in.
+   
 v1.1.15:
     Finish startup audio settings
-	Commit 409ffac was incomplete. This commit attempts to finish
-	the job and also keeps the audio subsystem notified of changes
-	to the diversity setting.
-
-
+       Commit 409ffac was incomplete. This commit attempts to finish
+       the job and also keeps the audio subsystem notified of changes to
+       the diversity setting.
+   
 v1.1.14:
     Fix broken setting of audio_output_device
-	Commit [b2c91fb4 Control PC audio mix and volumes] broke the
-	ability to set the audio output device. This commit fixes it again.
-
-
+       Commit [b2c91fb4 Control PC audio mix and volumes] broke the ability
+       to set the audio output device. This commit fixes it again.
+   
 v1.1.13:
     Fix connections on port 9200 (unauthenticated)
-	Commit aaf589ad7a02322bdd9249cb549fb1942258147a broke connecting
-	on port 9200. This commit fixes again.
-
+       Commit aaf589ad7a02322bdd9249cb549fb1942258147a broke connecting
+       on port 9200. This commit fixes again.
+   
     Fix startup issue with 'blank interface"
-	Commit aaf589ad7a02322bdd9249cb549fb1942258147a didn't fix the
-	problem it was intended to address. After sending the password
-	to the K4, we need to wait a bit before sending the first
-	command. This commit has us wait until the K4 has sent some data
-	before we send the first command.
-
-
+       Commit aaf589ad7a02322bdd9249cb549fb1942258147a didn't fix the problem
+       it was intended to address. After sending the password to the K4, we
+       need to wait a bit before sending the first command. This commit has us
+       wait until the K4 has sent some data before we send the first command.
+   
 v1.1.12:
     Resample to 48000 Hz by repeating samples
-	We have seen artifacts (clicks or ringing) when receiving CW
-	with a couple of resamplers. Let's try a simple resampling by
-	just repeating samples. The K4 provides 12000 Hz samples. Repeat
-	them 4 times to yield a sample rate of 48000 Hz.
-
-	We can only hope that (almost) all sound device support 48000 Hz.
-
-
+       We have seen artifacts (clicks or ringing) when receiving CW with a
+       couple of resamplers. Let's try a simple resampling by just repeating
+       samples. The K4 provides 12000 Hz samples. Repeat them 4 times to yield
+       a sample rate of 48000 Hz.
+       
+       We can only hope that (almost) all sound device support 48000 Hz.
+   
 v1.1.11:
     Delay initial dump of K4 parameters until ready
-	We had a race condition where sometime the initial dump of
-	K4 parameters was received before our widgets had subscribed
-	to them. This caused the vfo widgets to sometimes not be
-	initialized. We now delay telling the K4 that we're ready for
-	the dump until we're actually ready.
-
-	I hope this fixes the issue we were seeing.
-
+       We had a race condition where sometime the initial dump of K4 parameters
+       was received before our widgets had subscribed to them. This caused the
+       vfo widgets to sometimes not be initialized. We now delay telling the K4
+       that we're ready for the dump until we're actually ready.
+       
+       I hope this fixes the issue we were seeing.
+   
     Fix the audio mx togglebutton cmds
 
     Control PC audio mix and volumes
-	Also add a new setting to optionally control the K4's audio
-	settings as well.
-
+       Also add a new setting to optionally control the K4's audio settings
+       as well.
+   
     Update README.md to mention audio receive
-
 
 v1.1.10:
     Optionally, save K4 password in settings
 
     Enable turning on diversity
-	Diversity is particularly useful since we currently hear audio
-	from both receivers all the time. Diversity keeps both receivers
-	in sync.
-
+       Diversity is particularly useful since we currently hear audio from
+       both receivers all the time. Diversity keeps both receivers in sync.
+   
     Fix the connect togglebutton
-	It used to say 'connected' even on connection failure.  Now it says
-	'connecting' until the K4 actually responds.
-
+       It used to say 'connected' even on connection failure.
+       Now it says 'connecting' until the K4 actually responds.
+   
     Add an autospot button
 
     Don't print PING/PONG cmds unless debug >= 3
 
     Disable automatically, repeatedly, sent reports
-
 
 v1.1.9:
     Handle pyaudio errors during playback
@@ -536,53 +528,48 @@ v1.1.9:
 
     First working audio at 12kHz sample rate
 
-
 v1.1.8:
     combobox: Allow settting colors for comboboxes
-	Previously, the same color was applied to all comboboxes.  Now the
-	colors are applied to individual combobox instances.
-
+       Previously, the same color was applied to all comboboxes.
+       Now the colors are applied to individual combobox instances.
+   
     Decrease vfo spinner repeat rate
-
 
 v1.1.7:
     Fix but in text widget
 
-
 v1.1.6:
     Document some additional options in the yaml file
-	Document is too strong of a word. A brief description is more
-	accurate.  Add the fact that widgets now support the leading
-	option for additional vertical space before the widget and a
-	label to surround the widget with a labeled frame.
-
+       Document is too strong of a word. A brief description is more accurate.
+       Add the fact that widgets now support the leading option for additional
+       vertical space before the widget and a label to surround the widget with
+       a labeled frame.
+   
     Move power-off and Exit buttons to column 2
 
     Improve password popup
-	It's now a modal window, forced to remain on top.
-
-
+       It's now a modal window, forced to remain on top.
+   
 v1.1.5:
     Add authenticated connection support on port 9205
-	If the K4's port is specified as 9205, a password-protected
-	connection is made on that port. This is a step toward supporting
-	audio and PAN data on this connection.
-
-
+       If the K4's port is specified as 9205, a password-protected connection
+       is made on that port. This is a step toward supporting audio and PAN
+       data on this connection.
+   
 v1.1.4:
     k4companion.yaml: Simplify yaml
-	No externally visible changes in behavior.
-
+       No externally visible changes in behavior.
+   
     Remove groups that wrapped widgets for a label
-	We instead put the label as an option of the widget.
-
+       We instead put the label as an option of the widget.
+   
     Add suport for labels & leading to all widgets
-	This avoids the need to wrap the widget in a group just for a
-	label and/or leading.
-
+       This avoids the need to wrap the widget in a group just for a label
+       and/or leading.
+   
     Simplify font inheritance
-	No outwardly visible changes except for a minor speedup.
-
+       No outwardly visible changes except for a minor speedup.
+   
     Permit a label to be added to widget items
 
     k4companion.yaml: Clean up the config file
@@ -595,40 +582,34 @@ v1.1.4:
 
     Add a current screenshot to the README
 
-
 v1.1.3:
     Rename program to K4-Companion
-	This program has grown far beyond its initial ability to send
-	macros to the K4. The name change better reflects its capabilities.
-
+       This program has grown far beyond its initial ability to send macros to
+       the K4. The name change better reflects its capabilities.
+   
     Code cleanup
 
     k4macro.yaml: Move power slider
-	This puts the audio sliders above the audio mixer selector.
-
-
+       This puts the audio sliders above the audio mixer selector.
+   
 v1.1.2:
     bugfix: Restore display of group labels
-	Commit ceee3ba6a, which added tabs to pages, stopped displaying
-	labels on groups. This commit restores them.
-
-
+       Commit ceee3ba6a, which added tabs to pages, stopped displaying labels
+       on groups. This commit restores them.
+   
 v1.1.1:
     menu: Defer loading menu definitions until needed
-	We now don't request menu definitions from the K4 until the menu
-	is to be first displayed.
-
-
+       We now don't request menu definitions from the K4 until the menu is to
+       be first displayed.
+   
 v1.1.0:
-    Version 1.1.0
-
     Add K4 menu support
-	It may not be pretty but it appears functional
-
+       It may not be pretty but it appears functional
+   
     Add tab support to pages
-	Avoid requiring a notebook item being added to pages in oerder
-	to get tabs.
-
+       Avoid requiring a notebook item being added to pages in oerder to get
+       tabs.
+   
     nk8o_k4macro.yaml: Add power_dropdown widget
 
     connect_button: Detect when k4 is connected
@@ -638,106 +619,95 @@ v1.1.0:
     config: fix power_dropdown widget
 
     toggle_button: Allow some selections to have a cmd
-	Previously, if one selection specified a cmd, all selections were
-	requried to specify a cmd. Now only some of the selections may
-	specify a cmd.
-
+       Previously, if one selection specified a cmd, all selections were
+       requried to specify a cmd. Now only some of the selections may specify
+       a cmd.
+   
     Dropdown: Fix font setting
-
 
 v1.0.43:
     Fix the range of the main and sub volume sliders
-	The K4 maintains volume in a range of 0-60. In a misguided attempt
-	to go from 0-100%, I scaled that to 0-100. Unfortunately, that
-	does not map well. We now show the actual volume range of 0 to
-	60 for the volume sliders.
-
+       The K4 maintains volume in a range of 0-60. In a misguided attempt to go
+       from 0-100%, I scaled that to 0-100. Unfortunately, that does not map
+       well. We now show the actual volume range of 0 to 60 for the volume
+       sliders.
+   
     bugfix: Avoid recursion on power slider
-	The recursion was introduced when we permitted responses from the
-	K4 that match current values to be forwarded to subscribers. That
-	change was necessary.
-
+       The recursion was introduced when we permitted responses from the K4
+       that match current values to be forwarded to subscribers. That change
+       was necessary.
+   
     Simplify K4 error code handling
-
 
 v1.0.42:
     Validate item options in config file
-	Check for required as well as optional options.
-
-
+       Check for required as well as optional options.
+   
 v1.0.41:
     Reformat K4 error messages
-
 
 v1.0.40:
     Move power, ALC, SWR and CMP bar graphs up
 
     Show error messages for codes received from the K4
-	We display them in a pop-up window.
-
+       We display them in a pop-up window.
+   
     Permit connecting to the K4 via a button
 
     Rename cyclebutton to togglebutton
-	Remove cyclebutton altogether as well as the updown option.
-
-
+       Remove cyclebutton altogether as well as the updown option.
+   
 v1.0.39:
     Avoid subscribing to set-only commands
-	Since they will never respond, there is no value is subscribing
-	to responses for them.
-
-
+       Since they will never respond, there is no value is subscribing to
+       responses for them.
+   
 v1.0.38:
     Fix incrementing/decrementing frequency
-	It was failing when the existing frequency was not a multiple of
-	the step size.
-
-
+       It was failing when the existing frequency was not a multiple of the
+       step size.
+   
 v1.0.37:
     k4macro.yaml: Fix SWR bar graph
 
     Remove atu_trainer_kx4ui.yaml, ctrl_panel_kx4ui.yaml
-	They have some good info and may be resurrected later, but for
-	now we're not keeping them up-to-date.
-
-
+       They have some good info and may be resurrected later, but for now
+       we're not keeping them up-to-date.
+   
 v1.0.36:
     Fix and recalibrate bar graphs
 
     Add ATU extended tune
 
-
 v1.0.35:
     Rename all evaled options
-	For example:
-	  responsevalue is now evalresponse cmdvalue is now evalcmd
-
+       For example:
+         responsevalue is now evalresponse
+         cmdvalue is now evalcmd
+   
     Many changes (Sorry)
-	This change add bargraphs for power out, ALC, SWR and compression.
-	Bargraph labels now use a fixed-width font by default.  By default
-	1-point of leading is displayed before groups with labels.
-	k4macro.yaml: It also rearranges several displayed widgets
-	Miscellaneous bug fixes
-
+       This change add bargraphs for power out, ALC, SWR and compression.
+       Bargraph labels now use a fixed-width font by default.
+       By default 1-point of leading is displayed before groups with labels.
+       k4macro.yaml: It also rearranges several displayed widgets
+       Miscellaneous bug fixes
+   
     k4_macro.yaml: Add group marker comments
-	Add #{ and #} markers at the beginning and end of each group.
-	These help me find the end of a large group.
-
-
+       Add #{ and #} markers at the beginning and end of each group.
+       These help me find the end of a large group.
+   
 v1.0.34:
     Display active VFO and transmitting VFO
-	Color the VFO frequency (currently pink) of the active VFO. While
-	transmitting, color the VFO with the transmit freu=quency
-	(currently red).
-
+       Color the VFO frequency (currently pink) of the active VFO. While
+       transmitting, color the VFO with the transmit freu=quency (currently
+       red).
+   
     Clean-up the display a bit
-
 
 v1.0.33:
     radiobutton: fix bug referencing text
 
     nk8bo_k4macro.yaml: Add missing attenuator values
-
 
 v1.0.32:
     k4macro.yaml: Add goodies from NK8O
@@ -747,17 +717,16 @@ v1.0.32:
     Fix unexpected bandwidth and attenuator values
 
     Permit set_only and get_only cmds if multiple cmds
-	For radio, dropdown, and cycle buttons, if a set_only or get_only
-	command is specified, it it now permitted as long as it is not
-	the only command or response.
-
+       For radio, dropdown, and cycle buttons, if a set_only or get_only
+       command is specified, it it now permitted as long as it is not the only
+       command or response.
+   
     k4macro.yaml: Spelling change: Atten -> Attenuation
-
 
 v1.0.31:
     Add nk8o_k4macro.yaml
-	Example config file from Charles, NK8O.
-
+       Example config file from Charles, NK8O.
+   
     k4macro.yaml: Various updates
 
     config: Make togglebutton a synonym for cyclebutton
@@ -765,85 +734,77 @@ v1.0.31:
     cyclebutton: Set wraparound default to true
 
     Move cyclebutton 'justify' from selections
-	Move 'justify'; option from selcections to cyclebutton
-
+       Move 'justify'; option from selcections to cyclebutton
+   
     Enable the width of the VFO to be specified
 
     Auto-set S-meter bar graph length
-	Set the S-meter bar graph according to a percentage of the
-	length of the text below the bar graph. The S-meter bar graph
-	will match the text regardless of the point size of the text or
-	the screen resolution.
-
+       Set the S-meter bar graph according to a percentage of the length of the
+       text below the bar graph. The S-meter bar graph will match the text
+       regardless of the point size of the text or the screen resolution.
+   
     Add check for group without "contains:" in yaml
-
 
 v1.0.30:
     Use dropdown buttons to replace cycle buttons
 
     Add dropdown buttons via a combobox
 
-
 v1.0.29:
     Catch exceptions when calling eval
-	If an exception occurs during an eval, print additional
-	information.
-
+       If an exception occurs during an eval, print additional information.
+   
     Change vfo INDY button text to UNLINKED
-
 
 v1.0.28:
     Make VFO frequency display larger
 
     Calculate cycle selection width based on siblings
-	Set cycle button selection widths on the maximum width of all
-	siblings within the cycle buttons group.
-
+       Set cycle button selection widths on the maximum width of all siblings
+       within the cycle buttons group.
+   
     Use config preprocessor to organize YAML
 
     Simplify config file with a preprocessor
-	Implement a simple preprocessor to simplify the organization of
-	the YAML config file.
-
+       Implement a simple preprocessor to simplify the organization of the YAML
+       config file.
+   
     Fix range of the sidetone slider
-	The K4 Programmer's Manual says the range should be 0-100 in K4
-	mode, and only 0-60 in K3 mode. But it appears to be 0-60 in K4
-	made as well.
-
+       The K4 Programmer's Manual says the range should be 0-100 in K4 mode,
+       and only 0-60 in K3 mode. But it appears to be 0-60 in K4 made as well.
+   
     Remove blinking from Tx Test on button
-	Make it red instead.
-
+       Make it red instead.
+   
     Change flashrate option to 'blink'
 
     Make all widgets black on white
-	We can add color back in sparingly as needed.
-
+       We can add color back in sparingly as needed.
+   
     Reduce VFO step width to 6 characters
-	Now that we don't offer a step width of 100 KHz, we no longer need
-	a width of 7 characters to accomodate it. Six characters suffices.
-
+       Now that we don't offer a step width of 100 KHz, we no longer need a
+       width of 7 characters to accomodate it. Six characters suffices.
+   
     Remove auto-wrapping button text
-	Auto-wrapping button text messed up multi-line button text,
-	so this commit removes it.
-
+       Auto-wrapping button text messed up multi-line button text, so this
+       commit removes it.
+   
     When debugging, avoid printing auto received msgs
-	Certain messages are automatically received continuously from
-	the K4.  Currently that includes the S-Meter messages. Now,
-	we'll only print those if the debug level is 3 or higher. This
-	permits us to more easily monitor the other send/receive messages.
-
+       Certain messages are automatically received continuously from the K4.
+       Currently that includes the S-Meter messages. Now, we'll only print
+       those if the debug level is 3 or higher. This permits us to more easily
+       monitor the other send/receive messages.
+   
     Rename options that are eval()ed
-	If they are passed to eval() rename the optios. This includes:
-	  cmd -> cmdvalue response -> responsevalue increment ->
-	  incrementvalue
-
+       If they are passed to eval() rename the optios. This includes:
+         cmd -> cmdvalue
+         response -> responsevalue
+         increment -> incrementvalue
+   
     k4macro.yaml: Make some text changes
-	Thanks to Charles, NK8O.
-
-
+       Thanks to Charles, NK8O.
+   
 v1.0.27:
-    Verxion v1.0.27
-
     Latest yaml changes using more cycle buttons
 
     Add support for Notebook (tabs)
@@ -851,105 +812,99 @@ v1.0.27:
     Add a bargraph, with S-Meter example
 
     Add a getvalue widget
-	The getvalue widget is used to report a value that is automatically
-	updated by the K4. For example, an S-Meter reading.
-
+       The getvalue widget is used to report a value that is automatically
+       updated by the K4. For example, an S-Meter reading.
+   
     Apparently, the K4 can return a null mode
-	Some have reported receiving a response of MD; to a command MD;
-	instead of MDn; as documented. It appears that the VT command can
-	be sent with a null mode, rather than the documented required mode,
-	so we'll just go with it.
-
+       Some have reported receiving a response of MD; to a command MD; instead
+       of MDn; as documented. It appears that the VT command can be sent with a
+       null mode, rather than the documented required mode, so we'll just go with it.
+   
     Oops, fix partial cmd at the end of a read buffer
-	Fix silly error in commit c77bfb8e4bfe6331c8ce8e71ab27afa3cf553462
-
-
+       Fix silly error in commit c77bfb8e4bfe6331c8ce8e71ab27afa3cf553462
+   
 v1.0.26:
     Handle a partial cmd at the end of a read buffer
-	When a buffer is received that does not end in ';', a partial
-	command is at the end of the buffer, and must be prepended to
-	the following buffer that is received. The logic handling this
-	was wrong. I hope it is correct now.
-
-	Thanks to Dick, N4UN, for reporting the bug.
-
+       When a buffer is received that does not end in ';', a partial command is
+       at the end of the buffer, and must be prepended to the following buffer that
+       is received. The logic handling this was wrong. I hope it is correct now.
+       
+       Thanks to Dick, N4UN, for reporting the bug.
+   
     Make a few more buttons into toggle buttons
-	Thanks to Charles, NK8O.
-
+       Thanks to Charles, NK8O.
+   
     Make ATU bypass/auto buttons into a toggle button
 
     Add ability to cycle cyclebuttons up and down
-	They cycle up if the button is clicked in its upper half and they
-	cycle down if the button is clicked in its lower half.
-
+       They cycle up if the button is clicked in its upper half and they
+       cycle down if the button is clicked in its lower half.
+   
     Change cyclebutton wrap to wraparound
-	It now matches the (brief) documentation.
-
-
+       It now matches the (brief) documentation.
+   
 v1.0.25:
     Implement the cyclebutton widget
-	This is a button that cycles between several button
-	selections. Each selection can have its own command and text or
-	image. As a special case, when there are two selection it is a
-	toggle button that alternates between the two states.
-
+       This is a button that cycles between several button selections. Each
+       selection can have its own command and text or image. As a special case,
+       when there are two selection it is a toggle button that alternates
+       between the two states.
+   
     Change K4 error return to a warning unless debug
-	Unless debugging is turned on, if the K4 returns an error response,
-	we'll just print a warning message. If debugging, it will continue
-	to produce an exception. We haven't seen any of these errors,
-	I just want to be able to note them if/when they occur.
-
-
+       Unless debugging is turned on, if the K4 returns an error response,
+       we'll just print a warning message. If debugging, it will continue to
+       produce an exception. We haven't seen any of these errors, I just want
+       to be able to note them if/when they occur.
+   
 v1.0.24:
     Make vfo step combox box read-only
-	This prevents the user from inputting invalid values.
-
+       This prevents the user from inputting invalid values.
+   
     Fix checking for an error response from the K4
-	We now will accep responses consisting of the command base.
-
+       We now will accep responses consisting of the command base.
+   
     Fix sidetone slider
-
 
 v1.0.23:
     Workaround a K4 bug dealing with 100 KHz vfo steps
-	At least on the current version Production V36 and Beta V37.1,
-	On startup, regardless of the VFO A step size, it reports a step
-	size for VFO A of 100 KHz. The step size for VFO B is reported
-	correctly.
-
-	Also, if you try to select 100 KHz steps, it shows 100 Hz steps
-	but reports via the API that it has 100 KHz steps.
-
-	We disallow seting 100 KHz step size via the API and if we receive
-	a step size of 100 KHz, we force it to be 100 Hz, matching what
-	is on the K4 display.
-
+       At least on the current version Production V36 and Beta V37.1,
+       On startup, regardless of the VFO A step size, it reports a step
+       size for VFO A of 100 KHz. The step size for VFO B is reported
+       correctly.
+       
+       Also, if you try to select 100 KHz steps, it shows 100 Hz steps but
+       reports via the API that it has 100 KHz steps.
+       
+       We disallow seting 100 KHz step size via the API and if we receive
+       a step size of 100 KHz, we force it to be 100 Hz, matching what is
+       on the K4 display.
+   
     Request the K4 to send updates immediately
-	Previously, updates were sent every 60 mS.
-
+       Previously, updates were sent every 60 mS.
+   
     Remove a harmless exception
-	The condition triggering it is harmless and probably caused by
-	a difficult-to-avoid race condition.
-
+       The condition triggering it is harmless and probably caused by a
+       difficult-to-avoid race condition.
+   
     Bugfix: Handling receiving vfo step size was broken
 
     Change sidetone level to a slider
 
     Only store response after base in k4_parameters
-	Instead of storing the cmd/response base, we just store the portion
-	of the command/respnse after the base characters. For example,
-	for the response "MD1", where we used to store the entire response,
-	we now just store "1".
-
+       Instead of storing the cmd/response base, we just store the portion of
+       the command/respnse after the base characters. For example, for the
+       response "MD1", where we used to store the entire response, we now just
+       store "1".
+   
     Add list of all command bases
-	For future possible use.
-
+       For future possible use.
+   
     Check for error response from K4
-	Raise an exception if the K4 responds that a bad command was sent.
-
+       Raise an exception if the K4 responds that a bad command was sent.
+   
     k4macro.yaml: Organize into two columns
-	This removes the need to specify as many row and column placements.
-
+       This removes the need to specify as many row and column placements.
+   
     Change volume control to be a slider
 
     k4macro.yaml: Fix 5% volume value
@@ -960,103 +915,84 @@ v1.0.23:
 
     Add back the yaml comments re the vfo settings
 
-
 v1.0.22:
     Add latest mods to NK8O's k4macro.yaml file
 
     Bugfix: Set vfo step size properly on startup
 
-
 v1.0.21:
     Change vfo step selector to a combobox
-	The vfo selector defaults to combobox, a spinbox can be selected
-	by adding 'step_spinbox: true' to the vfo yaml entry.
-
+       The vfo selector defaults to combobox, a spinbox can be selected
+       by adding 'step_spinbox: true' to the vfo yaml entry.
+   
     New k4macro.yaml changes form NK8O
 
     Improve vfo direct frequency entry method
 
     Oops, the previous commit was too lenient, IMHO
-	Raise an exception when trying to add a duplicate poll request.
-
+       Raise an exception when trying to add a duplicate poll request.
+   
     Make poll add/remove functions more tolerent
 
     Add button flashing capability to radio buttons
 
-
 v1.0.20:
-    Version 1.0.20
-
     Speed up displaying of multiple pages
 
     vfo fixes
 
     Handle commands with special "get format"
 
-
 v1.0.19:
-    Version 1.0.19
-
     Fix multiple page support
-	Now the directives 'show_page' and 'show_previous_page' now work,
-	although page display is not fast.
-
+       Now the directives 'show_page' and 'show_previous_page' now work,
+       although page display is not fast.
+   
     Remove unused variables
 
     Synchronize VFO step size with K4
 
     Maintain state only for stateful commands
-	Do not maintain the K4 parameter state for non-parameter commands.
-	These are the commends that are set-only or get-only. Also,
-	disallow set-only and get-only commands in radio buttons, because
-	radio buttons need to match the K4 state.
-
-
+       Do not maintain the K4 parameter state for non-parameter commands.
+       These are the commends that are set-only or get-only. Also, disallow
+       set-only and get-only commands in radio buttons, because radio buttons
+       need to match the K4 state.
+   
 v1.0.18:
     Unconditionally send commands
-	We were being smart and assumed that all commands set K4 state.
-	This is true for most commands, but not all. In particular, the SW
-	commands modify the K4 state, but they don't directly represent
-	state.  Now, we'll send commands even if we recently sent the
-	same command.  In the future, we could distinguish between those
-	commands that represent state and those that don't, but it likely
-	isnt worth it.
-
-
+       We were being smart and assumed that all commands set K4 state.
+       This is true for most commands, but not all. In particular, the SW
+       commands modify the K4 state, but they don't directly represent state.
+       Now, we'll send commands even if we recently sent the same command.
+       In the future, we could distinguish between those commands that
+       represent state and those that don't, but it likely isnt worth it.
+   
 v1.0.17:
-    Version 1.0.17
-
     Update example_config_files/k4macro.yaml
-	Incorporate the latest changes from NK8O.
-
+       Incorporate the latest changes from NK8O.
+   
     Always request parameter status when subscribing
-	When subscribing to a K4 parameter, unconditionally request the
-	parameter's current status.
-
+       When subscribing to a K4 parameter, unconditionally request the
+       parameter's current status.
+   
     Rework polling mechanism
-	Add capability of having poll callbacks with differing intervals.
-	Right now we send vfo updates after 50 mS from the last change
-	and poll receiving from the K4 every 1 mS.
-
+       Add capability of having poll callbacks with differing intervals.
+       Right now we send vfo updates after 50 mS from the last change
+       and poll receiving from the K4 every 1 mS.
+   
     Remove server.base_cache
-	It is an unnecessary kludge
-
-
+       It is an unnecessary kludge
+   
 v1.0.16:
-    Version 1.0.16
-
     Internally maintain the K4's parameter status
-	This simplifies the handling of radio buttons that send  multiple
-	commands and responses, pemitting some radio button bug fixes.
-
-
+       This simplifies the handling of radio buttons that send  multiple
+       commands and responses, pemitting some radio button bug fixes.
+   
 v1.0.15:
-    Version 1.0.15
-
     Implement a slider widget
-	An example using it to set/get the K4 power output has been added
-	to example_config_files/k4macro.yaml
-
+       An example using it to set/get the K4 power output has been added to
+       example_config_files/k4macro.yaml
+   
     k4macro.yaml: incorporate changes from NK8O
 
     Fix debug msg on received bytes vs string
@@ -1069,135 +1005,68 @@ v1.0.15:
 
     Clarify a message when the K4 has disconnected
 
-
 v1.0.14:
-    Version 1.0.14
-
     Gracefully handle server (k4) shutdown
 
-
 v1.0.13:
-    Version 1.0.13
-
     Rework radio button response handling
-	Now gracefully handles radio buttons that do not include all
-	possible values for the particular parameters controlled by the
-	radio buttons.
-
+       Now gracefully handles radio buttons that do not include all possible
+       values for the particular parameters controlled by the radio buttons.
+   
     Rename k4macro.yaml.nk8o to k4macro.yaml
-	Keep k4macro.yaml.nk8o as the only current example config file
-	and rename it k4macro.yaml.
-
+       Keep k4macro.yaml.nk8o as the only current example config file
+       and rename it k4macro.yaml.
+   
     Simplify specifying server startup commands
-	This simplifies the implementation as well as the specification
-	of startup commands.
-
+       This simplifies the implementation as well as the specification
+       of startup commands.
+   
     Remove no longer needed comments from config
 
     README: Add request for problem reports
 
-
 v1.0.12:
-    Version 1.0.12
-
     Add ability to send commands to K4 at startup
 
     Cleanup the code a bit
 
     Bugfix: Button cmd sending was broken, now fixed
 
-
 v1.0.11:
-    Fix version
-
-
 v1.0.10:
-    Permit different radiobutton response than command
-	Previously, the radiobutton code expected a response identical
-	to the command being sent. This is not true if we send multiple
-	commands on a radiobutton click. Add the capability of specifying
-	the desired response to the radiobutton click.
-
     NK8O's latest yaml
 
     Permit multiple callbacks on same radio response
 
-
 v1.0.9:
-    Fix bug in row calculation for widget placement
-	The row was not being advanced properly, causing widgets to be
-	placed on top of previously placed widgets.
-
-
 v1.0.8:
-    Add Radiobutton widget
-	Make band and mode selector radio buttons
-
-
 v1.0.7:
-    Globally rename variable name info to config_info
-	config_info is a bit more meaningful than info.
-
     Raise default button font size to 10
-	This makes the smaller controls easier to see and to click.
-	We leave the default label size at 8 as they don't need to be as
-	prominent as the controls, IMHO.
-
+       This makes the smaller controls easier to see and to click.
+       We leave the default label size at 8 as they don't need to be
+       as prominent as the controls, IMHO.
+   
     Close the program if a server is not found
 
-
 v1.0.6:
-    Get updates from K4 every 60 mS
-	Previously, the K4 would send updates immediately, but k4macro
-	could not keep up when the vfo knobs were spun rapidly.
-
-	While we're updating, clean up an oops in the yaml file.
-
-
 v1.0.5:
-    Add infrastructure to receive status from the k4
-	Initially, this is used to update the vfo widgets when the k4
-	vfo knobs are changed.
-
     Fix bug to handle text that is an integer
-	Text in the yaml file that happened to be an integer was being
-	treated as an int rather than a string. Force it to be a string
-	by using the str() function.
-
-
+       Text in the yaml file that happened to be an integer was being
+       treated as an int rather than a string. Force it to be a string
+       by using the str() function.
+   
 v1.0.4:
-    Fix version number to match tag
-
-
 v1.0.3:
-    Add initial support for setting VFO frequencies
-
     Remove debug msgs for delay between servers
 
     Add email address to README
 
-
 v1.0.2:
-    Add ability to delay between cmds sent to servers
-	We can now specify a delay between commands sent to servers
-	by inserting a pseudo server name of delay and a numeric value
-	in millseconds.
-
-	For example: [ k4: xxx, delay: 100, server2: yyy ] will delay 1/10
-	of a second between sending the commands to servers k4 and server2.
-
     Specify multiple cmds to servers via a list
-	There was a problem when specifing multiple commands to multiple
-	servers via a dict. Repeated commands to the same server would
-	replace previous commands to that server in the dict. We now
-	specify a list of dicts to alleviate that problem.
-
-
+       There was a problem when specifing multiple commands to multiple servers
+       via a dict. Repeated commands to the same server would replace previous
+       commands to that server in the dict. We now specify a list of dicts
+       to alleviate that problem.
+   
 v1.0.1:
-    Specify different fonts for labels and buttons
-
-    Version 1.0.0
-	First release to github
-
-    Initial commit
-
+v1.0.0:
