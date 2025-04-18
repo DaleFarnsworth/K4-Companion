@@ -2100,10 +2100,14 @@ class Bargraph(Widget):
         if self.evalbottomtext != None:
             bottomtext = self.eval_value(self.evalbottomtext, None)
         self.bottom_label.configure(text=bottomtext)
-        if self.bottom_label.winfo_viewable():
-            self.bottom_frame.update()
-        bottom_width = self.bottom_frame.winfo_width()
-        left_width = self.left_frame.winfo_width()
+        try:
+            if self.bottom_label.winfo_viewable():
+                self.bottom_frame.update()
+            bottom_width = self.bottom_frame.winfo_width()
+            left_width = self.left_frame.winfo_width()
+        except:
+            bottom_width = 20
+            left_width = 20
         length = self.length
         if self.length_percent != None:
             length = (bottom_width - left_width) * self.length_percent / 100.0
