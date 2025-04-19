@@ -1,4 +1,29 @@
+v1.2.3:
+    Call subscribe_responses only when appropriate
+       In several cases we called subscribe_responses(), when it was clear
+       that we were subscribing to a single response. In those cases,
+       we now call subscribe_response() instead.
+       
+       This change should result in no behavioral changes.
+   
+    Rename subscribe_cmds to subscribe_responses
+       This better reflects its meaning.
+       This change should not affect behavior.
+   
+    Subscribe to all responses before connecting to K4
+       There was a race condition where sometimes the K4 sent a parameter
+       value before the app was ready to receive it. This was noted when
+       the VFO linked button had the incorrect initial value.
+   
+    upload Windows installer for 1.2.2
+
+    manual edited to reflect current changes, known issues 2025-04-18
+
+    Update Windows executable file to 1.2.2
+
 v1.2.2:
+    Update changelog for v1.2.2
+
     Try again to fix winfo error on closing
        commit b97d7eabc24355a21e29b2276afdcb24b580bb76 doesn't appear to
        fix the problem, so we'll try a more drastic workaround.
