@@ -625,6 +625,7 @@ class Server():
         self.send_str('SIRF0;')              # Disable AI4 delivery of RFB info reports
         self.send_str('SIRC0;')              # Disable AI4 delivery of RMT connection info
 
+        self.send_str('BI;')                 # Request Band Independence status
         self.send_str('RL;')                 # Request the software release line
         self.send_str('RT$;')                # Request the VFO B RIT on/off status
         self.send_str('MX;')                 # Request the audio mixer status

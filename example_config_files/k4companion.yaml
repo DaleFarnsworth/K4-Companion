@@ -570,8 +570,8 @@
 #define vfos-linked-togglebutton
 - item: togglebutton
   selections: #{
-  - { text: "  Linked", cmd: FT0;BI0;#DPM0; }
-  - { text: "Unlinked", cmd: FT0;BI1;#DPM2; }
+  - { text: "  Linked", cmd: BI0; }
+  - { text: "Unlinked", cmd: BI1; }
   #}
 #end
 
