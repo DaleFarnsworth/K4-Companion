@@ -463,11 +463,11 @@ class Server():
             Server.default_server_name = config_info['name']
         Server.server_dict[self.name] = self
 
-        self.subscribe_connect(self.on_server_connect)
+        self.subscribe_cmds('ER;', self.on_error_code, send=False)
         self.subscribe_response('SIDU', self.on_received_initial_parameters)
+        self.subscribe_connect(self.on_server_connect)
 
     def on_server_connect(self):
-        self.subscribe_cmds('ER;', self.on_error_code, send=False)
         self.update_local_audio_parameters()
         if self.type == 'k4' and not self.cat_only:
             Audio.server_connected(self)
@@ -541,9 +541,9 @@ class Server():
                 sock.set_proxy(socks.SOCKS5, self.proxy_address, self.proxy_port)
         try:
             sock.settimeout(5)
-            sock.connect((self.address, self.port))
             if python_major >= 3 and python_minor >= 13 and self.port == 9204:
                 sock = context.wrap_socket(sock)
+            sock.connect((self.address, self.port))
             self.connected = True
             self.printed_connection_warning = False
             self.socket = sock
@@ -1082,6 +1082,12 @@ class Widget():
         else:
             return None
 
+    def len_k4param(self, base):
+        param = self.k4param(base)
+        if param == None:
+            return 0
+        return len(param)
+
     def eval_value(self, s, value=""):
         try:
             ret = eval(str(s))
@@ -1481,9 +1487,6 @@ class Togglebutton(Widget):
 
         self.button.grid(row=0, column=0, sticky='w')
 
-        self.server.subscribe_connect(self.on_server_connect)
-
-    def on_server_connect(self):
         for selection in self.selections:
             response = selection['response']
             if response != None:
@@ -1630,9 +1633,6 @@ class Radiobutton(Widget):
             response = response[len(base):]
             self.parameters[base] = response
 
-        self.server.subscribe_connect(self.on_server_connect)
-
-    def on_server_connect(self):
         self.server.subscribe_cmds(self.response, self.on_response_received)
 
     def on_clicked(self):
@@ -1772,21 +1772,22 @@ class VFO(Widget):
 
         frame.grid(row=0, column=0, sticky='w')
 
-        self.server.subscribe_connect(self.on_server_connect)
-
-    def on_server_connect(self):
-        self.enter_frequency_wrapper = (Page.top.register(self.enter_frequency), '%P', '%V')
-        self.vfo_sb.configure(validate='all', validatecommand=self.enter_frequency_wrapper)
-        self.server.subscribe_cmds('F{vfo};'.format(vfo=self.AorB), self.on_frequency_received)
         step_cmd = 'VT'
         if self.AorB == 'B':
             step_cmd += '$'
         step_cmd += ';'
         self.server.subscribe_cmds(step_cmd, self.on_step_received)
-
+        self.server.subscribe_cmds('F{vfo};'.format(vfo=self.AorB), self.on_frequency_received)
         # subscribe to split and transmit on/off changes
         self.server.subscribe_cmds('FT;', self.set_vfo_bg)
         self.server.subscribe_cmds('TQ;', self.set_vfo_bg)
+
+        self.server.subscribe_connect(self.on_server_connect)
+
+    def on_server_connect(self):
+        self.enter_frequency_wrapper = (Page.top.register(self.enter_frequency), '%P', '%V')
+        self.vfo_sb.configure(validate='all', validatecommand=self.enter_frequency_wrapper)
+
         self.vfo_sb.bind('<Visibility>', self.set_vfo_bg)
 
     def enter_frequency(self, p, v):
@@ -1935,9 +1936,7 @@ class Slider(Widget):
         self.scale.grid(row=0, column=0, sticky='nw')
 
         self.value_var.trace('w', self.value_changed)
-        self.server.subscribe_connect(self.on_server_connect)
 
-    def on_server_connect(self):
         cmd = self.eval_value(self.evalcmd, self.value_var.get())
         if cmd != "":
             self.server.subscribe_cmds(cmd, self.on_response_received)
@@ -1997,9 +1996,6 @@ class Getvalue(Widget):
 
         self.label.grid(row=0, column=0, sticky='w')
 
-        self.server.subscribe_connect(self.on_server_connect)
-
-    def on_server_connect(self):
         self.server.subscribe_cmds(response, self.on_response_received)
 
     def on_response_received(self, response):
@@ -2082,12 +2078,12 @@ class Bargraph(Widget):
             self.bottom_label.grid(row=0, column=0, sticky='w')
         self.bottom_frame.grid(row=1, column=0, sticky='w')
 
+        self.server.subscribe_cmds(self.response, self.on_response_received)
         self.server.subscribe_connect(self.on_server_connect)
 
     def on_server_connect(self):
         self.frame.bind('<Visibility>', self.configure)
         self.server.expand_and_send_cmds(self.cmd)
-        self.server.subscribe_cmds(self.response, self.on_response_received)
 
     def on_response_received(self, response):
         value = int(self.eval_value(self.evalresponse, response))
@@ -2273,9 +2269,6 @@ class Dropdownbutton(Widget):
 
         self.combobox.grid(row=0, column=0, sticky='e')
 
-        self.server.subscribe_connect(self.on_server_connect)
-
-    def on_server_connect(self):
         for selection in self.selections:
             self.server.subscribe_cmds(selection['response'], self.on_response_received)
 
