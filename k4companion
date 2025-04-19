@@ -463,7 +463,7 @@ class Server():
             Server.default_server_name = config_info['name']
         Server.server_dict[self.name] = self
 
-        self.subscribe_responses('ER;', self.on_error_code, send=False)
+        self.subscribe_response('ER;', self.on_error_code, send=False)
         self.subscribe_response('SIDU', self.on_received_initial_parameters)
         self.subscribe_connect(self.on_server_connect)
 
@@ -1776,11 +1776,10 @@ class VFO(Widget):
         if self.AorB == 'B':
             step_cmd += '$'
         step_cmd += ';'
-        self.server.subscribe_responses(step_cmd, self.on_step_received)
-        self.server.subscribe_responses('F{vfo};'.format(vfo=self.AorB), self.on_frequency_received)
+        self.server.subscribe_response(step_cmd, self.on_step_received)
+        self.server.subscribe_response('F{vfo};'.format(vfo=self.AorB), self.on_frequency_received)
         # subscribe to split and transmit on/off changes
-        self.server.subscribe_responses('FT;', self.set_vfo_bg)
-        self.server.subscribe_responses('TQ;', self.set_vfo_bg)
+        self.server.subscribe_response('FT;TQ;', self.set_vfo_bg)
 
         self.server.subscribe_connect(self.on_server_connect)
 
@@ -1939,7 +1938,7 @@ class Slider(Widget):
 
         cmd = self.eval_value(self.evalcmd, self.value_var.get())
         if cmd != "":
-            self.server.subscribe_responses(cmd, self.on_response_received)
+            self.server.subscribe_response(cmd, self.on_response_received)
 
     def value_changed(self, var, index, mode):
         value = self.value_var.get()
@@ -1996,7 +1995,7 @@ class Getvalue(Widget):
 
         self.label.grid(row=0, column=0, sticky='w')
 
-        self.server.subscribe_responses(response, self.on_response_received)
+        self.server.subscribe_response(response, self.on_response_received)
 
     def on_response_received(self, response):
         value = self.eval_value(self.evalresponse, response)
@@ -2078,7 +2077,7 @@ class Bargraph(Widget):
             self.bottom_label.grid(row=0, column=0, sticky='w')
         self.bottom_frame.grid(row=1, column=0, sticky='w')
 
-        self.server.subscribe_responses(self.response, self.on_response_received)
+        self.server.subscribe_response(self.response, self.on_response_received)
         self.server.subscribe_connect(self.on_server_connect)
 
     def on_server_connect(self):
@@ -3363,7 +3362,7 @@ class Menu(Widget):
         self.scrollbar.config(command=self.listbox.yview)
 
         self.listbox.bind('<<ListboxSelect>>', self.on_listbox_selected)
-        self.server.subscribe_responses('MEDF;', self.on_received_definition, send=False)
+        self.server.subscribe_response('MEDF;', self.on_received_definition, send=False)
 
     def update_definition_list(self):
         self.listbox.delete(0, tk.END)
@@ -3379,7 +3378,7 @@ class Menu(Widget):
         self.listbox.configure(width=width)
 
     def received_all_definitions(self):
-        self.server.subscribe_responses('ME;', self.on_received_current, send=False)
+        self.server.subscribe_response('ME;', self.on_received_current, send=False)
 
         self.definitions = sorted(self.definitions, key=lambda d:d.current_desc().casefold())
         self.update_definition_list()
@@ -3582,9 +3581,8 @@ class Audio():
     def server_connected(cls, server):
         self = cls.get_singleton()
         cls.server = server
-        server.subscribe_responses('RX;', lambda response: self.on_transmit_changed(server, response), send=False)
-        server.subscribe_responses('TX;', lambda response: self.on_transmit_changed(server, response), send=False)
-        server.subscribe_responses('MX;', lambda response: self.on_mx_changed(server, response), send=False)
+        server.subscribe_responses('RX;TX;', lambda response: self.on_transmit_changed(server, response), send=False)
+        server.subscribe_response('MX;', lambda response: self.on_mx_changed(server, response), send=False)
         server.subscribe_received_initial_parameters(cls.on_received_initial_parameters)
 
     @classmethod
@@ -4407,7 +4405,7 @@ class FWversions(Text):
         self.height = 1
         self.text = ''
 
-        self.server.subscribe_responses('RV;', self.on_received_versions)
+        self.server.subscribe_response('RV;', self.on_received_versions)
 
     def on_received_versions(self, response):
         version = response.rstrip(';').lstrip('RV.')
