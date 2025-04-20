@@ -4683,7 +4683,7 @@ def clean_up():
 
 def clean_up_and_exit():
     clean_up()
-    Page.top.destroy()
+    Page.top.quit()
 
 class Popup():
     queue = queue.Queue()
