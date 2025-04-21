@@ -65,7 +65,7 @@ from optparse import OptionParser
 from tkinter import simpledialog
 
 appname = 'k4companion'
-version = "1.2.3"
+version = "1.2.4"
 
 v = platform.python_version_tuple()
 python_major = int(v[0])
