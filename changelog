@@ -1,4 +1,23 @@
+v1.2.4:
+    Don't terminate the GUI on close until exit
+       We were terminating the GUI while queued commands were still being
+       processed, which sometimes resulted in tkinter exceptions.
+   
+    Fix Linked/Unlinked togglebutton
+       Split mode and Panadapter modes should be independent of the
+       VFO B Band Independence setting. Also, the K4 does not automatically
+       send the Band Independence state in response to a RDY; command
+       (as I believe it should), so we'll specifically request it at startup.
+   
+    update Windows installer to version 1.2.3
+
+    add Windows executable version 1.2.3
+
+    updated user manual to version 1.2.3
+
 v1.2.3:
+    Update changelog for v1.2.3
+
     Call subscribe_responses only when appropriate
        In several cases we called subscribe_responses(), when it was clear
        that we were subscribing to a single response. In those cases,
