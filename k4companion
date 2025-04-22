@@ -3483,23 +3483,32 @@ class Audio():
     @classmethod
     def input_device_name(cls):
         self = cls.get_singleton()
+        if self.input_device_index < 0:
+            return "None available"
         dev_info = self.input_device_infos[self.input_device_index]
         return dev_info['name']
 
     @classmethod
     def output_device_name(cls):
         self = cls.get_singleton()
+        if self.output_device_index < 0:
+            return "None available"
         dev_info = self.output_device_infos[self.output_device_index]
         return dev_info['name']
 
     @classmethod
     def input_device_info(cls):
         self = cls.get_singleton()
+        if self.input_device_index < 0:
+            return None
         return self.input_device_infos[self.input_device_index]
+
 
     @classmethod
     def output_device_info(cls):
         self = cls.get_singleton()
+        if self.output_device_index < 0:
+            return None
         return self.output_device_infos[self.output_device_index]
 
     @classmethod
@@ -3533,12 +3542,16 @@ class Audio():
     @classmethod
     def input_device_sample_rate(cls):
         self = cls.get_singleton()
+        if self.input_device_index < 0:
+            return None
         info = self.input_device_infos[self.input_device_index]
         return info['input_sample_rate']
 
     @classmethod
     def output_device_sample_rate(cls):
         self = cls.get_singleton()
+        if self.output_device_index < 0:
+            return None
         info = self.output_device_infos[self.output_device_index]
         return info['output_sample_rate']
 
@@ -3622,8 +3635,8 @@ class Audio():
     def __init__(self):
         self.input_thread = None
         self.output_thread = None
-        self.input_device_index = 0
-        self.output_device_index = 0
+        self.input_device_index = -1
+        self.output_device_index = -1
         self.input_device_infos = {}
         self.output_device_infos = {}
         self.sub_on = True
@@ -3733,6 +3746,8 @@ class Audio():
         return None
 
     def start_output_thread(self, queue):
+        if self.output_device_index < 0:
+            return
         self.output_queue = queue
         self.output_thread = threading.Thread(target=self.output_loop, name='audio_output_thread')
         self.output_thread.start()
@@ -3863,6 +3878,8 @@ class Audio():
         self.ab = response[2:].lower().rstrip(';')
 
     def start_input_thread(self, server):
+        if self.input_device_index < 0:
+            return
         self.input_thread = threading.Thread(target=lambda: self.input_loop(server), name='audio_input_thread')
         self.input_thread.start()
 
@@ -4238,7 +4255,7 @@ class Settings_widget(Widget):
 
     def audio_input_settings(self, frame):
         input_device_name = Settings.get('Audio', 'input_device_name')
-        if input_device_name == None:
+        if input_device_name == None or Audio.input_device_index() < 0:
             input_device_name = Audio.input_device_name()
 
         input_frame = tk.LabelFrame(frame,
@@ -4257,7 +4274,7 @@ class Settings_widget(Widget):
 
         input_names = Audio.input_device_names()
         width = 0
-        for name in input_names:
+        for name in input_names + [input_device_name]:
             if len(name) > width:
                 width = len(name)
 
@@ -4291,7 +4308,7 @@ class Settings_widget(Widget):
 
     def audio_output_settings(self, frame):
         output_device_name = Settings.get('Audio', 'output_device_name')
-        if output_device_name == None:
+        if output_device_name == None or Audio.output_device_index() < 0:
             output_device_name = Audio.output_device_name()
 
         output_frame = tk.LabelFrame(frame,
@@ -4310,7 +4327,7 @@ class Settings_widget(Widget):
 
         output_names = Audio.output_device_names()
         width = 0
-        for name in output_names:
+        for name in output_names + [output_device_name]:
             if len(name) > width:
                 width = len(name)
 
