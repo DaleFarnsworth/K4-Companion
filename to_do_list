@@ -20,3 +20,5 @@ Get vox working.
 Add mouse-wheel tuning.
 
 VFO weirdness
+
+Gracefully handle lack of audio input and/or output device.
