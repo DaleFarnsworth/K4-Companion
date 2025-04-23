@@ -4947,7 +4947,16 @@ def restart():
     Page.main().frame.destroy()
     start()
 
+def close_splash_screen():
+    try:
+        import pyi_splash
+        pyi_splash.close()
+    except ImportError:
+        pass
+
 def main():
+    close_splash_screen()
+
     Options.Parse()
 
     top = tk.Tk()
