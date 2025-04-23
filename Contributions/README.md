@@ -1,8 +1,10 @@
-The pre-compiled opus.dll has been made available to us Charles - NK8O
+An updated verision opus.dll is now  available
 
-You should move opus.dll to C:\Windows\System32\
+The Windows Installer will place this file in the same folder as k4companion
 
-The Windows Installer will do this automatically
+This Windows DLL file should be in same place as the executable
+
+No need to move to a system folder
 
 73
 
