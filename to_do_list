@@ -21,4 +21,7 @@ Add mouse-wheel tuning.
 
 VFO weirdness
 
-Gracefully handle lack of audio input and/or output device.
+Change all toggle button with more than 2 selections to dropdown buttons
+
+Turn off receive audio immediately when going into transmit mode, without
+waiting for confirmation from the K4.
