@@ -92,8 +92,6 @@
     #include compression-level-slider
     #include mic-gain-slider
     #include voice-monitor-level-slider
-    #include qsk-group
-    #include vox-group
     #include ctcss-group
   #}
 #end
@@ -102,6 +100,8 @@
 - item: group
   contains: #{
     #include rit-xit-group
+    #include qsk-group
+    #include vox-group
   #}
 #end
 
@@ -282,19 +282,19 @@
   lefttext: ' '
   bottomtext: "S1 2 3 4 5 6 7 8 9  +10 +20 +30 +40 +50 +60"
   response: SM;
-  evalresponse: '0 if len(value) < 4 else value.rstrip(";")[2:]'
+  evalresponse: 'value.rstrip(";")[2:]'
 #end
 
 #define rf-out-bargraph
 - item: bargraph
   label: Power out
-  evalmaximum: "0 if self.len_k4param('PC') < 4 else 11.7 if self.k4param('PC')[3] == 'L' else 117"
+  evalmaximum: "11.7 if self.k4param('PC')[3] == 'L' else 117"
   lengthpercent: 100
   cmd: TM1;PC;
   font: { family: DejaVu Sans Mono, size: 6, weight: normal }
   lefttext: ''
   evalbottomtext: "'' if self.len_k4param('PC') < 4 else '0    2    4    6    8   10    ' if self.k4param('PC')[3] == 'L' else '0   20   40   60   80  100    '"
-  evalresponse: "0 if self.len_k4param('TM') < 4 or self.len_k4param('PC') < 4 else float(self.k4param('TM')[6:9])/10 if self.k4param('PC')[3] == 'L' else self.k4param('TM')[6:9]"
+  evalresponse: "float(self.k4param('TM')[6:9])/10 if self.k4param('PC')[3] == 'L' else self.k4param('TM')[6:9]"
 #end
 
 #define alc-bargraph
@@ -306,7 +306,7 @@
   font: { family: DejaVu Sans Mono, size: 6, weight: normal }
   lefttext: ''
   bottomtext: "1  3  5  7"
-  evalresponse: "0 if self.len_k4param('TM') < 4 else float(self.k4param('TM')[0:3])"
+  evalresponse: "float(self.k4param('TM')[0:3])"
 #end
 
 #define cmp-bargraph
@@ -318,7 +318,7 @@
   font: { family: DejaVu Sans Mono, size: 6, weight: normal }
   lefttext: ''
   bottomtext: "0 10 20 30"
-  evalresponse: "0 if self.len_k4param('TM') < 4 else float(self.k4param('TM')[3:6])"
+  evalresponse: "float(self.k4param('TM')[3:6])"
 #end
 
 #define swr-bargraph
@@ -330,7 +330,7 @@
   font: { family: DejaVu Sans Mono, size: 6, weight: normal }
   lefttext: ' '
   bottomtext: "1:1       2:1       3:1    "
-  evalresponse: "0 if (self.len_k4param('TM') < 4) or (self.k4param('TU') == None) or ((self.k4param('TQ') == '0') and (self.k4param('TU') == '0')) else float(self.k4param('TM')[9:12])-10"
+  evalresponse: "float(self.k4param('TM')[9:12])-10"
 #end
 
 #define band-a-dropdown-button
@@ -467,7 +467,7 @@
   lefttext: ' '
   bottomtext: "S1 2 3 4 5 6 7 8 9  +10 +20 +30 +40 +50 +60"
   response: SM$;
-  evalresponse: '0 if len(value) < 5 else value.rstrip(";")[3:]'
+  evalresponse: 'value.rstrip(";")[3:]'
 #end
 
 #define band-b-dropdown-button
@@ -570,8 +570,8 @@
 #define vfos-linked-togglebutton
 - item: togglebutton
   selections: #{
-  - { text: "  Linked", cmd: FT0;BI0;#DPM0; }
-  - { text: "Unlinked", cmd: FT0;BI1;#DPM2; }
+  - { text: "  Linked", cmd: BI0; }
+  - { text: "Unlinked", cmd: BI1; }
   #}
 #end
 
@@ -596,7 +596,7 @@
 - item: dropdownbutton
   label: Power
   width: 6
-  unexpectedresponse: 'str("" if len(value) < 5 else float(value[2:5])/10 if value[5] == "L" else float(value[2:5])/10000 if value[5] == "X" else float(value[2:5])) + " W"'
+  unexpectedresponse: 'str(float(value[2:5])/10 if value[5] == "L" else float(value[2:5])/10000 if value[5] == "X" else float(value[2:5])) + " W"'
   selections: #{
     - { text: "  5 W", cmd: PC050L; }
     - { text: " 10 W", cmd: PC100L; }
@@ -624,7 +624,7 @@
   length: 150
   evalincrement: '.0001 if value > 0.0 and value <= .01 else .1 if value <= 10.0 else 1.0'
   evalcmd: '"PC{:03d}L;".format(int(float(value)*10)) if float(value) <= 10.0 else "PC{:03d}H;".format(int(value))'
-  evalresponse: '0 if len(value) < 5 else float(value[2:5])/10 if value[5] == "L" else float(value[2:5])/10000 if value[5] == "X" else float(value[2:5])'
+  evalresponse: 'float(value[2:5])/10 if value[5] == "L" else float(value[2:5])/10000 if value[5] == "X" else float(value[2:5])'
 #end
 
 #define main-volume-slider
@@ -1110,8 +1110,8 @@
   to: 0
   length: 150
   evalincrement: '1'
-  evalcmd: '"NB{v:02d}{on};".format(v=int(value), on=0 if self.k4param("NB") == None else self.k4param("NB")[0] if self.len_k4param("NB") < 2 else self.k4param("NB")[2])'
-  evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
+  evalcmd: '"NB{v:02d}{on};".format(v=int(value), on=self.k4param("NB")[2])'
+  evalresponse: 'int(value[2:4])'
 #end
 
 #define sub-noise-blanker-slider
@@ -1121,8 +1121,8 @@
   to: 0
   length: 150
   evalincrement: '1'
-  evalcmd: '"NB${v:02d}{on};".format(v=int(value), on=0 if self.k4param("NB$") == None else self.k4param("NB$")[0] if self.len_k4param("NB$") < 2 else self.k4param("NB$")[2])'
-  evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
+  evalcmd: '"NB${v:02d}{on};".format(v=int(value), on=self.k4param("NB$")[2])'
+  evalresponse: 'int(value[3:5])'
 #end
 
 #define noise-reduction-group
@@ -1179,8 +1179,8 @@
   to: 0
   length: 150
   evalincrement: '1'
-  evalcmd: '"NR{v:02d}{on};".format(v=int(value), on=0 if self.k4param("NR") == None else self.k4param("NR")[0] if self.len_k4param("NR") < 2 else self.k4param("NR")[2])'
-  evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
+  evalcmd: '"NR{v:02d}{on};".format(v=int(value), on=self.k4param("NR")[2])'
+  evalresponse: 'int(value[2:4])'
 #end
 
 #define sub-noise-reduction-slider
@@ -1190,8 +1190,8 @@
   to: 0
   length: 150
   evalincrement: '1'
-  evalcmd: '"NR${v:02d}{on};".format(v=int(value), on=0 if self.k4param("NR$") == None else self.k4param("NR$")[0] if self.len_k4param("NR$") < 2 else self.k4param("NR$")[2])'
-  evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
+  evalcmd: '"NR${v:02d}{on};".format(v=int(value), on=self.k4param("NR$")[2])'
+  evalresponse: 'int(value[3:5])'
 #end
 
 #define ctcss-group
@@ -1409,30 +1409,47 @@
   columns: 1
   contains: #{
     #include qsk-togglebutton
+    #include qsk-delay-group
+  #}
+#end
+
+#define qsk-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: VXC1; } 
+    - { text: "Off", cmd: VXC0; } 
+  #}
+#end
+
+#define qsk-delay-group
+- item: group
+  label: Delay
+  columns: 1
+  contains: #{
+    #include qsk-delay-togglebutton
     #include qsk-delay-slider
   #}
 #end
 
 # Note that k4parm swaps characters 2 and 3 from the actual commands/responses
-#define qsk-togglebutton
+#define qsk-delay-togglebutton
 - item: togglebutton
   selections: #{
-    - { text: "On",  cmd: SDC1;, evalcmd: '"" if self.k4param("SDC") == None else "SD1C{d:03s};".format(d=self.k4param("SDC")[1:4])', evalresponse: '"SDC"+self.k4param("SDC")[0]+";"' } 
-    - { text: "Off", cmd: SDC0;, evalcmd: '"" if self.k4param("SDC") == None else "SD0C{d:03s};".format(d=self.k4param("SDC")[1:4])', evalresponse: '"SDC"+self.k4param("SDC")[0]+";"' } 
+    - { text: "On",  cmd: SDC1;, evalcmd: '"SDC1{d:03s};".format(d=self.k4param("SDC")[1:4])', evalresponse: '"SDC"+self.k4param("SDC")[0]+";"' } 
+    - { text: "Off", cmd: SDC0;, evalcmd: '"SDC0{d:03s};".format(d=self.k4param("SDC")[1:4])', evalresponse: '"SDC"+self.k4param("SDC")[0]+";"' } 
   #}
 #end
 
 # Note that k4parm swaps characters 2 and 3 from the actual commands/responses
 #define qsk-delay-slider
 - item: slider
-  label: Delay
   orient: vertical
   from: 2.55
   to: 0
   length: 150
   evalincrement: "-.01"
-  evalcmd: '"" if self.k4param("SDC") == None else "SD{f}C{d:03d};".format(f=self.k4param("SDC")[0], d=int(float(value)*100))'
-  evalresponse: 'float(value[3:6])/100'
+  evalcmd: '"SDC{f}{d:03d};".format(f=self.k4param("SDC")[0], d=int(float(value)*100))'
+  evalresponse: 'float(value[4:7])/100'
 #end
 
 #define vox-group
@@ -1448,32 +1465,49 @@
 #define vox-slider-group
 - item: group
   contains: #{
-    #include vox-delay-slider
+    #include vox-delay-group
     #include vox-gain-slider
     #include vox-anti-slider
   #}
 #end
 
-# Note that k4parm swaps characters 2 and 3 from the actual commands/responses
 #define vox-togglebutton
 - item: togglebutton
   selections: #{
-    - { text: "On",  cmd: SDV1;, evalcmd: '"" if self.k4param("SDV") == None else "SD1V{d:03s};".format(d=self.k4param("SDV")[1:4])', evalresponse: '"SDV"+self.k4param("SDV")[0]+";"' } 
-    - { text: "Off", cmd: SDV0;, evalcmd: '"" if self.k4param("SDV") == None else "SD0V{d:03s};".format(d=self.k4param("SDV")[1:4])', evalresponse: '"SDV"+self.k4param("SDV")[0]+";"' } 
+    - { text: "On",  cmd: VXV1; } 
+    - { text: "Off", cmd: VXV0; } 
+  #}
+#end
+
+#define vox-delay-group
+- item: group
+  label: Delay
+  columns: 1
+  contains: #{
+    #include vox-delay-togglebutton
+    #include vox-delay-slider
+  #}
+#end
+
+# Note that k4parm swaps characters 2 and 3 from the actual commands/responses
+#define vox-delay-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: SDV1;, evalcmd: '"SDV1{d:03s};".format(d=self.k4param("SDV")[1:4])', evalresponse: '"SDV"+self.k4param("SDV")[0]+";"' } 
+    - { text: "Off", cmd: SDV0;, evalcmd: '"SDV0{d:03s};".format(d=self.k4param("SDV")[1:4])', evalresponse: '"SDV"+self.k4param("SDV")[0]+";"' } 
   #}
 #end
 
 # Note that k4parm swaps characters 2 and 3 from the actual commands/responses
 #define vox-delay-slider
 - item: slider
-  label: Delay
   orient: vertical
   from: 2.55
   to: 0
   length: 150
   evalincrement: "-.01"
-  evalcmd: '"" if self.k4param("SDV") == None else "SD{f}V{d:03d};".format(f=self.k4param("SDV")[0], d=int(float(value)*100))'
-  evalresponse: 'float(value[3:6])/100'
+  evalcmd: '"SDV{f}{d:03d};".format(f=self.k4param("SDV")[0], d=int(float(value)*100))'
+  evalresponse: 'float(value[4:7])/100'
 #end
 
 #define vox-gain-slider
