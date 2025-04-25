@@ -1,0 +1,7 @@
+docs/*
+*.orig
+*.rej
+patch.*
+run
+*.deb
+tmp.*
