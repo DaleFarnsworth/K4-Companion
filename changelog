@@ -1,4 +1,65 @@
+v1.2.5:
+    Redo the equalizers tab
+       The equalizer interface was much more complicated than it needed
+       to be. Now, you select a set of equalizers for all the modes.
+       
+       I apologize to those who have already configured equalizers.
+   
+    Simplify config evalcmds & evalresponses
+       Now that we don't receive subscribed responses until all K4
+       parameter values have been received, we no longer need to check
+       for the parameter values to be None or short.
+   
+    Fix vox and qsk toggles and sliders
+       Changes are extensive, because of the strange way in which the
+       K4 combines vox and qsk delay on/off and values into a single
+       command.
+       
+       We also defer subscribing to K4 responses until all k4 parameter
+       values have been received once.
+   
+    Add .gitignore
+
+    Add tools directory
+       Some tools are useful now; some may be in the future.
+   
+    Update To Do List
+       -Gracefully handle lack of audio input and/or output device.
+       +Change all toggle button with more than 2 selections to dropdown buttons
+       +
+       +Turn off receive audio immediately when going into transmit mode, without
+       +waiting for confirmation from the K4.
+   
+    update README.md information to reflect current changes
+
+    K4 Companion version 1.2.4 Windows installer
+
+    Close the splash screen, if there
+
+    Handle case where no Audio devices are found
+       Try to gracefully handle the case where no input or output audio
+       device supporting an apropriate sample rate is found.
+   
+    Revert "version 1.2.4 Windows installer update"
+       This reverts commit 58adf4927a80984a5736ac2b98201d68babd0a8f.
+       
+       k4companion-installer.exe was accidentally placed in the toplevel
+       directory.
+   
+    Update To Do list
+       Add: Gracefully handle lack of audio input and/or output device.
+   
+    version 1.2.4 installer including User Manual
+
+    User Manual updated to current version 1.2.4 2025-04-21
+
+    version 1.2.4 Windows installer update
+
+    version 1.2.4, runs with opus.dll in the same folder/directory with EXE file
+
 v1.2.4:
+    Update changelog for v1.2.4
+
     Don't terminate the GUI on close until exit
        We were terminating the GUI while queued commands were still being
        processed, which sometimes resulted in tkinter exceptions.
