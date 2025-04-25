@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+
+import re
+import subprocess
+
+from optparse import OptionParser
+
+class Options():
+    @staticmethod
+    def Parse():
+        usage = 'Usage: %prog [version]'
+        parser = OptionParser(usage=usage)
+        (options, args) = parser.parse_args()
+
+        if len(args) > 1:
+            parser.error('Too many arguments')
+            OptionParser.print_usage()
+
+        Options.version = None
+        if len(args) >= 1:
+            Options.version = args[0]
+
+def run(*args, **kwargs):
+    subprocess.run(*args, **kwargs)
+
+def run_output(*args, **kwargs):
+    result = subprocess.run(*args, **kwargs, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    rc = result.returncode
+    if len(result.stderr) != 0:
+        print(result.stderr)
+        raise Exception(' '.join(args[0]) + ' had stderr output')
+    if rc != 0:
+        raise Exception(' '.join(args[0]) + ' returned ' + str(rc))
+
+    return result.stdout
+
+def call(*args, **kwargs):
+    subprocess.call(*args, **kwargs)
+
+def main():
+    Options.Parse()
+
+    version = Options.version
+    if version != None:
+        print(version + ':')
+
+    commits = []
+    lines = []
+    for line in run_output(['git', 'log', '--no-patch', '--decorate=short', '--decorate-refs=refs/tags/']).rstrip("\n").split("\n"):
+        if line.startswith('commit'):
+            if lines:
+                commits.append(lines)
+                lines = []
+        lines.append(line)
+
+    tag_pattern = re.compile('tag: ([^,)]+)')
+    for lines in commits:
+        commit_line = lines[0]
+        subject = lines[4]
+        body = lines[6:]
+        tags = tag_pattern.findall(commit_line)
+        if tags:
+            if len(tags) > 1:
+                for t in tags:
+                    if t.startswith('v'):
+                        tag = t
+                        break
+            else:
+                tag = tags[0]
+            print(tag + ':')
+            continue
+        print(subject)
+        if body:
+            for line in body:
+                print('   ' + line)
+        else:
+            print()
+
+if __name__ == '__main__':
+    main()
+
+# vim: set expandtab ts=4 sw=4:

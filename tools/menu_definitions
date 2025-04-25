@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+
+# if type is null, doesn't appear in menu.
+# [ index, description, area, type, locked, low, high, default, current, increment, *values ],
+definitions = [
+    ['0039', 'AF Limiter (AGC off)', 'RX', 'DEC', '0', '1', '30', '20', '20', '1'],
+    ['0011', 'AGC Attack', 'RX AGC', 'DEC', '1', '200', '220', '210', '210', '1'],
+    ['0009', 'AGC Decay, Fast', 'RX AGC', 'DEC', '1', '80', '200', '120', '120', '1'],
+    ['0008', 'AGC Decay, Slow', 'RX AGC', 'DEC', '1', '5', '50', '10', '10', '1'],
+    ['0007', 'AGC Hold Time', 'RX AGC', 'DEC', '1', '0', '200', '0', '0', '1'],
+    ['0013', 'AGC Noise Pulse Reject', 'RX AGC', 'BIN', '1', '0', '1', '1', '1', '1', 'OFF', 'ON'],
+    ['0012', 'AGC Slope', 'RX AGC', 'DEC', '1', '10', '15', '15', '15', '1'],
+    ['0010', 'AGC Threshold', 'RX AGC', 'DEC', '1', '2', '8', '6', '6', '1'],
+    ['0048', 'AutoRef Averaging', 'PAN', 'DEC', '1', '1', '30', '12', '12', '1'],
+    ['0049', 'AutoRef Debounce', 'PAN', 'DEC', '1', '1', '18', '6', '6', '1'],
+    ['0050', 'AutoRef Offset', 'PAN', 'AOFS', '1', '0', '16', '6', '8', '1'],
+    ['0104', 'CW TX in SSB Mode', 'TX', 'BIN', '1', '0', '1', '0', '0', '1', 'NO', 'YES'],
+    ['0100', 'DIGOUT1 (ACC jack, pin 11)', 'CTRLS', 'BIN', '1', '0', '1', '0', '0', '1', 'OFF (floating)', 'ON (0v)'],
+    ['0024', 'ESSB Bandwidth', 'TX', 'NULL', '0', '30', '45', '40', '40', '1'],
+    ['0023', 'ESSB Mode', 'TX', 'NULL', '0', '0', '1', '0', '0', '1', 'OFF', 'ON'],
+    ['0070', 'Ext. Monitor Function', 'DISP', 'BIN', '1', '0', '1', '0', '0', '1', 'Panadapter', 'Mirror LCD'],
+    ['0071', 'Ext. Monitor Location', 'DISP', 'DEC', '1', '0', '3', '0', '3', '1', 'Right of K4', 'Above K4', 'Below K4', 'Left Of K4'],
+    ['0089', 'FM Deviation, Tone', 'TX', 'M50Hz', '1', '3', '14', '7', '7', '1'],
+    ['0088', 'FM Deviation, Voice', 'TX', 'M50Hz', '1', '50', '100', '90', '90', '1'],
+    ['0064', 'FSK Dual-Tone RX Filter', 'RX', 'BIN', '1', '0', '1', '0', '0', '1', 'ON', 'OFF'],
+    ['0085', 'FSK Mark-Tone', 'TX', 'DEC', '1', '0', '7', '0', '0', '1', '915', '1000', '1170', '1275', '1445', '1700', '2000', '2125'],
+    ['0084', 'FSK Polarity', 'TX', 'BIN', '1', '0', '1', '0', '0', '1', 'NORM', 'INVERTED'],
+    ['0003', 'Fan Speed Min', 'MISC', 'DEC', '0', '0', '4', '1', '1', '1', 'OFF', 'SLOWER', 'SLOW', 'FAST', 'FASTER'],
+    ['0035', 'HDR Module Mode', 'KRAD', 'NULL', '1', '0', '3', '0', '0', '1', 'NOT_INST', 'NORM', 'TEST1', 'TEST2'],
+    ['0043', 'IP Address', 'SYSTEM', 'IP', '1', '0', '0', '0', '0', '0'],
+    ['0004', 'KAT4 ATU Option', 'TX', 'DEC', '1', '0', '3', '0', '1', '1', 'NOT_INST', 'BYPASS', 'AUTO', 'TEST'],
+    ['0006', 'KPA4 PA Option', 'TX', 'DEC', '1', '0', '2', '0', '2', '1', 'NOT_INST', 'BYPASS', 'ENABLED'],
+    ['0005', 'KRX4 2ND RX Option', 'RX', 'BIN', '1', '0', '1', '0', '1', '1', 'NOT_INST', 'ENABLED'],
+    ['0036', 'LCD Brightness', 'DISP', 'DEC', '0', '0', '7', '3', '3', '1'],
+    ['0031', 'LCD Position', 'DISP', 'NULL', '1', '0', '255', '0', '0', '1'],
+    ['0037', 'LED Brightness', 'DISP', 'DEC', '0', '0', '80', '50', '10', '1'],
+    ['0016', 'MIC Bias', 'AUDIO', 'NULL', '1', '0', '1', '1', '1', '1', 'OFF', 'ON'],
+    ['0017', 'MIC Buttons', 'AUDIO', 'NULL', '1', '0', '2', '0', '0', '1', 'ALL', 'PTT', 'NONE'],
+    ['0018', 'MIC Select', 'AUDIO', 'NULL', '0', '0', '2', '0', '0', '1', 'FRONT', 'REAR', 'LINE'],
+    ['0087', 'Message Repeat Interval', 'TX', 'DEC', '0', '0', '250', '5', '5', '1'],
+    ['0047', 'Mouse Buttons', 'CTRLS', 'NULL', '0', '0', '1', '0', '0', '1', 'NORMAL', 'REVERSED'],
+    ['0074', 'Mouse L/R Button QSY', 'DISP', 'BIN', '1', '0', '1', '0', '1', '1', 'Left Only', 'Left=A,Right=B'],
+    ['0109', 'Mouse Pointer Size, Ext. Mon.', 'DISP', 'DEC', '1', '0', '6', '0', '0', '1', 'Default', 'S1', 'M1', 'L1', 'S2', 'M2', 'L2', 'S3', 'M3', 'L3', 'S4', 'M4', 'L4'],
+    ['0107', 'Mouse Pointer Size, LCD', 'DISP', 'DEC', '1', '0', '6', '0', '5', '1', 'Default', 'S1', 'M1', 'L1', 'S2', 'M2', 'L2', 'S3', 'M3', 'L3', 'S4', 'M4', 'L4'],
+    ['0025', 'Noise Gate Mode', 'AUDIO', 'NULL', '0', '0', '1', '0', '0', '1', 'OFF', 'ON'],
+    ['0026', 'Noise Gate Threshold', 'AUDIO', 'NULL', '0', '0', '25', '0', '0', '1'],
+    ['0032', 'PAN Waterfall Bias', 'DISP', 'NULL', '1', '0', '255', '0', '0', '1'],
+    ['0099', 'Panadapter Full Span', 'RX', 'DEVBIN', '1', '0', '1', '0', '0', '1', 'Normal', 'FullSpan'],
+    ['0046', 'Per-Band Power', 'TX', 'BIN', '1', '0', '1', '0', '0', '1', 'NO', 'YES'],
+    ['0093', 'Preamp 3 (12/10/6 m)', 'RX', 'BIN', '1', '0', '1', '0', '0', '1', 'Disabled', 'Enabled'],
+    ['0042', 'RIT CLR 2nd Tap Restore', 'CTRLS', 'BIN', '1', '0', '1', '0', '0', '1', 'NO', 'YES'],
+    ['0044', 'RIT Knob Alt. Function', 'CTRLS', 'DEC', '1', '0', '3', '0', '2', '1', 'NONE', 'VFO_CRS', 'PAN_CTR', 'PAN_SPAN'],
+    ['0091', 'RX 1.5 MHz High-Pass Fil.', 'RX', 'BIN', '1', '0', '1', '0', '0', '1', 'Not Used', 'Used'],
+    ['0094', 'RX ADC Dither', 'RX', 'DEVBIN', '1', '0', '1', '1', '1', '1', 'OFF', 'ON'],
+    ['0095', 'RX ADC Preamp', 'RX', 'DEVBIN', '1', '0', '1', '0', '0', '1', 'OFF', 'ON'],
+    ['0096', 'RX ADC Randomize', 'RX', 'DEVBIN', '1', '0', '1', '1', '1', '1', 'OFF', 'ON'],
+    ['0106', 'RX All-Mode Squelch', 'RX', 'BIN', '1', '0', '1', '0', '0', '1', 'DISABLED', 'ENABLED'],
+    ['0113', 'RX Audio Gain Boost', 'RX', 'DEC', '1', '0', '6', '0', '0', '1'],
+    ['0105', 'RX Audio Mix with Sub ON', 'RX', 'DEC', '1', '0', '9', '0', '0', '1', 'L=A,R=B', 'L=AB,R=AB', 'L=A,R=-A', 'L=A,R=AB', 'L=AB,R=B', 'L=AB,R=A', 'L=B,R=AB', 'L=B,R=B', 'L=B,R=A', 'L=A,R=A', ''],
+    ['0073', 'RX Auto Attenuation', 'RX', 'BIN', '1', '0', '1', '0', '0', '1', 'OFF', 'ON'],
+    ['0102', 'RX CW IIR Filters (50-200 Hz)', 'RX', 'BIN', '1', '0', '1', '1', '1', '1', 'OFF', 'ON'],
+    ['0097', 'RX Dyn. Range Optimization', 'RX', 'BIN', '1', '0', '1', '1', '1', '1', 'OFF', 'ON'],
+    ['0020', 'RX EQ', 'AUDIO', 'NULL', '0', '0', '0', '0', '0', '0', 'CUSTOM'],
+    ['0033', 'Radio Serial Number', 'SYSTEM', 'SN', '2', '0', '99999', '0', '420', '1'],
+    ['0034', 'Radio Type', 'SYSTEM', 'DEC', '2', '0', '2', '0', '1', '1', 'K4', 'K4D', 'K4HD'],
+    ['0040', 'Reference Freq', 'SYSTEM', 'REF', '1', '122.0', '124.0', '122.88', '122.878722', '0.000001'],
+    ['0080', 'Screen Cap File', 'DISP', 'STR', '0', '0', '0', 'K4SCRNCAP', 'K4SCRNCAP', '0'],
+    ['0068', 'Serial I/O ACC: FSK IN', 'IO', 'NULL', '1', '0', '1', '0', '0', '1', 'OFF', 'FSK'],
+    ['0065', 'Serial RS232: Auto Info', 'IO', 'DEC', '1', '0', '6', '0', '0', '1', 'Nor', 'AUTO1', 'AUTO2', 'AUTO3', 'AUTO4', 'AUTO5', 'AUTO6'],
+    ['0057', 'Serial RS232: Baud Rate', 'TX', 'BAUD', '1', '0', '5', '3', '3', '1', '4800', '9600', '19200', '38400', '57600', '115200'],
+    ['0054', 'Serial RS232: DTR', 'TX', 'DEC', '1', '0', '3', '0', '0', '1', 'NONE', 'CW', 'PTT', 'FSK'],
+    ['0055', 'Serial RS232: RTS', 'TX', 'DEC', '1', '0', '2', '0', '0', '1', 'NONE', 'CW', 'PTT'],
+    ['0056', 'Serial RS232: TXD', 'TX', 'NULL', '1', '0', '3', '0', '0', '1', 'NORM', 'FSK'],
+    ['0066', 'Serial USB-PC1: Auto Info', 'IO', 'DEC', '1', '0', '6', '0', '0', '1', 'Nor', 'AUTO1', 'AUTO2', 'AUTO3', 'AUTO4', 'AUTO5', 'AUTO6'],
+    ['0060', 'Serial USB-PC1: Baud Rate', 'TX', 'BAUD', '1', '0', '5', '3', '3', '1', '4800', '9600', '19200', '38400', '57600', '115200'],
+    ['0058', 'Serial USB-PC1: DTR', 'TX', 'DEC', '1', '0', '3', '0', '0', '1', 'NONE', 'CW', 'PTT', 'FSK'],
+    ['0059', 'Serial USB-PC1: RTS', 'TX', 'DEC', '1', '0', '2', '0', '0', '1', 'NONE', 'CW', 'PTT'],
+    ['0067', 'Serial USB-PC2: Auto Info', 'IO', 'DEC', '1', '0', '6', '0', '0', '1', 'Nor', 'AUTO1', 'AUTO2', 'AUTO3', 'AUTO4', 'AUTO5', 'AUTO6'],
+    ['0063', 'Serial USB-PC2: Baud Rate', 'TX', 'BAUD', '1', '0', '5', '3', '3', '1', '4800', '9600', '19200', '38400', '57600', '115200'],
+    ['0061', 'Serial USB-PC2: DTR', 'TX', 'DEC', '1', '0', '3', '0', '0', '1', 'NONE', 'CW', 'PTT', 'FSK'],
+    ['0062', 'Serial USB-PC2: RTS', 'TX', 'DEC', '1', '0', '2', '0', '0', '1', 'NONE', 'CW', 'PTT'],
+    ['0001', 'Speaker, Internal', 'AUDIO', 'BIN', '0', '0', '1', '1', '1', '1', 'OFF', 'ON'],
+    ['0072', 'Speakers + Phones', 'RX', 'BIN', '0', '0', '1', '0', '1', '1', 'NO', 'YES'],
+    ['0083', 'Speakers, External', 'RX', 'BIN', '0', '0', '1', '0', '0', '1', '1', '2'],
+    ['0092', 'Spectrum Amplitude Units', 'DISP', 'BIN', '0', '0', '1', '0', '1', '1', 'dBm', 'S-UNITS'],
+    ['0090', 'Spectrum Freq. Marks', 'DISP', 'BIN', '0', '0', '1', '1', '1', '1', 'OFF', 'LINES'],
+    ['0030', 'Spectrum Trace Fill', 'DISP', 'DEC', '0', '0', '2', '0', '0', '1', 'OFF', 'GRAY', 'GOLD'],
+    ['0069', 'TUNE LP (Low power TUNE)', 'TX', 'DEC', '1', '1', '50', '5', '5', '1'],
+    ['0014', 'TX 2-Tone Generator', 'TX', 'BIN', '1', '0', '1', '0', '0', '1', 'OFF', 'ON'],
+    ['0002', 'TX ALC', 'TX', 'BIN', '1', '0', '1', '1', '1', '1', 'OFF', 'ON'],
+    ['0108', 'TX Audio LF Cutoff  SSB', 'TX', 'BIN', '1', '0', '1', '0', '1', '1', '200 Hz', '100 Hz'],
+    ['0052', 'TX DLY, Key Out to RF Out', 'TX', 'ms', '1', '5', '25', '8', '8', '1'],
+    ['0051', 'TX DLY, PTT In to Key Out', 'TX', 'NULL', '1', '0', '1', '1', '1', '1', '5ms (K3 EMU)', '0ms (NORM)'],
+    ['0110', 'TX DLY, Unkey to Receive', 'TX', 'ms', '1', '0', '60', '0', '0', '1'],
+    ['0019', 'TX EQ', 'AUDIO', 'NULL', '0', '0', '0', '0', '0', '0', 'CUSTOM'],
+    ['0028', 'TX Gain Cal', 'TX', 'DEC', '1', '0', '3000', '200', '365', '1'],
+    ['0015', 'TX Gain Cal via TUNE', 'TX', 'BIN', '1', '0', '1', '0', '0', '1', 'OFF', 'ON'],
+    ['0053', 'TX Inhibit Mode', 'TX', 'DEC', '1', '0', '2', '0', '0', '1', 'OFF', 'LO=Inhibit', 'HI=Inhibit'],
+    ['0029', 'TX LPA Bias', 'TX', 'NULL', '1', '0', '255', '0', '0', '1'],
+    ['0101', 'TX Monitor Level, Line Out', 'TX', 'ZMON', '1', '0', '50', '1', '1', '1'],
+    ['0114', 'TX Monitor Level, Remote', 'TX', 'ZMON', '1', '0', '60', '1', '1', '1'],
+    ['0112', 'TX Monitor Method, Voice', 'TX', 'BIN', '1', '0', '1', '0', '0', '1', 'Normal', 'Fast'],
+    ['0103', 'TX Noise Gate Threshold', 'TX', 'ZOFF', '1', '0', '25', '0', '0', '1'],
+    ['0111', 'TX QSK Method', 'TX', 'BIN', '1', '1', '3', '1', '1', '1'],
+    ['0041', 'VFO B Different Band', 'KRAD', 'BIN', '1', '0', '1', '0', '0', '1', 'NO', 'YES'],
+    ['0045', 'VFO Coarse Tuning', 'CTRLS', 'VFOCRS', '1', '0', '3', '0', '0', '1'],
+    ['0038', 'VFO Counts per Turn', 'CTRLS', 'DEC', '1', '0', '2', '1', '1', '1', '100', '200', '400'],
+    ['0021', 'VOX Gain', 'AUDIO', 'NULL', '1', '0', '30', '20', '20', '1'],
+    ['0022', 'VOX Inhibit', 'AUDIO', 'NULL', '1', '0', '60', '30', '30', '1'],
+    ['0027', 'Wattmeter Cal', 'TX', 'DEC', '1', '480', '511', '500', '491', '1'],
+    ['0086', 'XVTR Band # Select', 'XV', 'DEC', '0', '1', '12', '1', '1', '1'],
+    ['0078', 'XVTR Band <n> I.F.', 'XV', 'MHz', '1', '0', '53', '28', '28', '1'],
+    ['0076', 'XVTR Band <n> Mode', 'XV', 'XVTR', '1', '0', '1', '0', '0', '1', 'OFF', 'External'],
+    ['0079', 'XVTR Band <n> Offset', 'XV', 'Hz', '1', '-99999', '99999', '0', '0', '1'],
+    ['0098', 'XVTR Band <n> Power Out', 'XV', 'D10mW', '1', '0', '50', '10', '10', '1'],
+    ['0077', 'XVTR Band <n> R.F.', 'XV', 'MHz', '1', '0', '99999', '144', '144', '1'],
+    ['0075', 'XVTR OUT Test', 'XV', 'BIN', '1', '0', '1', '0', '0', '1', 'OFF', 'ON'],
+    ]
+
+class Menu():
+    definitions = []
+
+    def __init__(self, key, desc, area, typ, locked, low, high, default, current, increment, values=None):
+        self.key = key
+        self.desc = desc
+        self.area = area
+        self.typ = typ
+        self.locked = locked
+        self.low = low
+        self.high = high
+        self.default = default
+        self.current = current
+        self.increment = increment
+        self.values = values
+
+    def print(self):
+        print('key', self.key)
+        print('desc', self.desc)
+        print('area', self.area)
+        print('typ', self.typ)
+        print('locked', self.locked)
+        print('low', self.low)
+        print('high', self.high)
+        print('default', self.default)
+        print('current', self.current)
+        print('increment', self.increment)
+        print('values', self.values)
+        print()
+
+for d in definitions:
+    md = Menu(*d[0:10])
+    if len(d) > 10:
+        md.values = d[10:]
+
+    md.print()
+             
+    Menu.definitions.append(md)
+
+# vim: set expandtab ts=4 sw=4: = # vim: set expandtab ts=4 sw=4:

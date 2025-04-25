@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+
+import os
+import re
+import subprocess
+
+from subprocess import PIPE, STDOUT, DEVNULL
+
+versions = {}
+
+def run(*args, **kwargs):
+    if not 'stdout' in kwargs:
+        kwargs['stdout'] = PIPE
+
+    if not 'stderr' in kwargs:
+        kwargs['stderr'] = PIPE
+
+    if not 'text' in kwargs:
+        kwargs['text'] = True
+
+    result = subprocess.run(*args, **kwargs)
+    cmd = ' '.join(args[0])
+
+    if kwargs['stdout'] == PIPE and len(result.stdout) != 0:
+        print(cmd)
+        print(result.stdout)
+
+    if kwargs['stderr'] == PIPE and len(result.stderr) != 0:
+        print(cmd)
+        print(result.stderr)
+        if not stderr_ok:
+            raise Exception(cmd + ' had stderr output')
+
+    rc = result.returncode
+    if rc != 0:
+        raise Exception(cmd + ' returned ' + str(rc))
+
+def run_output(*args, **kwargs):
+    if not 'stderr' in kwargs:
+        kwargs['stderr'] = PIPE
+
+    if not 'text' in kwargs:
+        kwargs['text'] = True
+
+    result = subprocess.run(*args, **kwargs, stdout=PIPE)
+    cmd = ' '.join(args[0])
+
+    if kwargs['stderr'] == PIPE and len(result.stderr) != 0:
+        print(cmd)
+        print(result.stderr)
+        raise Exception(cmd + ' had stderr output')
+
+    rc = result.returncode
+    if rc != 0:
+        raise Exception(cmd + ' returned ' + str(rc))
+
+    return result.stdout
+
+def popen(*args, **kwargs):
+    if not 'text' in kwargs:
+        kwargs['text'] = True
+
+    subprocess.popen(*args, **kwargs)
+
+def get_version(filename):
+    with open(filename) as stream:
+        linecounter = 1
+        while True:
+            try:
+                line = stream.readline()
+            except:
+                print('{name}:{linecount} error reading line'.format(name=filename, linecount=linecounter))
+                raise
+            if line == '':
+                break
+            if 'search' in line:
+                continue
+
+            match = re.search('version = "([^"]*)"', line)
+            if match:
+                return match[1]
+            linecounter += 1
+    return None
+
+def update_version(filename, version):
+    tmpfilename = filename + '.tmp'
+    with open(filename) as streamin:
+        with open(tmpfilename, 'w') as streamout:
+            while True:
+                line = streamin.readline()
+                if line == '':
+                    break
+                match = re.search('^(.*version = ")([^"]*)(".*)$', line)
+                if match:
+                    line = match[1] + version + match[3] + "\n"
+                streamout.write(line)
+    os.rename(tmpfilename, filename)
+
+def increment_version(version):
+    match = re.search('^([^.]*).([^.]*).([^.]*)$', version)
+    major = int(match[1])
+    inter = int(match[2])
+    minor = int(match[3])
+
+    minor += 1
+    if minor > 40:
+        minor = 0
+        inter += 1
+        if inter > 40:
+            inter = 0
+            major += 1
+
+    version = '{major:d}.{inter:d}.{minor:d}'.format(major=major, inter=inter, minor=minor)
+    return version
+
+def update_files():
+    for file in get_filenames():
+        version = get_version(file)
+        if version != None:
+            versions[file] = get_version(file)
+
+    files = list(versions.keys())
+    version = None
+    
+    for file in files:
+        if version == None:
+            version = versions[file]
+        elif versions[file] != version:
+            raise Exception("version mismatch", versions)
+
+    if version == None:
+        return None
+
+    new_version = increment_version(version)
+
+    for file in files:
+        update_version(file, new_version)
+
+    return new_version
+
+def git_clean():
+    stdout = run_output(['git',  'status', '--porcelain=1', '--untracked-files=no'])
+    return len(stdout) == 0
+
+def get_filenames():
+    names = run_output(['git',  'ls-tree', '-r', 'main', '--name-only']).rstrip("\n").split("\n")
+    filtered = []
+    for name in names:
+        fileinfo = run_output(['file', '-b', name])
+        if 'ASCII' in fileinfo:
+            filtered.append(name)
+    return filtered
+
+def current_commit_tagged():
+    oneline = run_output(['git',  'log', '--oneline', '--decorate=short', 'HEAD^..'])
+    return oneline.find('tag:') >= 0
+
+def current_branch():
+    branches = run_output(['git',  'branch', '--list']).rstrip("\n").split("\n")
+    for branch in branches:
+        if branch.startswith('* '):
+            branch = branch[2:]
+            return branch
+    return None
+
+def main():
+    branch = current_branch()
+    if branch != 'main':
+        print('On branch "{b}", do: git checkout main'.format(b=branch))
+        return
+
+    if not git_clean():
+        run(['git',  'status', '--untracked-files=no'])
+        return
+
+    already_tagged = current_commit_tagged()
+
+    run(['git', 'fetch'], stderr=STDOUT)
+    run(['git', 'rebase', 'origin/main'], stderr=STDOUT)
+
+    if already_tagged:
+        print('Current commit already tagged.\n')
+        run(['git', '--no-pager', 'log', 'HEAD^..'])
+        return
+
+    version = update_files()
+    if version == None:
+        return
+    version = 'v' + version
+
+    with open('changelog', 'w') as changelog:
+        run(['tools/generateChangelog', version], stdout=changelog)
+    run(['git', 'add', 'changelog'])
+    run(['git', 'commit', '-m', 'Update changelog for ' + version])
+
+    run(['git', 'commit', '-a', '-m', 'Version '+ version])
+    run(['git', 'tag', '-a', '-m', version, version])
+
+    run(['git', 'show', '--name-only'])
+
+main()
+
+# vim: set expandtab ts=4 sw=4:

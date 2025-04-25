@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+
+# K4 Macro program written in Python 3. It creates a set of buttons
+# to send macros to the K4.  These can be simple or complex. It was
+# inspired by K4 Macromaster, but in no way duplicates all the functions
+# This script is a modified version of one provided by Charles, NK8O,
+# It is provided without any guarantee, implied or otherwise.
+#
+# New buttons/macros can easily be added.
+
+import socket
+import tkinter as tk 
+
+K4_address = 'k4'
+K4_addr_port = (K4_address, 9200)
+k4 = K4_addr_port
+
+top = tk.Tk()
+#top.overrideredirect(1)
+top.title('K4 CW macros')
+top.geometry('400x350')
+frame = tk.Frame(top)
+frame.pack()
+
+columns = 4
+
+def write(cmd):
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # Connect>
+    try:
+        client_socket.connect(K4_addr_port)
+        client_socket.sendall(cmd.encode())
+    except socket.gaierror:
+        print("address '%s' not found" % server_address)
+    except OSError:
+        print('failed to connect to server')
+    finally:
+        client_socket.close()
+
+def next_row_col():
+    try:
+        next_row_col.column += 1
+        if next_row_col.column >= columns:
+            next_row_col.column = 0
+            next_row_col.row += 1
+    except:
+        next_row_col.row = 0
+        next_row_col.column = 0
+    finally:
+        return next_row_col.row, next_row_col.column
+
+def printInput():
+    inp = inputtxt.get(1.0, "end-1c")
+    lbl.config(text = "Text to be transmitted with KY command: "+inp)
+
+# Textbox Creation
+inputtxt=tk.Text(top, height = 5, width = 40)
+#
+inputtxt.pack()
+printButton = tk.Button (top, text = "Send", command = printInput,  bg='yellow')
+printButton.pack()
+# Label Creation
+lbl = tk.Label(top, text = "")
+lbl.pack()
+
+# text = button text
+# cmd = text string to be sent to k4 (special value "quit" terminates the program instead
+# fg = foreground color (default: black)
+# bg = background color (default: maroon1)
+# abg = active background color (default: yellow)
+def button(text='', cmd='', fg='black', bg='beige', abg='yellow'):
+    if text == '':
+        raise Exception('no text specified in call to button()')
+    if cmd == '':
+        raise Exception('no cmd specified in call to button()')
+
+    if cmd == 'quit':
+        command = quit
+    else:
+        command = lambda: write(cmd)
+
+    button = tk.Button(frame,
+                bd='2',    
+                text=text, relief='raised',
+                fg=fg,
+                bg=bg,
+                activebackground=abg,
+                width='7',
+                command=command)
+
+    row, column = next_row_col()
+
+    button.grid(row=row, column=column, padx=2, pady=2)
+
+# text = button text
+# cmd = text string to be sent to k4 (special value "quit" terminates the program instead
+# fg = foreground color (default: black)
+# bg = background color (default: maroon1)
+# abg = active background color (default: yellow)
+button(text='NK8O',         cmd='KY NK8O;',      abg='yellow',bg='#E3CF57') 
+button(text='599 P',        cmd='KY 5NN KS BK;', abg='yellow',bg='#E3CF57')
+button(text='559 P',        cmd='KY 559 KS BK;', abg='yellow',bg='#E3CF57')
+button(text='539 P',        cmd='KY 539 KS BK;', abg='yellow',bg='#E3CF57')
+button(text='TU',           cmd='KY TU;',        abg='yellow',bg='#E3CF57')
+button(text='73',           cmd='KY 73;',        abg='yellow',bg='#E3CF57')
+button(text='44',           cmd='KY 44;',        abg='yellow',bg='#E3CF57')
+button(text='Name',         cmd='KY OP CHAS;',   abg='yellow',bg='#E3CF57')
+button(text='599 DX',       cmd='KY 5NN;',       abg='green', bg='#CAFF70')
+button(text='reserved',     cmd='/0002',         abg='red',   bg='#CAFF70')
+button(text='reserved',     cmd='/0002',         abg='red',   bg='#CAFF70')
+button(text='reserved',     cmd='/000',          abg='red',   bg='#CAFF70')
+button(text='reserved',     cmd='/000',          abg='green')
+button(text='reserved',     cmd='/0004',         abg='green')
+button(text='reserved',     cmd='/0',            abg='green')
+button(text='reserved',     cmd='/0' ,           abg='green')
+button(text='CQ CWT',       cmd='KY CQ CWT NK8O;', abg='red')
+button(text='CQT info',     cmd='KY CHAS 3434;',  abg='red')
+button(text='reserved',     cmd='KY 73;',        abg='red')
+button(text='Exit',         cmd='quit', bg='white',         abg='red')
+
+top.mainloop()
