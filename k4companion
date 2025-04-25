@@ -114,7 +114,7 @@ class Server():
     payload_type_minipan = 3
     cat_version_number = 0
     cat_sequence_number = 0
-    control_k4_audio_cmd_bases = { 'AG', 'AG$', 'MG' }
+    control_k4_audio_cmd_bases = ( 'AG', 'AG$', 'MG' )
     audio_version_number = 1
 
     k4_get_cmd_bases = [         # For future use
@@ -299,13 +299,14 @@ class Server():
         '#P': ['#PKM'],
         '#R': ['#REF'],
         'RR': ['RRT', 'RRC', 'RRP'],
-        'SD': ['SD0C', 'SD1C','SD0V', 'SD1V','SD0D', 'SD1D', 'SDC', 'SDV'],           # Differentiate between the cmd variants
+        'SD': ['SD0', 'SD1', 'SDC', 'SDV', 'SDD'],           # Differentiate between the cmd variants
         'SI': ['SIDA', 'SIDD', 'SIDU', 'SIFP', 'SIRF', 'SIRC'],         # SIDU is first after param dump
         'SM': ['SMH'],
         '#S': ['#SCL', '#SFL', '#SPM', '#SPN'],
         'SW': ['SWT', 'SWH'],
         'UP': ['UPB'],
         'VG': ['VGV', 'VGD'],
+        'VX': ['VXV', 'VXC'],
         '#V': ['#VFA', '#VFB'],
         '#W': ['#WBS', '#WFC', '#WFH'],
         'XV': ['XVN', 'XVM', 'XVR', 'XVI', 'XVO', 'XVP '],
@@ -464,7 +465,7 @@ class Server():
         Server.server_dict[self.name] = self
 
         self.subscribe_response('ER;', self.on_error_code, send=False)
-        self.subscribe_response('SIDU', self.on_received_initial_parameters)
+        self.subscribe_response('SIDU', self.on_received_initial_parameters, send=False)
         self.subscribe_connect(self.on_server_connect)
 
     def on_server_connect(self):
@@ -487,14 +488,13 @@ class Server():
             self.connect_callbacks.append(callback)
 
     def update_k4_parameter(self, base, parameter):
-        if base in ('TX', 'RX', 'SD0C', 'SD1C','SD0V', 'SD1V','SD0D', 'SD1D', 'ES'):
+        if base in ('TX', 'RX', 'SD0', 'SD1', 'ES'):
             if base == 'TX':
                 self.k4_parameters['RX'] = None
             elif base == 'RX':
                 self.k4_parameters['TX'] = None
-            elif base in ('SD0C', 'SD1C','SD0V', 'SD1V','SD0D', 'SD1D'):   # Differentiate between the variants
-                parameter = base[2] + parameter
-                base = base[0:2] + base[3]
+            elif base in ('SD0', 'SD1'):   # Differentiate between the variants
+                base, parameter = base[0:2] + parameter[0], base[2] + parameter[1:]
             elif base == 'ES':
                 if parameter[0] == '0':
                     self.update_k4_parameter('ES0', parameter[1:])
@@ -708,12 +708,16 @@ class Server():
             if base[-1] == '!':
                 self.directive(base, cmd)
                 continue
-            if base == 'SB':
-                Audio.control_k4_cmd(base, cmd)
-            if base in Server.control_k4_audio_cmd_bases:
-                Audio.control_k4_cmd(base, cmd)
-                if not self.cat_only and not self.control_k4_audio:
-                    continue
+            if base in ('SDC', 'SDV', 'SDD', 'SB') + Server.control_k4_audio_cmd_bases:
+                if base in ('SDC', 'SDV', 'SDD'):
+                    cmd = cmd[0:2] + cmd[3] + cmd[2] + cmd[4:]
+                    base = cmd[0:3]
+                elif base == 'SB':
+                    Audio.control_k4_cmd(base, cmd)
+                elif base in Server.control_k4_audio_cmd_bases:
+                    Audio.control_k4_cmd(base, cmd)
+                    if not self.cat_only and not self.control_k4_audio:
+                        continue
             if self.warn_if_not_connected():
                 return
             if Server.k4_set_only_cmd(base, cmd) or self.update_k4_parameter(base, cmd[len(base):]):
@@ -990,6 +994,8 @@ class Server():
             parameter = self.k4_parameters.get(base, None)
             if parameter != None:
                 callback(base + parameter + ';')
+            elif self.connected and base not in ('TX', 'RX'):
+                self.send_str(cmd_get_format(cmd))
 
     def unsubscribe_response(self, cmd, callback):
         base = cmd_base(cmd)
@@ -1488,6 +1494,9 @@ class Togglebutton(Widget):
 
         self.button.grid(row=0, column=0, sticky='w')
 
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
+    def on_received_initial_parameters(self, response):
         for selection in self.selections:
             response = selection['response']
             if response != None:
@@ -1937,6 +1946,9 @@ class Slider(Widget):
 
         self.value_var.trace('w', self.value_changed)
 
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
+    def on_received_initial_parameters(self, response):
         cmd = self.eval_value(self.evalcmd, self.value_var.get())
         if cmd != "":
             self.server.subscribe_response(cmd, self.on_response_received)
@@ -1996,6 +2008,9 @@ class Getvalue(Widget):
 
         self.label.grid(row=0, column=0, sticky='w')
 
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
+    def on_received_initial_parameters(self, response):
         self.server.subscribe_response(response, self.on_response_received)
 
     def on_response_received(self, response):
@@ -2078,12 +2093,15 @@ class Bargraph(Widget):
             self.bottom_label.grid(row=0, column=0, sticky='w')
         self.bottom_frame.grid(row=1, column=0, sticky='w')
 
-        self.server.subscribe_response(self.response, self.on_response_received)
         self.server.subscribe_connect(self.on_server_connect)
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def on_server_connect(self):
         self.frame.bind('<Visibility>', self.configure)
         self.server.expand_and_send_cmds(self.cmd)
+
+    def on_received_initial_parameters(self, response):
+        self.server.subscribe_response(self.response, self.on_response_received)
 
     def on_response_received(self, response):
         value = int(self.eval_value(self.evalresponse, response))
@@ -2269,6 +2287,9 @@ class Dropdownbutton(Widget):
 
         self.combobox.grid(row=0, column=0, sticky='e')
 
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
+    def on_received_initial_parameters(self, response):
         for selection in self.selections:
             self.server.subscribe_responses(selection['response'], self.on_response_received)
 

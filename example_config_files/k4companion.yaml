@@ -92,8 +92,6 @@
     #include compression-level-slider
     #include mic-gain-slider
     #include voice-monitor-level-slider
-    #include qsk-group
-    #include vox-group
     #include ctcss-group
   #}
 #end
@@ -102,6 +100,8 @@
 - item: group
   contains: #{
     #include rit-xit-group
+    #include qsk-group
+    #include vox-group
   #}
 #end
 
@@ -1409,30 +1409,47 @@
   columns: 1
   contains: #{
     #include qsk-togglebutton
+    #include qsk-delay-group
+  #}
+#end
+
+#define qsk-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: VXC1; } 
+    - { text: "Off", cmd: VXC0; } 
+  #}
+#end
+
+#define qsk-delay-group
+- item: group
+  label: Delay
+  columns: 1
+  contains: #{
+    #include qsk-delay-togglebutton
     #include qsk-delay-slider
   #}
 #end
 
 # Note that k4parm swaps characters 2 and 3 from the actual commands/responses
-#define qsk-togglebutton
+#define qsk-delay-togglebutton
 - item: togglebutton
   selections: #{
-    - { text: "On",  cmd: SDC1;, evalcmd: '"" if self.k4param("SDC") == None else "SD1C{d:03s};".format(d=self.k4param("SDC")[1:4])', evalresponse: '"SDC"+self.k4param("SDC")[0]+";"' } 
-    - { text: "Off", cmd: SDC0;, evalcmd: '"" if self.k4param("SDC") == None else "SD0C{d:03s};".format(d=self.k4param("SDC")[1:4])', evalresponse: '"SDC"+self.k4param("SDC")[0]+";"' } 
+    - { text: "On",  cmd: SDC1;, evalcmd: '"SDC1{d:03s};".format(d=self.k4param("SDC")[1:4])', evalresponse: '"SDC"+self.k4param("SDC")[0]+";"' } 
+    - { text: "Off", cmd: SDC0;, evalcmd: '"SDC0{d:03s};".format(d=self.k4param("SDC")[1:4])', evalresponse: '"SDC"+self.k4param("SDC")[0]+";"' } 
   #}
 #end
 
 # Note that k4parm swaps characters 2 and 3 from the actual commands/responses
 #define qsk-delay-slider
 - item: slider
-  label: Delay
   orient: vertical
   from: 2.55
   to: 0
   length: 150
   evalincrement: "-.01"
-  evalcmd: '"" if self.k4param("SDC") == None else "SD{f}C{d:03d};".format(f=self.k4param("SDC")[0], d=int(float(value)*100))'
-  evalresponse: 'float(value[3:6])/100'
+  evalcmd: '"" if self.k4param("SDC") == None else "SDC{f}{d:03d};".format(f=self.k4param("SDC")[0], d=int(float(value)*100))'
+  evalresponse: 'float(value[4:7])/100'
 #end
 
 #define vox-group
@@ -1448,32 +1465,49 @@
 #define vox-slider-group
 - item: group
   contains: #{
-    #include vox-delay-slider
+    #include vox-delay-group
     #include vox-gain-slider
     #include vox-anti-slider
   #}
 #end
 
-# Note that k4parm swaps characters 2 and 3 from the actual commands/responses
 #define vox-togglebutton
 - item: togglebutton
   selections: #{
-    - { text: "On",  cmd: SDV1;, evalcmd: '"" if self.k4param("SDV") == None else "SD1V{d:03s};".format(d=self.k4param("SDV")[1:4])', evalresponse: '"SDV"+self.k4param("SDV")[0]+";"' } 
-    - { text: "Off", cmd: SDV0;, evalcmd: '"" if self.k4param("SDV") == None else "SD0V{d:03s};".format(d=self.k4param("SDV")[1:4])', evalresponse: '"SDV"+self.k4param("SDV")[0]+";"' } 
+    - { text: "On",  cmd: VXV1; } 
+    - { text: "Off", cmd: VXV0; } 
+  #}
+#end
+
+#define vox-delay-group
+- item: group
+  label: Delay
+  columns: 1
+  contains: #{
+    #include vox-delay-togglebutton
+    #include vox-delay-slider
+  #}
+#end
+
+# Note that k4parm swaps characters 2 and 3 from the actual commands/responses
+#define vox-delay-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: SDV1;, evalcmd: '"SDV1{d:03s};".format(d=self.k4param("SDV")[1:4])', evalresponse: '"SDV"+self.k4param("SDV")[0]+";"' } 
+    - { text: "Off", cmd: SDV0;, evalcmd: '"SDV0{d:03s};".format(d=self.k4param("SDV")[1:4])', evalresponse: '"SDV"+self.k4param("SDV")[0]+";"' } 
   #}
 #end
 
 # Note that k4parm swaps characters 2 and 3 from the actual commands/responses
 #define vox-delay-slider
 - item: slider
-  label: Delay
   orient: vertical
   from: 2.55
   to: 0
   length: 150
   evalincrement: "-.01"
-  evalcmd: '"" if self.k4param("SDV") == None else "SD{f}V{d:03d};".format(f=self.k4param("SDV")[0], d=int(float(value)*100))'
-  evalresponse: 'float(value[3:6])/100'
+  evalcmd: '"SDV{f}{d:03d};".format(f=self.k4param("SDV")[0], d=int(float(value)*100))'
+  evalresponse: 'float(value[4:7])/100'
 #end
 
 #define vox-gain-slider
