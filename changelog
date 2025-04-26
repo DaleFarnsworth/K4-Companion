@@ -1,4 +1,22 @@
+v1.2.6:
+    Handle a PC response in K3 legacy mode format
+       Apparently sometimes the K4 returns a PC response in legacy mode format.
+       I don't think this is supposed to happen because the first command we
+       send to the K4 is "K41;", which requests that all responses be in K4
+       mode format. So, this appears to be a minor K4 bug. We'll essentially
+       ignore PC responses in the older format.
+   
+    update Windows installer to version 1.2.5
+
+    add Windows executable version 1.2.5
+
+    K4 Companion User Manual updated 2025-04-25
+
+    nk8o_k4companion.yaml: Update to latest changes
+
 v1.2.5:
+    Update changelog for v1.2.5
+
     Redo the equalizers tab
        The equalizer interface was much more complicated than it needed
        to be. Now, you select a set of equalizers for all the modes.
