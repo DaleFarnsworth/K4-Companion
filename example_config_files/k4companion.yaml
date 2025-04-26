@@ -288,7 +288,7 @@
 #define rf-out-bargraph
 - item: bargraph
   label: Power out
-  evalmaximum: "11.7 if self.k4param('PC')[3] == 'L' else 117"
+  evalmaximum: "0 if self.len_k4param('PC') < 4 else 11.7 if self.k4param('PC')[3] == 'L' else 117"
   lengthpercent: 100
   cmd: TM1;PC;
   font: { family: DejaVu Sans Mono, size: 6, weight: normal }
