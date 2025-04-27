@@ -29,7 +29,6 @@
   type: k4
   address: K4-SNxxxxx.local      # match your serial number in the string
   port: 9205
-  startup: TS1;                   # Set test mode
   connect_on_start: True
 
 - item: page
@@ -118,7 +117,7 @@
   tabname: App
   contains: #{
     #include app-settings
-    #include app-version
+    #include app-column1
   #}
 #end
 
@@ -223,6 +222,16 @@
   selectbg: pink
 #end
 
+#define app-column1
+- item: group
+  columns: 1
+  contains: #{
+    #include app-version
+    #include startup-cmds
+    #include exit-cmds
+  #}
+#end
+
 #define app-settings
 - item: appsettings
   selectbg: pink
@@ -232,6 +241,16 @@
 - item: text
   label: k4companion
   evaltext: '"Version: " + version'
+#end
+
+#define startup-cmds
+- item: startup_cmds
+  label: Startup Commands
+#end
+
+#define exit-cmds
+- item: exit_cmds
+  label: Exit Commands
 #end
 
 #define receiver-a-group
@@ -1560,7 +1579,6 @@
 #     k4 is required for k4 servers to receive responses
 #   address: The ip address of the server
 #   port: The port to connect to
-#   startup: command(s) to be sent to the server on startup.
 #   connect_on_start: if false, do not connect to the server automatically
 
 # page options:

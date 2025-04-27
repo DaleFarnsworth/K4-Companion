@@ -428,12 +428,13 @@ class Server():
 
     def __init__(self, config_info):
         required = ['item', 'name', 'address', 'port']
-        options = ['type', 'startup', 'connect_on_start', 'button_font']
+        options = ['type', 'connect_on_start', 'button_font']
         validate_config_options(config_info, required, options)
 
         self.name = config_info['name']
         self.type = config_info.get('type', '').lower()
-        self.startup = config_info.get('startup', None)
+        self.startup_cmds = ''
+        self.exit_cmds = ''
         self.address = config_info['address']
         self.port = config_info['port']
         self.proxy_address = ''
@@ -457,6 +458,7 @@ class Server():
         self.received_initial_parameters = False
         self.received_initial_parameters_callbacks = []
         self.cat_only = False
+        self.printed_connection_warning = False
 
         self.ignored_errors = {}
 
@@ -614,8 +616,8 @@ class Server():
         self.send_str('ER1;')                # request long format error messages
         self.send_cmds('MD;MD$;')            # cache the mode response for later use in setting the vfo step
 
-        if self.startup != None:
-            self.send_cmds(self.startup)     # send user-specified startup commands
+        if self.startup_cmds != '':
+            self.send_cmds(self.startup_cmds)# send user-specified startup commands
 
         self.send_str('RDY;')
 
@@ -651,6 +653,18 @@ class Server():
             self.send_thread.join()
         if self.recv_thread != None:
             self.recv_thread.join()
+
+    def exit(self):
+        if self.connected:
+            if self.type == 'k4' and self.exit_cmds != '':
+                self.send_cmds(self.exit_cmds)
+            self.send_cmds('PING;')
+
+            # wait for commands to be sent
+            while not self.send_queue.empty():
+                time.sleep(.01)
+
+        self.close()
 
     def send_str(self, cmd, force_as_string=False):
         if self.cat_only or force_as_string:
@@ -688,7 +702,7 @@ class Server():
         if lcmd == 'connect!':
             self.connect()
         elif lcmd == 'quit!' or lcmd == 'exit!':
-            clean_up_and_exit()
+            exit()
         elif base.lower() == 'show!':
             page = lcmd[len(base):].strip()
             if page == 'previous':
@@ -1243,19 +1257,24 @@ class Container(Widget):
             elif widget_type == 'bargraph':
                 child = Bargraph(config_info, self)
             elif widget_type == 'text':
-               child = Text(config_info, self)
+                child = Text(config_info, self)
             elif widget_type == 'notebook':
-               child = Notebook(config_info, self)
+                child = Notebook(config_info, self)
             elif widget_type == 'dropdownbutton':
-               child = Dropdownbutton(config_info, self)
+                child = Dropdownbutton(config_info, self)
             elif widget_type == 'equalizers':
                child = Equalizers(config_info, self)
             elif widget_type == 'menu':
-               child = Menu(config_info, self)
+                child = Menu(config_info, self)
             elif widget_type == 'appsettings':
-               child = Settings_widget(config_info, self)
+                child = Settings_widget(config_info, self)
             elif widget_type == 'fwversions':
-               child = FWversions(config_info, self)
+                child = FWversions(config_info, self)
+            elif widget_type == 'startup_cmds':
+                child = Startup_cmds(config_info, self)
+            elif widget_type == 'exit_cmds':
+                child = Exit_cmds(config_info, self)
+
             else:
                 raise Exception('Error: config file: unknown item "{type}"'.format(type=widget_type))
 
@@ -4466,6 +4485,88 @@ class FWversions(Text):
         self.text += version + "\n"
         self.label.configure(text=self.text, height=self.height, width=self.width)
 
+class Entry_Widget():
+    def __init__(self, parent_frame, width=20, bd=2, justify='left', show='', font=Default.label_font, fg=Default.fg, bg=Default.bg):
+        self.var = tk.StringVar()
+        self.entry = tk.Entry(parent_frame, textvariable=self.var, width=width, bd=bd, justify=justify, show=show, font=font, fg=fg, bg=bg)
+
+    def value(self, value=None):
+        if value != None:
+            self.var.set(value)
+            self.entry.width = len(value)
+        return self.var.get()
+
+    def callback(self, callback):
+        self.entry.bind('<Return>', callback)
+        self.entry.bind('<FocusOut>', callback)
+
+    def grid(self, **opts):
+        self.entry.grid(**opts)
+
+    def config(self, **opts):
+        self.entry.config(*opts)
+
+class Entry(Widget):
+    def __init__(self, config_info, container):
+        required = ['item']
+        options = ['width', 'show', 'bd', 'bg', 'fg', 'font', 'justify', 'label', 'leading']
+        validate_config_options(config_info, required, options)
+
+        super().__init__(config_info, container)
+
+        width = config_info.get('width', 20)
+        show = config_info.get('show', '')
+        bd = config_info.get('bd', 2)
+        bg = config_info.get('bg', Default.bg)
+        fg = config_info.get('fg', Default.fg)
+        font = config_info.get('font', Default.label_font)
+        justify = config_info.get('justify', 'left')
+
+        self.entry = Entry_Widget(self.frame, show=show, width=width, bd=bd, bg=bg, fg=fg, font=self.font(), justify=justify)
+
+class Startup_cmds(Entry):
+    def __init__(self, config_info, container):
+        required = ['item']
+        options = ['width', 'show', 'bd', 'bg', 'fg', 'font', 'justify', 'label', 'leading']
+        validate_config_options(config_info, required, options)
+
+        super().__init__(config_info, container)
+
+        self.settings_key = config_info['item']
+        self.entry.callback(self.get_cmds)
+        self.entry.grid(row=0, column=0, sticky='w')
+
+        self.load_settings()
+
+    def get_cmds(self, response):
+        self.cmds = self.entry.value()
+        if self.cmds != '' and not self.cmds.endswith(';'):
+            self.cmds += ';'
+
+        self.save_settings()
+        self.got_cmds()
+
+    def got_cmds(self):
+        self.server.startup_cmds = self.cmds
+
+    def load_settings(self):
+        self.cmds = Settings.get('Elecraft K4', self.settings_key)
+        if self.cmds == None:
+            self.cmds = 'TS1;'
+        self.entry.value(self.cmds)
+        self.got_cmds()
+
+    def save_settings(self):
+        Settings.put_save('Elecraft K4', self.settings_key, self.cmds)
+
+class Exit_cmds(Startup_cmds):
+    def __init__(self, config_info, container):
+        super().__init__(config_info, container)
+        self.entry.grid(row=1, column=0, sticky='w')
+
+    def got_cmds(self):
+        self.server.exit_cmds = self.cmds
+
 # A simple reversable string hash function
 # Not in any way cryptographically secure
 class Reversable_hash():
@@ -4731,8 +4832,13 @@ def clean_up():
     Audio.close()
     Poll.remove_all()
 
-def clean_up_and_exit():
-    clean_up()
+def exit():
+    for server in Server.servers():
+        server.exit()
+
+    Audio.close()
+    Poll.remove_all()
+
     Page.top.quit()
 
 class Popup():
@@ -4994,7 +5100,7 @@ def main():
 
     top = tk.Tk()
     top.title('K4-Companion ' + version)
-    top.protocol("WM_DELETE_WINDOW", clean_up_and_exit)
+    top.protocol("WM_DELETE_WINDOW", exit)
     Page.top = top
 
     start()
