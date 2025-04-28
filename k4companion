@@ -121,7 +121,11 @@ class Server():
         '#A',
         'AC',
         'ACM',
-        'ACN',
+        'ACN1',
+        'ACN2',
+        'ACN3',
+        'ACN4',
+        'ACN5',
         'ACs',
         'ACT',
         'AF',
@@ -282,7 +286,7 @@ class Server():
     ]
     k4_long_cmd_bases = {
         '#A': ['#AR', '#AVG'],
-        'AC': ['ACM', 'ACS', 'ACT', 'ACN'],
+        'AC': ['ACM', 'ACS', 'ACT', 'ACN1', 'ACN2', 'ACN3', 'ACN4', 'ACN5'],
         '#C': ['#CAL', '#CUR'],
         '#D': ['#DPM', '#DSM'],
         'DN': ['DNB'],
@@ -1080,10 +1084,16 @@ class Widget():
     def __init__(self, config_info, container):
         self.config_info = config_info
         self.container = container
-        self.bg = None
-        self.abg = None
-        self.fg = None
-        self.afg = None
+        self.bg = config_info.get('bg', Default.bg)
+        if self.bg == 'None':
+            self.bg = Page.top.cget('bg')
+        self.fg = config_info.get('fg', Default.fg)
+        self.abg = config_info.get('abg', Default.abg)
+        self.afg = config_info.get('afg', Default.afg)
+        if self.afg == None:
+            self.afg = self.fg
+        self.sticky = '' if config_info.get('sticky', None) == 'center' else 'nw'
+        
         self.cached_font = None
         self.cached_button_font = None
         self.cached_label_font = None
@@ -1178,7 +1188,7 @@ class Widget():
                         column=container.column,
                         rowspan=rowspan,
                         columnspan=columnspan,
-                        sticky='nw')
+                        sticky=self.sticky)
 
         if label == None and leading == 0:
             return self.outer_frame
@@ -1201,7 +1211,7 @@ class Widget():
                                        labelanchor='nw',
                                        bd=4,
                                        relief='raised')
-        inner_frame.grid(row=row, column=0, sticky='nw')
+        inner_frame.grid(row=row, column=0, sticky=self.sticky)
 
         return inner_frame
 
@@ -1274,6 +1284,8 @@ class Container(Widget):
                 child = Startup_cmds(config_info, self)
             elif widget_type == 'exit_cmds':
                 child = Exit_cmds(config_info, self)
+            elif widget_type == 'antenna':
+                child = Antenna(config_info, self)
 
             else:
                 raise Exception('Error: config file: unknown item "{type}"'.format(type=widget_type))
@@ -1393,7 +1405,7 @@ class Page(Container):
 class Group(Container):
     def __init__(self, config_info, container):
         required = ['item', 'contains']
-        options = ['columns', 'column', 'columnspan', 'rowspan', 'childwidth',
+        options = ['columns', 'column', 'columnspan', 'rowspan', 'childwidth', 'sticky',
                    'label_font', 'button_font', 'tabname', 'label', 'leading']
         validate_config_options(config_info, required, options)
 
@@ -1415,12 +1427,6 @@ class Button(Widget):
 
         text = str(config_info.get('text', ''))
         cmd = config_info.get('cmd', None)
-        bg = config_info.get('bg', Default.bg)
-        fg = config_info.get('fg', Default.fg)
-        abg = config_info.get('abg', Default.abg)
-        afg = config_info.get('afg', Default.afg)
-        if afg == None:
-            afg = fg
         justify = config_info.get('justify', 'center')
 
         width = container.items_width()
@@ -1435,10 +1441,10 @@ class Button(Widget):
                     width=width,
                     justify=justify,
                     relief='raised',
-                    fg=fg,
-                    bg=bg,
-                    activebackground=abg,
-                    activeforeground=afg,
+                    fg=self.fg,
+                    bg=self.bg,
+                    activebackground=self.abg,
+                    activeforeground=self.afg,
                     padx=2,
                     pady=2,
                     command=command)
@@ -1617,12 +1623,6 @@ class Radiobutton(Widget):
         self.response = config_info.get('response', self.cmd)
         indicator = config_info.get('indicator', 1)
         selectcolor = config_info.get('selectcolor', Default.selectcolor)
-        bg = config_info.get('bg', Default.bg)
-        fg = config_info.get('fg', Default.fg)
-        abg = config_info.get('abg', Default.abg)
-        afg = config_info.get('afg', Default.afg)
-        if afg == None:
-            afg = fg
         self.blink = config_info.get('blink', False)
         self.blink_state = False
         self.group_id = config_info.get('groupid', None)
@@ -1641,10 +1641,10 @@ class Radiobutton(Widget):
                     font=self.font(),
                     width=width,
                     relief='raised',
-                    fg=fg,
-                    bg=bg,
-                    activebackground=abg,
-                    activeforeground=afg,
+                    fg=self.fg,
+                    bg=self.bg,
+                    activebackground=self.abg,
+                    activeforeground=self.afg,
                     padx=2,
                     pady=2,
                     command=self.on_clicked,
@@ -1726,9 +1726,6 @@ class VFO(Widget):
 
         self.AorB = config_info.get('AorB', 'A').upper()
 
-        self.bg = config_info.get('bg', Default.bg)
-        fg = config_info.get('fg', Default.fg)
-        abg = config_info.get('abg', Default.abg)
         step_spinbox = true_values(config_info.get('step_spinbox', 'false'))
         width = config_info.get('width', 0)
         self.active_color = config_info.get('activecolor', self.bg)
@@ -1753,7 +1750,7 @@ class VFO(Widget):
                 justify='right',
                 state='normal',
                 cursor='hand2',
-                fg=fg,
+                fg=self.fg,
                 )
         self.vfo_sb.grid(row=0, column=0, sticky='w')
         self.vfo_sb.bind('<Return>', self.set_frequency)
@@ -1766,10 +1763,10 @@ class VFO(Widget):
                 width=6,
                 justify='right',
                 state='readonly',
-                fg=fg,
+                fg=self.fg,
                 bg=self.bg,
                 readonlybackground=self.bg,
-                activebackground=abg,
+                activebackground=self.abg,
                 )
         self.step_sb.delete(0, 'end')
         self.step_sb.insert(0, '100 Hz')
@@ -1779,7 +1776,7 @@ class VFO(Widget):
         # Define the style for vfo widget
         stylename = str(self) + '.TCombobox'
         style = ttk.Style()
-        style.configure(stylename, background=self.bg, foreground=fg)
+        style.configure(stylename, background=self.bg, foreground=self.fg)
 
         self.step_cb = ttk.Combobox(
                 frame,
@@ -1938,8 +1935,6 @@ class Slider(Widget):
         width = config_info.get('width', 15)
         length = config_info.get('length', 15)
         self.evalincrement = config_info.get('evalincrement', 1.0)
-        bg = config_info.get('bg', Default.bg)
-        fg = config_info.get('fg', Default.fg)
 
         self.value_var = tk.DoubleVar()
         self.value_var.set(0.0)
@@ -1958,8 +1953,8 @@ class Slider(Widget):
                          width=width,
                          length=length,
                          font=self.font(),
-                         bg=bg,
-                         fg=fg,
+                         bg=self.bg,
+                         fg=self.fg,
                          variable=self.value_var)
         self.scale.grid(row=0, column=0, sticky='nw')
 
@@ -2004,12 +1999,6 @@ class Getvalue(Widget):
         cmd = config_info.get('cmd', None)
         response = config_info.get('response', cmd)
         self.evalresponse = config_info.get('evalresponse', cmd)
-        bg = config_info.get('bg', Default.bg)
-        fg = config_info.get('fg', Default.fg)
-        abg = config_info.get('abg', Default.abg)
-        afg = config_info.get('afg', Default.afg)
-        if afg == None:
-            afg = fg
         justify = config_info.get('justify', 'center')
 
         self.server.expand_and_send_cmds(cmd)
@@ -2018,10 +2007,10 @@ class Getvalue(Widget):
                     bd='2',
                     font=sef.font(),
                     justify=justify,
-                    fg=fg,
-                    bg=bg,
-                    activebackground=abg,
-                    activeforeground=afg,
+                    fg=self.fg,
+                    bg=self.bg,
+                    activebackground=self.abg,
+                    activeforeground=self.afg,
                     padx=2,
                     pady=2)
 
@@ -2054,12 +2043,6 @@ class Bargraph(Widget):
         self.evalmaximum = config_info.get('evalmaximum', None)
         self.length = config_info.get('length', 100)
         self.length_percent = config_info.get('lengthpercent', None)
-        bg = config_info.get('bg', Default.bg)
-        fg = config_info.get('fg', Default.fg)
-        abg = config_info.get('abg', Default.abg)
-        afg = config_info.get('afg', Default.afg)
-        if afg == None:
-            afg = fg
 
         self.left_text = config_info.get('lefttext', '')
         self.bottomtext = config_info.get('bottomtext', '')
@@ -2074,10 +2057,10 @@ class Bargraph(Widget):
                 bd=0,
                 font=self.font(),
                 justify='left',
-                fg=fg,
-                bg=bg,
-                activebackground=abg,
-                activeforeground=afg,
+                fg=self.fg,
+                bg=self.bg,
+                activebackground=self.abg,
+                activeforeground=self.afg,
                 padx=0,
                 pady=2)
 
@@ -2102,10 +2085,10 @@ class Bargraph(Widget):
                 bd=0,
                 font=self.font(),
                 justify='left',
-                fg=fg,
-                bg=bg,
-                activebackground=abg,
-                activeforeground=afg,
+                fg=self.fg,
+                bg=self.bg,
+                activebackground=self.abg,
+                activeforeground=self.afg,
                 padx=0,
                 pady=2)
 
@@ -2159,8 +2142,6 @@ class Text(Widget):
 
         text = config_info.get('text', '')
         evaltext = config_info.get('evaltext', None)
-        fg = config_info.get('fg', Default.fg)
-        bg = config_info.get('bg', Default.bg)
         justify = config_info.get('justify', 'center')
 
         if evaltext != None:
@@ -2180,8 +2161,8 @@ class Text(Widget):
                     bd='2',
                     font=self.font(),
                     justify=justify,
-                    fg=fg,
-                    bg=bg,
+                    fg=self.fg,
+                    bg=self.bg,
                     padx=2,
                     pady=2)
 
@@ -2227,14 +2208,8 @@ class Dropdownbutton(Widget):
 
         self.selections = []
 
-        bg = config_info.get('bg', Default.bg)
-        fg = config_info.get('fg', Default.fg)
-        abg = config_info.get('abg', Default.abg)
-        afg = config_info.get('afg', Default.afg)
-        if afg == None:
-            afg = fg
-        self.selectbg = config_info.get('selectbg', bg)
-        self.selectfg = config_info.get('selectfg', fg)
+        self.selectbg = config_info.get('selectbg', self.bg)
+        self.selectfg = config_info.get('selectfg', self.fg)
         justify = config_info.get('justify', 'right')
         height = config_info.get('height', 0)
 
@@ -2286,7 +2261,7 @@ class Dropdownbutton(Widget):
         # Define the style for this dropdown widget
         self.stylename = str(self) + '.TCombobox'
         self.style = ttk.Style()
-        self.style.configure(self.stylename, background=bg, foreground=fg, selectbackground=self.selectbg, selectforeground=self.selectfg)
+        self.style.configure(self.stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg)
 
         self.val = tk.StringVar()
 
@@ -2389,15 +2364,13 @@ class Equalizers(Widget):
         super().__init__(config_info, container)
 
         length = config_info.get('length', 150)
-        self.bg = config_info.get('bg', Default.bg)
-        fg = config_info.get('fg', Default.fg)
         selectbg=config_info.get('selectbg', self.bg)
-        selectfg=config_info.get('selectfg', fg)
+        selectfg=config_info.get('selectfg', self.fg)
 
         # Define the style for equalizer comboboxes
         self.stylename = str(self) + '.TCombobox'
         self.style = ttk.Style()
-        self.style.configure(self.stylename, background=self.bg, foreground=fg, selectbackground=selectbg, selectforeground=selectfg)
+        self.style.configure(self.stylename, background=self.bg, foreground=self.fg, selectbackground=selectbg, selectforeground=selectfg)
 
         self.alternates = ['Main']
         self.trs = ('Receive', 'Transmit')
@@ -2423,7 +2396,7 @@ class Equalizers(Widget):
         active_row0_frame = tk.Frame(active_frame)
         active_row0_frame.grid(row=0, column=0, sticky='w', pady=5)
 
-        self.enabled_checkbutton = tk.Checkbutton(active_row0_frame, text='Disabled', var=self.enabled_var, onvalue=1, offvalue=0, indicatoron=False, fg=fg, bg='red', selectcolor=self.bg, width=len('Disabled'))
+        self.enabled_checkbutton = tk.Checkbutton(active_row0_frame, text='Disabled', var=self.enabled_var, onvalue=1, offvalue=0, indicatoron=False, fg=self.fg, bg='red', selectcolor=self.bg, width=len('Disabled'))
         self.enabled_checkbutton.grid(row=0, column=0, sticky='w', pady=5)
         self.enabled_var.trace('w', self.on_enabled_changed)
 
@@ -2433,8 +2406,7 @@ class Equalizers(Widget):
                     bd='2',
                     font=self.font(),
                     justify='left',
-                    fg=fg,
-#                    bg=self.bg,
+                    fg=self.fg,
                     padx=2,
                     pady=2)
         select_label.grid(row=0, column=1, sticky='w', padx=(30,0))
@@ -2465,7 +2437,7 @@ class Equalizers(Widget):
                     bd='2',
                     font=self.font(),
                     justify='left',
-                    fg=fg,
+                    fg=self.fg,
                     bg=self.bg,
                     padx=2,
                     pady=2)
@@ -2479,7 +2451,7 @@ class Equalizers(Widget):
                     bd='2',
                     font=self.font(),
                     justify='left',
-                    fg=fg,
+                    fg=self.fg,
                     bg=self.bg,
                     padx=2,
                     pady=2)
@@ -2489,7 +2461,7 @@ class Equalizers(Widget):
         vfo_frame.grid(row=2, column=0, columnspan=5, sticky='w', pady=5)
 
         text = 'Receive equalizer follows mode on K4 VFO:'
-        label = tk.Label(vfo_frame, text=text, font=self.font(), width=len(text), justify='right', fg=fg, bg=self.bg, pady=2)
+        label = tk.Label(vfo_frame, text=text, font=self.font(), width=len(text), justify='right', fg=self.fg, bg=self.bg, pady=2)
         label.grid(row=0, column=0, sticky='w')
 
         vfo_combobox = ttk.Combobox(
@@ -2566,20 +2538,20 @@ class Equalizers(Widget):
                     width=8,
                     justify='center',
                     relief='raised',
-                    fg=fg,
+                    fg=self.fg,
                     bg=self.bg,
                     activebackground=self.bg,
-                    activeforeground=fg,
+                    activeforeground=self.fg,
                     padx=2,
                     pady=2,
                     command=self.on_set_flat)
         flat_button.grid(row=2, column=0, sticky='w', pady=5)
 
-        label = tk.Label(column0_frame, text='Add:', bd='2', font=self.font(), justify='center', fg=fg, bg=self.bg, padx=2, pady=2)
+        label = tk.Label(column0_frame, text='Add:', bd='2', font=self.font(), justify='center', fg=self.fg, bg=self.bg, padx=2, pady=2)
         label.grid(row=3, column=0, sticky='w')
 
         self.add_var = tk.StringVar()
-        add_entry = tk.Entry(column0_frame, textvariable=self.add_var, width=width, justify='left', font=self.font(), fg=fg, bg=self.bg)
+        add_entry = tk.Entry(column0_frame, textvariable=self.add_var, width=width, justify='left', font=self.font(), fg=self.fg, bg=self.bg)
         add_entry.grid(row=4, column=0, sticky='w')
         add_entry.bind('<Return>', self.on_add_alt)
 
@@ -2591,10 +2563,10 @@ class Equalizers(Widget):
                     width=0,
                     justify='center',
                     relief='raised',
-                    fg=fg,
+                    fg=self.fg,
                     bg=self.bg,
                     activebackground=self.bg,
-                    activeforeground=fg,
+                    activeforeground=self.fg,
                     padx=2,
                     pady=2,
                     command=self.on_remove_alt)
@@ -2616,7 +2588,7 @@ class Equalizers(Widget):
                              length=length,
                              font=self.font(),
                              bg=self.bg,
-                             fg=fg,
+                             fg=self.fg,
                              variable=value)
             scale.grid(row=0, column=i+1, pady=0)
             value.trace('w', lambda var, index, mode, i=i: self.on_value_changed(var, index, mode, i))
@@ -2627,7 +2599,7 @@ class Equalizers(Widget):
                              bd=0,
                              font=self.font(),
                              justify='center',
-                             fg=fg,
+                             fg=self.fg,
                              bg=self.bg)
             label.grid(row=1, column=i+1, pady=0)
 
@@ -3384,10 +3356,8 @@ class Menu(Widget):
 
         self.current_md = None
 
-        self.bg = config_info.get('bg', Default.bg)
-        self.fg = config_info.get('fg', Default.fg)
-        self.selectbg = config_info.get('selectbg', Default.bg)
-        self.selectfg = config_info.get('selectfg', Default.fg)
+        self.selectbg = config_info.get('selectbg', self.bg)
+        self.selectfg = config_info.get('selectfg', self.fg)
 
         self.definitions = []
         self.lookup_definitions = {}
@@ -4129,14 +4099,8 @@ class Settings_widget(Widget):
         if output_device_name != None:
             Audio.set_output_device_name(output_device_name)
 
-        self.bg = config_info.get('bg', Default.bg)
-        self.fg = config_info.get('fg', Default.fg)
-        self.abg = config_info.get('abg', Default.abg)
-        self.afg = config_info.get('afg', Default.afg)
-        if self.afg == None:
-            self.afg = self.fg
-        self.selectbg = config_info.get('selectbg', Default.bg)
-        self.selectfg = config_info.get('selectfg', Default.fg)
+        self.selectbg = config_info.get('selectbg', self.bg)
+        self.selectfg = config_info.get('selectfg', self.fg)
 
         self.frame = tk.LabelFrame(self.frame,
                               text='Settings',
@@ -4517,12 +4481,10 @@ class Entry(Widget):
         width = config_info.get('width', 20)
         show = config_info.get('show', '')
         bd = config_info.get('bd', 2)
-        bg = config_info.get('bg', Default.bg)
-        fg = config_info.get('fg', Default.fg)
         font = config_info.get('font', Default.label_font)
         justify = config_info.get('justify', 'left')
 
-        self.entry = Entry_Widget(self.frame, show=show, width=width, bd=bd, bg=bg, fg=fg, font=self.font(), justify=justify)
+        self.entry = Entry_Widget(self.frame, show=show, width=width, bd=bd, bg=self.bg, fg=self.fg, font=self.font(), justify=justify)
 
 class Startup_cmds(Entry):
     def __init__(self, config_info, container):
@@ -4566,6 +4528,209 @@ class Exit_cmds(Startup_cmds):
 
     def got_cmds(self):
         self.server.exit_cmds = self.cmds
+
+class Dropdown_Widget():
+    def __init__(self, parent_frame, height=10, bd=2, padx=0, justify='left', font=Default.label_font,
+                 fg=Default.fg, bg=Default.bg, abg=Default.abg, afg=Default.afg, selectbg=None, selectfg=None):
+        if afg == None:
+            afg = fg
+        if selectbg == None:
+            selectbg = bg
+        if selectfg == None:
+            selectfg = fg
+
+        # Define the style for this dropdown widget
+        self.stylename = str(self) + '.TCombobox'
+        self.style = ttk.Style()
+        self.style.configure(self.stylename, background=bg, foreground=fg, selectbackground=selectbg, selectforeground=selectfg)
+        self.style.configure(self.stylename, margins=(20, 0, 20, 0))
+
+        self.combobox = ttk.Combobox(
+                parent_frame,
+                font=font,
+                height = height,
+                state='readonly',
+                justify=justify,
+                style=self.stylename,
+                )
+
+    def value(self, value=None):
+        if value != None:
+            self.combobox.set(value)
+        return self.combobox.get()
+
+    def index(self, index=None):
+        if index != None:
+            self.combobox.current(index)
+        return self.combobox.current()
+
+    def values(self, values=None):
+        if values != None:
+            self.config(values=values)
+        return self.combobox.cget('values')
+
+    def callback(self, callback):
+        self.combobox.bind('<<ComboboxSelected>>', callback)
+
+    def grid(self, **opts):
+        self.combobox.grid(**opts)
+
+    def config(self, **opts):
+        self.combobox.config(**opts)
+        if 'values' in opts:
+            width = 0
+            for value in self.values():
+                if len(value) > width:
+                    width = len(value)
+            self.combobox.config(width=int(width+2))
+
+    def cget(self, **opts):
+        return self.combobox.cget(*opts)
+
+class Antenna(Widget):
+    def __init__(self, config_info, container):
+        self.ar_names = ('None', 'RX2', '=TX ANT', 'x', 'RX1', 'ANT1', 'ANT2', 'ANT3')
+        self.rx_names = ('None', 'ANT1', 'ANT2', 'ANT3', 'RX1', 'RX2', '=TX ANT')
+        self.tx_names = ('x', 'ANT1', 'ANT2', 'ANT3')
+        self.rx_select_bases = {'main':'AR', 'sub':'AR$'}
+
+        required = ['item', 'type']
+        options = ['bd', 'bg', 'fg', 'font', 'label', 'leading', 'padx']
+        validate_config_options(config_info, required, options)
+
+        super().__init__(config_info, container)
+
+        bd = config_info.get('bd', 2)
+        selectbg = config_info.get('selectbg', self.bg)
+        selectfg = config_info.get('selectfg', self.fg)
+        justify = config_info.get('justify', 'left')
+        height = config_info.get('height', 10)
+        padx = config_info.get('padx', 0)
+        self.kind = config_info['type']
+
+        if self.kind in ('main', 'sub', 'tx'):
+            self.dropdown = Dropdown_Widget(self.frame, bd=bd, padx=padx, bg=self.bg, fg=self.fg, abg=self.abg,
+                                            selectbg=selectbg, selectfg=selectfg,
+                                            font=self.font(), justify=justify, height=height)
+            self.dropdown.grid(row=0, column=0)
+        else:
+            raise Exception(f'unknown type: {self.kind} in item antenna.')
+
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
+    def on_received_initial_parameters(self, response):
+        self.server.subscribe_responses('ACN1;ACN2;ACN3;ACN4;ACN5;', self.on_received_name)
+        self.dropdown.callback(self.on_select)
+        self.server.subscribe_response('AN;', self.on_k4_select_tx)
+
+        if self.kind == 'tx':
+            self.set_values_tx()
+            self.server.subscribe_response('ACT;', self.on_k4_config_tx)
+        elif self.kind == 'main':
+            self.set_values_rx()
+            self.server.subscribe_response('AR;', self.on_k4_select_rx)
+            self.server.subscribe_response('ACM;', self.on_k4_config_rx)
+        elif self.kind == 'sub':
+            self.set_values_rx()
+            self.server.subscribe_response('AR$;', self.on_k4_select_rx)
+            self.server.subscribe_response('ACS;', self.on_k4_config_rx)
+
+    def on_select(self, event):
+        value = self.dropdown.value()
+        if self.kind == 'tx':
+            index = self.tx_short_names.index(value)
+            cmd = f'AN{index};'
+        else:
+            index = self.rx_short_names.index(value)
+            name = self.rx_names[index]
+            ar_index = self.ar_names.index(name)
+            cmd = f'{self.rx_select_bases[self.kind]}{ar_index};'
+        self.server.send_cmds(cmd)
+
+    def on_k4_select_rx(self, response):
+        base = self.rx_select_bases[self.kind]
+        ar_index = int(self.k4param(base))
+        name = self.ar_names[ar_index]
+        index = self.rx_names.index(name)
+        value = self.rx_short_names[index]
+        tx_index = int(self.k4param('AN'))
+
+        if index == tx_index or value == '=TX ANT':
+            value = self.tx_short_names[tx_index]
+
+        self.dropdown.value(value)
+
+    def on_k4_select_tx(self, response):
+        if self.kind == 'tx':
+            tx_index = int(self.k4param('AN'))
+            value = self.tx_short_names[tx_index]
+            self.dropdown.value(value)
+        else:
+            self.set_names()
+
+    def on_k4_config_rx(self, response):
+        self.set_values_rx()
+
+    def on_k4_config_tx(self, response):
+        self.set_values_tx()
+
+    def set_names(self):
+        self.tx_short_names = list(self.tx_names)
+        for i in range(1, 4):
+            name = self.k4param(f'ACN{i}')
+            if name != '' and name != self.tx_names[i]:
+                self.tx_short_names[i] = f'{i}:{name}'
+            else:
+                self.tx_short_names[i] = f'{self.rx_names[i]}'
+
+        tx_index = int(self.k4param('AN'))
+        self.rx_short_names = list(self.rx_names)
+
+        for i in range(1, 6):
+            tx = ' (TX)' if i == tx_index else ''
+            name = self.k4param(f'ACN{i}')
+            if name != '' and name != self.rx_names[i]:
+                self.rx_short_names[i] = f'{i}:{name}{tx}'
+            else:
+                self.rx_short_names[i] = f'{i}:{self.rx_names[i]}{tx}'
+
+        if self.kind == 'tx':
+            self.set_values_tx()
+        else:
+            self.set_values_rx()
+
+    def on_received_name(self, response):
+        self.set_names()
+
+    def set_values_rx(self):
+        has_ATU = 'A' in self.k4param('OM')
+        tx_ant = int(self.k4param('AN'))
+
+        values = list(self.rx_short_names)
+        if self.kind == 'main':
+            mask = self.k4param('ACM')
+        else:
+            mask = self.k4param('ACS')
+        if mask[0] == '0':
+            for i in range(6, 0, -1):
+                if not has_ATU and (i == 2 or i == 3) or mask[i] == '0':
+                    values.pop(i)
+
+        self.dropdown.values(values)
+
+    def set_values_tx(self):
+        has_ATU = 'A' in self.k4param('OM')
+        if has_ATU:
+            values = self.tx_short_names[1:]
+            mask = self.k4param('ACT')
+            if mask[0] == '0':
+                for i in range(3, 0, -1):
+                    if mask[i] == '0':
+                        values.pop(i-1)
+        else:
+            values = self.tx_short_names[1:2]
+
+        self.dropdown.values(values)
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure
@@ -5062,7 +5227,7 @@ def vprint2(*args, **kwargs):
 def tprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
-def backtrace():
+def trace_stack():
     traceback.print_stack()
 
 def main_page_visible(self):

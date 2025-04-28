@@ -47,9 +47,36 @@
 #define main-tab-group
 - item: group
   tabname: Main
+  columns: 1
   contains: #{
-    #include main-tab-column-1
-    #include main-tab-column-2
+    #include main-tab-row1
+    #include main-tab-row2
+    #include main-tab-row3
+    #}
+#end
+
+#define main-tab-row1
+- item: group
+  contains: #{
+    #include receiver-a-group
+    #include receiver-b-group
+    #}
+#end
+
+#define main-tab-row2
+- item: group
+  sticky: center
+  leading: 1
+  contains: #{
+    #include antenna-select-group
+    #}
+#end
+
+#define main-tab-row3
+- item: group
+  contains: #{
+    #include main-tab-row3-column1
+    #include main-tab-row3-column2
     #}
 #end
 
@@ -68,8 +95,8 @@
   tabname: Receive
   columns: 1
   contains: #{
-    #include receive-tab-row-one-group
-    #include receive-tab-row-two-group
+    #include receive-tab-row1-group
+    #include receive-tab-row2-group
   #}
 #end
 
@@ -78,12 +105,12 @@
   tabname: Transmit
   columns: 1
   contains: #{
-    #include transmit-tab-row-one-group
-    #include transmit-tab-row-two-group
+    #include transmit-tab-row1-group
+    #include transmit-tab-row2-group
   #}
 #end
 
-#define transmit-tab-row-one-group
+#define transmit-tab-row1-group
 - item: group
   contains: #{
     #include essb-togglebutton
@@ -95,7 +122,7 @@
   #}
 #end
 
-#define transmit-tab-row-two-group
+#define transmit-tab-row2-group
 - item: group
   contains: #{
     #include rit-xit-group
@@ -121,11 +148,10 @@
   #}
 #end
 
-#define main-tab-column-1
-- item: group # Column 1
+#define main-tab-row3-column1
+- item: group
   columns: 1
   contains: #{
-    #include receiver-a-group
     - item: group
       contains: #{
         #include receive-transmit-togglebutton
@@ -154,11 +180,10 @@
   #}
 #end
 
-#define main-tab-column-2
-- item: group # Column 2
+#define main-tab-row3-column2
+- item: group
   columns: 1
   contains: #{
-    #include receiver-b-group
     - item: group
       columns: 1
       contains: #{
@@ -183,7 +208,7 @@
   #}
 #end
 
-#define receive-tab-row-one-group
+#define receive-tab-row1-group
 - item: group
   contains: #{
     #include agc-group
@@ -193,7 +218,7 @@
   #}
 #end
 
-#define receive-tab-row-two-group
+#define receive-tab-row2-group
 - item: group
   contains: #{
     #include af-limiter-slider
@@ -203,6 +228,54 @@
     #include noise-reduction-group
     #include rit-group
   #}
+#end
+
+#define antenna-select-group
+- item: group
+  contains: #{
+    #include antenna-label-main
+    #include antenna-select-main
+    #include antenna-label-tx
+    #include antenna-select-tx
+    #include antenna-label-sub
+    #include antenna-select-sub
+  #}
+#end
+
+#define antenna-select-tx
+- item: antenna
+  type: tx
+  padx: 30
+#end
+
+#define antenna-select-main
+- item: antenna
+  type: main
+  padx: 30
+#end
+
+#define antenna-select-sub
+- item: antenna
+  type: sub
+  padx: 30
+#end
+
+#define antenna-label-tx
+- item: text
+  bg: None
+  text: '    Tx'
+#end
+
+#define antenna-label-main
+- item: text
+  bg: None
+  text: 'Main Rx'
+#end
+
+#define antenna-label-sub
+- item: text
+  bg: None
+  text: '    Sub Rx'
 #end
 
 #define volume-sliders-group
