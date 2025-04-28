@@ -143,7 +143,8 @@ def git_clean():
     return len(stdout) == 0
 
 def get_filenames():
-    names = run_output(['git',  'ls-tree', '-r', 'main', '--name-only']).rstrip("\n").split("\n")
+    branch = current_branch()
+    names = run_output(['git',  'ls-tree', '-r', branch, '--name-only']).rstrip("\n").split("\n")
     filtered = []
     for name in names:
         fileinfo = run_output(['file', '-b', name])
@@ -165,7 +166,7 @@ def current_branch():
 
 def main():
     branch = current_branch()
-    if branch != 'main':
+    if branch != 'main' and branch != 'dev':
         print('On branch "{b}", do: git checkout main'.format(b=branch))
         return
 
@@ -194,7 +195,8 @@ def main():
     run(['git', 'commit', '-m', 'Update changelog for ' + version])
 
     run(['git', 'commit', '-a', '-m', 'Version '+ version])
-    run(['git', 'tag', '-a', '-m', version, version])
+    if branch == 'main':
+        run(['git', 'tag', '-a', '-m', version, version])
 
     run(['git', 'show', '--name-only'])
 
