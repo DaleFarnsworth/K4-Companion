@@ -1129,8 +1129,8 @@
   to: 0
   length: 150
   evalincrement: '1'
-  evalcmd: '"NB{v:02d}{on};".format(v=int(value), on=self.k4param("NB")[2])'
-  evalresponse: 'int(value[2:4])'
+  evalcmd: '"NB{v:02d}{on};".format(v=int(value), on=self.k4param("NB")[0] if self.len_k4param("NB") < 3 else self.k4param("NB")[2])'
+  evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
 #end
 
 #define sub-noise-blanker-slider
@@ -1140,8 +1140,8 @@
   to: 0
   length: 150
   evalincrement: '1'
-  evalcmd: '"NB${v:02d}{on};".format(v=int(value), on=self.k4param("NB$")[2])'
-  evalresponse: 'int(value[3:5])'
+  evalcmd: '"NB${v:02d}{on};".format(v=int(value), on=self.k4param("NB$")[0] if self.len_k4param("NB$") < 3 else self.k4param("NB$")[2])'
+  evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
 #end
 
 #define noise-reduction-group
@@ -1198,8 +1198,8 @@
   to: 0
   length: 150
   evalincrement: '1'
-  evalcmd: '"NR{v:02d}{on};".format(v=int(value), on=self.k4param("NR")[2])'
-  evalresponse: 'int(value[2:4])'
+  evalcmd: '"NR{v:02d}{on};".format(v=int(value), on=self.k4param("NR")[0] if self.len_k4param("NR") < 3 else self.k4param("NR")[2])'
+  evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
 #end
 
 #define sub-noise-reduction-slider
@@ -1209,8 +1209,8 @@
   to: 0
   length: 150
   evalincrement: '1'
-  evalcmd: '"NR${v:02d}{on};".format(v=int(value), on=self.k4param("NR$")[2])'
-  evalresponse: 'int(value[3:5])'
+  evalcmd: '"NR${v:02d}{on};".format(v=int(value), on=self.k4param("NR$")[0] if self.len_k4param("NR$") < 3 else self.k4param("NR$")[2])'
+  evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
 #end
 
 #define ctcss-group
