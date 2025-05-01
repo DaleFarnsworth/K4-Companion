@@ -1,4 +1,31 @@
+v1.2.7:
+    Update Windows Installer to current version 1.2.7 2025-04-30
+
+    Update Windows EXE to current version 1.2.7 2025-04-30
+
+    Update User Manual to current version 1.2.7 2025-04-30
+
+    Add antenna selection drop down menus
+       One each for rx main, rx sub, and tx antennas.
+   
+    Fix Noise Blanker on/off and value sliders
+
+    tools/update_version: Add support for dev branch
+
+    Add startup_cmds and exit_cmds values to App tab
+       Remove startup_cmds from the server settings and put it as a setting
+       in the App tab.  Similarly, add exit_cmds that are K4 commands that
+       are sent when k4companion exits normally.
+   
+    Windows installer updated to 1.2.6
+
+    User Manual update to 1.2.6
+
+    added Windows exe for version 1.2.6
+
 v1.2.6:
+    Update changelog for v1.2.6
+
     Handle a PC response in K3 legacy mode format
        Apparently sometimes the K4 returns a PC response in legacy mode format.
        I don't think this is supposed to happen because the first command we
