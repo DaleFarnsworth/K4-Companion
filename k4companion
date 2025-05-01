@@ -1737,6 +1737,7 @@ class VFO(Widget):
 
         self.vfo_sb = tk.Spinbox(
                 frame,
+                insertborderwidth=1,
                 from_=VFO.low_frequency_limit,
                 to=VFO.high_frequency_limit,
                 wrap=False,
@@ -1754,6 +1755,10 @@ class VFO(Widget):
                 )
         self.vfo_sb.grid(row=0, column=0, sticky='w')
         self.vfo_sb.bind('<Return>', self.set_frequency)
+        for key in ('<Left>', '<Right>', '<KP_Left>', '<KP_Right>'):
+            self.vfo_sb.bind(key, self.on_change_step)
+        for key in ('<Next>', '<Prior>', '<KP_Next>', '<KP_Prior>'):
+            self.vfo_sb.bind(key, self.on_jump_frequency)
 
         self.step_sb = tk.Spinbox(
                 frame,
@@ -1840,12 +1845,14 @@ class VFO(Widget):
         self.set_vfo_bg()
         return True
 
-    def on_frequency_change(self):
-        freq = int(float(self.vfo_sb.get()) * 1000)
+    def on_frequency_change(self, delta=0):
+        orig_freq = int(float(self.vfo_sb.get()) * 1000)
+        freq = orig_freq + delta * 1000
         mod = freq % int(self.step * 1000)
         freq -= mod
-        if mod != 0:
+        if freq != orig_freq:
             self.set_vfo_sb(freq/1000)
+            self.set_vfo_bg()
         self.send_frequency()
 
     def send_frequency(self):
@@ -1893,6 +1900,26 @@ class VFO(Widget):
                 cmd += '$'
             self.server.send_cmds(cmd + '2;')
             step_index = 2
+        self.set_step_index(step_index)
+
+    def change_step(self, delta):
+        step_index = VFO.step_to_index[self.step]
+        step_index += delta
+        self.set_step_index(step_index)
+
+    def on_change_step(self, event):
+        step_index = VFO.step_to_index[self.step]
+        if event.keysym in ('Left', 'KP_Left'):
+            step_index += 1
+        else:
+            step_index -= 1
+        self.set_step_index(step_index)
+
+    def set_step_index(self, step_index):
+        if step_index < 0:
+            step_index = 0
+        elif step_index > 4:
+            step_index = 4
         self.step = VFO.steps[step_index]
         self.vfo_sb.config(increment=self.step)
         text = VFO.texts[VFO.step_to_index[self.step]]
@@ -1901,6 +1928,18 @@ class VFO(Widget):
         self.step_sb.insert(0, text)
         self.step_sb.configure(state='readonly')
         self.step_cb_val.set(text)
+
+    def on_jump_frequency(self, event):
+        orig_step = self.step
+        step_index = VFO.step_to_index[self.step]
+        if step_index < 4:
+            step_index += 1
+        self.step = VFO.steps[step_index]
+        step = self.step
+        if event.keysym in ('Next', 'KP_Next'):
+            step = -step
+        self.on_frequency_change(step)
+        self.step = orig_step
 
     def current_mode_index(self):
         base = 'MD'
