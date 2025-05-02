@@ -603,7 +603,6 @@ class Server():
                       name=self.name, addr=self.proxy_address, port=port)
 
         if error != None:
-            dprint(error)
             error += "\n\nCheck the K4 address in the App tab."
             Popup.error(error, timeout=None)
 
@@ -1754,11 +1753,18 @@ class VFO(Widget):
                 fg=self.fg,
                 )
         self.vfo_sb.grid(row=0, column=0, sticky='w')
+
         self.vfo_sb.bind('<Return>', self.set_frequency)
         for key in ('<Left>', '<Right>', '<KP_Left>', '<KP_Right>'):
             self.vfo_sb.bind(key, self.on_change_step)
         for key in ('<Next>', '<Prior>', '<KP_Next>', '<KP_Prior>'):
             self.vfo_sb.bind(key, self.on_jump_frequency)
+        self.vfo_sb.bind('<Button-1>', self.on_mouse_button)
+        if sys.platform in ('win32', 'darwin'):
+            self.vfo_sb.bind('<MouseWheel>', self.on_mouse_wheel)
+        elif sys.platform == 'linux':
+            for button in ('<Button-4>', '<Button-5>'):
+                self.vfo_sb.bind(button, self.on_mouse_wheel)
 
         self.step_sb = tk.Spinbox(
                 frame,
@@ -1940,6 +1946,32 @@ class VFO(Widget):
             step = -step
         self.on_frequency_change(step)
         self.step = orig_step
+
+    def on_mouse_button(self, event):
+        scale = 149 / float(self.vfo_sb.winfo_width())
+        x = event.x * scale
+        if x < 53:
+            return
+        elif x < 67:
+            step_index = 4
+        elif x < 84:
+            step_index = 3
+        elif x < 101:
+            step_index = 2
+        elif x < 116:
+            step_index = 1
+        elif x < 130:
+            step_index = 0
+        else:
+            return
+
+        self.set_step_index(step_index)
+
+    def on_mouse_wheel(self, event):
+        if event.num == 4 or event.delta == 120:
+            self.on_frequency_change(self.step)
+        if event.num == 5 or event.delta == -120:
+            self.on_frequency_change(-self.step)
 
     def current_mode_index(self):
         base = 'MD'
@@ -4092,13 +4124,15 @@ class Settings():
             config_dir = os.path.join(NSSearchPathForDirectoriesInDomains(14, 1, True)[0], appname)
         elif sys.platform == 'win32':
             config_dir = os.path.join(os.environ['APPDATA'], appname)
-        else:
+        elif sys.platform == 'linux':
             home_dir = os.path.expanduser('~')
             config_dir = os.path.join(home_dir, '.config')
             if os.path.isdir(config_dir):
                 config_dir = os.path.join(config_dir, appname)
             else:
                 config_dir = os.path.join(home_dir, '.' + appname)
+        else:
+            dprint(f'{sys.platform} not supported.')
 
         if not os.path.isdir(config_dir):
             os.mkdir(config_dir, 0o755)
@@ -5089,6 +5123,7 @@ class Popup():
             msg = 'Warning: ' +  msg
         else:
             msg[0] = 'Warning: ' + msg[0]
+        dprint(msg)
         cls.popup(msg=msg, title='Warning', timeout=timeout, font=None, color='yellow')
 
     @classmethod
@@ -5097,6 +5132,7 @@ class Popup():
             msg = 'Error: ' +  msg
         else:
             msg[0] = 'Error: ' + msg[0]
+        dprint(msg)
         cls.popup(msg=msg, title='Error', timeout=timeout, font=None, color='yellow')
 
     @classmethod
