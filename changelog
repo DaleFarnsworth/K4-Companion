@@ -1,4 +1,33 @@
+v1.2.8:
+    Update Windows installer to version 1.2.8
+
+    Updated User Manual to version 1.2.8 2025-05-03
+
+    Update K4 Companion Windows EXE to 1.2.8
+
+    Update K4 Companion User Manual to v1.2.8 2025-05-02
+
+    Update Windows executable to 1.2.8 revised 2025-05-02
+
+    Update To Do list
+
+    Enable mouse control for VFOs
+       A mouse click on a digit will set the VFO step and rotating
+       the mouse wheel will change the frequency.
+   
+    Make Left & Right arrow keys change VFO steps
+       If the VFO frequency spinner has focus, the left arrow key will
+       increase the VFO step value and the right arrow key will decrease
+       the VFO step value.
+       
+       Additionally, the PageUP and PageDown with change the frequency by
+       10 times the current step value.
+   
+    Add additional settings for RF Gain
+
 v1.2.7:
+    Update changelog for v1.2.7
+
     Update Windows Installer to current version 1.2.7 2025-04-30
 
     Update Windows EXE to current version 1.2.7 2025-04-30
