@@ -1285,6 +1285,8 @@ class Container(Widget):
                 child = Exit_cmds(config_info, self)
             elif widget_type == 'antenna':
                 child = Antenna(config_info, self)
+            elif widget_type == 'morse':
+                child = Morse(config_info, self)
 
             else:
                 raise Exception('Error: config file: unknown item "{type}"'.format(type=widget_type))
@@ -4605,7 +4607,7 @@ class Antenna(Widget):
         self.rx_select_bases = {'main':'AR', 'sub':'AR$'}
 
         required = ['item', 'type']
-        options = ['bd', 'bg', 'fg', 'font', 'label', 'leading', 'padx']
+        options = ['bd', 'bg', 'fg', 'selectbg', 'selectfg', 'justify', 'height', 'font', 'label', 'leading', 'padx']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -4741,6 +4743,133 @@ class Antenna(Widget):
             values = self.tx_short_names[1:2]
 
         self.dropdown.values(values)
+
+class Morse(Widget):
+    def __init__(self, config_info, container):
+        required = ['item']
+        options = ['bd', 'bg', 'fg', 'height', 'width', 'columns', 'font', 'label', 'leading']
+        validate_config_options(config_info, required, options)
+
+        super().__init__(config_info, container)
+
+        bd = config_info.get('bd', 2)
+        self.tx_height = config_info.get('tx_height', 2)
+        if self.tx_height < 2:
+            self.tx_height = 2
+        self.rx_height = config_info.get('rx_height', 2)
+        if self.rx_height < 2:
+            self.rx_height = 2
+        self.width = config_info.get('width', 70)
+        self.columns = config_info.get('columns', 4)
+        font = self.font()
+        self.monospaced_font = ('DejaVu Sans Mono', font['size'])
+
+        self.tx_text_row = 0
+        self.main_enabled = False
+        self.sub_enabled = False
+
+        self.tx_frame = tk.LabelFrame(self.frame, text='Tx', font=self.label_font(), labelanchor='nw',
+                                  bd=4, padx=4, pady=4, relief='raised')
+        self.tx_text = tk.Text(self.tx_frame, bd=bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
+                               height=self.tx_height, width=self.width)
+        self.tx_text.grid(row=0, column=0, sticky='w')
+        self.tx_frame.grid(row=self.tx_text_row, column=0, sticky='w')
+
+        self.main_frame = tk.LabelFrame(self.frame, text='Main Rx', font=self.label_font(), labelanchor='nw',
+                                  bd=4, padx=4, pady=4, relief='raised')
+        self.main_text = tk.Text(self.main_frame, bd=bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
+                                 height=self.rx_height, width=self.width)
+        self.main_text.grid(row=0, column=0, sticky='w')
+        self.sub_frame = tk.LabelFrame(self.frame, text='Sub Rx', font=self.label_font(), labelanchor='nw',
+                                  bd=4, padx=4, pady=4, relief='raised')
+        self.sub_text = tk.Text(self.sub_frame, bd=bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
+                                height=self.rx_height, width=self.width)
+        self.sub_text.grid(row=0, column=0, sticky='w')
+
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
+    def on_received_initial_parameters(self, response):
+        self.server.subscribe_response('TD;', self.on_main_text_decode)
+        self.server.subscribe_response('TD$;', self.on_sub_text_decode)
+        self.server.subscribe_response('TB;', self.on_main_text_buffer)
+        self.server.subscribe_response('TB$;', self.on_sub_text_buffer)
+#        Poll.add(1000, self.add_text)
+
+    def add_text(self):
+        s = 'abcdef'
+        try:
+            self.add_len += 1
+        except:
+            self.add_len = 1
+        if self.add_len > len(s):
+            self.add_len = 1
+        self.on_main_text_buffer('TB220' + s[:self.add_len] + ' ' * 1 + ';')
+
+    def on_main_text_decode(self, response):
+        if self.k4param('TD')[0] == '0':
+            self.main_frame.grid_forget()
+            self.main_enabled = False
+            if self.sub_enabled:
+                self.sub_frame.grid(row=self.tx_text_row+1, column=0, sticky='w')
+            return
+
+        self.main_frame.grid(row=self.tx_text_row+1, column=0, sticky='w')
+        self.main_enabled = True
+        if self.sub_enabled:
+            self.sub_frame.grid(row=self.tx_text_row+2, column=0, sticky='w')
+
+    def on_sub_text_decode(self, response):
+        if self.k4param('TD$')[0] == '0':
+            self.sub_frame.grid_forget()
+            self.sub_enabled = False
+            return
+
+        self.sub_enabled = True
+        row = self.tx_text_row +1
+        if self.main_enabled:
+            row += 1
+        self.sub_frame.grid(row=row, column=0, sticky='w')
+
+    def add_text_to_widget(self, widget, new_text):
+        widget.insert(tk.END, new_text)
+        line_end_index = widget.index('end-1c')
+        line_num, line_len = line_end_index.split('.')
+        line_num = int(line_num)
+        line_len = int(line_len)
+        line_begin_index = f'{line_num}.0'
+        if line_len > self.width:
+            width_index = f'{line_num}.{self.width}'
+            line_break_index = widget.search(' ', width_index, backwards=True, stopindex=line_begin_index)
+            if line_break_index == '':
+                widget.insert(f'{line_num}.{self.width-1}', '\n')
+            else:
+                widget.delete(line_break_index)
+                widget.insert(line_break_index, '\n')
+
+            if line_num+1 > self.rx_height:
+                widget.delete('1.0', '2.0')
+
+    def on_text_buffer(self, response, widget):
+        param = response_after_base(response).rstrip(';')
+        self.tx_remaining_chars(int(param[0]))
+        new_text = param[3:]
+        if new_text == '':
+            return
+
+        while len(new_text) >= self.width:
+            text = new_text[0:self.width-1]
+            self.add_text_to_widget(widget, text)
+            new_text = new_text[self.width-1:]
+        self.add_text_to_widget(widget, new_text)
+
+    def on_main_text_buffer(self, response):
+        self.on_text_buffer(response, self.main_text)
+
+    def on_sub_text_buffer(self, response):
+        self.on_text_buffer(response, self.sub_text)
+
+    def tx_remaining_chars(self, count):
+        pass
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure

@@ -38,6 +38,7 @@
     #include main-tab-group
     #include receive-tab-group
     #include transmit-tab-group
+    #include morse-tab-group
     #include equalizers-tab-group
     #include misc-tab-group
     #include app-settings-tab-group
@@ -128,6 +129,14 @@
     #include rit-xit-group
     #include qsk-group
     #include vox-group
+  #}
+#end
+
+#define morse-tab-group
+- item: group
+  tabname: Morse
+  contains: #{
+    #include morse
   #}
 #end
 
@@ -1370,6 +1379,10 @@
     - { text: "250.3", cmd: PL49;, evalcmd: '"PL49{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
     - { text: "254.1", cmd: PL50;, evalcmd: '"PL50{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
   #}
+#end
+
+#define morse
+- item: morse
 #end
 
 #define equalizers
