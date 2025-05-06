@@ -361,7 +361,7 @@
 #end
 
 #define vfo-a
-- { item: vfo, AorB: A, width: 9, font: { family: Helvetica, size: 19, weight: normal }, activecolor: pink, transmitcolor: red }
+- { item: vfo, AorB: A, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: pink, transmitcolor: red }
 #end
 
 #define s-meter-a-bargraph
@@ -508,6 +508,11 @@
   selections: #{
     - { text: " -0 ", cmd: RG-00; }
     - { text: "-10 ", cmd: RG-10; }
+    - { text: "-20 ", cmd: RG-20; }
+    - { text: "-30 ", cmd: RG-30; }
+    - { text: "-40 ", cmd: RG-40; }
+    - { text: "-50 ", cmd: RG-50; }
+    - { text: "-60 ", cmd: RG-60; }
   #}
 #end
 
@@ -546,7 +551,7 @@
 #end
 
 #define vfo-b
-- { item: vfo, AorB: B, width: 9, font: { family: Helvetica, size: 19, weight: normal }, activecolor: pink, transmitcolor: red }
+- { item: vfo, AorB: B, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: pink, transmitcolor: red }
 #end
 
 #define s-meter-b-bargraph
@@ -644,6 +649,11 @@
   selections: #{
     - { text: " -0 ", cmd: RG$-00; }
     - { text: "-10 ", cmd: RG$-10; }
+    - { text: "-20 ", cmd: RG$-20; }
+    - { text: "-30 ", cmd: RG$-30; }
+    - { text: "-40 ", cmd: RG$-40; }
+    - { text: "-50 ", cmd: RG$-50; }
+    - { text: "-60 ", cmd: RG$-60; }
   #}
 #end
 
@@ -885,8 +895,8 @@
 - item: togglebutton
   label: 'Tx/Rx'
   selections: #{
-    - { text: 'Receive',   cmd: RX;, bg: '#00FF00', abg: white, }
-    - { text: 'Transmit',  cmd: TX;, bg: red,   abg: red, }
+    - { text: 'Receive',   cmd: RX;, evalresponse: '"RX;" if self.k4param("RX") != None else ""', bg: '#00FF00', abg: white, }
+    - { text: 'Transmit',  cmd: TX;, evalresponse: '"TX;" if self.k4param("TX") != None else ""', bg: red,   abg: red, }
   #}
 #end
 
@@ -949,7 +959,7 @@
   label: Main
   leading: 0
   selections: #{
-    - { text:    "Off", cmd: AP00;  }
+    - { text:    "Off", cmd: AP00; }
     - { text:  "30 Hz", cmd: AP10; }
     - { text:  "50 Hz", cmd: AP11; }
     - { text: "150 Hz", cmd: AP12; }
@@ -961,7 +971,7 @@
   label: Sub
   leading: 0
   selections: #{
-    - { text:    "Off", cmd: AP$00;  }
+    - { text:    "Off", cmd: AP$00; }
     - { text:  "30 Hz", cmd: AP$10; }
     - { text:  "50 Hz", cmd: AP$11; }
     - { text: "150 Hz", cmd: AP$12; }

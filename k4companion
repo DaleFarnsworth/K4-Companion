@@ -898,7 +898,7 @@ class Server():
             if base == 'SB':
                 Audio.control_k4_cmd(base, response)
             if Options.debug >= 1:
-                if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG', 'DA'):
+                if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG', 'DA', 'TB', 'TB$'):
                     dprint4('{name}: received: {response};'.format(name=self.name, response=response))
                 else:
                     dprint2('{name}: received: {response};'.format(name=self.name, response=response))
@@ -1324,6 +1324,7 @@ class Page(Container):
     pages = {}
     name_stack = []
     top = None
+    notebook = None
 
     @staticmethod
     def show_page(page_name):
@@ -1370,6 +1371,7 @@ class Page(Container):
 
         if self.has_tabnames():
             self.frame = ttk.Notebook(Page.top)
+            Page.notebook = self.frame
         else:
             self.frame = tk.Frame(Page.top)
 
@@ -1701,12 +1703,11 @@ class Radiobutton(Widget):
             self.button.deselect()
 
 class VFO(Widget):
-    steps = [.001, .01, .1, 1, 10 ]
-    texts = [ '1 Hz', '10 Hz', '100 Hz', '1 kHz', '10 kHz' ]
-    step_to_index = {}
-    text_to_index = {}
-    low_frequency_limit=100
-    high_frequency_limit=54000
+    step = (1, 10, 100, 1000, 10000)
+    step_index = {1: 0, 10: 1, 100: 2, 1000: 3, 10000:4}
+    low_frequency_limit=10000
+    high_frequency_limit=54000000
+    has_focus = None
 
     def __init__(self, config_info, container):
         required = ['item', 'AorB']
@@ -1715,210 +1716,144 @@ class VFO(Widget):
 
         super().__init__(config_info, container)
 
-        if len(VFO.step_to_index) == 0:
-            for i, step in enumerate(VFO.steps):
-                VFO.step_to_index[step] = i
-
-        if len(VFO.text_to_index) == 0:
-            for i, text in enumerate(VFO.texts):
-                VFO.text_to_index[text] = i
-
         self.AorB = config_info.get('AorB', 'A').upper()
 
-        step_spinbox = true_values(config_info.get('step_spinbox', 'false'))
-        width = config_info.get('width', 0)
+        self.width = config_info.get('width', 9)
+
+        self.step_text_index = {}
+        for i, step in enumerate(VFO.step):
+            text_index = f'1.{self.width-i-(1 if i < 3 else 2)}'
+            self.step_text_index[step] = text_index
+
         self.active_color = config_info.get('activecolor', self.bg)
         self.transmit_color = config_info.get('transmitcolor', self.bg)
 
-        self.step = .1
+        self.freq = 14100000
+        self.step = 100
 
         frame = tk.Frame(self.frame)
-
-        self.vfo_sb = tk.Spinbox(
-                frame,
-                insertborderwidth=1,
-                from_=VFO.low_frequency_limit,
-                to=VFO.high_frequency_limit,
-                wrap=False,
-                command=self.on_frequency_change,
-                increment=self.step,
-                font=self.font(),
-                width=width,
-                repeatdelay=300,
-                repeatinterval=50,
-                format='%5.3f',
-                justify='right',
-                state='normal',
-                cursor='hand2',
-                fg=self.fg,
-                )
-        self.vfo_sb.grid(row=0, column=0, sticky='w')
-
-        self.vfo_sb.bind('<Return>', self.set_frequency)
-        for key in ('<Left>', '<Right>', '<KP_Left>', '<KP_Right>'):
-            self.vfo_sb.bind(key, self.on_change_step)
-        for key in ('<Next>', '<Prior>', '<KP_Next>', '<KP_Prior>'):
-            self.vfo_sb.bind(key, self.on_jump_frequency)
-        self.vfo_sb.bind('<Button-1>', self.on_mouse_button)
-        if sys.platform in ('win32', 'darwin'):
-            self.vfo_sb.bind('<MouseWheel>', self.on_mouse_wheel)
-        elif sys.platform == 'linux':
-            for button in ('<Button-4>', '<Button-5>'):
-                self.vfo_sb.bind(button, self.on_mouse_wheel)
-
-        self.step_sb = tk.Spinbox(
-                frame,
-                command=self.on_step_sb_changed,
-                values=tuple(VFO.texts),
-                font=self.font(),
-                width=6,
-                justify='right',
-                state='readonly',
-                fg=self.fg,
-                bg=self.bg,
-                readonlybackground=self.bg,
-                activebackground=self.abg,
-                )
-        self.step_sb.delete(0, 'end')
-        self.step_sb.insert(0, '100 Hz')
-
-        self.step_cb_val = tk.StringVar()
-
-        # Define the style for vfo widget
-        stylename = str(self) + '.TCombobox'
-        style = ttk.Style()
-        style.configure(stylename, background=self.bg, foreground=self.fg)
-
-        self.step_cb = ttk.Combobox(
-                frame,
-                textvar=self.step_cb_val,
-                font=self.font(),
-                values=VFO.texts,
-                height=len(VFO.texts),
-                width=6,
-                justify='right',
-                state='readonly',
-                style=stylename,
-                )
-        self.step_cb_val.trace('w', self.on_step_cb_changed)
-
-        if step_spinbox:
-            self.step_sb.grid(row=0, column=1, sticky='w')
-        else:
-            self.step_cb.grid(row=0, column=1, sticky='w')
-
         frame.grid(row=0, column=0, sticky='w')
 
-        step_cmd = 'VT'
-        if self.AorB == 'B':
-            step_cmd += '$'
-        step_cmd += ';'
-        self.server.subscribe_response(step_cmd, self.on_step_received)
-        self.server.subscribe_response('F{vfo};'.format(vfo=self.AorB), self.on_frequency_received)
-        # subscribe to split and transmit on/off changes
-        self.server.subscribe_response('FT;TQ;', self.set_vfo_bg)
+        self.tb = tk.Text(frame, bd=2, bg='pink', fg='black', font=self.font(), height=1, width=self.width, cursor='hand2', wrap=tk.NONE)
+        tb = self.tb
+        tb.grid(row=0, column=0, sticky='w')
 
+        for event in ('<Return>', '<FocusOut>'):
+            tb.bind(event, self.validate_frequency)
+        for step in VFO.step:
+            tb.tag_bind(f'step_{step}', '<Button-1>', lambda response, step=step: self.button_one(step))
+
+        tb.tag_config('underline', underline=1)
+        tb.tag_config('right_justify', justify=tk.RIGHT)
+
+        self.add_tags()
+
+        step_cmd = f'VT{"$" if self.AorB == "B" else ""};'
+        self.server.subscribe_response(step_cmd, self.on_step_received)
+        self.server.subscribe_response(f'F{self.AorB};', self.on_frequency_received)
+        # subscribe to split and transmit on/off changes
+        self.server.subscribe_responses('FT;TX;RX;', self.set_vfo_bg)
         self.server.subscribe_connect(self.on_server_connect)
 
+        self.tab = None
+
+    def button_one(self, step):
+        self.set_step(step)
+        VFO.has_focus = self
+        self.bind_frequency_events()
+
+    def bind_top(self, event, fcn, bind=True):
+        if bind:
+            Page.top.bind(event, fcn)
+        else:
+            Page.top.unbind(event)
+
+    def bind_frequency_events(self, bind=True):
+        vfo = VFO.has_focus
+        for key in ('<Left>', '<Right>', '<KP_Left>', '<KP_Right>'):
+            vfo.bind_top(key, vfo.on_change_step, bind)
+        for key in ('<Up>', '<Down>', '<KP_Up>', '<KP_Down>'):
+            vfo.bind_top(key, vfo.on_bump_frequency, bind)
+        for key in ('<Next>', '<Prior>', '<KP_Next>', '<KP_Prior>'):
+            vfo.bind_top(key, vfo.on_jump_frequency, bind)
+        if sys.platform in ('win32', 'darwin'):
+            vfo.bind_top('<MouseWheel>', vfo.on_mouse_wheel, bind)
+        elif sys.platform == 'linux':
+            for button in ('<Button-4>', '<Button-5>'):
+                vfo.bind_top(button, vfo.on_mouse_wheel, bind)
+
+    def add_tags(self):
+        for step in VFO.step:
+            self.tb.tag_add(f'step_{step}', self.step_text_index[step])
+        self.tb.tag_add('right_justify', '1.0')
+        self.add_underline_tag()
+
+    def add_underline_tag(self):
+        self.tb.tag_remove('underline', '1.0', '1.0 lineend')
+        self.tb.tag_add('underline', self.step_text_index[self.step])
+
     def on_server_connect(self):
-        self.enter_frequency_wrapper = (Page.top.register(self.enter_frequency), '%P', '%V')
-        self.vfo_sb.configure(validate='all', validatecommand=self.enter_frequency_wrapper)
+        nb = Page.notebook
+        nb.bind('<<NotebookTabChanged>>', self.tab_changed)
+        self.tab = nb.select()
 
-        self.vfo_sb.bind('<Visibility>', self.set_vfo_bg)
+        self.tb.bind('<Visibility>', self.set_vfo_bg)
 
-    def enter_frequency(self, p, v):
+        if self.AorB == self.transmit_vfo():
+            VFO.has_focus = self
+
+        self.bind_frequency_events()
+
+    def validate_frequency(self, event):
+        if self.tb.edit_modified():
+            self.add_tags()
+            self.tb.edit_modified(False)
         try:
-            float(p)
+            freq = round(float(self.tb.get('1.0', '1.0 lineend')) * 1000)
+            self.set_frequency(freq)
+            if freq < VFO.low_frequency_limit:
+                freq = VFO.low_frequency_limit
+            if freq > VFO.high_frequency_limit:
+                freq = VFO.high_frequency_limit
         except:
-            return False
+            self.set_frequency(self.freq)
+        return 'break'
 
-        if v == 'focusin' or v == 'key':
-            return True
-        elif v == 'focusout':
-            return self.set_frequency()
-
-    def set_frequency(self, event=None):
-        Page.top.focus()                # Remove focus from vfo_sb
-        freq = float(self.vfo_sb.get())
-        if freq < VFO.low_frequency_limit:
-            self.set_vfo_sb(VFO.low_frequency_limit)
-            return False
-        if freq > VFO.high_frequency_limit:
-            self.set_vfo_sb(VFO.high_frequency_limit)
-            return False
-
-        self.send_frequency()
+    def set_frequency(self, freq):
+        freq_str = f'{freq / 1000:12.3f}'[12-self.width:]
+        if freq_str != self.tb.get('1.0', '1.0 lineend'):
+            self.tb.delete('1.0', '1.0 lineend')
+            self.tb.insert('1.0', freq_str)
+            self.add_tags()
+        if freq != self.freq:
+            self.freq = freq
+            self.send_frequency(freq)
         self.set_vfo_bg()
-        return True
 
-    def on_frequency_change(self, delta=0):
-        orig_freq = int(float(self.vfo_sb.get()) * 1000)
-        freq = orig_freq + delta * 1000
-        mod = freq % int(self.step * 1000)
-        freq -= mod
-        if freq != orig_freq:
-            self.set_vfo_sb(freq/1000)
-            self.set_vfo_bg()
-        self.send_frequency()
-
-    def send_frequency(self):
-        freq = int(float(self.vfo_sb.get()) * 1000)
-        freq11 = "{:011d}".format(freq)
-        cmd = "F{vfo}{freq};".format(vfo=self.AorB, freq=freq11)
+    def send_frequency(self, freq):
+        cmd = f'F{self.AorB}{freq:011f};'
         self.server.send_cmds(cmd)
 
     def on_frequency_received(self, response):
-        freq_str = response_after_base(response)[0:11]
-        self.set_vfo_sb(float(freq_str)/1000)
-        self.set_vfo_bg()
+        freq = response_after_base(response).rstrip(';')
+        self.set_frequency(float(freq))
 
-    def set_vfo_sb(self, freq):
-        self.vfo_sb.configure(validate='none')
-        self.vfo_sb.delete(0, 'end')
-        self.vfo_sb.insert(0, "{:5.3f}".format(freq))
-        self.vfo_sb.configure(validate='all')
-
-    def on_step_sb_changed(self):
-        text = self.step_sb.get()
-        self.set_step(text)
-
-    def on_step_cb_changed(self, var, index, mode):
-        text = self.step_cb_val.get()
-        if text != '':
-            self.set_step(text)
-
-    def set_step(self, text):
-        self.step = VFO.steps[VFO.text_to_index[text]]
-        self.vfo_sb.config(increment=self.step)
-        cmd = 'VT'
-        if self.AorB == 'B':
-            cmd += '$'
-        cmd += str(VFO.step_to_index[self.step])
-        cmd += self.current_mode_index()
-        self.server.send_cmds(cmd + ';')
+    def set_step(self, step):
+        self.step = step
+        self.add_underline_tag()
+        suffix = '$' if self.AorB == 'B' else ''
+        index = VFO.step_index[step]
+        mode = self.current_mode_index()
+        cmd = f'VT{suffix}{index}{mode};'
+        self.server.send_cmds(cmd)
 
     def on_step_received(self, response):
         step_str = response_after_base(response)
         step_index = int(step_str[0])
         if step_index == 5:                             # Work around an apparent K4 bug
-            cmd = 'VT'
-            if self.AorB == 'B':
-                cmd += '$'
-            self.server.send_cmds(cmd + '2;')
+            cmd = f'VT{"$" if self.AorB == "B" else ""}2;'
+            self.server.send_cmds(cmd)
             step_index = 2
-        self.set_step_index(step_index)
-
-    def change_step(self, delta):
-        step_index = VFO.step_to_index[self.step]
-        step_index += delta
-        self.set_step_index(step_index)
-
-    def on_change_step(self, event):
-        step_index = VFO.step_to_index[self.step]
-        if event.keysym in ('Left', 'KP_Left'):
-            step_index += 1
-        else:
-            step_index -= 1
         self.set_step_index(step_index)
 
     def set_step_index(self, step_index):
@@ -1926,69 +1861,69 @@ class VFO(Widget):
             step_index = 0
         elif step_index > 4:
             step_index = 4
-        self.step = VFO.steps[step_index]
-        self.vfo_sb.config(increment=self.step)
-        text = VFO.texts[VFO.step_to_index[self.step]]
-        self.step_sb.configure(state='normal')
-        self.step_sb.delete(0, 'end')
-        self.step_sb.insert(0, text)
-        self.step_sb.configure(state='readonly')
-        self.step_cb_val.set(text)
+        self.step = VFO.step[step_index]
+        self.add_underline_tag()
+
+    def on_change_step(self, event):
+        step_index = VFO.step_index[self.step]
+        if event.keysym in ('Left', 'KP_Left'):
+            step_index += 1
+        else:
+            step_index -= 1
+        self.set_step_index(step_index)
+
+    def adjust_frequency(self, step):
+        freq = self.freq + step
+        mod = freq % self.step
+        freq -= mod
+        if mod != 0 and step < 0:
+            freq -= step
+        self.set_frequency(freq)
+
+    def on_bump_frequency(self, event):
+        step = self.step
+        if event.keysym in ('Down', 'KP_Down'):
+            step = -step
+        self.adjust_frequency(step)
 
     def on_jump_frequency(self, event):
         orig_step = self.step
-        step_index = VFO.step_to_index[self.step]
+        step_index = VFO.step_index[self.step]
         if step_index < 4:
             step_index += 1
-        self.step = VFO.steps[step_index]
-        step = self.step
+        step = VFO.step[step_index]
         if event.keysym in ('Next', 'KP_Next'):
             step = -step
-        self.on_frequency_change(step)
-        self.step = orig_step
-
-    def on_mouse_button(self, event):
-        scale = 149 / float(self.vfo_sb.winfo_width())
-        x = event.x * scale
-        if x < 53:
-            return
-        elif x < 67:
-            step_index = 4
-        elif x < 84:
-            step_index = 3
-        elif x < 101:
-            step_index = 2
-        elif x < 116:
-            step_index = 1
-        elif x < 130:
-            step_index = 0
-        else:
-            return
-
-        self.set_step_index(step_index)
+        self.set_frequency(self.freq + step)
+        self.add_underline_tag()
 
     def on_mouse_wheel(self, event):
         if event.num == 4 or event.delta == 120:
-            self.on_frequency_change(self.step)
+            self.adjust_frequency(self.step)
         if event.num == 5 or event.delta == -120:
-            self.on_frequency_change(-self.step)
+            self.adjust_frequency(-self.step)
 
     def current_mode_index(self):
-        base = 'MD'
-        if self.AorB == 'B':
-            base += '$'
+        base = f'MD{"$" if self.AorB == "B" else ""}'
         return self.k4param(base)
 
-    def set_vfo_bg(self, arg=None):
+    def transmit_vfo(self):
         split = self.k4param('FT') == '1'
-        transmit = self.k4param('TQ') == '1'
-        if split ^ (self.AorB == 'A'):
+        return 'B' if split else 'A'
+
+    def set_vfo_bg(self, arg=None):
+        if self.AorB == self.transmit_vfo():
+            transmit = self.k4param('TX') != None
             if transmit:
-                self.vfo_sb.configure(bg=self.transmit_color)
+                self.tb.configure(bg=self.transmit_color)
             else:
-                self.vfo_sb.configure(bg=self.active_color)
+                self.tb.configure(bg=self.active_color)
         else:
-            self.vfo_sb.configure(bg=self.bg)
+            self.tb.configure(bg=self.bg)
+
+    def tab_changed(self, event):
+        current_tab = Page.notebook.select()
+        self.bind_frequency_events(current_tab == self.tab)
 
 class Slider(Widget):
     def __init__(self, config_info, container):
@@ -2684,7 +2619,7 @@ class Equalizers(Widget):
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def on_received_initial_parameters(self, response):
-        self.server.subscribe_responses('RX;TX;MD;MD$;FT;', self.on_k4_mode_changed)
+        self.server.subscribe_responses('TX;RX;MD;MD$;FT;', self.on_k4_mode_changed)
         self.set_k4_equalizer()
         self.configure()
 
@@ -3689,7 +3624,7 @@ class Audio():
     def server_connected(cls, server):
         self = cls.get_singleton()
         cls.server = server
-        server.subscribe_responses('RX;TX;', lambda response: self.on_transmit_changed(server, response), send=False)
+        server.subscribe_responses('TX;RX;', lambda response: self.on_transmit_changed(server, response), send=False)
         server.subscribe_response('MX;', lambda response: self.on_mx_changed(server, response), send=False)
         server.subscribe_received_initial_parameters(cls.on_received_initial_parameters)
 

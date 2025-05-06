@@ -361,7 +361,7 @@
 #end
 
 #define vfo-a
-- { item: vfo, AorB: A, width: 9, font: { family: Helvetica, size: 19, weight: normal }, activecolor: pink, transmitcolor: red }
+- { item: vfo, AorB: A, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: pink, transmitcolor: red }
 #end
 
 #define s-meter-a-bargraph
@@ -551,7 +551,7 @@
 #end
 
 #define vfo-b
-- { item: vfo, AorB: B, width: 9, font: { family: Helvetica, size: 19, weight: normal }, activecolor: pink, transmitcolor: red }
+- { item: vfo, AorB: B, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: pink, transmitcolor: red }
 #end
 
 #define s-meter-b-bargraph
@@ -895,8 +895,8 @@
 - item: togglebutton
   label: 'Tx/Rx'
   selections: #{
-    - { text: 'Receive',   cmd: RX;, bg: white, abg: white, }
-    - { text: 'Transmit',  cmd: TX;, bg: red,   abg: red, }
+    - { text: 'Receive',   cmd: RX;, evalresponse: '"RX;" if self.k4param("RX") != None else ""', bg: white, abg: white, }
+    - { text: 'Transmit',  cmd: TX;, evalresponse: '"TX;" if self.k4param("TX") != None else ""', bg: red,   abg: red, }
   #}
 #end
 
