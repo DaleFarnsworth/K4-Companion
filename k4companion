@@ -2347,6 +2347,8 @@ class Dropdownbutton(Widget):
                 justify=justify,
                 style=self.stylename,
                 )
+        self.combobox.option_add('*TCombobox*Listbox*Font', self.font())
+        self.combobox.option_add('*TCombobox*Listbox*Justify', 'center')
 
         self.val.trace('w', self.on_combobox_changed)
 
