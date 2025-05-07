@@ -405,6 +405,8 @@ class Server():
                 return True
         elif base[-1] in Server.set_only_suffixes:
             return True
+        elif base in 'KY' and len(cmd) > 2:
+            return True
         else:
             return False
 
@@ -494,7 +496,7 @@ class Server():
             self.connect_callbacks.append(callback)
 
     def update_k4_parameter(self, base, parameter):
-        if base in ('TX', 'RX', 'SD0', 'SD1', 'ES'):
+        if base in ('TX', 'RX', 'SD0', 'SD1', 'ES', 'TB', 'TB$'):
             if base == 'TX':
                 self.k4_parameters['RX'] = None
             elif base == 'RX':
@@ -506,6 +508,9 @@ class Server():
                     self.update_k4_parameter('ES0', parameter[1:])
                 elif parameter[0] == '1':
                     self.update_k4_parameter('ES1', parameter[1:])
+            elif base in ('TB', 'TB$'):
+                if len(parameter) < 3:
+                    return
 
         old = self.k4_parameters.get(base, None)
         self.k4_parameters[base] = parameter
@@ -776,7 +781,7 @@ class Server():
 
                 if cmds != None:
                     cmds = cmds.decode()
-                    if cmds in ['PING;']:
+                    if cmds in ('PING;', 'ACN1;'):
                         dprint4('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
                     else:
                         dprint2('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
@@ -898,7 +903,7 @@ class Server():
             if base == 'SB':
                 Audio.control_k4_cmd(base, response)
             if Options.debug >= 1:
-                if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG', 'DA', 'TB', 'TB$'):
+                if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG', 'DA', 'TB', 'TB$', 'ACN1'):
                     dprint4('{name}: received: {response};'.format(name=self.name, response=response))
                 else:
                     dprint2('{name}: received: {response};'.format(name=self.name, response=response))
@@ -1208,7 +1213,7 @@ class Widget():
                                        text=label,
                                        font=self.label_font(),
                                        labelanchor='nw',
-                                       bd=4,
+                                       bd=2,
                                        relief='raised')
         inner_frame.grid(row=row, column=0, sticky=self.sticky)
 
@@ -1285,8 +1290,8 @@ class Container(Widget):
                 child = Exit_cmds(config_info, self)
             elif widget_type == 'antenna':
                 child = Antenna(config_info, self)
-            elif widget_type == 'morse':
-                child = Morse(config_info, self)
+            elif widget_type == 'cw':
+                child = CW(config_info, self)
 
             else:
                 raise Exception('Error: config file: unknown item "{type}"'.format(type=widget_type))
@@ -4744,46 +4749,148 @@ class Antenna(Widget):
 
         self.dropdown.values(values)
 
-class Morse(Widget):
+class CWText(tk.Text):
+    def __init__(self, container, **kwargs):
+        super().__init__(container, **kwargs)
+        self.tag_config('space', wrap='char')
+
+    def append(self, value):
+        space_indexes = []
+        for i, c in enumerate(value):
+            if c == ' ':
+                space_indexes.append(i)
+        self.mark_set('old_end', tk.END)
+        self.mark_gravity('old_end', tk.LEFT)
+        previous_state = self.cget('state')
+        self.config(state='normal')
+        self.insert(tk.END, value)
+        self.see('1.0')
+        self.config(state=previous_state)
+        for i in space_indexes:
+            index = f'old_end+{i}c'
+            self.tag_add('space', index)
+
+    def scroll_up(self):
+        width = self.cget('width')
+        ax, ay, aw, ah, au = self.dlineinfo('1.0')
+        high = width + 1
+        low = 0
+        while low <= high:
+            mid = (high + low) // 2
+            bx, by, bw, bh = self.bbox(f'1.{mid}')
+            if by > ay:    # line-wrapped
+                high = mid - 1
+            else:
+                low = mid + 1
+        if by <= ay:
+            mid += 1
+        self.config(state='normal')
+        self.delete('1.0', f'1.{mid}')
+        self.config(state='disabled')
+        return mid
+
+    def text(self, delete=False):
+        text = self.get('1.0', tk.END+'-1c')
+        if delete:
+            self.delete('1.0', tk.END)
+        return text
+
+class CW(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        options = ['bd', 'bg', 'fg', 'height', 'width', 'columns', 'font', 'label', 'leading']
+        options = ['bd', 'bg', 'fg', 'type_height', 'tx_height', 'rx_height', 'width', 'columns',
+                   'font', 'label', 'leading', 'rows', 'columns', 'button_width']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
         bd = config_info.get('bd', 2)
-        self.tx_height = config_info.get('tx_height', 2)
-        if self.tx_height < 2:
-            self.tx_height = 2
+        self.type_height = config_info.get('type_height', 3)
+        if self.type_height < 1:
+            self.type_height = 1
+        self.tx_height = config_info.get('tx_height', 3)
+        if self.tx_height < 1:
+            self.tx_height = 1
         self.rx_height = config_info.get('rx_height', 2)
-        if self.rx_height < 2:
-            self.rx_height = 2
-        self.width = config_info.get('width', 70)
-        self.columns = config_info.get('columns', 4)
+        if self.rx_height < 1:
+            self.rx_height = 1
+        self.width = config_info.get('width', 60)
+        self.button_width = config_info.get('button_width', 30)
+        self.rows = config_info.get('rows', 4)
+        self.columns = config_info.get('columns', 2)
         font = self.font()
         self.monospaced_font = ('DejaVu Sans Mono', font['size'])
 
-        self.tx_text_row = 0
+        self.tx_poll_interval = 10 # 10 mS
+        self.tx_line_len = self.width
+        self.tx_send_offset = 0
+        self.tx_remaining_count = 0
+        self.sending = False
+
+        self.load_settings()
+
+        top_frame = tk.Frame(self.frame)
+        top_frame.grid(row=0, column=0)
+        self.edit_button = tk.Button(top_frame, bd='2', text='Edit Buttons', font=self.font(), width=15,
+             justify='center', relief='raised', fg=self.fg, bg=self.bg, padx=2, pady=2, command=self.on_edit_button)
+        self.edit_button.grid(row=0, column=0, columnspan=self.columns, sticky='n')
+
         self.main_enabled = False
         self.sub_enabled = False
 
-        self.tx_frame = tk.LabelFrame(self.frame, text='Tx', font=self.label_font(), labelanchor='nw',
-                                  bd=4, padx=4, pady=4, relief='raised')
-        self.tx_text = tk.Text(self.tx_frame, bd=bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
-                               height=self.tx_height, width=self.width)
-        self.tx_text.grid(row=0, column=0, sticky='w')
-        self.tx_frame.grid(row=self.tx_text_row, column=0, sticky='w')
+        self.buttons_frame = tk.Frame(self.frame)
+        self.buttons_frame.grid(row=1, column=0, sticky='w')
 
-        self.main_frame = tk.LabelFrame(self.frame, text='Main Rx', font=self.label_font(), labelanchor='nw',
-                                  bd=4, padx=4, pady=4, relief='raised')
-        self.main_text = tk.Text(self.main_frame, bd=bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
-                                 height=self.rx_height, width=self.width)
-        self.main_text.grid(row=0, column=0, sticky='w')
-        self.sub_frame = tk.LabelFrame(self.frame, text='Sub Rx', font=self.label_font(), labelanchor='nw',
-                                  bd=4, padx=4, pady=4, relief='raised')
-        self.sub_text = tk.Text(self.sub_frame, bd=bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
-                                height=self.rx_height, width=self.width)
+        self.buttons = []
+        self.button_properties = []
+
+        row = 1
+        column = 0
+        for i, value in enumerate(self.button_values):
+            button = tk.Text(self.buttons_frame, bd=2, padx=1, pady=0, bg=self.bg, fg=self.fg,
+                             font=self.monospaced_font, height=1, width=self.button_width,
+                             cursor='hand2', relief='raised', wrap='none')
+            button.grid(row=row, column=column, sticky='w', padx=2, pady=2)
+            button.insert('1.0', value)
+            button.config(state='disabled')
+            button.bind('<Return>', lambda event, i=i: self.set_button_value(i))
+            button.bind('<FocusOut>', lambda event, i=i: self.set_button_value(i))
+            button.bind('<Button-1>', lambda event, i=i: self.on_button1_click(i))
+            button.bind('<Button-3>', lambda event, i=i: self.on_button3_click(i))
+            self.buttons.append(button)
+            self.button_properties.append({'editing': False})
+            column += 1
+            if column >= self.columns:
+                row += 1
+                column = 0
+            if row >= self.rows:
+                break
+
+        type_frame = tk.LabelFrame(self.frame, text='Typing buffer (Hit enter to send.)',
+            font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
+        type_frame.grid(row=2, column=0, sticky='w', pady=5)
+        self.type_text = CWText(type_frame, bd=bd, bg=self.bg, fg=self.fg,
+            font=self.monospaced_font, height=self.type_height, width=self.width, wrap='word')
+        self.type_text.grid(row=0, column=0, sticky='w')
+        self.type_text.bind('<Return>', self.on_type_text_modified)
+
+        tx_frame = tk.LabelFrame(self.frame, text='Tx', font=self.label_font(),
+             labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
+        tx_frame.grid(row=3, column=0, sticky='w', pady=5)
+        self.tx_text = CWText(tx_frame, bd=bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
+            height=self.tx_height, width=self.width, wrap='word', state='disabled')
+        self.tx_text.grid(row=0, column=0, sticky='w')
+        self.tx_text.tag_config('underline', underline=1)
+
+        self.main_frame = tk.LabelFrame(self.frame, text='Main Rx', font=self.label_font(),
+            labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
+        self.main_text = CWText(self.main_frame, bd=bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
+            height=self.rx_height, width=self.width, wrap=None, state='disabled')
+        self.main_text.grid(row=0, column=0, sticky='w', pady=1)
+        self.sub_frame = tk.LabelFrame(self.frame, text='Sub Rx', font=self.label_font(),
+            labelanchor='nw', bd=2, padx=1, pady=2, relief='raised')
+        self.sub_text = CWText(self.sub_frame, bd=bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
+            height=self.rx_height, width=self.width, wrap=None, state='disabled')
         self.sub_text.grid(row=0, column=0, sticky='w')
 
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
@@ -4793,30 +4900,63 @@ class Morse(Widget):
         self.server.subscribe_response('TD$;', self.on_sub_text_decode)
         self.server.subscribe_response('TB;', self.on_main_text_buffer)
         self.server.subscribe_response('TB$;', self.on_sub_text_buffer)
-#        Poll.add(1000, self.add_text)
+        self.server.subscribe_response('ACN1;', self.on_transmit_ack)
 
-    def add_text(self):
-        s = 'abcdef'
-        try:
-            self.add_len += 1
-        except:
-            self.add_len = 1
-        if self.add_len > len(s):
-            self.add_len = 1
-        self.on_main_text_buffer('TB220' + s[:self.add_len] + ' ' * 1 + ';')
+    def set_button_value(self, index):
+        self.buttons[index].see('1.0')
+        self.buttons[index].config(bg=self.bg, state='disabled', cursor='hand2')
+        self.button_properties[index]['editing'] = False
+        self.save_settings()
+
+        return 'break'
+
+    def on_button1_click(self, index):
+        if self.button_properties[index]['editing']:
+            return
+        value = self.buttons[index].get('1.0', '1.0 lineend')
+        if value == '':
+            self.on_button3_click(index)
+            return
+        value += ' '
+        self.tx_text.append(value)
+        self.send_cw()
+
+    def on_button3_click(self, index):
+        self.buttons[index].config(bg='Yellow', state='normal', cursor='')
+        self.buttons[index].focus()
+        self.button_properties[index]['editing'] = True
+
+    def send_cw(self):
+        if self.tx_remaining_count > 5:
+            Poll.call(self.tx_poll_interval, self.send_cw)
+            return
+
+        index = f'1.{self.tx_send_offset}'
+        end_index = f'1.{self.tx_send_offset+4}'
+        chunk = self.tx_text.get(index, end_index)
+        chunk_len = len(chunk)
+        if chunk_len > 0:
+            self.tx_send_offset += chunk_len
+
+            if self.tx_remaining_count == 0:
+                chunk_len -= 1
+            self.tx_remaining_count += chunk_len
+            self.server.send_cmds(f'KY {chunk};ACN1;')
+            self.sending = True
+            Poll.call(self.tx_poll_interval, self.send_cw)
 
     def on_main_text_decode(self, response):
         if self.k4param('TD')[0] == '0':
             self.main_frame.grid_forget()
             self.main_enabled = False
             if self.sub_enabled:
-                self.sub_frame.grid(row=self.tx_text_row+1, column=0, sticky='w')
+                self.sub_frame.grid(row=4, column=0, sticky='w', pady=5)
             return
 
-        self.main_frame.grid(row=self.tx_text_row+1, column=0, sticky='w')
+        self.main_frame.grid(row=4, column=0, sticky='w', pady=10)
         self.main_enabled = True
         if self.sub_enabled:
-            self.sub_frame.grid(row=self.tx_text_row+2, column=0, sticky='w')
+            self.sub_frame.grid(row=5, column=0, sticky='w', pady=5)
 
     def on_sub_text_decode(self, response):
         if self.k4param('TD$')[0] == '0':
@@ -4825,42 +4965,42 @@ class Morse(Widget):
             return
 
         self.sub_enabled = True
-        row = self.tx_text_row +1
+        row=4
         if self.main_enabled:
             row += 1
-        self.sub_frame.grid(row=row, column=0, sticky='w')
+        self.sub_frame.grid(row=row, column=0, sticky='w', pady=5)
 
-    def add_text_to_widget(self, widget, new_text):
-        widget.insert(tk.END, new_text)
-        line_end_index = widget.index('end-1c')
-        line_num, line_len = line_end_index.split('.')
-        line_num = int(line_num)
-        line_len = int(line_len)
-        line_begin_index = f'{line_num}.0'
-        if line_len > self.width:
-            width_index = f'{line_num}.{self.width}'
-            line_break_index = widget.search(' ', width_index, backwards=True, stopindex=line_begin_index)
-            if line_break_index == '':
-                widget.insert(f'{line_num}.{self.width-1}', '\n')
-            else:
-                widget.delete(line_break_index)
-                widget.insert(line_break_index, '\n')
+    def update_sending_offset(self):
+        text = self.tx_text
+        sending_offset = self.tx_send_offset - self.tx_remaining_count-1
+        index = f'1.{sending_offset}'
+        text.update_idletasks()
+        if text.bbox(index) == None:            # is character not visible? 
+            deleted_count = text.scroll_up()
+            self.tx_send_offset -= deleted_count
+            sending_offset -= deleted_count
+            index = f'1.{sending_offset}'
 
-            if line_num+1 > self.rx_height:
-                widget.delete('1.0', '2.0')
+        self.tx_text.tag_remove('underline', '1.0', tk.END)
+        self.tx_text.tag_add('underline', index)
+
+    def on_transmit_ack(self, response):
+        self.sending = False
 
     def on_text_buffer(self, response, widget):
         param = response_after_base(response).rstrip(';')
-        self.tx_remaining_chars(int(param[0]))
+        if not self.sending:
+            r = int(param[0])
+            self.tx_remaining_count = r
+            self.update_sending_offset()
         new_text = param[3:]
         if new_text == '':
             return
 
-        while len(new_text) >= self.width:
-            text = new_text[0:self.width-1]
-            self.add_text_to_widget(widget, text)
-            new_text = new_text[self.width-1:]
-        self.add_text_to_widget(widget, new_text)
+        widget.append(new_text)
+        widget.update_idletasks()
+        if widget.bbox('end-1c') == None:            # is last line invisible? 
+            widget.scroll_up()
 
     def on_main_text_buffer(self, response):
         self.on_text_buffer(response, self.main_text)
@@ -4868,8 +5008,56 @@ class Morse(Widget):
     def on_sub_text_buffer(self, response):
         self.on_text_buffer(response, self.sub_text)
 
-    def tx_remaining_chars(self, count):
-        pass
+    def on_edit_button(self):
+        if self.edit_button.cget('text').startswith('Edit'):
+            for i, button in enumerate(self.buttons):
+                self.button_properties[i]['editing'] = True
+                button.config(bg='Yellow', state='normal', cursor='')
+                self.edit_button.config(text='Enable Buttons')
+        else:
+            for i, button in enumerate(self.buttons):
+                self.button_properties[i]['editing'] = False
+                button.config(bg=self.bg, state='disable', cursor='hand2')
+                self.edit_button.config(text='Edit Buttons')
+
+    def on_type_text_modified(self, event):
+        text = self.type_text.text(delete=True)
+        self.tx_text.append(text + ' ')
+        self.send_cw()
+        return 'break'
+
+    def load_settings(self):
+        category = 'CW'
+        self.button_values = []
+        buttons = Settings.get(category, 'buttons')
+        if buttons != None:
+            values = buttons.split('\n')
+            for value in values:
+                self.button_values.append(value.strip())
+        total_buttons = self.rows * self.columns
+        while len(self.button_values) < total_buttons:
+               self.button_values.append('')
+
+    def save_settings(self):
+        category = 'CW'
+        previous_settings = Settings.get_category(category)
+        Settings.clear_category(category)
+
+        values = []
+        for button in self.buttons:
+            value = button.get('1.0', '1.0 lineend').strip()
+            values.append(value)
+        while values[len(values)-1] == '':
+            values.pop()
+        for i in range(len(values)-1, 0, 1):
+            if values[i] == '':
+                values
+        buttons = '\n '.join(values)
+        Settings.put(category, 'buttons', buttons)
+
+        settings = Settings.get_category(category)
+        if settings != previous_settings:
+            Settings.save()
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure
@@ -5086,13 +5274,19 @@ class Poll():
 
     def remove_all():
         for callback in list(Poll.infos):
-            Poll.remove(callback)
+            try:
+                Poll.remove(callback)
+            except:
+                pass
 
     def callback(callback):
         callback()
         info = Poll.infos.get(callback, None)
         if info == None or info.interval == None:
-            del Poll.infos[callback]
+            try:
+                del Poll.infos[callback]
+            except:
+                pass
         else:
             info.id = Poll.top.after(info.interval, lambda : Poll.callback(callback))
 

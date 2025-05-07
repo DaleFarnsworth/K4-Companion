@@ -38,7 +38,7 @@
     #include main-tab-group
     #include receive-tab-group
     #include transmit-tab-group
-    #include morse-tab-group
+    #include cw-tab-group
     #include equalizers-tab-group
     #include misc-tab-group
     #include app-settings-tab-group
@@ -132,11 +132,11 @@
   #}
 #end
 
-#define morse-tab-group
+#define cw-tab-group
 - item: group
-  tabname: Morse
+  tabname: CW
   contains: #{
-    #include morse
+    #include cw
   #}
 #end
 
@@ -1381,8 +1381,15 @@
   #}
 #end
 
-#define morse
-- item: morse
+#define cw
+- item: cw
+  rows: 10
+  columns: 4
+  type_height: 2
+  tx_height: 2
+  rx_height: 2
+  width: 63
+  button_width: 15
 #end
 
 #define equalizers
