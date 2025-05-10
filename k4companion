@@ -4847,24 +4847,23 @@ class CW(Widget):
         row = 1
         column = 0
         for i, value in enumerate(self.button_values):
+            if row >= self.rows:
+                break
             button = tk.Text(self.buttons_frame, bd=2, padx=1, pady=0, bg=self.bg, fg=self.fg,
                              font=self.monospaced_font, height=1, width=self.button_width,
                              cursor='hand2', relief='raised', wrap='none')
             button.grid(row=row, column=column, sticky='w', padx=2, pady=2)
-            button.insert('1.0', value)
-            button.config(state='disabled')
-            button.bind('<Return>', lambda event, i=i: self.set_button_value(i))
-            button.bind('<FocusOut>', lambda event, i=i: self.set_button_value(i))
-            button.bind('<Button-1>', lambda event, i=i: self.on_button1_click(i))
-            button.bind('<Button-3>', lambda event, i=i: self.on_button3_click(i))
             self.buttons.append(button)
             self.button_properties.append({'editing': False})
+            self.load_button_value(i)
+            button.bind('<Return>', lambda event, i=i: self.store_button_value(i))
+            button.bind('<FocusOut>', lambda event, i=i: self.store_button_value(i))
+            button.bind('<Button-1>', lambda event, i=i: self.on_button1_click(i))
+            button.bind('<Button-3>', lambda event, i=i: self.on_button3_click(i))
             column += 1
             if column >= self.columns:
                 row += 1
                 column = 0
-            if row >= self.rows:
-                break
 
         type_frame = tk.LabelFrame(self.frame, text='Typing buffer (Hit enter to send.)',
             font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
@@ -4902,9 +4901,42 @@ class CW(Widget):
         self.server.subscribe_response('TB$;', self.on_sub_text_buffer)
         self.server.subscribe_response('ACN1;', self.on_transmit_ack)
 
-    def set_button_value(self, index):
-        self.buttons[index].see('1.0')
-        self.buttons[index].config(bg=self.bg, state='disabled', cursor='hand2')
+    def load_button_value(self, index, edit=False):
+        value = self.button_values[index]
+        label = self.button_labels[index]
+        if label != '':
+            value = f'{label}|{value}' if edit else label
+        button = self.buttons[index]
+        button.config(state='normal')
+        button.delete('1.0', tk.END)
+        button.insert('1.0', value)
+        button.see('1.0')
+        if edit:
+            button.config(bg='Yellow', state='normal', cursor='')
+            self.button_properties[index]['editing'] = True
+        else:
+            button.config(bg=self.bg, state='disabled', cursor='hand2')
+            self.button_properties[index]['editing'] = False
+
+    def store_button_value(self, index):
+        if not self.button_properties[index]['editing']:
+            return
+        button = self.buttons[index]
+        value = button.get('1.0', tk.END).strip()
+        fields = value.split('|', 1)
+        if len(fields) == 2:
+            label, value = fields
+        else:
+            label = ''
+        self.button_values[index] = value
+        self.button_labels[index] = label
+        if label != '':
+            value = label
+        button.config(state='normal')
+        button.delete('1.0', tk.END)
+        button.insert('1.0', value)
+        button.see('1.0')
+        button.config(bg=self.bg, state='disabled', cursor='hand2')
         self.button_properties[index]['editing'] = False
         self.save_settings()
 
@@ -4913,7 +4945,7 @@ class CW(Widget):
     def on_button1_click(self, index):
         if self.button_properties[index]['editing']:
             return
-        value = self.buttons[index].get('1.0', '1.0 lineend')
+        value = self.button_values[index]
         if value == '':
             self.on_button3_click(index)
             return
@@ -4922,9 +4954,8 @@ class CW(Widget):
         self.send_cw()
 
     def on_button3_click(self, index):
-        self.buttons[index].config(bg='Yellow', state='normal', cursor='')
+        self.load_button_value(index, edit=True)
         self.buttons[index].focus()
-        self.button_properties[index]['editing'] = True
 
     def send_cw(self):
         if self.tx_remaining_count > 5:
@@ -5011,14 +5042,12 @@ class CW(Widget):
     def on_edit_button(self):
         if self.edit_button.cget('text').startswith('Edit'):
             for i, button in enumerate(self.buttons):
-                self.button_properties[i]['editing'] = True
-                button.config(bg='Yellow', state='normal', cursor='')
-                self.edit_button.config(text='Enable Buttons')
+                self.load_button_value(i, edit=True)
+            self.edit_button.config(text='Enable Buttons')
         else:
             for i, button in enumerate(self.buttons):
-                self.button_properties[i]['editing'] = False
-                button.config(bg=self.bg, state='disable', cursor='hand2')
-                self.edit_button.config(text='Edit Buttons')
+                self.store_button_value(i)
+            self.edit_button.config(text='Edit Buttons')
 
     def on_type_text_modified(self, event):
         text = self.type_text.text(delete=True)
@@ -5029,14 +5058,23 @@ class CW(Widget):
     def load_settings(self):
         category = 'CW'
         self.button_values = []
+        self.button_labels = []
         buttons = Settings.get(category, 'buttons')
         if buttons != None:
             values = buttons.split('\n')
             for value in values:
-                self.button_values.append(value.strip())
+                value = value.strip()
+                fields = value.split('|', 1)
+                if len(fields) == 2:
+                    label, value = fields
+                else:
+                    label = ''
+                self.button_values.append(value)
+                self.button_labels.append(label)
         total_buttons = self.rows * self.columns
         while len(self.button_values) < total_buttons:
-               self.button_values.append('')
+            self.button_values.append('')
+            self.button_labels.append('')
 
     def save_settings(self):
         category = 'CW'
@@ -5044,14 +5082,13 @@ class CW(Widget):
         Settings.clear_category(category)
 
         values = []
-        for button in self.buttons:
-            value = button.get('1.0', '1.0 lineend').strip()
+        for i, value in enumerate(self.button_values):
+            label = self.button_labels[i]
+            if label != '':
+                value = f'{label}|{value}'
             values.append(value)
         while values[len(values)-1] == '':
             values.pop()
-        for i in range(len(values)-1, 0, 1):
-            if values[i] == '':
-                values
         buttons = '\n '.join(values)
         Settings.put(category, 'buttons', buttons)
 
