@@ -38,12 +38,10 @@
     #include main-tab-group
     #include receive-tab-group
     #include transmit-tab-group
-    #include cw-tab-group
     #include equalizers-tab-group
     #include misc-tab-group
     #include app-settings-tab-group
   #}
-#}
 
 #define main-tab-group
 - item: group
@@ -53,6 +51,7 @@
     #include main-tab-row1
     #include main-tab-row2
     #include main-tab-row3
+    #include cw-window
     #}
 #end
 
@@ -132,14 +131,6 @@
   #}
 #end
 
-#define cw-tab-group
-- item: group
-  tabname: CW
-  contains: #{
-    #include cw
-  #}
-#end
-
 #define equalizers-tab-group
 - item: group
   tabname: Equalizers
@@ -206,6 +197,7 @@
           contains: #{
             #include audio-mx-togglebutton
             #include autospot-button
+            #include cw-button
           #}
         - item: group
           label: ''
@@ -868,6 +860,10 @@
 - { item: button, label: ' ', text: 'Spot', cmd:  SP3; }
 #end
 
+#define cw-button
+- { item: button, label: 'CW Window', text: "Open", cmd: CW!; }
+#end
+
 #define connect-togglebutton
 - item: togglebutton
   wraparound: False
@@ -1381,15 +1377,8 @@
   #}
 #end
 
-#define cw
+#define cw-window
 - item: cw
-  rows: 10
-  columns: 4
-  type_height: 2
-  tx_height: 2
-  rx_height: 2
-  width: 63
-  button_width: 15
 #end
 
 #define equalizers

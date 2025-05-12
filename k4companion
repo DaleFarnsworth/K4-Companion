@@ -717,6 +717,8 @@ class Server():
                 Page.show_previous()
             else:
                 Page.show_page(page)
+        elif lcmd == 'cw!':
+            CW.show()
         else:
            raise Exception('Unknown directive: ', directive)
 
@@ -903,7 +905,7 @@ class Server():
             if base == 'SB':
                 Audio.control_k4_cmd(base, response)
             if Options.debug >= 1:
-                if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG', 'DA', 'TB', 'TB$', 'ACN1'):
+                if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG', 'DA', 'ACN1', 'TB', 'TB$'):
                     dprint4('{name}: received: {response};'.format(name=self.name, response=response))
                 else:
                     dprint2('{name}: received: {response};'.format(name=self.name, response=response))
@@ -4032,14 +4034,23 @@ class Settings():
         cls.save()
 
     @classmethod
-    def get(cls, category, setting):
+    def get(cls, category, setting, default=None):
         if not cls.settings_loaded:
             cls.load()
         if category not in cls.settings:
-            return None
+            return default
         if setting not in cls.settings[category]:
-            return None
+            return default
         return cls.settings[category][setting]
+
+    @classmethod
+    def getint(cls, category, setting, default=None, minimum=None):
+        val = cls.get(category, setting, default)
+        if val != None:
+            val = int(val)
+            if minimum != None and val < minimum:
+                val = minimum
+        return val
 
     @classmethod
     def clear_category(cls, category):
@@ -4789,51 +4800,75 @@ class CWText(tk.Text):
         self.config(state='disabled')
         return mid
 
-    def text(self, delete=False):
+    def text(self, clear=False):
         text = self.get('1.0', tk.END+'-1c')
-        if delete:
+        if clear:
+            previous_state = self.cget('state')
+            self.config(state='normal')
             self.delete('1.0', tk.END)
+            self.config(state=previous_state)
         return text
 
+    def clear(self):
+        previous_state = self.cget('state')
+        self.config(state='normal')
+        self.delete('1.0', tk.END)
+        self.config(state=previous_state)
+
 class CW(Widget):
+    singleton = None
+
+    @classmethod
+    def show(cls):
+        cls.singleton.open()
+
     def __init__(self, config_info, container):
         required = ['item']
-        options = ['bd', 'bg', 'fg', 'type_height', 'tx_height', 'rx_height', 'width', 'columns',
-                   'font', 'label', 'leading', 'rows', 'columns', 'button_width']
+        options = ['bd', 'bg', 'fg', 'font', 'label', 'leading']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
-        bd = config_info.get('bd', 2)
-        self.type_height = config_info.get('type_height', 3)
-        if self.type_height < 1:
-            self.type_height = 1
-        self.tx_height = config_info.get('tx_height', 3)
-        if self.tx_height < 1:
-            self.tx_height = 1
-        self.rx_height = config_info.get('rx_height', 2)
-        if self.rx_height < 1:
-            self.rx_height = 1
-        self.width = config_info.get('width', 60)
-        self.button_width = config_info.get('button_width', 30)
-        self.rows = config_info.get('rows', 4)
-        self.columns = config_info.get('columns', 2)
+        self.bd = config_info.get('bd', 2)
         font = self.font()
         self.monospaced_font = ('DejaVu Sans Mono', font['size'])
 
-        self.tx_poll_interval = 10 # 10 mS
-        self.tx_line_len = self.width
+        self.load_settings()
+
+        self.tx_poll_interval = None
+
+        self.tx_line_len = self.text_width
         self.tx_send_offset = 0
         self.tx_remaining_count = 0
         self.sending = False
 
-        self.load_settings()
+        CW.singleton = self
+        self.is_open = False
 
+    def bring_to_front(self):
+        # Why don't any of these work?
+        self.top_level.focus_force()
+        self.top_level.lift()
+        self.top_level.attributes('-topmost', True)
+        Page.top.update()
+        Poll.call(1, lambda: self.top_level.attributes('-topmost', False))
+
+    def open(self):
+        if self.is_open:
+            self.bring_to_front()
+            return
+        self.is_open = True
+        self.top_level = tk.Toplevel(Page.top)
+        self.top_level.protocol("WM_DELETE_WINDOW", self.close)
+        self.top_level.title('K4-Companion ' + version)
+        self.frame = ttk.Frame(self.top_level)
+        self.frame.grid(row=0, column=0)
         top_frame = tk.Frame(self.frame)
-        top_frame.grid(row=0, column=0)
-        self.edit_button = tk.Button(top_frame, bd='2', text='Edit Buttons', font=self.font(), width=15,
-             justify='center', relief='raised', fg=self.fg, bg=self.bg, padx=2, pady=2, command=self.on_edit_button)
-        self.edit_button.grid(row=0, column=0, columnspan=self.columns, sticky='n')
+        top_frame.grid(row=0, column=0, sticky='e')
+        self.configure_button = tk.Button(top_frame, bd='2', text='Configure', font=self.font(),
+             justify='center', relief='raised', fg=self.fg, bg=self.bg,
+             padx=2, pady=2, command=self.on_configure_button)
+        self.configure_button.grid(row=0, column=0, pady=5)
 
         self.main_enabled = False
         self.sub_enabled = False
@@ -4847,7 +4882,7 @@ class CW(Widget):
         row = 1
         column = 0
         for i, value in enumerate(self.button_values):
-            if row >= self.rows:
+            if row > self.rows:
                 break
             button = tk.Text(self.buttons_frame, bd=2, padx=1, pady=0, bg=self.bg, fg=self.fg,
                              font=self.monospaced_font, height=1, width=self.button_width,
@@ -4865,32 +4900,97 @@ class CW(Widget):
                 row += 1
                 column = 0
 
-        type_frame = tk.LabelFrame(self.frame, text='Typing buffer (Hit enter to send.)',
-            font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
-        type_frame.grid(row=2, column=0, sticky='w', pady=5)
-        self.type_text = CWText(type_frame, bd=bd, bg=self.bg, fg=self.fg,
-            font=self.monospaced_font, height=self.type_height, width=self.width, wrap='word')
-        self.type_text.grid(row=0, column=0, sticky='w')
-        self.type_text.bind('<Return>', self.on_type_text_modified)
+        self.configure_frame = tk.Frame(self.frame)
 
-        tx_frame = tk.LabelFrame(self.frame, text='Tx', font=self.label_font(),
+        self.rows_var = tk.IntVar()
+        self.rows_var.set(self.rows)
+        frame = tk.Frame(self.configure_frame)
+        frame.grid(row=0, column=0, padx=10)
+        label = tk.Label(frame, text='Button Rows:', font=self.font(), bg=self.bg)
+        label.grid(row=0, column=0, sticky='e')
+        rows_entry = tk.Entry(frame, textvariable=self.rows_var, width=2, justify='right', font=self.font(), bg='yellow')
+        rows_entry.grid(row=0, column=1, sticky='w')
+
+        self.columns_var = tk.IntVar()
+        self.columns_var.set(self.columns)
+        frame = tk.Frame(self.configure_frame)
+        frame.grid(row=0, column=1, padx=10, pady=3, sticky='w')
+        label = tk.Label(frame, text='Button Columns:', font=self.font(), bg=self.bg)
+        label.grid(row=0, column=0, sticky='e')
+        entry = tk.Entry(frame, textvariable=self.columns_var, width=2, justify='right', font=self.font(), bg='yellow')
+        entry.grid(row=0, column=1, sticky='w')
+
+        self.button_width_var = tk.IntVar()
+        self.button_width_var.set(self.button_width)
+        frame = tk.Frame(self.configure_frame)
+        frame.grid(row=1, column=0, padx=10, pady=3, sticky='w')
+        label = tk.Label(frame, text='Button Width:', font=self.font(), bg=self.bg)
+        label.grid(row=0, column=0, sticky='e')
+        entry = tk.Entry(frame, textvariable=self.button_width_var, width=2, justify='right', font=self.font(), bg='yellow')
+        entry.grid(row=0, column=1, sticky='w')
+
+        self.text_width_var = tk.IntVar()
+        self.text_width_var.set(self.text_width)
+        frame = tk.Frame(self.configure_frame)
+        frame.grid(row=1, column=1, padx=10, pady=3, sticky='w')
+        label = tk.Label(frame, text='Text Width:', font=self.font(), bg=self.bg)
+        label.grid(row=0, column=0, sticky='e')
+        entry = tk.Entry(frame, textvariable=self.text_width_var, width=2, justify='right', font=self.font(), bg='yellow')
+        entry.grid(row=0, column=1, sticky='w')
+
+        self.entry_height_var = tk.IntVar()
+        self.entry_height_var.set(self.entry_height)
+        frame = tk.Frame(self.configure_frame)
+        frame.grid(row=2, column=0, padx=10, pady=3, sticky='w')
+        label = tk.Label(frame, text='Entry lines:', font=self.font(), bg=self.bg)
+        label.grid(row=0, column=0, sticky='e')
+        entry = tk.Entry(frame, textvariable=self.entry_height_var, width=2, justify='right', font=self.font(), bg='yellow')
+        entry.grid(row=0, column=1, sticky='w')
+
+        self.tx_height_var = tk.IntVar()
+        self.tx_height_var.set(self.tx_height)
+        frame = tk.Frame(self.configure_frame)
+        frame.grid(row=3, column=0, padx=10, pady=3, sticky='w')
+        label = tk.Label(frame, text='Tx lines:', font=self.font(), bg=self.bg)
+        label.grid(row=0, column=0, sticky='e')
+        entry = tk.Entry(frame, textvariable=self.tx_height_var, width=2, justify='right', font=self.font(), bg='yellow')
+        entry.grid(row=0, column=1, sticky='w')
+
+        self.rx_height_var = tk.IntVar()
+        self.rx_height_var.set(self.rx_height)
+        frame = tk.Frame(self.configure_frame)
+        frame.grid(row=3, column=1, padx=10, pady=3, sticky='w')
+        label = tk.Label(frame, text='Rx lines:', font=self.font(), bg=self.bg)
+        label.grid(row=0, column=0, sticky='e')
+        entry = tk.Entry(frame, textvariable=self.rx_height_var, width=2, justify='right', font=self.font(), bg='yellow')
+        entry.grid(row=0, column=1, sticky='w')
+
+        self.entry_frame = tk.LabelFrame(self.frame, text='Entry (Hit enter to send.)',
+            font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
+        self.entry_text = CWText(self.entry_frame, bd=self.bd, bg=self.bg, fg=self.fg,
+            font=self.monospaced_font, height=self.entry_height, width=self.text_width, wrap='word')
+        self.entry_text.grid(row=0, column=0, sticky='w')
+        self.entry_text.bind('<Return>', self.on_entry_text_modified)
+
+        self.tx_frame = tk.LabelFrame(self.frame, text='Tx (Click to stop sending.', font=self.label_font(),
              labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
-        tx_frame.grid(row=3, column=0, sticky='w', pady=5)
-        self.tx_text = CWText(tx_frame, bd=bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
-            height=self.tx_height, width=self.width, wrap='word', state='disabled')
+        self.tx_text = CWText(self.tx_frame, bd=self.bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
+            height=self.tx_height, width=self.text_width, wrap='word', state='disabled')
+        self.tx_text.bind('<Button-1>', self.stop_sending)
         self.tx_text.grid(row=0, column=0, sticky='w')
         self.tx_text.tag_config('underline', underline=1)
 
         self.main_frame = tk.LabelFrame(self.frame, text='Main Rx', font=self.label_font(),
             labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
-        self.main_text = CWText(self.main_frame, bd=bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
-            height=self.rx_height, width=self.width, wrap=None, state='disabled')
+        self.main_text = CWText(self.main_frame, bd=self.bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
+            height=self.rx_height, width=self.text_width, wrap=None, state='disabled')
         self.main_text.grid(row=0, column=0, sticky='w', pady=1)
         self.sub_frame = tk.LabelFrame(self.frame, text='Sub Rx', font=self.label_font(),
             labelanchor='nw', bd=2, padx=1, pady=2, relief='raised')
-        self.sub_text = CWText(self.sub_frame, bd=bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
-            height=self.rx_height, width=self.width, wrap=None, state='disabled')
+        self.sub_text = CWText(self.sub_frame, bd=self.bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
+            height=self.rx_height, width=self.text_width, wrap=None, state='disabled')
         self.sub_text.grid(row=0, column=0, sticky='w')
+        self.show_text_rows()
 
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
@@ -4900,6 +5000,20 @@ class CW(Widget):
         self.server.subscribe_response('TB;', self.on_main_text_buffer)
         self.server.subscribe_response('TB$;', self.on_sub_text_buffer)
         self.server.subscribe_response('ACN1;', self.on_transmit_ack)
+        self.server.subscribe_response('KS;', self.on_keyer_speed_change)
+
+    def close(self):
+        self.is_open = False
+        if self.tx_remaining_count > 0:
+            self.stop_sending()
+        Poll.remove(self.send_cw)
+        self.server.unsubscribe_response('TD;', self.on_main_text_decode)
+        self.server.unsubscribe_response('TD$;', self.on_sub_text_decode)
+        self.server.unsubscribe_response('TB;', self.on_main_text_buffer)
+        self.server.unsubscribe_response('TB$;', self.on_sub_text_buffer)
+        self.server.unsubscribe_response('ACN1;', self.on_transmit_ack)
+        self.server.unsubscribe_response('KS;', self.on_keyer_speed_change)
+        self.top_level.destroy()
 
     def load_button_value(self, index, edit=False):
         value = self.button_values[index]
@@ -4950,6 +5064,9 @@ class CW(Widget):
             self.on_button3_click(index)
             return
         value += ' '
+        if self.tx_text.text() == '':
+            self.tx_offset = 0
+            self.tx_remaining_count = 0
         self.tx_text.append(value)
         self.send_cw()
 
@@ -4958,6 +5075,9 @@ class CW(Widget):
         self.buttons[index].focus()
 
     def send_cw(self):
+        if not self.is_open:
+            return
+
         if self.tx_remaining_count > 5:
             Poll.call(self.tx_poll_interval, self.send_cw)
             return
@@ -4978,28 +5098,43 @@ class CW(Widget):
 
     def on_main_text_decode(self, response):
         if self.k4param('TD')[0] == '0':
-            self.main_frame.grid_forget()
             self.main_enabled = False
-            if self.sub_enabled:
-                self.sub_frame.grid(row=4, column=0, sticky='w', pady=5)
-            return
-
-        self.main_frame.grid(row=4, column=0, sticky='w', pady=10)
-        self.main_enabled = True
-        if self.sub_enabled:
-            self.sub_frame.grid(row=5, column=0, sticky='w', pady=5)
+        else:
+            self.main_enabled = True
+        if not self.text_rows_hidden:
+            self.show_text_rows()
 
     def on_sub_text_decode(self, response):
         if self.k4param('TD$')[0] == '0':
-            self.sub_frame.grid_forget()
             self.sub_enabled = False
-            return
+        else:
+            self.sub_enabled = True
+        if not self.text_rows_hidden:
+            self.show_text_rows()
 
-        self.sub_enabled = True
-        row=4
+    def show_text_rows(self):
+        self.entry_frame.grid(row=2, column=0, sticky='w', pady=5)
+        self.tx_frame.grid(row=3, column=0, sticky='w', pady=5)
         if self.main_enabled:
-            row += 1
-        self.sub_frame.grid(row=row, column=0, sticky='w', pady=5)
+            self.main_frame.grid(row=4, column=0, sticky='w', pady=5)
+            if self.sub_enabled:
+                self.sub_frame.grid(row=5, column=0, sticky='w', pady=5)
+            else:
+                self.sub_frame.grid_forget()
+        else:
+            self.main_frame.grid_forget()
+            if self.sub_enabled:
+                self.sub_frame.grid(row=5, column=0, sticky='w', pady=5)
+            else:
+                self.sub_frame.grid_forget()
+        self.text_rows_hidden = False
+
+    def hide_text_rows(self):
+        self.tx_frame.grid_forget()
+        self.entry_frame.grid_forget()
+        self.main_frame.grid_forget()
+        self.sub_frame.grid_forget()
+        self.text_rows_hidden = True
 
     def update_sending_offset(self):
         text = self.tx_text
@@ -5039,24 +5174,76 @@ class CW(Widget):
     def on_sub_text_buffer(self, response):
         self.on_text_buffer(response, self.sub_text)
 
-    def on_edit_button(self):
-        if self.edit_button.cget('text').startswith('Edit'):
-            for i, button in enumerate(self.buttons):
-                self.load_button_value(i, edit=True)
-            self.edit_button.config(text='Enable Buttons')
-        else:
-            for i, button in enumerate(self.buttons):
-                self.store_button_value(i)
-            self.edit_button.config(text='Edit Buttons')
-
-    def on_type_text_modified(self, event):
-        text = self.type_text.text(delete=True)
-        self.tx_text.append(text + ' ')
+    def on_entry_text_modified(self, event):
+        text = self.entry_text.text(clear=True)
+        if not text.endswith(' '):
+            text += ' '
+        if self.tx_text.text() == '':
+            self.tx_offset = 0
+            self.tx_remaining_count = 0
+        self.tx_text.append(text)
         self.send_cw()
         return 'break'
 
+    def stop_sending(self, event=None):
+        self.server.send_cmds('KY @;')
+        pending_text = self.tx_text.text()
+        offset = self.tx_send_offset - self.tx_remaining_count
+        if offset == len(pending_text):
+            return
+        self.tx_text.clear()
+        if offset > 1:
+            offset -= 1
+        word_begin = pending_text.rfind(' ', 0, offset)
+        if word_begin < 0:
+            word_begin = 0
+        else:
+            word_begin += 1
+        text = pending_text[word_begin:] + self.entry_text.text(clear=True)
+        self.entry_text.append(text)
+        self.tx_send_offset = 0
+        self.tx_remaining_count = 0
+
+    def on_keyer_speed_change(self, response=None):
+        # The length of a dit in seconds is 1.2 / wpm,
+        # therefore the length of an E n mS is 1000 * 2.4 / wpm.
+        # We want to poll at least as often as every charater.
+        wpm = float(self.k4param('KS'))
+        self.tx_poll_interval = int(1000 * 2.4 / wpm)
+
+    def on_configure_button(self):
+        if self.configure_button.cget('text') == 'Configure':
+            for i, button in enumerate(self.buttons):
+                self.load_button_value(i, edit=True)
+            self.configure_button.config(text='Save')
+            self.hide_text_rows()
+            self.configure_frame.grid(row=2, column=0, sticky='w', pady=10)
+        else:
+            for i, button in enumerate(self.buttons):
+                self.store_button_value(i)
+            self.configure_button.config(text='Configure')
+            self.rows = self.rows_var.get()
+            self.columns = self.columns_var.get()
+            self.button_width = self.button_width_var.get()
+            self.text_width = self.text_width_var.get()
+            self.entry_height = self.entry_height_var.get()
+            self.tx_height = self.tx_height_var.get()
+            self.rx_height = self.rx_height_var.get()
+            self.save_settings()
+            self.close()
+            self.open()
+
     def load_settings(self):
         category = 'CW'
+
+        self.rows = Settings.getint(category, 'button_rows', 5, minimum=1)
+        self.columns = Settings.getint(category, 'button_columns', 4, minimum=1)
+        self.button_width = Settings.getint(category, 'button_width', 15, minimum=5)
+        self.text_width = Settings.getint(category, 'text_width', 63, minimum=10)
+        self.entry_height = Settings.getint(category, 'entry_height', 3, minimum=1)
+        self.tx_height = Settings.getint(category, 'tx_height', 3, minimum=1)
+        self.rx_height = Settings.getint(category, 'rx_height', 3, minimum=1)
+
         self.button_values = []
         self.button_labels = []
         buttons = Settings.get(category, 'buttons')
@@ -5080,6 +5267,14 @@ class CW(Widget):
         category = 'CW'
         previous_settings = Settings.get_category(category)
         Settings.clear_category(category)
+
+        Settings.put(category, 'button_rows', self.rows)
+        Settings.put(category, 'button_columns', self.columns)
+        Settings.put(category, 'button_width', self.button_width)
+        Settings.put(category, 'text_width', self.text_width)
+        Settings.put(category, 'entry_height', self.entry_height)
+        Settings.put(category, 'tx_height', self.tx_height)
+        Settings.put(category, 'rx_height', self.rx_height)
 
         values = []
         for i, value in enumerate(self.button_values):
