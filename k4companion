@@ -2413,7 +2413,8 @@ class Equalizers(Widget):
         active_row0_frame = tk.Frame(active_frame)
         active_row0_frame.grid(row=0, column=0, sticky='w', pady=5)
 
-        self.enabled_checkbutton = tk.Checkbutton(active_row0_frame, text='Disabled', var=self.enabled_var, onvalue=1, offvalue=0, indicatoron=False, fg=self.fg, bg='red', selectcolor=self.bg, width=len('Disabled'))
+        self.enabled_checkbutton = tk.Checkbutton(active_row0_frame, text='Disabled', var=self.enabled_var, onvalue=1, offvalue=0,
+            indicatoron=False, font=self.font(), fg=self.fg, bg='red', selectcolor=self.bg, width=len('Disabled'))
         self.enabled_checkbutton.grid(row=0, column=0, sticky='w', pady=5)
         self.enabled_var.trace('w', self.on_enabled_changed)
 
