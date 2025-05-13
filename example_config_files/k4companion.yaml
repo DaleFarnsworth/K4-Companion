@@ -39,6 +39,7 @@
     #include receive-tab-group
     #include transmit-tab-group
     #include equalizers-tab-group
+    #include menu-tab-group
     #include misc-tab-group
     #include app-settings-tab-group
   #}
@@ -80,11 +81,18 @@
     #}
 #end
 
+#define menu-tab-group
+- item: group
+  tabname: Menu
+  contains: #{
+    #include menu
+  #}
+#end
+
 #define misc-tab-group
 - item: group
   tabname: Misc
   contains: #{
-    #include menu
     #include sw-release-group
     #include fwversions
   #}
