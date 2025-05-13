@@ -4866,6 +4866,9 @@ class CW(Widget):
         self.frame.grid(row=0, column=0)
         top_frame = tk.Frame(self.frame)
         top_frame.grid(row=0, column=0, sticky='e')
+        self.cancel_button = tk.Button(top_frame, bd='2', text='Cancel', font=self.font(),
+             justify='center', relief='raised', fg=self.fg, bg=self.bg,
+                                       padx=2, pady=2, command=lambda cancel=True : self.on_configure_button(cancel))
         self.configure_button = tk.Button(top_frame, bd='2', text='Configure', font=self.font(),
              justify='center', relief='raised', fg=self.fg, bg=self.bg,
              padx=2, pady=2, command=self.on_configure_button)
@@ -5212,17 +5215,34 @@ class CW(Widget):
         wpm = float(self.k4param('KS'))
         self.tx_poll_interval = int(1000 * 2.4 / wpm)
 
-    def on_configure_button(self):
+    def on_configure_button(self, cancel=False):
         if self.configure_button.cget('text') == 'Configure':
             for i, button in enumerate(self.buttons):
                 self.load_button_value(i, edit=True)
             self.configure_button.config(text='Save')
             self.hide_text_rows()
             self.configure_frame.grid(row=2, column=0, sticky='w', pady=10)
+            self.cancel_button.grid(row=0, column=0, pady=5)
+            self.configure_button.grid(row=0, column=1, pady=5)
         else:
+            self.cancel_button.grid_forget()
+            self.configure_button.config(text='Configure')
+            self.configure_button.grid(row=0, column=1, pady=5)
+            if cancel:
+                for i, button in enumerate(self.buttons):
+                    self.load_button_value(i, edit=False)
+                self.rows_var.set(self.rows)
+                self.columns_var.set(self.columns)
+                self.button_width_var.set(self.button_width)
+                self.text_width_var.set(self.text_width)
+                self.entry_height_var.set(self.entry_height)
+                self.tx_height_var.set(self.tx_height)
+                self.rx_height_var.set(self.rx_height)
+                self.configure_frame.grid_forget()
+                self.show_text_rows()
+                return
             for i, button in enumerate(self.buttons):
                 self.store_button_value(i)
-            self.configure_button.config(text='Configure')
             self.rows = self.rows_var.get()
             self.columns = self.columns_var.get()
             self.button_width = self.button_width_var.get()
