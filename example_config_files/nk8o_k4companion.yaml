@@ -97,6 +97,7 @@
   contains: #{
     #include receive-tab-row1-group
     #include receive-tab-row2-group
+    #include receive-tab-row3-group
   #}
 #end
 
@@ -229,6 +230,96 @@
     #include noise-reduction-group
     #include rit-group
   #}
+#end
+
+#define receive-tab-row3-group
+- item: group
+  contains: #{
+    #include cw-decode-group
+  #}
+#end
+
+#define cw-decode-group
+- item: group
+  label: CW Text Decode
+  contains: #{
+    #include main-cw-decode-group
+    #include sub-cw-decode-group
+  #}
+#end
+
+#define main-cw-decode-group
+- item: group
+  label: Main
+  contains: #{
+    #include main-cw-decode-wpm
+    #include main-cw-decode-threshold
+  #}
+#end
+
+#define main-cw-decode-wpm
+- item: dropdownbutton
+  label: WPM
+  width: 4
+  selections: #{
+    - { text: " Off", cmd: TD0;, evalcmd: '"TD0{v};".format(v=self.k4param("TD")[1:3])', evalresponse: 'value[0:3]+";"' } 
+    - { text: "8-45", cmd: TD2;, evalcmd: '"TD2{v};".format(v=self.k4param("TD")[1:3])', evalresponse: 'value[0:3]+";"' }
+    - { text: "8-60", cmd: TD3;, evalcmd: '"TD3{v};".format(v=self.k4param("TD")[1:3])', evalresponse: 'value[0:3]+";"' }
+    - { text: "8-90", cmd: TD4;, evalcmd: '"TD4{v};".format(v=self.k4param("TD")[1:3])', evalresponse: 'value[0:3]+";"' }
+#end
+
+#define main-cw-decode-threshold
+- item: dropdownbutton
+  label: THR
+  width: 4
+  selections: #{
+    - { text: "Auto", cmd: TD0;, evalcmd: '"TD{m}0{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
+    - { text: "   1", cmd: TD1;, evalcmd: '"TD{m}1{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
+    - { text: "   2", cmd: TD2;, evalcmd: '"TD{m}2{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
+    - { text: "   3", cmd: TD3;, evalcmd: '"TD{m}3{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
+    - { text: "   4", cmd: TD4;, evalcmd: '"TD{m}4{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
+    - { text: "   5", cmd: TD5;, evalcmd: '"TD{m}5{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
+    - { text: "   6", cmd: TD6;, evalcmd: '"TD{m}6{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
+    - { text: "   7", cmd: TD7;, evalcmd: '"TD{m}7{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
+    - { text: "   8", cmd: TD8;, evalcmd: '"TD{m}8{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
+    - { text: "   9", cmd: TD9;, evalcmd: '"TD{m}9{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
+#end
+
+#define sub-cw-decode-group
+- item: group
+  label: Sub
+  contains: #{
+    #include sub-cw-decode-wpm
+    #include sub-cw-decode-threshold
+  #}
+#end
+
+#define sub-cw-decode-wpm
+- item: dropdownbutton
+  label: WPM
+  width: 4
+  selections: #{
+    - { text: " Off", cmd: TD$0;, evalcmd: '"TD$0{v};".format(v=self.k4param("TD$")[1:3])', evalresponse: 'value[0:4]+";"' } 
+    - { text: "8-45", cmd: TD$2;, evalcmd: '"TD$2{v};".format(v=self.k4param("TD$")[1:3])', evalresponse: 'value[0:4]+";"' }
+    - { text: "8-60", cmd: TD$3;, evalcmd: '"TD$3{v};".format(v=self.k4param("TD$")[1:3])', evalresponse: 'value[0:4]+";"' }
+    - { text: "8-90", cmd: TD$4;, evalcmd: '"TD$4{v};".format(v=self.k4param("TD$")[1:3])', evalresponse: 'value[0:4]+";"' }
+#end
+
+#define sub-cw-decode-threshold
+- item: dropdownbutton
+  label: THR
+  width: 4
+  selections: #{
+    - { text: "Auto", cmd: TD$0;, evalcmd: '"TD${m}0{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
+    - { text: "   1", cmd: TD$1;, evalcmd: '"TD${m}1{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
+    - { text: "   2", cmd: TD$2;, evalcmd: '"TD${m}2{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
+    - { text: "   3", cmd: TD$3;, evalcmd: '"TD${m}3{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
+    - { text: "   4", cmd: TD$4;, evalcmd: '"TD${m}4{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
+    - { text: "   5", cmd: TD$5;, evalcmd: '"TD${m}5{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
+    - { text: "   6", cmd: TD$6;, evalcmd: '"TD${m}6{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
+    - { text: "   7", cmd: TD$7;, evalcmd: '"TD${m}7{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
+    - { text: "   8", cmd: TD$8;, evalcmd: '"TD${m}8{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
+    - { text: "   9", cmd: TD$9;, evalcmd: '"TD${m}9{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
 #end
 
 #define antenna-select-group
