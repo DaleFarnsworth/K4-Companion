@@ -5250,15 +5250,17 @@ class CW(Widget):
         buttons = Settings.get(category, 'buttons')
         if buttons != None:
             values = buttons.split('\n')
-            for value in values:
-                value = value.strip()
-                fields = value.split('|', 1)
-                if len(fields) == 2:
-                    label, value = fields
-                else:
-                    label = ''
-                self.button_values.append(value)
-                self.button_labels.append(label)
+        else:
+            values = ('<KN>|(', '<AR>|+', '<BT>|=', '<AS>|%', '<SK>|*', '<VE>|!')
+        for value in values:
+            value = value.strip()
+            fields = value.split('|', 1)
+            if len(fields) == 2:
+                label, value = fields
+            else:
+                label = ''
+            self.button_values.append(value)
+            self.button_labels.append(label)
         total_buttons = self.rows * self.columns
         while len(self.button_values) < total_buttons:
             self.button_values.append('')
