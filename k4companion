@@ -4012,7 +4012,7 @@ class Audio():
 
 class Settings():
     settings_filename = 'settings.ini'
-    settings = configparser.ConfigParser()
+    settings = configparser.RawConfigParser()
     settings.optionxform = str
     settings_loaded = False
     settings_changed = False
