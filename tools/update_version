@@ -194,9 +194,11 @@ def main():
     run(['git', 'add', 'changelog'])
     run(['git', 'commit', '-m', 'Update changelog for ' + version])
 
-    run(['git', 'commit', '-a', '-m', 'Version '+ version])
     if branch == 'main':
+        run(['git', 'commit', '-a', '-m', 'Version '+ version])
         run(['git', 'tag', '-a', '-m', version, version])
+    else:
+        run(['git', 'commit', '-a', '-m', 'Tentative Version '+ version])
 
     run(['git', 'show', '--name-only'])
 
