@@ -784,9 +784,9 @@ class Server():
                 if cmds != None:
                     cmds = cmds.decode()
                     if cmds in ('PING;', 'ACN1;'):
-                        dprint4('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
+                        dprint3('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
                     else:
-                        dprint2('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
+                        dprint1('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
 
     def expand_cmds(self, cmds):
         if isinstance(cmds, str):
@@ -906,9 +906,9 @@ class Server():
                 Audio.control_k4_cmd(base, response)
             if Options.debug >= 1:
                 if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG', 'DA', 'ACN1', 'TB', 'TB$'):
-                    dprint4('{name}: received: {response};'.format(name=self.name, response=response))
+                    dprint3('{name}: received: {response};'.format(name=self.name, response=response))
                 else:
-                    dprint2('{name}: received: {response};'.format(name=self.name, response=response))
+                    dprint1('{name}: received: {response};'.format(name=self.name, response=response))
             if not self.control_k4_audio and base in self.control_k4_audio_cmd_bases:
                 continue
             response = response[len(base):]
@@ -1256,7 +1256,7 @@ class Container(Widget):
                 if Options.debug > 0:
                     label = config_info.get('label', '')
                     indent = '    ' * Container.depth
-                    dprint2('{indent}group {label}: row  {row}, column: {column}'.format(indent=indent, label=label, row=self.row, column=self.column))
+                    dprint1('{indent}group {label}: row  {row}, column: {column}'.format(indent=indent, label=label, row=self.row, column=self.column))
                 child = Group(config_info, self)
             elif widget_type == 'button':
                 child = Button(config_info, self)
@@ -1588,11 +1588,11 @@ class Togglebutton(Widget):
             k4_parameter = self.k4param(base)
             if selection['evalresponse'] != None and k4_parameter != None:
                 k4_parameter = self.eval_value(selection['evalresponse'], base + k4_parameter + ';')[len(base):].rstrip(';')
-            dprint3('compare :{text} s: {s}, b: {b}'.format(text=text, s=k4_parameter, b=parameters[base]))
+            dprint2('compare :{text} s: {s}, b: {b}'.format(text=text, s=k4_parameter, b=parameters[base]))
             if parameters[base] != k4_parameter:
-                dprint3(text, 'No match')
+                dprint2(text, 'No match')
                 return False
-        dprint3(text, 'Match')
+        dprint2(text, 'Match')
         return True
 
     def on_response_received(self, response):
@@ -1681,11 +1681,11 @@ class Radiobutton(Widget):
     def compare_parameters(self, group, text):
         parameters = self.parameters
         for base in parameters.keys():
-            dprint3('compare {group}:{text} s: {s}, b: {b}'.format(group=group, text=text, s=self.k4param(base), b=parameters[base]))
+            dprint2('compare {group}:{text} s: {s}, b: {b}'.format(group=group, text=text, s=self.k4param(base), b=parameters[base]))
             if parameters[base] != self.k4param(base):
-                dprint3(text, 'No match')
+                dprint2(text, 'No match')
                 return False
-        dprint3(text, 'Match')
+        dprint2(text, 'Match')
         return True
 
     def on_response_received(self, response):
@@ -2329,11 +2329,11 @@ class Dropdownbutton(Widget):
             k4_parameter = self.k4param(base)
             if selection['evalresponse'] != None and k4_parameter != None:
                 k4_parameter = self.eval_value(selection['evalresponse'], base + k4_parameter + ';')[len(base):].rstrip(';')
-            dprint3('compare :{text} s: {s}, b: {b}'.format(text=text, s=k4_parameter, b=parameters[base]))
+            dprint2('compare :{text} s: {s}, b: {b}'.format(text=text, s=k4_parameter, b=parameters[base]))
             if parameters[base] != k4_parameter:
-                dprint3(text, 'No match')
+                dprint2(text, 'No match')
                 return False
-        dprint3(text, 'Match')
+        dprint2(text, 'Match')
         return True
 
     def on_response_received(self, response):
