@@ -4817,6 +4817,7 @@ class CWText(tk.Text):
         self.config(state=previous_state)
 
 class CW(Widget):
+    valid_CW_characters = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_,./?(+=%*!'
     singleton = None
 
     @classmethod
@@ -4895,10 +4896,7 @@ class CW(Widget):
             self.buttons.append(button)
             self.button_properties.append({'editing': False})
             self.load_button_value(i)
-            button.bind('<Return>', lambda event, i=i: self.store_button_value(i))
-            button.bind('<FocusOut>', lambda event, i=i: self.store_button_value(i))
             button.bind('<Button-1>', lambda event, i=i: self.on_button1_click(i))
-            button.bind('<Button-3>', lambda event, i=i: self.on_button3_click(i))
             column += 1
             if column >= self.columns:
                 row += 1
@@ -4974,7 +4972,7 @@ class CW(Widget):
         self.entry_text = CWText(self.entry_frame, bd=self.bd, bg=self.bg, fg=self.fg,
             font=self.monospaced_font, height=self.entry_height, width=self.text_width, wrap='word')
         self.entry_text.grid(row=0, column=0, sticky='w')
-        self.entry_text.bind('<Return>', self.on_entry_text_modified)
+        self.entry_text.bind('<Key>', self.on_entry_text_modified)
 
         self.tx_frame = tk.LabelFrame(self.frame, text='Tx (Click to stop sending.', font=self.label_font(),
              labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
@@ -5025,29 +5023,32 @@ class CW(Widget):
         if label != '':
             value = f'{label}|{value}' if edit else label
         button = self.buttons[index]
-        button.config(state='normal')
+        button.config(bg='Yellow', state='normal', cursor='')
         button.delete('1.0', tk.END)
         button.insert('1.0', value)
         button.see('1.0')
         if edit:
-            button.config(bg='Yellow', state='normal', cursor='')
             self.button_properties[index]['editing'] = True
         else:
             button.config(bg=self.bg, state='disabled', cursor='hand2')
             self.button_properties[index]['editing'] = False
 
-    def store_button_value(self, index):
-        if not self.button_properties[index]['editing']:
-            return
-        button = self.buttons[index]
+    def button_label_value(self, button):
         value = button.get('1.0', tk.END).strip()
         fields = value.split('|', 1)
         if len(fields) == 2:
             label, value = fields
         else:
             label = ''
-        self.button_values[index] = value
+        return label, value
+
+    def store_button_value(self, index):
+        if not self.button_properties[index]['editing']:
+            return
+        button = self.buttons[index]
+        label, value = self.button_label_value(button)
         self.button_labels[index] = label
+        self.button_values[index] = value
         if label != '':
             value = label
         button.config(state='normal')
@@ -5065,7 +5066,6 @@ class CW(Widget):
             return
         value = self.button_values[index]
         if value == '':
-            self.on_button3_click(index)
             return
         value += ' '
         if self.tx_text.text() == '':
@@ -5073,10 +5073,6 @@ class CW(Widget):
             self.tx_remaining_count = 0
         self.tx_text.append(value)
         self.send_cw()
-
-    def on_button3_click(self, index):
-        self.load_button_value(index, edit=True)
-        self.buttons[index].focus()
 
     def send_cw(self):
         if not self.is_open:
@@ -5179,6 +5175,15 @@ class CW(Widget):
         self.on_text_buffer(response, self.sub_text)
 
     def on_entry_text_modified(self, event):
+        c = event.char
+        if c != '\r':
+            if c == '\x16':     # ignore ctrl-v (paste)
+                return
+            if c.upper() not in CW.valid_CW_characters + '\b\x7f':
+                Popup.warning(f'Character "{c}" not supported for CW')
+                return 'break'
+            return
+
         text = self.entry_text.text(clear=True)
         if not text.endswith(' '):
             text += ' '
@@ -5225,6 +5230,8 @@ class CW(Widget):
             self.cancel_button.grid(row=0, column=0, pady=5)
             self.configure_button.grid(row=0, column=1, pady=5)
         else:
+            if not self.valid_button_values():
+                return
             self.cancel_button.grid_forget()
             self.configure_button.config(text='Configure')
             self.configure_button.grid(row=0, column=1, pady=5)
@@ -5253,6 +5260,22 @@ class CW(Widget):
             self.save_settings()
             self.close()
             self.open()
+
+    def valid_button_value(self, i):
+        button = self.buttons[i]
+        label, value = self.button_label_value(button)
+        for c in value:
+            if c.upper() not in CW.valid_CW_characters:
+                Popup.warning(f'Character "{c}" not allowed in Button {i+1}')
+                self.load_button_value(i, edit=True)
+                return False
+        return True
+
+    def valid_button_values(self):
+        for i, button in enumerate(self.buttons):
+            if not self.valid_button_value(i):
+                return False
+        return True
 
     def load_settings(self):
         category = 'CW'
@@ -5305,7 +5328,12 @@ class CW(Widget):
             if label != '':
                 value = f'{label}|{value}'
             values.append(value)
-        while values[len(values)-1] == '':
+        while True:
+            ln = len(values)
+            if ln <= 0:
+                break
+            if values[ln-1] != '':
+                break
             values.pop()
         buttons = '\n '.join(values)
         Settings.put(category, 'buttons', buttons)
