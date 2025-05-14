@@ -857,12 +857,12 @@
 - item: slider
   label: Sidetone
   orient: vertical
-  from: 60
+  from: 60        # Programmer's Reference says 100, but the K4 disagrees
   to: 0
   length: 150
   evalincrement: '1'
   evalcmd: '"ML0{:03d};".format(int(float(value)))'
-  evalresponse: 'float(value[3:6]) if value[2] == "0" else -1'
+  evalresponse: 'float(value[3:6])'
 #end
 
 #define keyer-speed-slider-group
@@ -1225,12 +1225,12 @@
 - item: slider
   label: Monitor Level
   orient: vertical
-  from: 100
+  from: 60        # Programmer's Reference says 100, but the K4 disagrees
   to: 0
   length: 150
   evalincrement: '1'
   evalcmd: '"ML2{:03d};".format(int(value))'
-  evalresponse: 'int(value[3:6])'
+  evalresponse: 'float(value[3:6])'
 #end
 
 #define auto-notch-group

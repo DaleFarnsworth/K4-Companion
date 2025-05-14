@@ -287,6 +287,7 @@ class Server():
     k4_long_cmd_bases = {
         '#A': ['#AR', '#AVG'],
         'AC': ['ACM', 'ACS', 'ACT', 'ACN1', 'ACN2', 'ACN3', 'ACN4', 'ACN5'],
+        'BR': ['BR0', 'BR1', 'BR2'],
         '#C': ['#CAL', '#CUR'],
         '#D': ['#DPM', '#DSM'],
         'DN': ['DNB'],
@@ -295,10 +296,12 @@ class Server():
         'KZ': ['KZL', 'KZF'],
         'LO': ['LOG'],
         'ME': ['MEDF'],
+        'ML': ['ML0', 'ML1', 'ML2'],
         '#M': ['#MP'],
         '#N': ['#NBL', '#NB'],
         'PC': ['PCX'],
         'PI': ['PING'],
+        'PK': ['PK0', 'PK1', 'PK2'],
         'PO': ['PONG'],
         '#P': ['#PKM'],
         '#R': ['#REF'],
@@ -1019,7 +1022,7 @@ class Server():
             if parameter != None:
                 callback(base + parameter + ';')
             elif self.connected and base not in ('TX', 'RX'):
-                self.send_str(cmd_get_format(cmd))
+                self.send_str(base + ';')
 
     def unsubscribe_response(self, cmd, callback):
         base = cmd_base(cmd)
@@ -2909,17 +2912,6 @@ def cmd_base(cmd):
         elif cmd[len(base)] == '!':
             base += '!'
     return base
-
-def cmd_get_format(cmd):
-    base = cmd_base(cmd)
-    get_base = base
-    if base == 'ML':
-        get_base = cmd[0:3]
-    elif base == 'BR':
-        get_base = cmd[0:3]
-    elif base == 'PK':
-        get_base = cmd[0:4]
-    return get_base + ';'
 
 def response_after_base(response):
     i = len(cmd_base(response))
