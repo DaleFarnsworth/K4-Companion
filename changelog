@@ -1,4 +1,65 @@
+v1.2.9:
+    Update K4 Companion Windows installer to version 1.2.9
+
+    Update K4 Companion Windows EXE to version 1.2.9
+
+    Update K4 User Manual to version 1.2.9
+
+    Only transmit CW in allowed modes
+       Only send CW when the current transmit mode is CW or is SSB
+       and CW transmitting is enabled in SSB mode.
+   
+    Fix Sidetone and Voice Monitor level sliders
+
+    Validate CW characters before attempting to send them
+
+    Add a Cancel option to the CW configuration screen
+
+    Provide default values for CW prosigns
+
+    Use RawConfigParser for .ini file settings
+       This avoids the interpolation which caused problems when values contain
+       the '%' character.
+   
+    Update tools/update_version for tentative versions
+
+    Fix font for Equalizers Enabled button
+
+    Break out Menu into a separate tab
+
+    Add CW Text Decode configuration widgets
+
+    Remove requirement for an extra --debug argument
+       It was a mistake to require two --debug arguments to get
+       normal debug output. Now we can get that by specifying only
+       a single --debug argument..
+   
+    Add additional CW features
+       CW is now in a top level window.
+       The number of rows, columns, lines in the text windows are now configurable.
+       Sending of CW can now be stopped by clicking on the Tx text field.
+   
+    Add label display to CW buttons
+
+    Add CW transmit widgets
+
+    Add CW text decode widgets
+
+    Underline the VFO step character
+       We also remove the step dropdown button, because it's not needed now.
+       
+       This means that to change frequency, you must use the mouse buttons and
+       wheel and/or the keyboard Up/Down/Left/Right keys.
+   
+    Set font and center justify dropdown selectons
+       Unfortunately, I don't know how to set the font for each specific
+       ttk.Combobox, so I do it for all, based on the last such dropdown
+       font value. I also set all selections to be centered. This is a
+       compromise.
+   
 v1.2.8:
+    Update changelog for v1.2.8
+
     Update Windows installer to version 1.2.8
 
     Updated User Manual to version 1.2.8 2025-05-03
