@@ -1768,7 +1768,7 @@ class VFO(Widget):
         for key in ('<Next>', '<Prior>', '<KP_Next>', '<KP_Prior>'):
             tb.bind(key, self.on_jump_frequency)
         if sys.platform in ('win32', 'darwin'):
-            mouse_buttons = ('<MouseWheel>')
+            mouse_buttons = ('<MouseWheel>',)
         elif sys.platform == 'linux':
             mouse_buttons = ('<Button-4>', '<Button-5>')
         for button in mouse_buttons:
@@ -1947,12 +1947,12 @@ class Slider(Widget):
 
         from_ = self.eval_value(self.from_, self.value_var.get())
         to = self.eval_value(self.to, self.value_var.get())
-        resolution = self.eval_value(self.evalincrement, self.value_var.get())
+        self.resolution = self.eval_value(self.evalincrement, self.value_var.get())
 
         self.scale = tk.Scale(self.frame,
                          from_=from_,
                          to=to,
-                         resolution=resolution,
+                         resolution=self.resolution,
                          orient=orient,
                          repeatdelay=0,
                          width=width,
@@ -1965,12 +1965,27 @@ class Slider(Widget):
 
         self.value_var.trace('w', self.value_changed)
 
+        if sys.platform in ('win32', 'darwin'):
+            mouse_buttons = ('<MouseWheel>',)
+        elif sys.platform == 'linux':
+            mouse_buttons = ('<Button-4>', '<Button-5>')
+        for button in mouse_buttons:
+            self.scale.bind(button, self.on_mouse_wheel)
+
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def on_received_initial_parameters(self, response):
         cmd = self.eval_value(self.evalcmd, self.value_var.get())
         if cmd != "":
             self.server.subscribe_response(cmd, self.on_response_received)
+
+    def on_mouse_wheel(self, event):
+        if event.num == 4 or event.delta == 120:
+            incr = self.resolution
+        if event.num == 5 or event.delta == -120:
+            incr = -self.resolution
+        incr *= 1.00000000001      # account for the vagueries of FP addition
+        self.value_var.set(self.value_var.get() + incr)
 
     def value_changed(self, var, index, mode):
         value = self.value_var.get()
@@ -1979,7 +1994,8 @@ class Slider(Widget):
             return
         if self.previous_value < value:
             next_value = value + self.eval_value(self.evalincrement, value)
-        self.scale.configure(resolution=self.eval_value(self.evalincrement, next_value))
+        self.resolution = self.eval_value(self.evalincrement, next_value)
+        self.scale.configure(resolution=self.resolution)
         cmd = self.eval_value(self.evalcmd, value)
         self.previous_value = value
         self.server.send_cmds(cmd)
@@ -1988,7 +2004,8 @@ class Slider(Widget):
         value = float(self.eval_value(self.evalresponse, response))
         if value < 0:
             return
-        self.scale.configure(resolution=self.eval_value(self.evalincrement, value))
+        self.resolution = self.eval_value(self.evalincrement, value)
+        self.scale.configure(resolution=self.resolution)
         self.scale.configure(from_=self.eval_value(self.from_, value), to=self.eval_value(self.to, value))
         self.value_var.set(value)
         self.previous_value = value
