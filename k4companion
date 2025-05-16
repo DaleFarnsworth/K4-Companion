@@ -4896,6 +4896,7 @@ class CW(Widget):
             self.button_properties.append({'editing': False})
             self.load_button_value(i)
             button.bind('<Button-1>', lambda event, i=i: self.on_button1_click(i))
+            button.bind('<Return>', lambda event: 'break')
             column += 1
             if column >= self.columns:
                 row += 1
