@@ -657,7 +657,9 @@ class Server():
             callback(self)
 
     def close(self):
+        self.save_xy()
         self.connected = False
+        CW.close_window()
         self.send_queue.put('shutdown')
         if self.output_audio_queue != None:
             self.output_audio_queue.put([])
@@ -677,6 +679,13 @@ class Server():
                 time.sleep(.01)
 
         self.close()
+
+    def save_xy(self):
+        geometry = Page.top.geometry()
+        wh, xy = geometry.split('+', 1)
+        xy = '+' + xy
+        Settings.put('Window', 'root.xy', xy)
+        Settings.save()
 
     def send_str(self, cmd, force_as_string=False):
         if self.cat_only or force_as_string:
@@ -722,7 +731,7 @@ class Server():
             else:
                 Page.show_page(page)
         elif lcmd == 'cw!':
-            CW.show()
+            CW.open_window()
         else:
            raise Exception('Unknown directive: ', directive)
 
@@ -870,11 +879,11 @@ class Server():
                 self.received_minipan(payload)
 
     def received_pan(self, data):
-        #tprint('pan: len:', len(data))
+        #dprint('pan: len:', len(data))
         pass
 
     def received_minipan(self, data):
-        #tprint('minipan: len:', len(data))
+        #dprint('minipan: len:', len(data))
         pass
 
     def dequeue_k4_cat(self):
@@ -994,7 +1003,7 @@ class Server():
                     break
                 if rb[end_offset-4:end_offset] != Server.end_packet_marker:
                     raise Exception('bad received packet trailer', rb[end_offset-4:end_offset])
-                #tprint('payload type', rb[8], 'version', rb[9], 'sequence', rb[10])
+                #dprint('payload type', rb[8], 'version', rb[9], 'sequence', rb[10])
 
                 payload_type = rb[8]
                 payload = rb[11:end_offset-4]
@@ -1387,6 +1396,10 @@ class Page(Container):
             Page.notebook = self.frame
         else:
             self.frame = tk.Frame(Page.top)
+
+        Settings.load()
+        xy = Settings.get('Window', 'root.xy')
+        set_xy(Page.top, xy)
 
         self.show_widgets()
 
@@ -4816,8 +4829,12 @@ class CW(Widget):
     singleton = None
 
     @classmethod
-    def show(cls):
+    def open_window(cls):
         cls.singleton.open()
+
+    @classmethod
+    def close_window(cls):
+        cls.singleton.close()
 
     def __init__(self, config_info, container):
         required = ['item']
@@ -4845,12 +4862,8 @@ class CW(Widget):
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def bring_to_front(self):
-        # Why don't any of these work?
-        self.top_level.focus_force()
+        # This only works on some (most) window managers
         self.top_level.lift()
-        self.top_level.attributes('-topmost', True)
-        Page.top.update()
-        Poll.call(1, lambda: self.top_level.attributes('-topmost', False))
 
     def open(self):
         if self.is_open:
@@ -4858,6 +4871,7 @@ class CW(Widget):
             return
         self.is_open = True
         self.top_level = tk.Toplevel(Page.top)
+        set_xy(self.top_level, Settings.get('Window', 'CW.xy'))
         self.top_level.protocol("WM_DELETE_WINDOW", self.close)
         self.top_level.title('K4-Companion ' + version)
         self.frame = ttk.Frame(self.top_level)
@@ -4992,6 +5006,10 @@ class CW(Widget):
         self.sub_text.grid(row=0, column=0, sticky='w')
         self.show_text_rows()
 
+        self.frame.update_idletasks()
+        w, h = self.frame.winfo_width(), self.frame.winfo_height()
+        self.top_level.geometry(f"{w}x{h}")
+
         self.tx_send_offset = 0
         self.tx_remaining_count = 0
         self.sending = False
@@ -5007,7 +5025,12 @@ class CW(Widget):
         self.server.subscribe_responses('MD;MD$;', self.on_mode_change)
 
     def close(self):
+        if not self.is_open:
+            return
         self.is_open = False
+
+        self.save_xy()
+
         if self.tx_remaining_count > 0:
             self.stop_sending()
         Poll.remove(self.send_cw)
@@ -5018,6 +5041,13 @@ class CW(Widget):
         self.server.unsubscribe_response('ACN1;', self.on_transmit_ack)
         self.server.unsubscribe_response('KS;', self.on_keyer_speed_change)
         self.top_level.destroy()
+
+    def save_xy(self):
+        geometry = self.top_level.geometry()
+        wh, xy = geometry.split('+', 1)
+        xy = '+' + xy
+        Settings.put('Window', 'CW.xy', xy)
+        Settings.save()
 
     def on_mode_change(self, response=None):
         if self.tx_mode() == 'CW':
@@ -5212,7 +5242,6 @@ class CW(Widget):
             if c < '\x20':     # ignore ctrl-v (paste)
                 return
             if c.upper() not in CW.valid_CW_characters + '\x7f':
-                tprint(f'{c=}')
                 Popup.warning(f'Character "{c}" not supported for CW')
                 return 'break'
             return
@@ -5909,15 +5938,42 @@ def close_splash_screen():
     except ImportError:
         pass
 
+def set_xy(window, xy ):
+    if xy == None:
+        return
+
+    x, y = xy[1:].split('+', 1)
+    x, y = int(x), int(y)
+    screen_width = Page.top.winfo_screenwidth()
+    screen_height = Page.top.winfo_screenheight()
+    Page.top.update_idletasks()
+    geometry = window.geometry()
+    wh, xy = geometry.split('+', 1)
+    w, h = wh.split('x')
+    w, h = int(w), int(h)
+    x_offset = screen_width - (x + w)
+    y_offset = screen_height - (y + h)
+    if x_offset < 0:
+        x += x_offset
+    if y_offset < 0:
+        y += y_offset
+    if x < 0:
+        x = 0
+    if y < 0:
+        y = 0
+    xy = f'+{x}+{y}'
+    window.geometry(xy)
+
 def main():
     close_splash_screen()
 
     Options.Parse()
 
     top = tk.Tk()
+    Page.top = top
+
     top.title('K4-Companion ' + version)
     top.protocol("WM_DELETE_WINDOW", exit)
-    Page.top = top
 
     start()
 
