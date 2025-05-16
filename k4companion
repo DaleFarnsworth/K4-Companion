@@ -4993,6 +4993,10 @@ class CW(Widget):
         self.sub_text.grid(row=0, column=0, sticky='w')
         self.show_text_rows()
 
+        self.tx_send_offset = 0
+        self.tx_remaining_count = 0
+        self.sending = False
+
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def on_received_initial_parameters(self, response):
