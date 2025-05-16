@@ -480,6 +480,7 @@ class Server():
         self.subscribe_connect(self.on_server_connect)
 
     def on_server_connect(self):
+        self.request_initial_parameters()
         self.update_local_audio_parameters()
         if self.type == 'k4' and not self.cat_only:
             Audio.server_connected(self)
@@ -1388,11 +1389,6 @@ class Page(Container):
             self.frame = tk.Frame(Page.top)
 
         self.show_widgets()
-
-        self.server.subscribe_connect(self.on_server_connect)
-
-    def on_server_connect(self):
-        self.server.request_initial_parameters()
 
     def show(self):
         self.frame.grid()
@@ -4846,6 +4842,8 @@ class CW(Widget):
         CW.singleton = self
         self.is_open = False
 
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
     def bring_to_front(self):
         # Why don't any of these work?
         self.top_level.focus_force()
@@ -4998,15 +4996,15 @@ class CW(Widget):
         self.tx_remaining_count = 0
         self.sending = False
 
-        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
-
-    def on_received_initial_parameters(self, response):
         self.server.subscribe_response('TD;', self.on_main_text_decode)
         self.server.subscribe_response('TD$;', self.on_sub_text_decode)
         self.server.subscribe_response('TB;', self.on_main_text_buffer)
         self.server.subscribe_response('TB$;', self.on_sub_text_buffer)
         self.server.subscribe_response('ACN1;', self.on_transmit_ack)
         self.server.subscribe_response('KS;', self.on_keyer_speed_change)
+
+    def on_received_initial_parameters(self, response):
+        self.server.subscribe_responses('MD;MD$;', self.on_mode_change)
 
     def close(self):
         self.is_open = False
@@ -5020,6 +5018,12 @@ class CW(Widget):
         self.server.unsubscribe_response('ACN1;', self.on_transmit_ack)
         self.server.unsubscribe_response('KS;', self.on_keyer_speed_change)
         self.top_level.destroy()
+
+    def on_mode_change(self, response=None):
+        if self.tx_mode() == 'CW':
+            self.open()
+        else:
+            self.close()
 
     def load_button_value(self, index, edit=False):
         value = self.button_values[index]
