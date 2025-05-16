@@ -1728,7 +1728,6 @@ class VFO(Widget):
     step_index = {1: 0, 10: 1, 100: 2, 1000: 3, 10000:4}
     low_frequency_limit=10000
     high_frequency_limit=54000000
-    has_focus = None
 
     def __init__(self, config_info, container):
         required = ['item', 'AorB']
@@ -1761,6 +1760,20 @@ class VFO(Widget):
 
         for event in ('<Return>', '<FocusOut>'):
             tb.bind(event, self.validate_frequency)
+
+        for key in ('<Left>', '<Right>', '<KP_Left>', '<KP_Right>'):
+            tb.bind(key, self.on_change_step)
+        for key in ('<Up>', '<Down>', '<KP_Up>', '<KP_Down>'):
+            tb.bind(key, self.on_bump_frequency)
+        for key in ('<Next>', '<Prior>', '<KP_Next>', '<KP_Prior>'):
+            tb.bind(key, self.on_jump_frequency)
+        if sys.platform in ('win32', 'darwin'):
+            mouse_buttons = ('<MouseWheel>')
+        elif sys.platform == 'linux':
+            mouse_buttons = ('<Button-4>', '<Button-5>')
+        for button in mouse_buttons:
+            tb.bind(button, self.on_mouse_wheel)
+
         for step in VFO.step:
             tb.tag_bind(f'step_{step}', '<Button-1>', lambda response, step=step: self.button_one(step))
 
@@ -1780,28 +1793,6 @@ class VFO(Widget):
 
     def button_one(self, step):
         self.set_step(step)
-        VFO.has_focus = self
-        self.bind_frequency_events()
-
-    def bind_top(self, event, fcn, bind=True):
-        if bind:
-            Page.top.bind(event, fcn)
-        else:
-            Page.top.unbind(event)
-
-    def bind_frequency_events(self, bind=True):
-        vfo = VFO.has_focus
-        for key in ('<Left>', '<Right>', '<KP_Left>', '<KP_Right>'):
-            vfo.bind_top(key, vfo.on_change_step, bind)
-        for key in ('<Up>', '<Down>', '<KP_Up>', '<KP_Down>'):
-            vfo.bind_top(key, vfo.on_bump_frequency, bind)
-        for key in ('<Next>', '<Prior>', '<KP_Next>', '<KP_Prior>'):
-            vfo.bind_top(key, vfo.on_jump_frequency, bind)
-        if sys.platform in ('win32', 'darwin'):
-            vfo.bind_top('<MouseWheel>', vfo.on_mouse_wheel, bind)
-        elif sys.platform == 'linux':
-            for button in ('<Button-4>', '<Button-5>'):
-                vfo.bind_top(button, vfo.on_mouse_wheel, bind)
 
     def add_tags(self):
         for step in VFO.step:
@@ -1814,16 +1805,7 @@ class VFO(Widget):
         self.tb.tag_add('underline', self.step_text_index[self.step])
 
     def on_server_connect(self):
-        nb = Page.notebook
-        nb.bind('<<NotebookTabChanged>>', self.tab_changed)
-        self.tab = nb.select()
-
         self.tb.bind('<Visibility>', self.set_vfo_bg)
-
-        if self.AorB == self.transmit_vfo():
-            VFO.has_focus = self
-
-        self.bind_frequency_events()
 
     def validate_frequency(self, event):
         if self.tb.edit_modified():
@@ -1941,10 +1923,6 @@ class VFO(Widget):
                 self.tb.configure(bg=self.active_color)
         else:
             self.tb.configure(bg=self.bg)
-
-    def tab_changed(self, event):
-        current_tab = Page.notebook.select()
-        self.bind_frequency_events(current_tab == self.tab)
 
 class Slider(Widget):
     def __init__(self, config_info, container):
