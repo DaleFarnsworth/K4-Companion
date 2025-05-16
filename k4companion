@@ -5204,9 +5204,10 @@ class CW(Widget):
     def on_entry_text_modified(self, event):
         c = event.char
         if c != '\r':
-            if c == '\x16':     # ignore ctrl-v (paste)
+            if c < '\x20':     # ignore ctrl-v (paste)
                 return
-            if c.upper() not in CW.valid_CW_characters + '\b\x7f':
+            if c.upper() not in CW.valid_CW_characters + '\x7f':
+                tprint(f'{c=}')
                 Popup.warning(f'Character "{c}" not supported for CW')
                 return 'break'
             return
