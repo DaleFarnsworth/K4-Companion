@@ -1439,6 +1439,42 @@ class Group(Container):
         if isinstance(container.frame, ttk.Notebook):
             container.frame.add(self.outer_frame, text=self.tabname)
 
+class ButtonWidget():
+    def __init__(self, frame, options):
+        self.caller = options['caller']
+        self.server = options['server']
+
+        font = options['font']
+        width = options['width']
+        bg = options['bg']
+        fg = options['fg']
+        abg = options['abg']
+        afg = options['afg']
+
+        text = str(options.get('text', ''))
+        cmd = options.get('cmd', None)
+        justify = options.get('justify', 'center')
+
+        if cmd != None:
+            command = lambda: self.server.expand_and_send_cmds(cmd)
+
+        button = tk.Button(frame,
+                    bd='2',
+                    text=text,
+                    font=font,
+                    width=width,
+                    justify=justify,
+                    relief='raised',
+                    fg=fg,
+                    bg=bg,
+                    activebackground=abg,
+                    activeforeground=afg,
+                    padx=2,
+                    pady=2,
+                    command=command)
+
+        button.grid(row=0, column=0, sticky='w')
+
 class Button(Widget):
     def __init__(self, config_info, container):
         required = ['item']
@@ -1447,39 +1483,19 @@ class Button(Widget):
 
         super().__init__(config_info, container)
 
-        text = str(config_info.get('text', ''))
-        cmd = config_info.get('cmd', None)
-        justify = config_info.get('justify', 'center')
+        config_info['caller'] = self
+        config_info['server'] = self.server
+        config_info['font'] = self.font()
+        config_info['bg'] = self.bg
+        config_info['fg'] = self.fg
+        config_info['abg'] = config_info.get('abg', self.bg)
+        config_info['afg'] = config_info.get('afg', self.fg)
+        config_info['width'] = container.items_width()
 
-        width = container.items_width()
-
-        if cmd != None:
-            command = lambda: self.server.expand_and_send_cmds(cmd)
-
-        button = tk.Button(self.frame,
-                    bd='2',
-                    text=text,
-                    font=self.font(),
-                    width=width,
-                    justify=justify,
-                    relief='raised',
-                    fg=self.fg,
-                    bg=self.bg,
-                    activebackground=self.abg,
-                    activeforeground=self.afg,
-                    padx=2,
-                    pady=2,
-                    command=command)
-
-        button.grid(row=0, column=0, sticky='w')
+        ButtonWidget(self.frame, config_info)
 
 class ToggleWidget():
     def __init__(self, frame, options):
-        options['item'] = 'ToggleWidget'
-        required = ['item', 'caller', 'server', 'font', 'width', 'selections']
-        optional = ['wraparound', 'justify', 'label', 'leading']
-        validate_options(options, required, optional)
-
         self.caller = options['caller']
         self.server = options['server']
 
@@ -2236,11 +2252,6 @@ class Notebook(Container):
 
 class DropdownWidget():
     def __init__(self, frame, options):
-        options['item'] = 'DropdownWidget'
-        required = ['item', 'caller', 'server', 'selections', 'selectbg', 'selectfg', 'bg', 'fg', 'font']
-        optional = ['abg', 'afg', 'width', 'height', 'justify', 'unexpectedresponse', 'label', 'leading']
-        validate_options(options, required, optional)
-
         self.caller = options['caller']
         self.server = options['server']
 
