@@ -85,7 +85,7 @@ class Default():
     def __init__(self, config_info):
         required = ['item']
         options = ['bg', 'abg', 'fg', 'afg', 'selectcolor', 'label_font', 'button_font']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         Default.bg = config_info.get('bg', Default.bg)
         Default.abg = config_info.get('abg', Default.abg)
@@ -438,7 +438,7 @@ class Server():
     def __init__(self, config_info):
         required = ['item', 'name', 'address', 'port']
         options = ['type', 'connect_on_start', 'button_font']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         self.name = config_info['name']
         self.type = config_info.get('type', '').lower()
@@ -1384,7 +1384,7 @@ class Page(Container):
     def __init__(self, config_info):
         required = ['item', 'name', 'contains']
         options = ['server', 'columns', 'childwidth', 'label_font', 'button_font']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, None)
 
@@ -1429,7 +1429,7 @@ class Group(Container):
         required = ['item', 'contains']
         options = ['columns', 'column', 'columnspan', 'rowspan', 'childwidth', 'sticky',
                    'label_font', 'button_font', 'tabname', 'label', 'leading']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
         self.tabname = config_info.get('tabname', '')
@@ -1443,7 +1443,7 @@ class Button(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         options = ['text', 'cmd', 'bg', 'abg', 'fg', 'afg', 'justify', 'font', 'label', 'leading', 'button_font']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -1477,7 +1477,7 @@ class Togglebutton(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         options = ['wraparound', 'justify', 'selections', 'label', 'leading']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -1496,7 +1496,7 @@ class Togglebutton(Widget):
 
             required = []
             options = ['text', 'cmd', 'evalcmd', 'response', 'evalresponse', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font', 'hidden']
-            validate_config_options(conf_sel, required, options, name='togglebutton.selection')
+            validate_options(conf_sel, required, options, name='togglebutton.selection')
 
             selection['text'] = conf_sel.get('text', '')
 
@@ -1634,7 +1634,7 @@ class Radiobutton(Widget):
     def __init__(self, config_info, container):
         required = ['item', 'groupid']
         options = ['text', 'cmd', 'response', 'indicator', 'selectcolor', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -1732,7 +1732,7 @@ class VFO(Widget):
     def __init__(self, config_info, container):
         required = ['item', 'AorB']
         options = ['width', 'activecolor', 'transmitcolor', 'step_spinbox', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'blink', 'font']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -1929,7 +1929,7 @@ class Slider(Widget):
         required = ['item', 'evalcmd', 'from', 'to', 'evalresponse']
         options = ['orient', 'width', 'length', 'evalincrement', 'showvalue',
             'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -2017,7 +2017,7 @@ class Getvalue(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         options = ['cmd', 'response', 'evalresponse', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -2056,7 +2056,7 @@ class Bargraph(Widget):
         options = ['cmd', 'response', 'evalresponse', 'orient', 'maximum', 'evalmaximum',
                    'length', 'lengthpercent', 'lefttext', 'bottomtext', 'evalbottomtext',
                    'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -2161,7 +2161,7 @@ class Text(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         options = ['text', 'evaltext', 'label', 'leading', 'fg', 'bg', 'justify', 'font']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -2198,7 +2198,7 @@ class Notebook(Container):
         required = ['item', 'contains']
         options = ['server', 'childwidth', 'label_font', 'button_font']
 
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -2216,14 +2216,15 @@ class Notebook(Container):
                 raise Exception('Notebook contains an item that is not a group', child)
             notebook.add(child.frame, text=child.tabname)
 
-class Dropdownbutton(Widget):
-    def __init__(self, config_info, container):
-        required = ['item', 'selections']
-        options = ['bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg', 'width', 'height',
-                   'justify', 'unexpectedresponse', 'label', 'leading']
-        validate_config_options(config_info, required, options)
+class DropdownWidget():
+    def __init__(self, frame, options):
+#        options['item'] = self.__class__().__name__
+        required = ['item', 'caller', 'server', 'selections', 'selectbg', 'selectfg', 'bg', 'fg', 'font']
+        optional = ['abg', 'afg', 'width', 'height', 'justify', 'unexpectedresponse', 'label', 'leading']
+        validate_options(options, required, optional)
 
-        super().__init__(config_info, container)
+        self.caller = options['caller']
+        self.server = options['server']
 
         texts = []
         self.text_to_index = {}
@@ -2233,33 +2234,37 @@ class Dropdownbutton(Widget):
 
         self.selections = []
 
-        self.selectbg = config_info.get('selectbg', self.bg)
-        self.selectfg = config_info.get('selectfg', self.fg)
-        justify = config_info.get('justify', 'right')
-        height = config_info.get('height', 0)
+        self.bg = options['bg']
+        self.fg = options['fg']
+        self.selectbg = options['selectbg']
+        self.selectfg = options['selectfg']
 
-        self.unexpected_response = config_info.get('unexpectedresponse', '')
+        font = options['font']
+        justify = options.get('justify', 'right')
+        height = options.get('height', 0)
+
+        self.unexpected_response = options.get('unexpectedresponse', '')
 
         width = 0
 
-        conf_selections = config_info.get('selections', None)
-        for index, conf_sel in enumerate(conf_selections):
+        selection_options = options.get('selections', None)
+        for index, sel_opt in enumerate(selection_options):
             index = len(self.selections)
             selection = {}
 
             required = []
             options = ['text', 'cmd', 'evalcmd', 'response', 'evalresponse', 'blink']
-            validate_config_options(conf_sel, required, options, name='dropdownbutton.selection')
+            validate_options(sel_opt, required, options, name='dropdownbutton.selection')
 
-            text = conf_sel.get('text', '')
+            text = sel_opt.get('text', '')
             selection['text'] = text
             texts.append(text)
             self.text_to_index[text] = index
             if len(text) > width:
                 width = len(text)
 
-            cmd = conf_sel.get('cmd', None)
-            orig_response = conf_sel.get('response', cmd)
+            cmd = sel_opt.get('cmd', None)
+            orig_response = sel_opt.get('response', cmd)
             selection['response'] = orig_response
 
             selection['parameters'] = {}
@@ -2270,15 +2275,11 @@ class Dropdownbutton(Widget):
                 selection['parameters'][base] = response
 
             selection['cmd'] = cmd
-            selection['blink'] = conf_sel.get('blink', False)
-            selection['evalcmd'] = conf_sel.get('evalcmd', None)
-            selection['evalresponse'] = conf_sel.get('evalresponse', None)
+            selection['blink'] = sel_opt.get('blink', False)
+            selection['evalcmd'] = sel_opt.get('evalcmd', None)
+            selection['evalresponse'] = sel_opt.get('evalresponse', None)
             self.selections.append(selection)
-
-        if config_info.get('width', None) != None:
-            width = config_info['width']
-        elif self.container.childwidth != None:
-            width = self.container.childwidth
+        width += 1
 
         if height == 0:
             height = len(texts)
@@ -2291,9 +2292,9 @@ class Dropdownbutton(Widget):
         self.val = tk.StringVar()
 
         self.combobox = ttk.Combobox(
-                self.frame,
+                frame,
                 textvar=self.val,
-                font=self.font(),
+                font=font,
                 values=texts,
                 height=height,
                 width=width,
@@ -2301,7 +2302,7 @@ class Dropdownbutton(Widget):
                 justify=justify,
                 style=self.stylename,
                 )
-        self.combobox.option_add('*TCombobox*Listbox*Font', self.font())
+        self.combobox.option_add('*TCombobox*Listbox*Font', font)
         self.combobox.option_add('*TCombobox*Listbox*Justify', 'center')
 
         self.val.trace('w', self.on_combobox_changed)
@@ -2328,7 +2329,7 @@ class Dropdownbutton(Widget):
             cmd = selection['cmd']
             evalcmd = selection['evalcmd']
             if evalcmd != None:
-                cmd = self.eval_value(evalcmd)
+                cmd = self.caller.eval_value(evalcmd)
             if cmd != None:
                 self.server.expand_and_send_cmds(cmd)
 
@@ -2336,9 +2337,9 @@ class Dropdownbutton(Widget):
         text = selection['text']
         parameters = selection['parameters']
         for base in parameters.keys():
-            k4_parameter = self.k4param(base)
+            k4_parameter = self.server.k4_parameter(base)
             if selection['evalresponse'] != None and k4_parameter != None:
-                k4_parameter = self.eval_value(selection['evalresponse'], base + k4_parameter + ';')[len(base):].rstrip(';')
+                k4_parameter = self.caller.eval_value(selection['evalresponse'], base + k4_parameter + ';')[len(base):].rstrip(';')
             dprint2('compare :{text} s: {s}, b: {b}'.format(text=text, s=k4_parameter, b=parameters[base]))
             if parameters[base] != k4_parameter:
                 dprint2(text, 'No match')
@@ -2361,7 +2362,7 @@ class Dropdownbutton(Widget):
                 found = True
         if not found:
             if self.unexpected_response != '':
-                text = self.eval_value(self.unexpected_response, response)
+                text = self.caller.eval_value(self.unexpected_response, response)
             else:
                 text = ''
 
@@ -2382,11 +2383,41 @@ class Dropdownbutton(Widget):
         else:
             self.style.configure(self.stylename, selectbackground=self.selectbg, selectforeground=selectfg)
 
+    def configure(self, **kwargs):
+        self.combobox.configure(**kwargs)
+
+class Dropdownbutton(Widget):
+    def __init__(self, config_info, container):
+        required = ['item', 'selections']
+        options = ['bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg', 'width', 'height',
+                   'justify', 'unexpectedresponse', 'label', 'leading']
+        validate_options(config_info, required, options)
+
+        super().__init__(config_info, container)
+
+        config_info['caller'] = self
+        config_info['font'] = self.font()
+        config_info['bg'] = self.bg
+        config_info['fg'] = self.fg
+
+        if 'selectbg' not in config_info:
+            config_info['selectbg'] = self.bg
+
+        if 'selectfg' not in config_info:
+            config_info['selectfg'] = self.fg
+
+        if 'width' not in config_info and self.container.childwidth != None:
+            config_info['width'] = self.container.childwidth
+
+        config_info['server'] = self.server
+
+        dropdown = DropdownWidget(self.frame, config_info)
+
 class Equalizers(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         options = ['length', 'label', 'leading', 'font', 'bg', 'fg', 'selectbg', 'selectfg']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -3370,7 +3401,7 @@ class Menu(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         options = ['entries_displayed', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg', 'font', 'label_font' ]
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -4122,7 +4153,7 @@ class Settings_widget(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         options = [ 'label', 'leading', 'bg', 'fg', 'abg', 'afg', 'selectbg', 'selectfg', 'font', 'label_font' ]
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -4509,7 +4540,7 @@ class Entry(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         options = ['width', 'show', 'bd', 'bg', 'fg', 'font', 'justify', 'label', 'leading']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -4525,7 +4556,7 @@ class Startup_cmds(Entry):
     def __init__(self, config_info, container):
         required = ['item']
         options = ['width', 'show', 'bd', 'bg', 'fg', 'font', 'justify', 'label', 'leading']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -4631,7 +4662,7 @@ class Antenna(Widget):
 
         required = ['item', 'type']
         options = ['bd', 'bg', 'fg', 'selectbg', 'selectfg', 'justify', 'height', 'font', 'label', 'leading', 'padx']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -4837,7 +4868,7 @@ class CW(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         options = ['bd', 'bg', 'fg', 'font', 'label', 'leading']
-        validate_config_options(config_info, required, options)
+        validate_options(config_info, required, options)
 
         super().__init__(config_info, container)
 
@@ -5851,7 +5882,7 @@ class Timer():
 
         return deltas
 
-def validate_config_options(dictionary, requireds, options, name=None):
+def validate_options(dictionary, requireds, options, name=None):
     if name == None:
         name = dictionary['item']
 
