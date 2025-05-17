@@ -105,7 +105,6 @@
   contains: #{
     #include receive-tab-row1-group
     #include receive-tab-row2-group
-    #include receive-tab-row3-group
   #}
 #end
 
@@ -115,7 +114,6 @@
   columns: 1
   contains: #{
     #include transmit-tab-row1-group
-    #include transmit-tab-row2-group
   #}
 #end
 
@@ -127,16 +125,8 @@
     #include compression-level-slider
     #include mic-gain-slider
     #include voice-monitor-level-slider
-    #include ctcss-group
-  #}
-#end
-
-#define transmit-tab-row2-group
-- item: group
-  contains: #{
-    #include rit-xit-group
-    #include qsk-group
     #include vox-group
+    #include ctcss-group
   #}
 #end
 
@@ -165,6 +155,7 @@
       contains: #{
         #include receive-transmit-togglebutton
         #include test-mode-togglebutton
+        #include audio-mx-togglebutton
       #}
     #include vfos-control-group
     - item: group
@@ -198,16 +189,9 @@
       contains: #{
         - item: group
           contains: #{
-            #include volume-sliders-group
-            #include keyer-speed-slider-group
+            #include rit-group
+            #include xit-togglebutton
             #include power-slider-group
-          #}
-        - item: group
-          contains: #{
-            #include audio-mx-togglebutton
-            #include autospot-button
-            #include cw-button
-          #}
         - item: group
           label: ''
           contains: #{
@@ -222,7 +206,6 @@
 - item: group
   contains: #{
     #include agc-group
-    #include apf-group
     #include auto-notch-group
     #include audio-effects-group
   #}
@@ -232,102 +215,10 @@
 - item: group
   contains: #{
     #include af-limiter-slider
-    #include cw-pitch-slider
     #include af-center-pitch-group
     #include noise-blanker-group
     #include noise-reduction-group
-    #include rit-group
   #}
-#end
-
-#define receive-tab-row3-group
-- item: group
-  contains: #{
-    #include cw-decode-group
-  #}
-#end
-
-#define cw-decode-group
-- item: group
-  label: CW Text Decode
-  contains: #{
-    #include main-cw-decode-group
-    #include sub-cw-decode-group
-  #}
-#end
-
-#define main-cw-decode-group
-- item: group
-  label: Main
-  contains: #{
-    #include main-cw-decode-wpm
-    #include main-cw-decode-threshold
-  #}
-#end
-
-#define main-cw-decode-wpm
-- item: dropdownbutton
-  label: WPM
-  width: 4
-  selections: #{
-    - { text: " Off", cmd: TD0;, evalcmd: '"TD0{v};".format(v=self.k4param("TD")[1:3])', evalresponse: 'value[0:3]+";"' } 
-    - { text: "8-45", cmd: TD2;, evalcmd: '"TD2{v};".format(v=self.k4param("TD")[1:3])', evalresponse: 'value[0:3]+";"' }
-    - { text: "8-60", cmd: TD3;, evalcmd: '"TD3{v};".format(v=self.k4param("TD")[1:3])', evalresponse: 'value[0:3]+";"' }
-    - { text: "8-90", cmd: TD4;, evalcmd: '"TD4{v};".format(v=self.k4param("TD")[1:3])', evalresponse: 'value[0:3]+";"' }
-#end
-
-#define main-cw-decode-threshold
-- item: dropdownbutton
-  label: THR
-  width: 4
-  selections: #{
-    - { text: "Auto", cmd: TD0;, evalcmd: '"TD{m}0{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
-    - { text: "   1", cmd: TD1;, evalcmd: '"TD{m}1{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
-    - { text: "   2", cmd: TD2;, evalcmd: '"TD{m}2{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
-    - { text: "   3", cmd: TD3;, evalcmd: '"TD{m}3{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
-    - { text: "   4", cmd: TD4;, evalcmd: '"TD{m}4{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
-    - { text: "   5", cmd: TD5;, evalcmd: '"TD{m}5{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
-    - { text: "   6", cmd: TD6;, evalcmd: '"TD{m}6{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
-    - { text: "   7", cmd: TD7;, evalcmd: '"TD{m}7{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
-    - { text: "   8", cmd: TD8;, evalcmd: '"TD{m}8{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
-    - { text: "   9", cmd: TD9;, evalcmd: '"TD{m}9{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])', evalresponse: 'value[0:2]+value[3]+";"' } 
-#end
-
-#define sub-cw-decode-group
-- item: group
-  label: Sub
-  contains: #{
-    #include sub-cw-decode-wpm
-    #include sub-cw-decode-threshold
-  #}
-#end
-
-#define sub-cw-decode-wpm
-- item: dropdownbutton
-  label: WPM
-  width: 4
-  selections: #{
-    - { text: " Off", cmd: TD$0;, evalcmd: '"TD$0{v};".format(v=self.k4param("TD$")[1:3])', evalresponse: 'value[0:4]+";"' } 
-    - { text: "8-45", cmd: TD$2;, evalcmd: '"TD$2{v};".format(v=self.k4param("TD$")[1:3])', evalresponse: 'value[0:4]+";"' }
-    - { text: "8-60", cmd: TD$3;, evalcmd: '"TD$3{v};".format(v=self.k4param("TD$")[1:3])', evalresponse: 'value[0:4]+";"' }
-    - { text: "8-90", cmd: TD$4;, evalcmd: '"TD$4{v};".format(v=self.k4param("TD$")[1:3])', evalresponse: 'value[0:4]+";"' }
-#end
-
-#define sub-cw-decode-threshold
-- item: dropdownbutton
-  label: THR
-  width: 4
-  selections: #{
-    - { text: "Auto", cmd: TD$0;, evalcmd: '"TD${m}0{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
-    - { text: "   1", cmd: TD$1;, evalcmd: '"TD${m}1{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
-    - { text: "   2", cmd: TD$2;, evalcmd: '"TD${m}2{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
-    - { text: "   3", cmd: TD$3;, evalcmd: '"TD${m}3{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
-    - { text: "   4", cmd: TD$4;, evalcmd: '"TD${m}4{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
-    - { text: "   5", cmd: TD$5;, evalcmd: '"TD${m}5{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
-    - { text: "   6", cmd: TD$6;, evalcmd: '"TD${m}6{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
-    - { text: "   7", cmd: TD$7;, evalcmd: '"TD${m}7{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
-    - { text: "   8", cmd: TD$8;, evalcmd: '"TD${m}8{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
-    - { text: "   9", cmd: TD$9;, evalcmd: '"TD${m}9{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])', evalresponse: 'value[0:3]+value[4]+";"' } 
 #end
 
 #define antenna-select-group
@@ -378,16 +269,6 @@
   text: '    Sub Rx'
 #end
 
-#define volume-sliders-group
-- item: group
-  label: Volume
-  contains: #{
-    #include main-volume-slider
-    #include sub-volume-slider
-    #include sidetone-slider
-  #}
-#end
-
 #define menu
 - item: menu
   label: Menu
@@ -434,6 +315,7 @@
     #include vfo-a
     #include s-meter-a-bargraph
     #include rf-out-alc-group
+    #include main-volume-horizontal-slider-group
     #include receiver-a-controls-group
   #}
 #end
@@ -479,6 +361,7 @@
 
 #define rf-out-bargraph
 - item: bargraph
+  id: rfout
   label: Power out
   evalmaximum: "0 if self.len_k4param('PC') < 4 else 11.7 if self.k4param('PC')[3] == 'L' else 117"
   lengthpercent: 100
@@ -624,6 +507,7 @@
   #include vfo-b
   #include s-meter-b-bargraph
   #include swr-and-cmd-group
+  #include sub-volume-horizontal-slider-group
   #include receiver-b-controls-group
     #}
   #}
@@ -824,65 +708,36 @@
   from: 100.0
   to: 0.0
   length: 150
+  showvalue: True
   evalincrement: '.0001 if value > 0.0 and value <= .01 else .1 if value <= 10.0 else 1.0'
   evalcmd: '"PC{:03d}L;".format(int(float(value)*10)) if float(value) <= 10.0 else "PC{:03d}H;".format(int(value))'
   evalresponse: 'float(value[2:5])/10 if value[5] == "L" else float(value[2:5])/10000 if value[5] == "X" else float(value[2:5])'
 #end
 
-#define main-volume-slider
+#define main-volume-horizontal-slider-group
 - item: slider
-  label: Main
-  orient: vertical
-  from: 60
-  to: 0
-  length: 150
+  label: AF Gain
+  orient: horizontal
+  from: 0
+  to: 60
+  evallength: 'Widget.by_id["rfout"].frame.winfo_width()'
+  showvalue: False
   evalincrement: '1'
   evalcmd: '"AG{:03d};".format(int(value))'
   evalresponse: 'float(value[2:5])'
 #end
 
-#define sub-volume-slider
+#define sub-volume-horizontal-slider-group
 - item: slider
-  label: Sub
-  orient: vertical
-  from: 60
-  to: 0
-  length: 150
+  label: AF Gain
+  orient: horizontal
+  from: 0
+  to: 60
+  evallength: 'Widget.by_id["rfout"].frame.winfo_width()'
+  showvalue: False
   evalincrement: '1'
   evalcmd: '"AG${:03d};".format(int(value))'
   evalresponse: 'float(value[3:6])'
-#end
-
-#define sidetone-slider
-- item: slider
-  label: Sidetone
-  orient: vertical
-  from: 60
-  to: 0
-  length: 150
-  evalincrement: '1'
-  evalcmd: '"ML0{:03d};".format(int(float(value)))'
-  evalresponse: 'float(value[3:6]) if value[2] == "0" else -1'
-#end
-
-#define keyer-speed-slider-group
-- item: group
-  label: Keyer
-  contains: #{
-    #include keyer-speed-slider
-  #}
-#end
-
-#define keyer-speed-slider
-- item: slider
-  label: Speed
-  orient: vertical
-  from: 35
-  to: 18
-  length: 150
-  evalincrement: '1'
-  evalcmd: '"KS{:03d};".format(int(float(value)))'
-  evalresponse: 'float(value[2:5])'
 #end
 
 #define atu-bypass-togglebutton
@@ -955,14 +810,6 @@
 - { item: button, text: 'Power Off', cmd:  PS0; }
 #end
 
-#define autospot-button
-- { item: button, label: ' ', text: 'Spot', cmd:  SP3; }
-#end
-
-#define cw-button
-- { item: button, label: 'CW Window', text: "Open", cmd: CW!; }
-#end
-
 #define connect-togglebutton
 - item: togglebutton
   wraparound: False
@@ -1011,6 +858,7 @@
   from: 30
   to: 0
   length: 150
+  showvalue: True
   evalincrement: '1'
   evalcmd: '"CP{:03d};".format(int(value))'
   evalresponse: 'float(value[2:5])'
@@ -1032,6 +880,7 @@
   from: "4.5 if self.len_k4param('ES') < 3 or self.k4param('ES')[0] == '1' else 2.8"
   to: "2.4 if self.len_k4param('ES') < 3 or self.k4param('ES')[0] == '0' else 3.0"
   length: 150
+  showvalue: True
   evalincrement: '0.1'
   evalcmd: '"ES{mode}{bw:02d};".format(mode=1 if value > 2.8 else 0, bw=int(value*10))'
   evalresponse: 'float(self.k4param("ES0"))/10 if value[2] == "0" else float(self.k4param("ES1"))/10'
@@ -1045,53 +894,9 @@
   to: 1
   length: 150
   evalincrement: '1'
+  showvalue: True
   evalcmd: '"AL{:02d};".format(int(value))'
   evalresponse: 'float(value[2:4])'
-#end
-
-#define apf-group
-- item: group
-  label: APF
-  contains: #{
-    #include main-apf-togglebutton
-    #include sub-apf-togglebutton
-  #}
-#end
-
-#define main-apf-togglebutton
-- item: togglebutton
-  label: Main
-  leading: 0
-  selections: #{
-    - { text:    "Off", cmd: AP00; }
-    - { text:  "30 Hz", cmd: AP10; }
-    - { text:  "50 Hz", cmd: AP11; }
-    - { text: "150 Hz", cmd: AP12; }
-  #}
-#end
-
-#define sub-apf-togglebutton
-- item: togglebutton
-  label: Sub
-  leading: 0
-  selections: #{
-    - { text:    "Off", cmd: AP$00; }
-    - { text:  "30 Hz", cmd: AP$10; }
-    - { text:  "50 Hz", cmd: AP$11; }
-    - { text: "150 Hz", cmd: AP$12; }
-  #}
-#end
-
-#define cw-pitch-slider
-- item: slider
-  label: CW Pitch
-  orient: vertical
-  from: 900
-  to: 300
-  length: 150
-  evalincrement: '10'
-  evalcmd: '"CW{:02d};".format(int(int(value)/10))'
-  evalresponse: 'int(value[2:4])*10'
 #end
 
 #define audio-effects-group
@@ -1180,6 +985,7 @@
   to: 300
   length: 150
   evalincrement: '10'
+  showvalue: True
   evalcmd: '"IS{:04d};".format(int(int(value)/10))'
   evalresponse: 'int(value[2:6])*10'
 #end
@@ -1193,6 +999,7 @@
   to: 300
   length: 150
   evalincrement: '10'
+  showvalue: True
   evalcmd: '"IS${:04d};".format(int(int(value)/10))'
   evalresponse: 'int(value[3:7])*10'
 #end
@@ -1217,6 +1024,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: False
   evalcmd: '"MG{:03d};".format(int(value))'
   evalresponse: 'int(value[2:5])'
 #end
@@ -1225,12 +1033,13 @@
 - item: slider
   label: Monitor Level
   orient: vertical
-  from: 100
+  from: 60        # Programmer's Reference says 100, but the K4 disagrees
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: False
   evalcmd: '"ML2{:03d};".format(int(value))'
-  evalresponse: 'int(value[3:6])'
+  evalresponse: 'float(value[3:6])'
 #end
 
 #define auto-notch-group
@@ -1316,6 +1125,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: True
   evalcmd: '"NB{v:02d}{on};".format(v=int(value), on=self.k4param("NB")[0] if self.len_k4param("NB") < 3 else self.k4param("NB")[2])'
   evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
 #end
@@ -1327,6 +1137,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: True
   evalcmd: '"NB${v:02d}{on};".format(v=int(value), on=self.k4param("NB$")[0] if self.len_k4param("NB$") < 3 else self.k4param("NB$")[2])'
   evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
 #end
@@ -1385,6 +1196,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: True
   evalcmd: '"NR{v:02d}{on};".format(v=int(value), on=self.k4param("NR")[0] if self.len_k4param("NR") < 3 else self.k4param("NR")[2])'
   evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
 #end
@@ -1396,6 +1208,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: True
   evalcmd: '"NR${v:02d}{on};".format(v=int(value), on=self.k4param("NR$")[0] if self.len_k4param("NR$") < 3 else self.k4param("NR$")[2])'
   evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
 #end
@@ -1584,8 +1397,9 @@
   orient: vertical
   from: 9.99
   to: -9.99
-  length: 150
+  length: 140
   evalincrement: '.01'
+  showvalue: True
   evalcmd: '"RO{:+05d};".format(int(float(value)*1000))'
   evalresponse: 'float(value[2:6])/100'
 #end
@@ -1601,8 +1415,9 @@
   orient: vertical
   from: 9.99
   to: -9.99
-  length: 150
+  length: 140
   evalincrement: '.01'
+  showvalue: True
   evalcmd: '"RO${:+05d};".format(int(float(value)*1000))'
   evalresponse: 'float(value[3:7])/100'
 #end
@@ -1611,55 +1426,6 @@
 - item: button
   text: Clear
   cmd: RO$+0000
-#end
-
-#define qsk-group
-- item: group
-  label: QSK
-  columns: 1
-  contains: #{
-    #include qsk-togglebutton
-    #include qsk-delay-group
-  #}
-#end
-
-#define qsk-togglebutton
-- item: togglebutton
-  selections: #{
-    - { text: "On",  cmd: VXC1; } 
-    - { text: "Off", cmd: VXC0; } 
-  #}
-#end
-
-#define qsk-delay-group
-- item: group
-  label: Delay
-  columns: 1
-  contains: #{
-    #include qsk-delay-togglebutton
-    #include qsk-delay-slider
-  #}
-#end
-
-# Note that k4parm swaps characters 2 and 3 from the actual commands/responses
-#define qsk-delay-togglebutton
-- item: togglebutton
-  selections: #{
-    - { text: "On",  cmd: SDC1;, evalcmd: '"SDC1{d:03s};".format(d=self.k4param("SDC")[1:4])', evalresponse: '"SDC"+self.k4param("SDC")[0]+";"' } 
-    - { text: "Off", cmd: SDC0;, evalcmd: '"SDC0{d:03s};".format(d=self.k4param("SDC")[1:4])', evalresponse: '"SDC"+self.k4param("SDC")[0]+";"' } 
-  #}
-#end
-
-# Note that k4parm swaps characters 2 and 3 from the actual commands/responses
-#define qsk-delay-slider
-- item: slider
-  orient: vertical
-  from: 2.55
-  to: 0
-  length: 150
-  evalincrement: "-.01"
-  evalcmd: '"SDC{f}{d:03d};".format(f=self.k4param("SDC")[0], d=int(float(value)*100))'
-  evalresponse: 'float(value[4:7])/100'
 #end
 
 #define vox-group
@@ -1716,6 +1482,7 @@
   to: 0
   length: 150
   evalincrement: "-.01"
+  showvalue: True
   evalcmd: '"SDV{f}{d:03d};".format(f=self.k4param("SDV")[0], d=int(float(value)*100))'
   evalresponse: 'float(value[4:7])/100'
 #end
@@ -1728,6 +1495,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: False
   evalcmd: '"VGD{:03d};".format(int(value))'
   evalresponse: 'float(value[3:6])'
 #end
@@ -1740,6 +1508,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: False
   evalcmd: '"VI{:03d};".format(int(value))'
   evalresponse: 'float(value[2:5])'
 #end
