@@ -382,8 +382,8 @@
 - item: group
   label: Volume
   contains: #{
-    #include main-volume-slider
-    #include sub-volume-slider
+#    #include main-volume-slider
+#    #include sub-volume-slider
     #include sidetone-slider
   #}
 #end
@@ -434,6 +434,7 @@
     #include vfo-a
     #include s-meter-a-bargraph
     #include rf-out-alc-group
+    #include main-volume-horizontal-slider-group
     #include receiver-a-controls-group
   #}
 #end
@@ -624,6 +625,7 @@
   #include vfo-b
   #include s-meter-b-bargraph
   #include swr-and-cmd-group
+  #include sub-volume-horizontal-slider-group
   #include receiver-b-controls-group
     #}
   #}
@@ -824,9 +826,36 @@
   from: 110.0
   to: 0.0
   length: 150
+  showvalue: True
   evalincrement: '.0001 if value > 0.0 and value <= .01 else .1 if value <= 10.0 else 1.0'
   evalcmd: '"PC{:03d}L;".format(int(float(value)*10)) if float(value) <= 10.0 else "PC{:03d}H;".format(int(value))'
   evalresponse: 'float(value[2:5])/10 if value[5] == "L" else float(value[2:5])/10000 if value[5] == "X" else float(value[2:5])'
+#end
+
+#define main-volume-horizontal-slider-group
+- item: slider
+  label: AF Gain
+  orient: horizontal
+  from: 0
+  to: 60
+  length: 300
+  showvalue: False
+  evalincrement: '1'
+  evalcmd: '"AG{:03d};".format(int(value))'
+  evalresponse: 'float(value[2:5])'
+#end
+
+#define sub-volume-horizontal-slider-group
+- item: slider
+  label: AF Gain
+  orient: horizontal
+  from: 0
+  to: 60
+  length: 300
+  showvalue: False
+  evalincrement: '1'
+  evalcmd: '"AG${:03d};".format(int(value))'
+  evalresponse: 'float(value[3:6])'
 #end
 
 #define main-volume-slider
@@ -836,6 +865,7 @@
   from: 60
   to: 0
   length: 150
+  showvalue: False
   evalincrement: '1'
   evalcmd: '"AG{:03d};".format(int(value))'
   evalresponse: 'float(value[2:5])'
@@ -848,6 +878,7 @@
   from: 60
   to: 0
   length: 150
+  showvalue: False
   evalincrement: '1'
   evalcmd: '"AG${:03d};".format(int(value))'
   evalresponse: 'float(value[3:6])'
@@ -860,6 +891,7 @@
   from: 60        # Programmer's Reference says 100, but the K4 disagrees
   to: 0
   length: 150
+  showvalue: False
   evalincrement: '1'
   evalcmd: '"ML0{:03d};".format(int(float(value)))'
   evalresponse: 'float(value[3:6])'
@@ -880,6 +912,7 @@
   from: 100
   to: 8
   length: 150
+  showvalue: True
   evalincrement: '1'
   evalcmd: '"KS{:03d};".format(int(float(value)))'
   evalresponse: 'float(value[2:5])'
@@ -1011,6 +1044,7 @@
   from: 30
   to: 0
   length: 150
+  showvalue: True
   evalincrement: '1'
   evalcmd: '"CP{:03d};".format(int(value))'
   evalresponse: 'float(value[2:5])'
@@ -1032,6 +1066,7 @@
   from: "4.5 if self.len_k4param('ES') < 3 or self.k4param('ES')[0] == '1' else 2.8"
   to: "2.4 if self.len_k4param('ES') < 3 or self.k4param('ES')[0] == '0' else 3.0"
   length: 150
+  showvalue: True
   evalincrement: '0.1'
   evalcmd: '"ES{mode}{bw:02d};".format(mode=1 if value > 2.8 else 0, bw=int(value*10))'
   evalresponse: 'float(self.k4param("ES0"))/10 if value[2] == "0" else float(self.k4param("ES1"))/10'
@@ -1045,6 +1080,7 @@
   to: 1
   length: 150
   evalincrement: '1'
+  showvalue: True
   evalcmd: '"AL{:02d};".format(int(value))'
   evalresponse: 'float(value[2:4])'
 #end
@@ -1090,6 +1126,7 @@
   to: 300
   length: 150
   evalincrement: '10'
+  showvalue: True
   evalcmd: '"CW{:02d};".format(int(int(value)/10))'
   evalresponse: 'int(value[2:4])*10'
 #end
@@ -1180,6 +1217,7 @@
   to: 300
   length: 150
   evalincrement: '10'
+  showvalue: True
   evalcmd: '"IS{:04d};".format(int(int(value)/10))'
   evalresponse: 'int(value[2:6])*10'
 #end
@@ -1193,6 +1231,7 @@
   to: 300
   length: 150
   evalincrement: '10'
+  showvalue: True
   evalcmd: '"IS${:04d};".format(int(int(value)/10))'
   evalresponse: 'int(value[3:7])*10'
 #end
@@ -1217,6 +1256,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: False
   evalcmd: '"MG{:03d};".format(int(value))'
   evalresponse: 'int(value[2:5])'
 #end
@@ -1229,6 +1269,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: False
   evalcmd: '"ML2{:03d};".format(int(value))'
   evalresponse: 'float(value[3:6])'
 #end
@@ -1316,6 +1357,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: True
   evalcmd: '"NB{v:02d}{on};".format(v=int(value), on=self.k4param("NB")[0] if self.len_k4param("NB") < 3 else self.k4param("NB")[2])'
   evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
 #end
@@ -1327,6 +1369,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: True
   evalcmd: '"NB${v:02d}{on};".format(v=int(value), on=self.k4param("NB$")[0] if self.len_k4param("NB$") < 3 else self.k4param("NB$")[2])'
   evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
 #end
@@ -1385,6 +1428,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: True
   evalcmd: '"NR{v:02d}{on};".format(v=int(value), on=self.k4param("NR")[0] if self.len_k4param("NR") < 3 else self.k4param("NR")[2])'
   evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
 #end
@@ -1396,6 +1440,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: True
   evalcmd: '"NR${v:02d}{on};".format(v=int(value), on=self.k4param("NR$")[0] if self.len_k4param("NR$") < 3 else self.k4param("NR$")[2])'
   evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
 #end
@@ -1586,6 +1631,7 @@
   to: -9.99
   length: 150
   evalincrement: '.01'
+  showvalue: True
   evalcmd: '"RO{:+05d};".format(int(float(value)*1000))'
   evalresponse: 'float(value[2:6])/100'
 #end
@@ -1603,6 +1649,7 @@
   to: -9.99
   length: 150
   evalincrement: '.01'
+  showvalue: True
   evalcmd: '"RO${:+05d};".format(int(float(value)*1000))'
   evalresponse: 'float(value[3:7])/100'
 #end
@@ -1658,6 +1705,7 @@
   to: 0
   length: 150
   evalincrement: "-.01"
+  showvalue: True
   evalcmd: '"SDC{f}{d:03d};".format(f=self.k4param("SDC")[0], d=int(float(value)*100))'
   evalresponse: 'float(value[4:7])/100'
 #end
@@ -1716,6 +1764,7 @@
   to: 0
   length: 150
   evalincrement: "-.01"
+  showvalue: True
   evalcmd: '"SDV{f}{d:03d};".format(f=self.k4param("SDV")[0], d=int(float(value)*100))'
   evalresponse: 'float(value[4:7])/100'
 #end
@@ -1728,6 +1777,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: False
   evalcmd: '"VGD{:03d};".format(int(value))'
   evalresponse: 'float(value[3:6])'
 #end
@@ -1740,6 +1790,7 @@
   to: 0
   length: 150
   evalincrement: '1'
+  showvalue: False
   evalcmd: '"VI{:03d};".format(int(value))'
   evalresponse: 'float(value[2:5])'
 #end

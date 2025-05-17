@@ -1927,7 +1927,8 @@ class VFO(Widget):
 class Slider(Widget):
     def __init__(self, config_info, container):
         required = ['item', 'evalcmd', 'from', 'to', 'evalresponse']
-        options = ['orient', 'width', 'length', 'evalincrement', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font']
+        options = ['orient', 'width', 'length', 'evalincrement', 'showvalue',
+            'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font']
         validate_config_options(config_info, required, options)
 
         super().__init__(config_info, container)
@@ -1938,8 +1939,9 @@ class Slider(Widget):
         self.evalresponse = config_info['evalresponse']
         orient = config_info.get('orient', 'horizontal')
         width = config_info.get('width', 15)
-        length = config_info.get('length', 15)
         self.evalincrement = config_info.get('evalincrement', 1.0)
+        showvalue = config_info.get('showvalue', True)
+        length = config_info.get('length', 15)
 
         self.value_var = tk.DoubleVar()
         self.value_var.set(0.0)
@@ -1957,6 +1959,7 @@ class Slider(Widget):
                          repeatdelay=0,
                          width=width,
                          length=length,
+                         showvalue=showvalue,
                          font=self.font(),
                          bg=self.bg,
                          fg=self.fg,
