@@ -1473,35 +1473,40 @@ class Button(Widget):
 
         button.grid(row=0, column=0, sticky='w')
 
-class Togglebutton(Widget):
-    def __init__(self, config_info, container):
-        required = ['item']
-        options = ['wraparound', 'justify', 'selections', 'label', 'leading']
-        validate_options(config_info, required, options)
+class ToggleWidget():
+    def __init__(self, frame, options):
+        options['item'] = 'ToggleWidget'
+        required = ['item', 'caller', 'server', 'font', 'width', 'selections']
+        optional = ['wraparound', 'justify', 'label', 'leading']
+        validate_options(options, required, optional)
 
-        super().__init__(config_info, container)
+        self.caller = options['caller']
+        self.server = options['server']
+
+        font = options['font']
+        width = options['width']
+
+        self.wraparound = true_values(options.get('wraparound', True))
+        self.justify = options.get('justify', 'left')
 
         self.index = 0
         self.blink_state = False
 
         self.selections = []
 
-        self.wraparound = true_values(config_info.get('wraparound', True))
-        self.justify = config_info.get('justify', 'left')
-
-        conf_selections = config_info.get('selections', None)
-        for conf_sel in conf_selections:
+        selection_options = options.get('selections', None)
+        for sel_opt in selection_options:
             index = len(self.selections)
             selection = {}
 
             required = []
             options = ['text', 'cmd', 'evalcmd', 'response', 'evalresponse', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font', 'hidden']
-            validate_options(conf_sel, required, options, name='togglebutton.selection')
+            validate_options(sel_opt, required, options, name='togglebutton.selection')
 
-            selection['text'] = conf_sel.get('text', '')
+            selection['text'] = sel_opt.get('text', '')
 
-            cmd = conf_sel.get('cmd', None)
-            orig_response = conf_sel.get('response', cmd)
+            cmd = sel_opt.get('cmd', None)
+            orig_response = sel_opt.get('response', cmd)
             selection['response'] = orig_response
 
             selection['parameters'] = {}
@@ -1515,23 +1520,21 @@ class Togglebutton(Widget):
             selection['command'] = self.do_selection
 
             selection['cmd'] = cmd
-            selection['bg'] = conf_sel.get('bg', Default.bg)
-            selection['fg'] = conf_sel.get('fg', Default.fg)
-            selection['abg'] = conf_sel.get('abg', Default.abg)
-            selection['afg'] = conf_sel.get('afg', Default.afg)
+            selection['bg'] = sel_opt.get('bg', Default.bg)
+            selection['fg'] = sel_opt.get('fg', Default.fg)
+            selection['abg'] = sel_opt.get('abg', Default.abg)
+            selection['afg'] = sel_opt.get('afg', Default.afg)
             if selection['afg'] == None:
                 selection['afg'] = selection['fg']
-            selection['blink'] = conf_sel.get('blink', False)
-            selection['evalcmd'] = conf_sel.get('evalcmd', None)
-            selection['evalresponse'] = conf_sel.get('evalresponse', None)
-            selection['hidden'] = true_values(conf_sel.get('hidden', False))
+            selection['blink'] = sel_opt.get('blink', False)
+            selection['evalcmd'] = sel_opt.get('evalcmd', None)
+            selection['evalresponse'] = sel_opt.get('evalresponse', None)
+            selection['hidden'] = true_values(sel_opt.get('hidden', False))
             self.selections.append(selection)
 
-        width = container.items_width()
-
-        self.button = tk.Button(self.frame,
+        self.button = tk.Button(frame,
                     bd='2',
-                    font=self.font(),
+                    font=font,
                     width=width,
                     relief='raised',
                     padx=2,
@@ -1587,7 +1590,7 @@ class Togglebutton(Widget):
         cmd = selection['cmd']
         evalcmd = selection['evalcmd']
         if evalcmd != None:
-            cmd = self.eval_value(evalcmd)
+            cmd = caller.eval_value(evalcmd)
         if cmd != None:
             self.server.expand_and_send_cmds(cmd)
 
@@ -1597,9 +1600,9 @@ class Togglebutton(Widget):
         text = selection['text']
         parameters = selection['parameters']
         for base in parameters.keys():
-            k4_parameter = self.k4param(base)
+            k4_parameter = self.caller.k4param(base)
             if selection['evalresponse'] != None and k4_parameter != None:
-                k4_parameter = self.eval_value(selection['evalresponse'], base + k4_parameter + ';')[len(base):].rstrip(';')
+                k4_parameter = self.caller.eval_value(selection['evalresponse'], base + k4_parameter + ';')[len(base):].rstrip(';')
             dprint2('compare :{text} s: {s}, b: {b}'.format(text=text, s=k4_parameter, b=parameters[base]))
             if parameters[base] != k4_parameter:
                 dprint2(text, 'No match')
@@ -1626,6 +1629,21 @@ class Togglebutton(Widget):
             self.button.configure(bg=selection['fg'], fg=selection['bg'])
         else:
             self.button.configure(bg=selection['bg'], fg=selection['fg'])
+
+class Togglebutton(Widget):
+    def __init__(self, config_info, container):
+        required = ['item']
+        options = ['wraparound', 'justify', 'selections', 'label', 'leading']
+        validate_options(config_info, required, options)
+
+        super().__init__(config_info, container)
+
+        config_info['caller'] = self
+        config_info['server'] = self.server
+        config_info['font'] = self.font()
+        config_info['width'] = container.items_width()
+
+        ToggleWidget(self.frame, config_info)
 
 class Radiobutton(Widget):
     variables = {}
@@ -2218,7 +2236,7 @@ class Notebook(Container):
 
 class DropdownWidget():
     def __init__(self, frame, options):
-#        options['item'] = self.__class__().__name__
+        options['item'] = 'DropdownWidget'
         required = ['item', 'caller', 'server', 'selections', 'selectbg', 'selectfg', 'bg', 'fg', 'font']
         optional = ['abg', 'afg', 'width', 'height', 'justify', 'unexpectedresponse', 'label', 'leading']
         validate_options(options, required, optional)
@@ -2383,9 +2401,6 @@ class DropdownWidget():
         else:
             self.style.configure(self.stylename, selectbackground=self.selectbg, selectforeground=selectfg)
 
-    def configure(self, **kwargs):
-        self.combobox.configure(**kwargs)
-
 class Dropdownbutton(Widget):
     def __init__(self, config_info, container):
         required = ['item', 'selections']
@@ -2396,6 +2411,7 @@ class Dropdownbutton(Widget):
         super().__init__(config_info, container)
 
         config_info['caller'] = self
+        config_info['server'] = self.server
         config_info['font'] = self.font()
         config_info['bg'] = self.bg
         config_info['fg'] = self.fg
@@ -2409,9 +2425,7 @@ class Dropdownbutton(Widget):
         if 'width' not in config_info and self.container.childwidth != None:
             config_info['width'] = self.container.childwidth
 
-        config_info['server'] = self.server
-
-        dropdown = DropdownWidget(self.frame, config_info)
+        DropdownWidget(self.frame, config_info)
 
 class Equalizers(Widget):
     def __init__(self, config_info, container):
