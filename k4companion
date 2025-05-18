@@ -731,7 +731,7 @@ class Server():
             else:
                 Page.show_page(page)
         elif lcmd == 'cw!':
-            CW.open_window()
+            CW.show_window()
         else:
            raise Exception('Unknown directive: ', directive)
 
@@ -4883,8 +4883,8 @@ class CW(Widget):
     singleton = None
 
     @classmethod
-    def open_window(cls):
-        cls.singleton.open()
+    def show_window(cls):
+        cls.singleton.show()
 
     @classmethod
     def close_window(cls):
@@ -4920,13 +4920,10 @@ class CW(Widget):
         self.top_level.lift()
 
     def open(self):
-        if self.is_open:
-            self.bring_to_front()
-            return
         self.is_open = True
         self.top_level = tk.Toplevel(Page.top)
         set_xy(self.top_level, Settings.get('Window', 'CW.xy'))
-        self.top_level.protocol("WM_DELETE_WINDOW", self.close)
+        self.top_level.protocol("WM_DELETE_WINDOW", self.hide)
         self.top_level.title('K4-Companion ' + version)
         self.frame = ttk.Frame(self.top_level)
         self.frame.grid(row=0, column=0)
@@ -5078,11 +5075,18 @@ class CW(Widget):
     def on_received_initial_parameters(self, response):
         self.server.subscribe_responses('MD;MD$;', self.on_mode_change)
 
-    def close(self):
-        if not self.is_open:
-            return
-        self.is_open = False
+    def hide(self):
+        self.top_level.withdraw()
 
+    def show(self):
+        if not self.is_open:
+            self.open()
+            return
+
+        self.top_level.deiconify()
+        self.bring_to_front()
+
+    def close(self):
         self.save_xy()
 
         if self.tx_remaining_count > 0:
@@ -5105,9 +5109,9 @@ class CW(Widget):
 
     def on_mode_change(self, response=None):
         if self.tx_mode() == 'CW':
-            self.open()
+            self.show()
         else:
-            self.close()
+            self.hide()
 
     def load_button_value(self, index, edit=False):
         value = self.button_values[index]
@@ -5374,8 +5378,8 @@ class CW(Widget):
             self.tx_height = self.tx_height_var.get()
             self.rx_height = self.rx_height_var.get()
             self.save_settings()
-            self.close()
-            self.open()
+            self.configure_frame.grid_forget()
+            self.show_text_rows()
 
     def valid_button_value(self, i):
         button = self.buttons[i]
