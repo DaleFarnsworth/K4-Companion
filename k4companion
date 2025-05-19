@@ -5495,7 +5495,7 @@ class CW(Widget):
         value = self.button_values[index]
         label = self.button_labels[index]
         if label != '':
-            value = f'{label}|{value}' if edit else label
+            value = f'{label}&{value}' if edit else label
         button = buttons[index]
         button.delete('1.0', tk.END)
         button.insert('1.0', value)
@@ -5507,7 +5507,7 @@ class CW(Widget):
 
     def button_label_value(self, button):
         value = button.get('1.0', tk.END).strip()
-        fields = value.split('|', 1)
+        fields = value.split('&', 1)
         if len(fields) == 2:
             label, value = fields
         else:
@@ -5794,10 +5794,12 @@ class CW(Widget):
         if buttons != None:
             values = buttons.split('\n')
         else:
-            values = ('<KN>|(', '<AR>|+', '<BT>|=', '<AS>|%', '<SK>|*', '<VE>|!')
+            values = ('<KN>&(', '<AR>&+', '<BT>&=', '<AS>&%', '<SK>&*', '<VE>&!')
         for value in values:
             value = value.strip()
-            fields = value.split('|', 1)
+            if '|' in value:
+                value = value.replace('|', '&')
+            fields = value.split('&', 1)
             if len(fields) == 2:
                 label, value = fields
             else:
@@ -5826,7 +5828,7 @@ class CW(Widget):
         for i, value in enumerate(self.button_values):
             label = self.button_labels[i]
             if label != '':
-                value = f'{label}|{value}'
+                value = f'{label}&{value}'
             values.append(value)
         while True:
             ln = len(values)

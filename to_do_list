@@ -3,8 +3,6 @@ It does not represent a committment to implement them all and the
 order in which the items appear doesn't represent their priority
 nor order of possible implementation.
 
-Add a CW tab with editable buttons for messages to be sent.
-
 Add padx, pady to grid calls, when passed as options for widgets.
 
 Add a tab for K4 status as returned by the SI* responses.
@@ -14,8 +12,6 @@ Reconnect on connect failure without redrawing the GUI widgets.
 Implement panadapter and waterfall, as well as minipan.
 
 See if we can recover from audio output_stream being None.
-
-VFO weirdness
 
 Turn off receive audio immediately when going into transmit mode, without
 waiting for confirmation from the K4.
