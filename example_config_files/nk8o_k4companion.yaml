@@ -114,6 +114,7 @@
   columns: 1
   contains: #{
     #include transmit-tab-row1-group
+    #include transmit-tab-row2-group
   #}
 #end
 
@@ -125,6 +126,12 @@
     #include compression-level-slider
     #include mic-gain-slider
     #include voice-monitor-level-slider
+  #}
+#end
+
+#define transmit-tab-row2-group
+- item: group
+  contains: #{
     #include vox-group
     #include ctcss-group
   #}
