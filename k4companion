@@ -67,10 +67,10 @@ from tkinter import simpledialog
 appname = 'k4companion'
 version = "1.2.9"
 
-v = platform.python_version_tuple()
-python_major = int(v[0])
-python_minor = int(v[1])
-python_patchlevel = int(v[2])
+python_version = platform.python_version_tuple()
+python_major = int(python_version[0])
+python_minor = int(python_version[1])
+python_patchlevel = int(python_version[2])
 
 class Default():
 # may be overriden by values in the config file
