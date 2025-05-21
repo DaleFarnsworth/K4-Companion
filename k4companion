@@ -641,6 +641,7 @@ class Server():
 
         self.send_str('BI;')                 # Request Band Independence status
         self.send_str('RL;')                 # Request the software release line
+        self.send_str('RO$;')                # Request the VFO B RIT offset status
         self.send_str('RT$;')                # Request the VFO B RIT on/off status
         self.send_str('MX;')                 # Request the audio mixer status
 
@@ -1277,6 +1278,8 @@ class Container(Widget):
                 child = Radiobutton(config_info, self)
             elif widget_type == 'vfo':
                 child = VFO(config_info, self)
+            elif widget_type == 'rit':
+                child = RIT(config_info, self)
             elif widget_type == 'slider':
                 child = Slider(config_info, self)
             elif widget_type == 'togglebutton':
@@ -1795,7 +1798,7 @@ class VFO(Widget):
 
     def __init__(self, config_info, container):
         required = ['item', 'AorB']
-        optional = ['width', 'activecolor', 'transmitcolor', 'step_spinbox', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'blink', 'font']
+        optional = ['width', 'activecolor', 'transmitcolor', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'blink', 'font']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -1839,7 +1842,7 @@ class VFO(Widget):
             tb.bind(button, self.on_mouse_wheel)
 
         for step in VFO.step:
-            tb.tag_bind(f'step_{step}', '<Button-1>', lambda response, step=step: self.button_one(step))
+            tb.tag_bind(f'step_{step}', '<Button-1>', lambda response, step=step: self.on_button_one(step))
 
         tb.tag_config('underline', underline=1)
         tb.tag_config('right_justify', justify=tk.RIGHT)
@@ -1851,25 +1854,25 @@ class VFO(Widget):
         self.server.subscribe_response(f'F{self.AorB};', self.on_frequency_received)
         # subscribe to split and transmit on/off changes
         self.server.subscribe_responses('FT;TX;RX;', self.set_vfo_bg)
-        self.server.subscribe_connect(self.on_server_connect)
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
-        self.tab = None
+    def on_received_initial_parameters(self, response):
+        self.set_vfo_bg()
 
-    def button_one(self, step):
+    def on_button_one(self, step):
         self.set_step(step)
 
     def add_tags(self):
         for step in VFO.step:
             self.tb.tag_add(f'step_{step}', self.step_text_index[step])
+        for i in range(0, self.width-len(VFO.step)-1):
+            self.tb.tag_add(f'step_{VFO.step[len(VFO.step)-1]}', f'1.{i}')
         self.tb.tag_add('right_justify', '1.0')
         self.add_underline_tag()
 
     def add_underline_tag(self):
         self.tb.tag_remove('underline', '1.0', '1.0 lineend')
         self.tb.tag_add('underline', self.step_text_index[self.step])
-
-    def on_server_connect(self):
-        self.tb.bind('<Visibility>', self.set_vfo_bg)
 
     def validate_frequency(self, event):
         if self.tb.edit_modified():
@@ -1987,6 +1990,201 @@ class VFO(Widget):
                 self.tb.configure(bg=self.active_color)
         else:
             self.tb.configure(bg=self.bg)
+
+class RIT(Widget):
+    step = (1, 10, 100, 1000)
+    step_index = {1: 0, 10: 1, 100: 2, 1000: 3}
+    low_offset_limit=-9999
+    high_offset_limit=9999
+
+    def __init__(self, config_info, container):
+        required = ['item', 'AorB']
+        optional = ['width', 'ritcolor', 'xitcolor', 'ritxitcolor', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'blink', 'font']
+        validate_options(config_info, required, optional)
+
+        super().__init__(config_info, container)
+
+        self.AorB = config_info.get('AorB', 'A').upper()
+        self.suffix = '' if self.AorB == 'A' else '$'
+
+        self.width = 6
+
+        self.step_text_index = {}
+        for i, step in enumerate(RIT.step):
+            text_index = f'1.{self.width-i-(1 if i < 3 else 2)}'
+            self.step_text_index[step] = text_index
+
+        self.rit_color = config_info.get('ritcolor', self.bg)
+        self.xit_color = config_info.get('xitcolor', self.bg)
+        self.ritxit_color = config_info.get('ritxitcolor', self.bg)
+
+        self.offset = 0
+        self.step = 1000
+        step_index = 3
+
+        frame = tk.Frame(self.frame)
+        frame.grid(row=0, column=0, sticky='w')
+
+        self.tb = tk.Text(frame, bd=2, bg='pink', fg='black', font=self.font(), height=1, width=self.width, cursor='hand2', wrap=tk.NONE)
+        tb = self.tb
+        tb.grid(row=0, column=0, sticky='w')
+
+        for event in ('<Return>', '<FocusOut>'):
+            tb.bind(event, self.validate_offset)
+
+        for key in ('<Left>', '<Right>', '<KP_Left>', '<KP_Right>'):
+            tb.bind(key, self.on_change_step)
+        for key in ('<Up>', '<Down>', '<KP_Up>', '<KP_Down>'):
+            tb.bind(key, self.on_bump_offset)
+        for key in ('<Next>', '<Prior>', '<KP_Next>', '<KP_Prior>'):
+            tb.bind(key, self.on_jump_offset)
+        if sys.platform in ('win32', 'darwin'):
+            mouse_buttons = ('<MouseWheel>',)
+        elif sys.platform == 'linux':
+            mouse_buttons = ('<Button-4>', '<Button-5>')
+        for button in mouse_buttons:
+            tb.bind(button, self.on_mouse_wheel)
+
+        for step in RIT.step:
+            tb.tag_bind(f'step_{step}', '<Button-1>', lambda response, step=step: self.on_button_one(step))
+
+        tb.tag_config('underline', underline=1)
+        tb.tag_config('right_justify', justify=tk.RIGHT)
+
+        self.add_tags()
+
+        self.set_step_index(step_index)
+
+#        self.server.subscribe_response(f'VT{self.suffix};', self.on_step_received)
+        self.server.subscribe_response(f'RO{self.suffix};', self.on_offset_received)
+        # subscribe to split and transmit on/off changes
+        cmds = f'RT{self.suffix};XT;FT;TX;RX;'
+        self.server.subscribe_responses(cmds, self.set_rit_bg)
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
+    def on_received_initial_parameters(self, response):
+        self.set_rit_bg()
+
+    def on_button_one(self, step):
+        self.set_step(step)
+
+    def add_tags(self):
+        for step in RIT.step:
+            self.tb.tag_add(f'step_{step}', self.step_text_index[step])
+        self.tb.tag_add('right_justify', '1.0')
+        self.add_underline_tag()
+
+    def add_underline_tag(self):
+        self.tb.tag_remove('underline', '1.0', '1.0 lineend')
+        self.tb.tag_add('underline', self.step_text_index[self.step])
+
+    def validate_offset(self, event):
+        if self.tb.edit_modified():
+            self.add_tags()
+            self.tb.edit_modified(False)
+        try:
+            offset = int(round(float(self.tb.get('1.0', '1.0 lineend')) * 1000))
+            self.set_offset(offset)
+            if offset < RIT.low_offset_limit:
+                offset = RIT.low_offset_limit
+            if freq > RIT.high_offset_limit:
+                offset = RIT.high_offset_limit
+        except:
+            self.set_offset(self.offset)
+        return 'break'
+
+    def set_offset(self, offset):
+        offset_str = f'{float(offset) / 1000:+2.3f}'
+        if offset_str != self.tb.get('1.0', '1.0 lineend'):
+            self.tb.delete('1.0', '1.0 lineend')
+            self.tb.insert('1.0', offset_str)
+            self.add_tags()
+        if offset != self.offset:
+            self.offset = offset
+            self.send_offset(offset)
+        self.set_rit_bg()
+
+    def send_offset(self, offset):
+        cmd = f'RO{self.suffix}{offset:+05d};'
+        self.server.send_cmds(cmd)
+
+    def on_offset_received(self, response):
+        offset = response_after_base(response).rstrip(';')
+        self.set_offset(int(offset))
+
+    def set_step(self, step):
+        self.step = step
+        self.add_underline_tag()
+
+    def set_step_index(self, step_index):
+        if step_index < 0:
+            step_index = 0
+        elif step_index > 3:
+            step_index = 3
+        self.step = RIT.step[step_index]
+        self.add_underline_tag()
+
+    def on_change_step(self, event):
+        step_index = RIT.step_index[self.step]
+        if event.keysym in ('Left', 'KP_Left'):
+            step_index += 1
+        else:
+            step_index -= 1
+        self.set_step_index(step_index)
+
+    def adjust_offset(self, step):
+        offset = self.offset + step
+        mod = offset % self.step
+        offset -= mod
+        if mod != 0 and step < 0:
+            offset -= step
+        self.set_offset(offset)
+
+    def on_bump_offset(self, event):
+        step = self.step
+        if event.keysym in ('Down', 'KP_Down'):
+            step = -step
+        self.adjust_offset(step)
+
+    def on_jump_offset(self, event):
+        orig_step = self.step
+        step_index = RIT.step_index[self.step]
+        if step_index < 3:
+            step_index += 1
+        step = RIT.step[step_index]
+        if event.keysym in ('Next', 'KP_Next'):
+            step = -step
+        self.set_offset(self.offset + step)
+        self.add_underline_tag()
+
+    def on_mouse_wheel(self, event):
+        if event.num == 4 or event.delta == 120:
+            self.adjust_offset(self.step)
+        if event.num == 5 or event.delta == -120:
+            self.adjust_offset(-self.step)
+
+    def current_mode_index(self):
+        base = f'MD{self.suffix}'
+        return self.k4param(base)
+
+    def transmit_vfo(self):
+        split = self.k4param('FT') == '1'
+        return 'B' if split else 'A'
+
+    def set_rit_bg(self, arg=None):
+        rit_on = self.k4param(f'RT{self.suffix}') == '1'
+        xit_on = self.k4param(f'XT') == '1'
+
+        if rit_on:
+            if xit_on and self.AorB == self.transmit_vfo():
+                self.tb.configure(bg=self.ritxit_color)
+            else:
+                self.tb.configure(bg=self.rit_color)
+        else:
+            if xit_on and self.AorB == self.transmit_vfo():
+                self.tb.configure(bg=self.xit_color)
+            else:
+                self.tb.configure(bg=self.bg)
 
 class SliderWidget():
     def __init__(self, caller, frame, options):

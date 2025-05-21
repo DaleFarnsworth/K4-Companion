@@ -1348,7 +1348,7 @@
   columns: 1
   contains: #{
     #include vfoa-rit-togglebutton
-    #include vfoa-ritxit-offset-slider
+    #include vfoa-rit
     #include vfoa-ritxit-clear-button
   #}
 #end
@@ -1360,7 +1360,7 @@
   columns: 1
   contains: #{
     #include vfob-rit-togglebutton
-    #include vfob-ritxit-offset-slider
+    #include vfob-rit
     #include vfob-ritxit-clear-button
   #}
 #end
@@ -1381,34 +1381,18 @@
   #}
 #end
 
-#define vfoa-ritxit-offset-slider
-- item: slider
-  orient: vertical
-  from: 9.999
-  to: -9.999
-  length: 140
-  evalincrement: '.001'
-  showvalue: True
-  evalcmd: '"RO{:+05d};".format(int(float(value)*1000))'
-  evalresponse: 'float(value[2:7])/1000'
+#define vfoa-rit
+- { item: rit, AorB: A, ritcolor: Yellow, xitcolor: Pink, ritxitcolor: Orange }
+#end
+
+#define vfob-rit
+- { item: rit, AorB: B, ritcolor: Yellow, xitcolor: Pink, ritxitcolor: Orange }
 #end
 
 #define vfoa-ritxit-clear-button
 - item: button
   text: Clear
   cmd: RO+0000
-#end
-
-#define vfob-ritxit-offset-slider
-- item: slider
-  orient: vertical
-  from: 9.999
-  to: -9.999
-  length: 140
-  evalincrement: '.001'
-  showvalue: True
-  evalcmd: '"RO${:+05d};".format(int(float(value)*1000))'
-  evalresponse: 'float(value[3:8])/1000'
 #end
 
 #define vfob-ritxit-clear-button
