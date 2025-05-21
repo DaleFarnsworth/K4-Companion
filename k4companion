@@ -2325,6 +2325,9 @@ class DropdownWidget():
         font = options['font']
         justify = options.get('justify', 'right')
         height = options.get('height', 0)
+        self.from_ = options.get('from', None)
+        self.to = options.get('to', None)
+        self.evalcmd = options.get('evalcmd', None)
 
         self.unexpected_response = options.get('unexpectedresponse', '')
 
@@ -2374,6 +2377,8 @@ class DropdownWidget():
 
         self.val = tk.StringVar()
 
+        state = 'readonly' if self.evalcmd == None else 'normal'
+
         self.combobox = ttk.Combobox(
                 frame,
                 textvar=self.val,
@@ -2381,12 +2386,15 @@ class DropdownWidget():
                 values=texts,
                 height=height,
                 width=width,
-                state='readonly',
+                state=state,
                 justify=justify,
                 style=self.stylename,
                 )
         self.combobox.option_add('*TCombobox*Listbox*Font', font)
         self.combobox.option_add('*TCombobox*Listbox*Justify', 'center')
+        if self.evalcmd != None:
+            self.combobox.bind('<Return>', self.set_value)
+            self.combobox.bind('<FocusOut>', self.set_value)
 
         self.val.trace('w', self.on_combobox_changed)
 
@@ -2397,6 +2405,23 @@ class DropdownWidget():
     def on_received_initial_parameters(self, response):
         for selection in self.selections:
             self.server.subscribe_responses(selection['response'], self.on_response_received)
+
+    def set_value(self, event):
+        if self.server.warn_if_not_connected():
+            return
+
+        text = self.val.get().strip()
+        try:
+            value = float(text)
+        except:
+            return
+        if value < self.from_:
+            value = self.from_
+        elif value > self.to:
+            value = self.to
+        if self.evalcmd != None:
+            cmd = self.caller.eval_value(self.evalcmd, value)
+        self.server.expand_and_send_cmds(cmd)
 
     def on_combobox_changed(self, var, index, mode):
         if self.server.warn_if_not_connected():
@@ -2446,6 +2471,7 @@ class DropdownWidget():
         if not found:
             if self.unexpected_response != '':
                 text = self.caller.eval_value(self.unexpected_response, response)
+                text = str(self.caller.eval_value(self.unexpected_response, response))
             else:
                 text = ''
 
@@ -2469,8 +2495,9 @@ class DropdownWidget():
 class Dropdownbutton(Widget):
     def __init__(self, config_info, container):
         required = ['item', 'selections']
-        optional = ['bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg', 'width', 'height',
-                   'justify', 'unexpectedresponse', 'label', 'leading']
+        optional = ['bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg',
+            'width', 'height', 'justify', 'unexpectedresponse', 'label',
+            'leading', 'evalcmd', 'from', 'to']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)

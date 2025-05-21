@@ -198,7 +198,7 @@
           contains: #{
             #include rit-group
             #include xit-togglebutton
-            #include power-slider-group
+            #include power-dropdown-button
         - item: group
           label: ''
           contains: #{
@@ -689,36 +689,18 @@
 - item: dropdownbutton
   label: Power
   width: 6
-  unexpectedresponse: 'str(float(value[2:5])/10 if value[5] == "L" else float(value[2:5])/10000 if value[5] == "X" else float(value[2:5])) + " W"'
+  from: 0
+  to: 110
+  evalcmd: 'f"PC{int(value*10000):03d}X;" if .0001 <= value <= 0.01 else f"PC{int(value*10):03d}L;" if value <= 10 else f"PC{int(value):03d}H;"'
+  unexpectedresponse: 'str(float(value[2:5])/10 if value[5] == "L" else float(value[2:5])/10000 if value[5] == "X" else float(value[2:5]))'
   selections: #{
-    - { text: "  5 W", cmd: PC050L; }
-    - { text: " 10 W", cmd: PC100L; }
-    - { text: " 25 W", cmd: PC025H; }
-    - { text: " 50 W", cmd: PC050H; }
-    - { text: " 75 W", cmd: PC075H; }
-    - { text: "100 W", cmd: PC100H; }
+    - { text: "100", cmd: PC100H; }
+    - { text: " 75", cmd: PC075H; }
+    - { text: " 50", cmd: PC050H; }
+    - { text: " 25", cmd: PC025H; }
+    - { text: " 10", cmd: PC100L; }
+    - { text: "  5", cmd: PC050L; }
   #}
-#end
-
-#define power-slider-group
-- item: group
-  label: Power
-  contains: #{
-    #include power-slider
-  #}
-#end
-
-#define power-slider
-- item: slider
-  label: (Watts)
-  orient: vertical
-  from: 110.0
-  to: 0.0
-  length: 150
-  showvalue: True
-  evalincrement: '.0001 if value > 0.0 and value <= .01 else .1 if value <= 10.0 else 1.0'
-  evalcmd: '"PC{:03d}L;".format(int(float(value)*10)) if float(value) <= 10.0 else "PC{:03d}H;".format(int(value))'
-  evalresponse: 'float(value[2:5])/10 if value[5] == "L" else float(value[2:5])/10000 if value[5] == "X" else float(value[2:5])'
 #end
 
 #define main-volume-horizontal-slider-group
