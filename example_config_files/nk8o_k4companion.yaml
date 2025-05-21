@@ -1384,13 +1384,13 @@
 #define vfoa-ritxit-offset-slider
 - item: slider
   orient: vertical
-  from: 9.99
-  to: -9.99
+  from: 9.999
+  to: -9.999
   length: 140
-  evalincrement: '.01'
+  evalincrement: '.001'
   showvalue: True
   evalcmd: '"RO{:+05d};".format(int(float(value)*1000))'
-  evalresponse: 'float(value[2:6])/100'
+  evalresponse: 'float(value[2:7])/1000'
 #end
 
 #define vfoa-ritxit-clear-button
@@ -1402,13 +1402,13 @@
 #define vfob-ritxit-offset-slider
 - item: slider
   orient: vertical
-  from: 9.99
-  to: -9.99
+  from: 9.999
+  to: -9.999
   length: 140
-  evalincrement: '.01'
+  evalincrement: '.001'
   showvalue: True
   evalcmd: '"RO${:+05d};".format(int(float(value)*1000))'
-  evalresponse: 'float(value[3:7])/100'
+  evalresponse: 'float(value[3:8])/1000'
 #end
 
 #define vfob-ritxit-clear-button
