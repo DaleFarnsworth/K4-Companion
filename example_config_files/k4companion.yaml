@@ -59,8 +59,8 @@
 #define main-tab-row1
 - item: group
   contains: #{
-    #include receiver-a-group
-    #include receiver-b-group
+    #include rx-a-group
+    #include rx-b-group
     #}
 #end
 
@@ -165,24 +165,28 @@
         #include audio-mx-togglebutton
       #}
     #include vfos-control-group
+    #include power-off-exit-group
+  #}
+#end
+
+#define tune-group
+- item: group
+  contains: #{
     - item: group
+      label: ATU
       contains: #{
-        - item: group
-          label: ATU
-          contains: #{
-            #include atu-bypass-togglebutton
-            #include atu-tune-togglebutton
-            #include atu-extended-tune-togglebutton
-            #}
+        #include atu-bypass-togglebutton
+        #include atu-tune-togglebutton
+        #include atu-extended-tune-togglebutton
         #}
+    #}
+- item: group
+  contains: #{
     - item: group
+      label: Tune
       contains: #{
-        - item: group
-          label: Tune
-          contains: #{
-            #include tune-button
-            #include tune-lp-togglebutton
-          #}
+        #include tune-button
+        #include tune-lp-togglebutton
       #}
   #}
 #end
@@ -196,16 +200,20 @@
       contains: #{
         - item: group
           contains: #{
-            #include rit-group
             #include xit-togglebutton
             #include power-dropdown-button
-        - item: group
-          label: ''
-          contains: #{
-            #include k4-power-off-button
-            #include exit-button
-          #}
+        #include tune-group
       #}
+    #}
+  #}
+#end
+
+#define power-off-exit-group
+- item: group
+  label: ''
+  contains: #{
+    #include k4-power-off-button
+    #include exit-button
   #}
 #end
 
@@ -314,7 +322,7 @@
   label: Exit Commands
 #end
 
-#define receiver-a-group
+#define rx-a-group
 - item: group
   label: VFO A
   columns: 1
@@ -322,8 +330,7 @@
     #include vfo-a
     #include s-meter-a-bargraph
     #include rf-out-alc-group
-    #include main-volume-horizontal-slider-group
-    #include receiver-a-controls-group
+    #include rx-a-controls-group
   #}
 #end
 
@@ -335,17 +342,62 @@
   #}
 #end
 
-#define receiver-a-controls-group
+#define rx-a-controls-group
 - item: group
-  columns: 3
-  childwidth: 7
+  columns: 1
+  contains: #{
+    #include rx-a-controls-row1
+    #include rx-a-controls-row2
+  #}
+#end
+
+#define rx-a-controls-row1
+- item: group
+  contains: #{
+    #include rx-a-controls-row1-column1
+    #include rx-a-controls-row1-column2
+  #}
+#end
+
+#define rx-a-controls-row1-column1
+- item: group
+  columns: 1
+  contains: #{
+    #include rx-a-controls-row1-column1-row1
+    #include rx-a-controls-row1-column1-row2
+  #}
+#end
+
+#define rx-a-controls-row1-column1-row1
+- item: group
+  contains: #{
+    #include main-volume-horizontal-slider-group
+  #}
+#end
+
+#define rx-a-controls-row1-column1-row2
+- item: group
+  columns: 2
   contains: #{
     #include band-a-dropdown-button
     #include mode-a-dropdown-button
-    #include bandwidth-a-dropdown-button
     #include preamp-a-dropdown-button
     #include atten-a-dropdown-button
+  #}
+#end
+
+#define rx-a-controls-row1-column2
+- item: group
+  contains: #{
+    #include vfo-a-rit-group
+  #}
+#end
+
+#define rx-a-controls-row2
+- item: group
+  contains: #{
     #include rfgain-a-dropdown-button
+    #include bandwidth-a-dropdown-button
   #}
 #end
 
@@ -506,31 +558,75 @@
   #}
 #end
 
-#define receiver-b-group
+#define rx-b-group
 - item: group
   label: VFO B
   columns: 1
   contains: #{
-  #include vfo-b
-  #include s-meter-b-bargraph
-  #include swr-and-cmd-group
-  #include sub-volume-horizontal-slider-group
-  #include receiver-b-controls-group
-    #}
+    #include vfo-b
+    #include s-meter-b-bargraph
+    #include swr-and-cmd-group
+    #include rx-b-controls-group
   #}
 #end
 
-#define receiver-b-controls-group
+#define rx-b-controls-group
 - item: group
-  columns: 3
-  childwidth: 7
+  columns: 1
+  contains: #{
+    #include rx-b-controls-row1
+    #include rx-b-controls-row2
+  #}
+#end
+
+#define rx-b-controls-row1
+- item: group
+  contains: #{
+    #include rx-b-controls-row1-column1
+    #include rx-b-controls-row1-column2
+  #}
+#end
+
+#define rx-b-controls-row1-column1
+- item: group
+  columns: 1
+  contains: #{
+    #include rx-b-controls-row1-column1-row1
+    #include rx-b-controls-row1-column1-row2
+  #}
+#end
+
+#define rx-b-controls-row1-column1-row1
+- item: group
+  contains: #{
+    #include sub-volume-horizontal-slider-group
+  #}
+#end
+
+#define rx-b-controls-row1-column1-row2
+- item: group
+  columns: 2
   contains: #{
     #include band-b-dropdown-button
-    #include mode-B-dropdown-button
-    #include bandwidth-B-dropdown-button
-    #include preamb-B-dropdown-button
-    #include atten-B-dropdown-button
-    #include rfgain-B-dropdown-button
+    #include mode-b-dropdown-button
+    #include preamp-b-dropdown-button
+    #include atten-b-dropdown-button
+  #}
+#end
+
+#define rx-b-controls-row1-column2
+- item: group
+  contains: #{
+    #include vfo-b-rit-group
+  #}
+#end
+
+#define rx-b-controls-row2
+- item: group
+  contains: #{
+    #include rfgain-b-dropdown-button
+    #include bandwidth-b-dropdown-button
+  #}
 #end
 
 #define swr-and-cmd-group
@@ -576,7 +672,7 @@
   #}
 #end
 
-#define mode-B-dropdown-button
+#define mode-b-dropdown-button
 - item: dropdownbutton
   label: Mode
   selections: #{
@@ -589,7 +685,7 @@
   #}
 #end
 
-#define bandwidth-B-dropdown-button
+#define bandwidth-b-dropdown-button
 - item: dropdownbutton
   label: BW
   unexpectedresponse: 'str((float(value[3:7])*10))[0:3]+" Hz" if value[2:4]=="00" else "{a:.2f}".format(a=float(value[3:7])/100)+" kHz"'
@@ -608,7 +704,7 @@
   #}
 #end
 
-#define preamb-B-dropdown-button
+#define preamp-b-dropdown-button
 - item: dropdownbutton
   label: Preamp
   selections: #{
@@ -619,7 +715,7 @@
   #}
 #end
 
-#define atten-B-dropdown-button
+#define atten-b-dropdown-button
 - item: dropdownbutton
   label: Attenuation
   selections: #{
@@ -634,7 +730,7 @@
   #}
 #end
 
-#define rfgain-B-dropdown-button
+#define rfgain-b-dropdown-button
 - item: dropdownbutton
   label: RF Gain
   selections: #{
@@ -704,6 +800,14 @@
 #end
 
 #define main-volume-horizontal-slider-group
+- item: group
+  columnspan: 2
+  contains: #{
+    #include main-volume-horizontal-slider
+  #}
+#end
+
+#define main-volume-horizontal-slider
 - item: slider
   label: AF Gain
   orient: horizontal
@@ -1327,8 +1431,8 @@
 - item: group
   label: RIT
   contains: #{
-    #include vfoa-rit-group
-    #include vfob-rit-group
+    #include vfo-a-rit-group
+    #include vfo-b-rit-group
   #}
 #end
 
@@ -1336,66 +1440,66 @@
 - item: togglebutton
   label: XIT
   selections: #{
-    - { text: "On",  cmd: XT1; } 
+    - { text: "On",  cmd: XT1;, bg: LightBlue, abg: LightBlue } 
     - { text: "Off", cmd: XT0; }
   #}
 #end
 
-#define vfoa-rit-group
+#define vfo-a-rit-group
 - item: group
-  label: VFO A
+  label: RIT
   leading: 0
   columns: 1
   contains: #{
-    #include vfoa-rit-togglebutton
-    #include vfoa-rit
-    #include vfoa-ritxit-clear-button
+    #include vfo-a-rit-togglebutton
+    #include vfo-a-rit
+    #include vfo-a-ritxit-clear-button
   #}
 #end
 
-#define vfob-rit-group
+#define vfo-b-rit-group
 - item: group
-  label: VFO B
+  label: RIT
   leading: 0
   columns: 1
   contains: #{
-    #include vfob-rit-togglebutton
-    #include vfob-rit
-    #include vfob-ritxit-clear-button
+    #include vfo-b-rit-togglebutton
+    #include vfo-b-rit
+    #include vfo-b-ritxit-clear-button
   #}
 #end
 
-#define vfoa-rit-togglebutton
+#define vfo-a-rit-togglebutton
 - item: togglebutton
   selections: #{
-    - { text: "On",  cmd: RT1; } 
+    - { text: "On",  cmd: RT1;, bg: LightGreen, abg: LightGreen } 
     - { text: "Off", cmd: RT0; }
   #}
 #end
 
-#define vfob-rit-togglebutton
+#define vfo-b-rit-togglebutton
 - item: togglebutton
   selections: #{
-    - { text: "On",  cmd: RT$1; } 
+    - { text: "On",  cmd: RT$1;, bg: LightGreen, abg: LightGreen } 
     - { text: "Off", cmd: RT$0; }
   #}
 #end
 
-#define vfoa-rit
-- { item: rit, AorB: A, ritcolor: Yellow, xitcolor: Pink, ritxitcolor: Orange }
+#define vfo-a-rit
+- { item: rit, AorB: A, ritcolor: LightGreen, xitcolor: LightBlue, ritxitcolor: Turquoise }
 #end
 
-#define vfob-rit
-- { item: rit, AorB: B, ritcolor: Yellow, xitcolor: Pink, ritxitcolor: Orange }
+#define vfo-b-rit
+- { item: rit, AorB: B, ritcolor: LightGreen, xitcolor: LightBlue, ritxitcolor: Turquoise }
 #end
 
-#define vfoa-ritxit-clear-button
+#define vfo-a-ritxit-clear-button
 - item: button
   text: Clear
   cmd: RO+0000
 #end
 
-#define vfob-ritxit-clear-button
+#define vfo-b-ritxit-clear-button
 - item: button
   text: Clear
   cmd: RO$+0000
