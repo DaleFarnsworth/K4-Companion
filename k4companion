@@ -2720,12 +2720,13 @@ class Dropdownbutton(Widget):
 class Equalizers(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        optional = ['length', 'label', 'leading', 'font', 'bg', 'fg', 'selectbg', 'selectfg']
+        optional = ['length', 'width', 'label', 'leading', 'font', 'bg', 'fg', 'selectbg', 'selectfg']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
 
         length = config_info.get('length', 150)
+        slider_width = config_info.get('width', 15)
         selectbg=config_info.get('selectbg', self.bg)
         selectfg=config_info.get('selectfg', self.fg)
 
@@ -2938,6 +2939,9 @@ class Equalizers(Widget):
         self.scale_value_vars = []
         self.scales = []
         self.freqs = (100, 200, 400, 800, 1200, 1600, 2400, 3200)
+        scale_font = self.font().copy()
+        scale_font['size'] -= 2
+
         for i in range(len(self.freqs)):
             value = tk.IntVar()
             self.scale_value_vars.append(value)
@@ -2948,8 +2952,9 @@ class Equalizers(Widget):
                              resolution=1,
                              orient='vertical',
                              repeatdelay=0,
+                             width=slider_width,
                              length=length,
-                             font=self.font(),
+                             font=scale_font,
                              bg=self.bg,
                              fg=self.fg,
                              variable=value)
