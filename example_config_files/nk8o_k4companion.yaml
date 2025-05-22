@@ -776,8 +776,8 @@
 - item: togglebutton
   label: Tx
   selections: #{
-    - { text: "Test On",  cmd: TS1;, bg: yellow,    abg: yellow }
-    - { text: "Test Off", cmd: TS0;, bg: '#00FF00', abg: '#00FF00' }
+    - { text: "Test On",  cmd: TS1;, bg: yellow, abg: yellow }
+    - { text: "Test Off", cmd: TS0; }
   #}
 #end
 
@@ -787,6 +787,7 @@
   width: 6
   from: 0
   to: 110
+  evalincrement: '.0001 if value > 0.0 and value <= .01 else .1 if value <= 10.0 else 1.0'
   evalcmd: 'f"PC{int(value*10000):03d}X;" if .0001 <= value <= 0.01 else f"PC{int(value*10):03d}L;" if value <= 10 else f"PC{int(value):03d}H;"'
   unexpectedresponse: 'str(float(value[2:5])/10 if value[5] == "L" else float(value[2:5])/10000 if value[5] == "X" else float(value[2:5]))'
   selections: #{
@@ -836,8 +837,8 @@
 #define atu-bypass-togglebutton
 - item: togglebutton
   selections: #{
-    - { text: "Bypass", cmd: AT1; }
-    - { text: "Auto",   cmd: AT2; }
+    - { text: "Bypass", cmd: AT1;,  bg: yellow }
+    - { text: "Auto",   cmd: AT2;, abg: yellow }
   #}
 #end
 
@@ -939,8 +940,8 @@
 - item: togglebutton
   label: 'Tx/Rx'
   selections: #{
-    - { text: 'Receive',   cmd: RX;, evalresponse: '"RX;" if self.k4param("RX") != None else ""', bg: '#00FF00', abg: '#00FF00' }
-    - { text: 'Transmit',  cmd: TX;, evalresponse: '"TX;" if self.k4param("TX") != None else ""', bg: yellow,    abg: yellow }
+    - { text: 'Receive',   cmd: RX;, evalresponse: '"RX;" if self.k4param("RX") != None else ""', bg: white, abg: white, }
+    - { text: 'Transmit',  cmd: TX;, evalresponse: '"TX;" if self.k4param("TX") != None else ""', bg: yellow,   abg: yellow, }
   #}
 #end
 

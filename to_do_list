@@ -25,3 +25,7 @@ Make power slider numberless like the audio sliders, with a separate box that sh
 Handle: ER43: Status Standby and ER44:Status Operate.
 
 fix window offset after updating K4 address in App tab.
+
+Permit direct entry on RF Gain
+
+Permit direct entry for BW

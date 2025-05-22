@@ -2256,8 +2256,8 @@ class SliderWidget():
             incr = self.resolution
         if event.num == 5 or event.delta == -120:
             incr = -self.resolution
-        incr *= 1.00000000001      # account for the vagueries of FP addition
-        self.value_var.set(self.value_var.get() + incr)
+        value = round(self.value_var.get() + incr, 10)
+        self.value_var.set(value)
 
     def value_changed(self, var, index, mode):
         value = self.value_var.get()
@@ -2525,6 +2525,7 @@ class DropdownWidget():
         height = options.get('height', 0)
         self.from_ = options.get('from', None)
         self.to = options.get('to', None)
+        self.evalincrement = options.get('evalincrement', None)
         self.evalcmd = options.get('evalcmd', None)
 
         self.unexpected_response = options.get('unexpectedresponse', '')
@@ -2591,8 +2592,12 @@ class DropdownWidget():
         self.combobox.option_add('*TCombobox*Listbox*Font', font)
         self.combobox.option_add('*TCombobox*Listbox*Justify', 'center')
         if self.evalcmd != None:
-            self.combobox.bind('<Return>', self.set_value)
-            self.combobox.bind('<FocusOut>', self.set_value)
+            self.combobox.bind('<Return>', self.update_value)
+            self.combobox.bind('<FocusOut>', self.update_value)
+
+        if self.evalincrement != None:
+            for key in ('<Up>', '<Down>', '<KP_Up>', '<KP_Down>'):
+                self.combobox.bind(key, self.on_increment)
 
         self.val.trace('w', self.on_combobox_changed)
 
@@ -2604,15 +2609,19 @@ class DropdownWidget():
         for selection in self.selections:
             self.server.subscribe_responses(selection['response'], self.on_response_received)
 
-    def set_value(self, event):
+    def on_increment(self, event):
+        value = float(self.val.get())
+        incr = float(self.caller.eval_value(self.evalincrement, value))
+        if event.keysym in ('Down', 'KP_down'):
+            incr = -incr
+        value = round(value + incr, 10)
+        self.set_value(value)
+        return 'break'
+
+    def set_value(self, value):
         if self.server.warn_if_not_connected():
             return
 
-        text = self.val.get().strip()
-        try:
-            value = float(text)
-        except:
-            return
         if value < self.from_:
             value = self.from_
         elif value > self.to:
@@ -2620,6 +2629,15 @@ class DropdownWidget():
         if self.evalcmd != None:
             cmd = self.caller.eval_value(self.evalcmd, value)
         self.server.expand_and_send_cmds(cmd)
+
+    def update_value(self, event):
+        text = self.val.get().strip()
+        try:
+            value = float(text)
+        except:
+            return
+
+        self.set_value(value)
 
     def on_combobox_changed(self, var, index, mode):
         if self.server.warn_if_not_connected():
@@ -2695,7 +2713,7 @@ class Dropdownbutton(Widget):
         required = ['item', 'selections']
         optional = ['bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg',
             'width', 'height', 'justify', 'unexpectedresponse', 'label',
-            'leading', 'evalcmd', 'from', 'to']
+            'leading', 'evalincrement', 'evalcmd', 'from', 'to']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
