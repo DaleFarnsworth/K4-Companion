@@ -1388,6 +1388,7 @@
 
 #define equalizers
 - item: equalizers
+  width: 13
   length: 150
 #end
 
