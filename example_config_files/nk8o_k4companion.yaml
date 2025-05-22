@@ -10,7 +10,7 @@
   abg: gray
   fg: black
   # afg: black                # non-existent means same as fg
-  selectcolor: red            # inherited by radiobutton
+  selectcolor: yellow            # inherited by radiobutton
 
   # Font used for labels
   label_font: { family: Helvetica, size: 10, weight: normal }
@@ -402,7 +402,7 @@
 #end
 
 #define vfo-a
-- { item: vfo, AorB: A, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: pink, transmitcolor: red }
+- { item: vfo, AorB: A, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: LightBlue, transmitcolor: Blue }
 #end
 
 #define s-meter-a-bargraph
@@ -638,7 +638,7 @@
 #end
 
 #define vfo-b
-- { item: vfo, AorB: B, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: pink, transmitcolor: red }
+- { item: vfo, AorB: B, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: LightBlue, transmitcolor: Blue }
 #end
 
 #define s-meter-b-bargraph
@@ -776,8 +776,8 @@
 - item: togglebutton
   label: Tx
   selections: #{
-    - { text: "Test On",  cmd: TS1;, bg: red, abg: red }
-    - { text: "Test Off", cmd: TS0;, bg: '#00FF00' }
+    - { text: "Test On",  cmd: TS1;, bg: yellow,    abg: yellow }
+    - { text: "Test Off", cmd: TS0;, bg: '#00FF00', abg: '#00FF00' }
   #}
 #end
 
@@ -836,8 +836,8 @@
 #define atu-bypass-togglebutton
 - item: togglebutton
   selections: #{
-    - { text: "Bypass", cmd: AT1;,  bg: yellow }
-    - { text: "Auto",   cmd: AT2;, abg: yellow }
+    - { text: "Bypass", cmd: AT1; }
+    - { text: "Auto",   cmd: AT2; }
   #}
 #end
 
@@ -861,7 +861,7 @@
 #define atu-tune-togglebutton
 - item: togglebutton
   selections: #{
-  - { text: "Tune", cmd: TU3;, bg: red }
+  - { text: "Tune", cmd: TU3;, bg: yellow }
   - { text: "Tune", cmd: TU0; }
   #}
 #end
@@ -869,7 +869,7 @@
 #define atu-extended-tune-togglebutton
 - item: togglebutton
   selections: #{
-    - { text: "TUNE", cmd: TU4;, bg: red }
+    - { text: "TUNE", cmd: TU4;, bg: yellow }
     - { text: "TUNE", cmd: TU0; }
   #}
 #end
@@ -877,7 +877,7 @@
 #define tune-button
 - item: togglebutton
   selections: #{
-    - { text: "Tune", cmd: TU1;, bg: red }
+    - { text: "Tune", cmd: TU1;, bg: yellow }
     - { text: "Tune", cmd: TU0; }
   #}
 #end
@@ -885,7 +885,7 @@
 #define tune-lp-togglebutton
 - item: togglebutton
   selections: #{
-    - { text: "Tune LP", cmd: TU2;, bg: red }
+    - { text: "Tune LP", cmd: TU2;, bg: yellow }
     - { text: "Tune LP", cmd: TU0; }
   #}
 #end
@@ -907,7 +907,7 @@
 - item: togglebutton
   wraparound: False
   selections: #{
-    - { text: 'Connect', bg: red, abg: red, blink: on }
+    - { text: 'Connect', bg: yellow, abg: yellow, blink: on }
     - { text: 'Connecting', cmd: CONNECT!; }
     - { text: 'Connected', response: PONG; }
   #}
@@ -939,8 +939,8 @@
 - item: togglebutton
   label: 'Tx/Rx'
   selections: #{
-    - { text: 'Receive',   cmd: RX;, evalresponse: '"RX;" if self.k4param("RX") != None else ""', bg: '#00FF00', abg: white, }
-    - { text: 'Transmit',  cmd: TX;, evalresponse: '"TX;" if self.k4param("TX") != None else ""', bg: red,   abg: red, }
+    - { text: 'Receive',   cmd: RX;, evalresponse: '"RX;" if self.k4param("RX") != None else ""', bg: '#00FF00', abg: '#00FF00' }
+    - { text: 'Transmit',  cmd: TX;, evalresponse: '"TX;" if self.k4param("TX") != None else ""', bg: yellow,    abg: yellow }
   #}
 #end
 
