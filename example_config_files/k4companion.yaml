@@ -381,8 +381,8 @@
   contains: #{
     #include band-a-dropdown-button
     #include mode-a-dropdown-button
-    #include preamp-a-dropdown-button
     #include atten-a-dropdown-button
+    #include preamp-a-dropdown-button
   #}
 #end
 
@@ -524,6 +524,7 @@
 #define preamp-a-dropdown-button
 - item: dropdownbutton
   label: Pre
+  width: 3
   selections: #{
     - { text: "0", cmd: PA00; }
     - { text: "1", cmd: PA11; }
@@ -550,14 +551,19 @@
 #define rfgain-a-dropdown-button
 - item: dropdownbutton
   label: RF Gain
+  from: -60
+  to: -0
+  evalincrement: '5'
+  evalcmd: f'RG{int(value):+03d};'
+  unexpectedresponse: '"-0" if int(value[2:5]) == 0 else f"{int(value[2:5]):-02d}" if int(value[2:5]) > -10 else f"{int(value[2:5]):-03d}"'
   selections: #{
-    - { text: " -0 ", cmd: RG-00; }
-    - { text: "-10 ", cmd: RG-10; }
-    - { text: "-20 ", cmd: RG-20; }
-    - { text: "-30 ", cmd: RG-30; }
-    - { text: "-40 ", cmd: RG-40; }
-    - { text: "-50 ", cmd: RG-50; }
-    - { text: "-60 ", cmd: RG-60; }
+    - { text: ' -0', cmd: RG-00; }
+    - { text: '-10', cmd: RG-10; }
+    - { text: '-20', cmd: RG-20; }
+    - { text: '-30', cmd: RG-30; }
+    - { text: '-40', cmd: RG-40; }
+    - { text: '-50', cmd: RG-50; }
+    - { text: '-60', cmd: RG-60; }
   #}
 #end
 
@@ -612,8 +618,8 @@
   contains: #{
     #include band-b-dropdown-button
     #include mode-b-dropdown-button
-    #include preamp-b-dropdown-button
     #include atten-b-dropdown-button
+    #include preamp-b-dropdown-button
   #}
 #end
 
@@ -714,6 +720,7 @@
 #define preamp-b-dropdown-button
 - item: dropdownbutton
   label: Pre
+  width: 3
   selections: #{
     - { text: "0", cmd: PA$00; }
     - { text: "1", cmd: PA$11; }
@@ -740,14 +747,19 @@
 #define rfgain-b-dropdown-button
 - item: dropdownbutton
   label: RF Gain
+  from: -60
+  to: -0
+  evalincrement: '5'
+  evalcmd: f'RG${int(value):+03d};'
+  unexpectedresponse: '"-0" if int(value[3:6]) == 0 else f"{int(value[3:6]):-02d}" if int(value[3:6]) > -10 else f"{int(value[3:6]):-03d}"'
   selections: #{
-    - { text: " -0 ", cmd: RG$-00; }
-    - { text: "-10 ", cmd: RG$-10; }
-    - { text: "-20 ", cmd: RG$-20; }
-    - { text: "-30 ", cmd: RG$-30; }
-    - { text: "-40 ", cmd: RG$-40; }
-    - { text: "-50 ", cmd: RG$-50; }
-    - { text: "-60 ", cmd: RG$-60; }
+    - { text: ' -0', cmd: RG$-00; }
+    - { text: '-10', cmd: RG$-10; }
+    - { text: '-20', cmd: RG$-20; }
+    - { text: '-30', cmd: RG$-30; }
+    - { text: '-40', cmd: RG$-40; }
+    - { text: '-50', cmd: RG$-50; }
+    - { text: '-60', cmd: RG$-60; }
   #}
 #end
 

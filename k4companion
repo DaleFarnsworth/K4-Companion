@@ -2566,6 +2566,9 @@ class DropdownWidget():
             self.selections.append(selection)
         width += 1
 
+        if 'width' in options:
+            width = options['width']
+
         if height == 0:
             height = len(texts)
 
