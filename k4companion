@@ -2611,6 +2611,10 @@ class DropdownWidget():
 
     def on_increment(self, event):
         value = float(self.val.get())
+        if event.keysym in ('Down', 'KP_down'):
+            value -= .00000000001
+        else:
+            value += .00000000001
         incr = float(self.caller.eval_value(self.evalincrement, value))
         if event.keysym in ('Down', 'KP_down'):
             incr = -incr

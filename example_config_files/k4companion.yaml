@@ -501,26 +501,29 @@
 #define bandwidth-a-dropdown-button
 - item: dropdownbutton
   label: BW
-  unexpectedresponse: 'str((float(value[2:6])*10))[0:3]+" Hz" if value[2:4]=="00" else "{a:.2f}".format(a=float(value[2:6])/100)+" kHz"'
+  from: .05
+  to: 5
+  evalincrement: '.05 if value < .5 else .1 if value < 1 else .2 if value < 2 else .25'
+  evalcmd: f'BW{int(value*100):04d};'
+  unexpectedresponse: 'f"{float(value[2:6])/100:.2f}"'
   selections: #{
-    - { text: "   50 Hz", cmd: BW0005; }
-    - { text: "  100 Hz", cmd: BW0010; }
-    - { text: "  200 Hz", cmd: BW0020; }
-    - { text: "  300 Hz", cmd: BW0030; }
-    - { text: "  400 Hz", cmd: BW0040; }
-    - { text: "  450 Hz", cmd: BW0045; }
-    - { text: "  500 Hz", cmd: BW0050; }
-    - { text: "1.80 kHz", cmd: BW0180; }
-    - { text: "2.50 kHz", cmd: BW0250; }
-    - { text: "3.50 kHz", cmd: BW0350; }
-    - { text: "4.00 kHz", cmd: BW0400; }
-    - { text: "5.00 kHz", cmd: BW0500; }
+    - { text: '5.00', cmd: BW0500; }
+    - { text: '4.00', cmd: BW0400; }
+    - { text: '3.50', cmd: BW0350; }
+    - { text: '2.80', cmd: BW0280; }
+    - { text: '1.80', cmd: BW0180; }
+    - { text: '0.50', cmd: BW0050; }
+    - { text: '0.40', cmd: BW0040; }
+    - { text: '0.30', cmd: BW0030; }
+    - { text: '0.20', cmd: BW0020; }
+    - { text: '0.10', cmd: BW0010; }
+    - { text: '0.05', cmd: BW0005; }
   #}
 #end
 
 #define preamp-a-dropdown-button
 - item: dropdownbutton
-  label: Preamp
+  label: Pre
   selections: #{
     - { text: "0", cmd: PA00; }
     - { text: "1", cmd: PA11; }
@@ -531,7 +534,7 @@
 
 #define atten-a-dropdown-button
 - item: dropdownbutton
-  label: Attenuation
+  label: Att
   selections: #{
     - { text: " 0 dB", cmd: RA000; }
     - { text: " 3 dB", cmd: RA031; }
@@ -688,25 +691,29 @@
 #define bandwidth-b-dropdown-button
 - item: dropdownbutton
   label: BW
-  unexpectedresponse: 'str((float(value[3:7])*10))[0:3]+" Hz" if value[2:4]=="00" else "{a:.2f}".format(a=float(value[3:7])/100)+" kHz"'
+  from: .05
+  to: 5
+  evalincrement: '.05 if value < .5 else .1 if value < 1 else .2 if value < 2 else .25'
+  evalcmd: f'BW${int(value*100):04d};'
+  unexpectedresponse: 'f"{float(value[3:7])/100:.2f}"'
   selections: #{
-    - { text: "   50 Hz", cmd: BW$0005; }
-    - { text: "  100 Hz", cmd: BW$0010; }
-    - { text: "  200 Hz", cmd: BW$0020; }
-    - { text: "  300 Hz", cmd: BW$0030; }
-    - { text: "  400 Hz", cmd: BW$0040; }
-    - { text: "  450 Hz", cmd: BW$0045; }
-    - { text: "  500 Hz", cmd: BW$0050; }
-    - { text: "1.80 kHz", cmd: BW$0180; }
-    - { text: "2.50 kHz", cmd: BW$0250; }
-    - { text: "3.50 kHz", cmd: BW$0350; }
-    - { text: "4.00 kHz", cmd: BW$0400; }
+    - { text: '5.00', cmd: BW$0500; }
+    - { text: '4.00', cmd: BW$0400; }
+    - { text: '3.50', cmd: BW$0350; }
+    - { text: '2.80', cmd: BW$0280; }
+    - { text: '1.80', cmd: BW$0180; }
+    - { text: '0.50', cmd: BW$0050; }
+    - { text: '0.40', cmd: BW$0040; }
+    - { text: '0.30', cmd: BW$0030; }
+    - { text: '0.20', cmd: BW$0020; }
+    - { text: '0.10', cmd: BW$0010; }
+    - { text: '0.05', cmd: BW$0005; }
   #}
 #end
 
 #define preamp-b-dropdown-button
 - item: dropdownbutton
-  label: Preamp
+  label: Pre
   selections: #{
     - { text: "0", cmd: PA$00; }
     - { text: "1", cmd: PA$11; }
@@ -717,7 +724,7 @@
 
 #define atten-b-dropdown-button
 - item: dropdownbutton
-  label: Attenuation
+  label: Att
   selections: #{
     - { text: " 0 dB", cmd: RA$000; }
     - { text: " 3 dB", cmd: RA$031; }
