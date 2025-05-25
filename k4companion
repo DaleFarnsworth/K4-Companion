@@ -291,6 +291,7 @@ class Server():
         '#C': ['#CAL', '#CUR'],
         '#D': ['#DPM', '#DSM'],
         'DN': ['DNB'],
+        'ES': ['ES0', 'ES1'],
         '#F': ['#FPS', '#FRZ', '#FXA', '#FXT'],
         '#H': ['#HDPM', '#HDSM', '#HREF', '#HWBS', '#HWFC', '#HWFH'],
         'KZ': ['KZL', 'KZF'],
@@ -2615,13 +2616,13 @@ class DropdownWidget():
     def on_increment(self, event):
         value = float(self.val.get())
         if event.keysym in ('Down', 'KP_down'):
-            value -= .00000000001
+            value -= .00000000001       # account for incr vs decr
         else:
             value += .00000000001
         incr = float(self.caller.eval_value(self.evalincrement, value))
         if event.keysym in ('Down', 'KP_down'):
             incr = -incr
-        value = round(value + incr, 10)
+        value += incr
         self.set_value(value)
         return 'break'
 
