@@ -283,6 +283,9 @@ class Server():
         'XT',
         'XV',
         'XV$',
+        # The following are pseudo commands/responses 
+        '!ES0',
+        '!ES1',
     ]
     k4_long_cmd_bases = {
         '#A': ['#AR', '#AVG'],
@@ -291,7 +294,6 @@ class Server():
         '#C': ['#CAL', '#CUR'],
         '#D': ['#DPM', '#DSM'],
         'DN': ['DNB'],
-        'ES': ['ES0', 'ES1'],
         '#F': ['#FPS', '#FRZ', '#FXA', '#FXT'],
         '#H': ['#HDPM', '#HDSM', '#HREF', '#HWBS', '#HWFC', '#HWFH'],
         'KZ': ['KZL', 'KZF'],
@@ -510,9 +512,9 @@ class Server():
                 base, parameter = base[0:2] + parameter[0], base[2] + parameter[1:]
             elif base == 'ES':
                 if parameter[0] == '0':
-                    self.update_k4_parameter('ES0', parameter[1:])
+                    self.update_k4_parameter('!ES0', parameter[1:])
                 elif parameter[0] == '1':
-                    self.update_k4_parameter('ES1', parameter[1:])
+                    self.update_k4_parameter('!ES1', parameter[1:])
             elif base in ('TB', 'TB$'):
                 if len(parameter) < 3:
                     return
