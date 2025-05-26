@@ -795,8 +795,8 @@
 - item: togglebutton
   label: Tx
   selections: #{
-    - { text: "Test On",  cmd: TS1;, bg: yellow,    abg: yellow }
-    - { text: "Test Off", cmd: TS0;, bg: '#00FF00', abg: '#00FF00' }
+    - { text: "Test On",  cmd: TS1;, bg: yellow, abg: yellow }
+    - { text: "Test Off", cmd: TS0; }
   #}
 #end
 
@@ -856,8 +856,8 @@
 #define atu-bypass-togglebutton
 - item: togglebutton
   selections: #{
-    - { text: "Bypass", cmd: AT1; }
-    - { text: "Auto",   cmd: AT2; }
+    - { text: "Bypass", cmd: AT1;,  bg: yellow }
+    - { text: "Auto",   cmd: AT2;, abg: yellow }
   #}
 #end
 
@@ -959,8 +959,8 @@
 - item: togglebutton
   label: 'Tx/Rx'
   selections: #{
-    - { text: 'Receive',   cmd: RX;, evalresponse: '"RX;" if self.k4param("RX") != None else ""', bg: '#00FF00', abg: '#00FF00' }
-    - { text: 'Transmit',  cmd: TX;, evalresponse: '"TX;" if self.k4param("TX") != None else ""', bg: yellow,    abg: yellow }
+    - { text: 'Receive',   cmd: RX;, evalresponse: '"RX;" if self.k4param("RX") != None else ""', bg: white, abg: white, }
+    - { text: 'Transmit',  cmd: TX;, evalresponse: '"TX;" if self.k4param("TX") != None else ""', bg: yellow,   abg: yellow, }
   #}
 #end
 
