@@ -5509,7 +5509,7 @@ class CW(Widget):
 
         sidetone_options = {
             'orient': 'horizontal', 'from': 0, 'to': 60, 'length': 150,
-            'showvalue': True, 'evalincrement': '1',
+            'showvalue': False, 'evalincrement': '1',
             'evalcmd': '"ML0{:03d};".format(int(float(value)))', 'evalresponse': 'float(value[3:6])',
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
         }
@@ -5521,7 +5521,7 @@ class CW(Widget):
 
         keyer_speed_options = {
             'orient': 'horizontal', 'from': 8, 'to': 100, 'length': 150,
-            'showvalue': True, 'evalincrement': '1',
+            'showvalue': False, 'evalincrement': '1',
             'evalcmd': '"KS{:03d};".format(int(float(value)))', 'evalresponse': 'float(value[2:5])',
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
         }
@@ -5989,8 +5989,9 @@ class CW(Widget):
         # The length of a dit in seconds is 1.2 / wpm,
         # therefore the length of an E n mS is 1000 * 2.4 / wpm.
         # We want to poll at least as often as every charater.
-        wpm = float(self.k4param('KS'))
-        self.tx_poll_interval = int(1000 * 2.4 / wpm)
+        wpm = int(self.k4param('KS'))
+        self.tx_poll_interval = int(1000 * 2.4 / float(wpm))
+        self.keyer_speed_frame.config(text=f'Keyer: {wpm} WPM')
 
     def on_save_button(self):
         if not self.valid_button_values(self.config_buttons):
