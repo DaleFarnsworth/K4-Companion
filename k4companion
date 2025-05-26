@@ -5543,9 +5543,9 @@ class CW(Widget):
         main_apf_options = {
             'selections': [
                 { 'text':    'Off', 'cmd': 'AP00;' },
-                { 'text':  '30 Hz', 'cmd': 'AP10;' },
-                { 'text':  '50 Hz', 'cmd': 'AP11;' },
-                { 'text': '150 Hz', 'cmd': 'AP12;' },
+                { 'text':  '30 Hz', 'cmd': 'AP10;', 'bg': 'yellow' },
+                { 'text':  '50 Hz', 'cmd': 'AP11;', 'bg': 'yellow' },
+                { 'text': '150 Hz', 'cmd': 'AP12;', 'bg': 'yellow' },
             ],
             'width': 6, 'bg': self.bg, 'fg': self.fg, 'font': self.font(),
         }
@@ -5557,9 +5557,9 @@ class CW(Widget):
         sub_apf_options = {
             'selections': [
                 { 'text':    'Off', 'cmd': 'AP$00;' },
-                { 'text':  '30 Hz', 'cmd': 'AP$10;' },
-                { 'text':  '50 Hz', 'cmd': 'AP$11;' },
-                { 'text': '150 Hz', 'cmd': 'AP$12;' },
+                { 'text':  '30 Hz', 'cmd': 'AP$10;', 'bg': 'yellow' },
+                { 'text':  '50 Hz', 'cmd': 'AP$11;', 'bg': 'yellow' },
+                { 'text': '150 Hz', 'cmd': 'AP$12;', 'bg': 'yellow' },
             ],
             'width': 6, 'bg': self.bg, 'fg': self.fg, 'font': self.font(),
         }
