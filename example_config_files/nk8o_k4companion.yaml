@@ -857,8 +857,8 @@
 #define atu-bypass-togglebutton
 - item: togglebutton
   selections: #{
-    - { text: "Bypass", cmd: AT1; }
-    - { text: "Auto",   cmd: AT2; }
+    - { text: "Bypass", cmd: AT1;,  bg: yellow }
+    - { text: "Auto",   cmd: AT2;, abg: yellow }
   #}
 #end
 
