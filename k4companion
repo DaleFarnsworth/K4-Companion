@@ -50,6 +50,7 @@ import select
 import socket
 import socks
 import ssl
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -725,7 +726,9 @@ class Server():
             exit()
         elif lcmd == 'tune!':
             self.tune_directive()
-        elif lbase == 'show!':
+        elif lcmd == 'restart!':
+            restart()
+        elif base.lower() == 'show!':
             page = lcmd[len(base):].strip()
             if page == 'previous':
                 Page.show_previous()
@@ -754,7 +757,7 @@ class Server():
             if cmd == '':
                 continue
             base = cmd_base(cmd)
-            if base[-1] == '!':
+            if cmd[-1] == '!':
                 self.directive(base, cmd)
                 continue
             if base in ('SDC', 'SDV', 'SDD', 'SB', 'TU') + Server.control_k4_audio_cmd_bases:
@@ -1076,7 +1079,8 @@ class Server():
         previous_address_port = self.address_port
         self.__class__.address_port = address_port
         if address_port != previous_address_port and previous_address_port != None:
-            restart()
+            if self.password != None:
+                restart()
 
     def set_proxy(self, proxy_address_port):
         address, port = self.get_address_port(proxy_address_port)
@@ -1087,14 +1091,16 @@ class Server():
         previous_proxy_address_port = self.proxy_address_port
         self.__class__.proxy_address_port = proxy_address_port
         if proxy_address_port != previous_proxy_address_port and previous_proxy_address_port != None:
-            restart()
+            if self.address != '' and self.password != None:
+                restart()
 
     def set_password(self, password):
         previous_password = self.password
         self.password = password
         self.__class__.password = password
-        if password != previous_password and previous_password != None:
-            restart()
+        if password != previous_password:
+            if self.address != '':
+                restart()
 
     def set_control_k4_audio(self, val):
         self.control_k4_audio = val
@@ -6649,9 +6655,15 @@ def start():
     Page.show_page(page.name)
 
 def restart():
-    clean_up()
-    Page.main().frame.destroy()
-    start()
+    exit()
+
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        # running in a PyInstaller bundle
+        subprocess.Popen(sys.argv)
+        sys.exit()
+
+    prog = sys.executable
+    os.execv(prog, [os.path.basename(prog)] + sys.argv)
 
 def close_splash_screen():
     try:

@@ -216,6 +216,7 @@
   contains: #{
     #include k4-power-off-button
     #include exit-button
+    #include restart-button
   #}
 #end
 
@@ -938,6 +939,10 @@
 
 #define exit-button
 - { item: button, text: 'Exit', cmd: QUIT!; }
+#end
+
+#define restart-button
+- { item: button, text: 'Restart', cmd: RESTART!; }
 #end
 
 #define split-togglebutton
