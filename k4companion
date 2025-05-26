@@ -5568,10 +5568,19 @@ class CW(Widget):
         self.autospot_frame = tk.Frame(parent_frame)
         self.autospot_frame.grid(row=0, column=3, sticky='w', padx=2, pady=2)
         spot_options = {
-            'text': 'Autospot', 'cmd': 'SP3;', 'width': 8,
-            'bg': self.bg, 'fg': self.fg, 'abg': self.abg, 'afg': self.afg, 'font': self.font(),
+            'selections': [
+                { 'text': 'Autospot', 'cmd': 'SP0;' },
+                { 'text': 'Autospot', 'cmd': 'SP3;', 'bg': 'yellow' },
+                { 'text': 'Autospot', 'cmd': 'SP1;' },
+                { 'text': 'Autospot', 'cmd': 'SP3;', 'bg': 'yellow' },
+                { 'text': 'Autospot', 'cmd': 'SP2;' },
+                { 'text': 'Autospot', 'cmd': 'SP3;', 'bg': 'yellow' },
+            ],
+            'width': 8, 'bg': self.bg, 'fg': self.fg, 'abg': self.abg,
+            'afg': self.afg, 'font': self.font(),
+
         }
-        ButtonWidget(self, self.autospot_frame, spot_options)
+        ToggleWidget(self, self.autospot_frame, spot_options)
 
     def add_buttons(self, buttons, parent_frame, edit):
         for child in parent_frame.winfo_children():
