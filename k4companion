@@ -661,16 +661,15 @@ class Server():
             callback(self)
 
     def close(self):
-        self.save_xy()
         self.connected = False
-        CW.close_window()
-        self.send_queue.put('shutdown')
-        if self.output_audio_queue != None:
-            self.output_audio_queue.put([])
-        if self.send_thread != None:
-            self.send_thread.join()
-        if self.recv_thread != None:
-            self.recv_thread.join()
+        if self.type == 'k4':
+            self.send_queue.put('shutdown')
+            if self.output_audio_queue != None:
+                self.output_audio_queue.put([])
+            if self.send_thread != None:
+                self.send_thread.join()
+            if self.recv_thread != None:
+                self.recv_thread.join()
 
     def exit(self):
         if self.connected:
@@ -683,12 +682,6 @@ class Server():
                 time.sleep(.01)
 
         self.close()
-
-    def save_xy(self):
-        w, h, x, y = split_geometry(Page.top.geometry())
-        xy = f'{x:+}{y:+}'
-        Settings.put('Window', 'root.xy', xy)
-        Settings.save()
 
     def send_str(self, cmd, force_as_string=False):
         if self.cat_only or force_as_string:
@@ -6375,21 +6368,29 @@ class Options():
         if len(args) != 0:
             parser.error("Unexpected argument '{arg}'".format(arg=args[0]))
 
-def clean_up():
+def clean_up(exit=False):
     for server in Server.servers():
-        server.close()
+        if exit:
+            server.exit()
+        else:
+            server.close()
 
     Audio.close()
     Poll.remove_all()
 
 def exit():
-    for server in Server.servers():
-        server.exit()
+    CW.close_window()
+    clean_up(exit=True)
 
-    Audio.close()
-    Poll.remove_all()
+    save_xy()
 
     Page.top.quit()
+
+def save_xy():
+    w, h, x, y = split_geometry(Page.top.geometry())
+    xy = f'{x:+}{y:+}'
+    Settings.put('Window', 'root.xy', xy)
+    Settings.save()
 
 class Popup():
     queue = queue.Queue()
