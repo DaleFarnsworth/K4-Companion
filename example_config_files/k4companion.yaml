@@ -377,12 +377,10 @@
 
 #define rx-a-controls-row1-column1-row2
 - item: group
-  columns: 2
   contains: #{
     #include band-a-dropdown-button
     #include mode-a-dropdown-button
-    #include atten-a-dropdown-button
-    #include preamp-a-dropdown-button
+    #include bandwidth-a-dropdown-button
   #}
 #end
 
@@ -396,8 +394,9 @@
 #define rx-a-controls-row2
 - item: group
   contains: #{
+    #include atten-a-dropdown-button
+    #include preamp-a-dropdown-button
     #include rfgain-a-dropdown-button
-    #include bandwidth-a-dropdown-button
   #}
 #end
 
@@ -471,17 +470,17 @@
 - item: dropdownbutton
   label: Band
   selections: #{
-    - { text: "  6 m", cmd: BN10; }
-    - { text: " 10 m", cmd: BN09; }
-    - { text: " 12 m", cmd: BN08; }
-    - { text: " 15 m", cmd: BN07; }
-    - { text: " 17 m", cmd: BN06; }
-    - { text: " 20 m", cmd: BN05; }
-    - { text: " 30 m", cmd: BN04; }
-    - { text: " 40 m", cmd: BN03; }
-    - { text: " 60 m", cmd: BN02; }
-    - { text: " 80 m", cmd: BN01; }
-    - { text: "160 m", cmd: BN00; }
+    - { text: "  6", cmd: BN10; }
+    - { text: " 10", cmd: BN09; }
+    - { text: " 12", cmd: BN08; }
+    - { text: " 15", cmd: BN07; }
+    - { text: " 17", cmd: BN06; }
+    - { text: " 20", cmd: BN05; }
+    - { text: " 30", cmd: BN04; }
+    - { text: " 40", cmd: BN03; }
+    - { text: " 60", cmd: BN02; }
+    - { text: " 80", cmd: BN01; }
+    - { text: "160", cmd: BN00; }
   #}
 #end
 
@@ -614,12 +613,10 @@
 
 #define rx-b-controls-row1-column1-row2
 - item: group
-  columns: 2
   contains: #{
     #include band-b-dropdown-button
     #include mode-b-dropdown-button
-    #include atten-b-dropdown-button
-    #include preamp-b-dropdown-button
+    #include bandwidth-b-dropdown-button
   #}
 #end
 
@@ -633,8 +630,9 @@
 #define rx-b-controls-row2
 - item: group
   contains: #{
+    #include atten-b-dropdown-button
+    #include preamp-b-dropdown-button
     #include rfgain-b-dropdown-button
-    #include bandwidth-b-dropdown-button
   #}
 #end
 
@@ -667,17 +665,17 @@
 - item: dropdownbutton
   label: Band
   selections: #{
-    - { text: "  6 m", cmd: BN$10; }
-    - { text: " 10 m", cmd: BN$09; }
-    - { text: " 12 m", cmd: BN$08; }
-    - { text: " 15 m", cmd: BN$07; }
-    - { text: " 17 m", cmd: BN$06; }
-    - { text: " 20 m", cmd: BN$05; }
-    - { text: " 30 m", cmd: BN$04; }
-    - { text: " 40 m", cmd: BN$03; }
-    - { text: " 60 m", cmd: BN$02; }
-    - { text: " 80 m", cmd: BN$01; }
-    - { text: "160 m", cmd: BN$00; }
+    - { text: "  6", cmd: BN$10; }
+    - { text: " 10", cmd: BN$09; }
+    - { text: " 12", cmd: BN$08; }
+    - { text: " 15", cmd: BN$07; }
+    - { text: " 17", cmd: BN$06; }
+    - { text: " 20", cmd: BN$05; }
+    - { text: " 30", cmd: BN$04; }
+    - { text: " 40", cmd: BN$03; }
+    - { text: " 60", cmd: BN$02; }
+    - { text: " 80", cmd: BN$01; }
+    - { text: "160", cmd: BN$00; }
   #}
 #end
 
