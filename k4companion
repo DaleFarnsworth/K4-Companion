@@ -324,6 +324,7 @@ class Server():
         'CO': ['CONNECT!'],
         'EX': ['EXIT!'],
         'QU': ['QUIT!'],
+        'TU': ['TUNE!'],
         'SH': ['SHOW!'],
     }
 
@@ -471,6 +472,7 @@ class Server():
         self.received_initial_parameters_callbacks = []
         self.cat_only = False
         self.printed_connection_warning = False
+        self.last_tune_cmd = Settings.get('command', 'tune', 'TU3;')
 
         self.ignored_errors = {}
 
@@ -715,12 +717,15 @@ class Server():
         return bytearray(((l>>24)&0xff, (l>>16)&0xff, (l>>8)&0xff, l&0xff))
 
     def directive(self, base, cmd):
+        lbase = base.lower()
         lcmd = cmd.lower()
         if lcmd == 'connect!':
             self.connect()
         elif lcmd == 'quit!' or lcmd == 'exit!':
             exit()
-        elif base.lower() == 'show!':
+        elif lcmd == 'tune!':
+            self.tune_directive()
+        elif lbase == 'show!':
             page = lcmd[len(base):].strip()
             if page == 'previous':
                 Page.show_previous()
@@ -730,6 +735,17 @@ class Server():
             CW.show_window()
         else:
            raise Exception('Unknown directive: ', directive)
+
+    def save_last_tune_cmd(self, cmd):
+        self.last_tune_cmd = cmd + ';'
+        Settings.put_save('command', 'tune', self.last_tune_cmd)
+
+    def tune_directive(self):
+        if self.k4_parameters.get('TU') == '0':
+            cmd = self.last_tune_cmd
+        else:
+            cmd = 'TU0;'
+        self.send_cmds(cmd)
 
     def send_cmds(self, cmds):
         if isinstance(cmds, str):
@@ -741,7 +757,7 @@ class Server():
             if base[-1] == '!':
                 self.directive(base, cmd)
                 continue
-            if base in ('SDC', 'SDV', 'SDD', 'SB') + Server.control_k4_audio_cmd_bases:
+            if base in ('SDC', 'SDV', 'SDD', 'SB', 'TU') + Server.control_k4_audio_cmd_bases:
                 if base in ('SDC', 'SDV', 'SDD'):
                     cmd = cmd[0:2] + cmd[3] + cmd[2] + cmd[4:]
                     base = cmd[0:3]
@@ -751,6 +767,8 @@ class Server():
                     Audio.control_k4_cmd(base, cmd)
                     if not self.cat_only and not self.control_k4_audio:
                         continue
+                elif base == 'TU' and cmd != 'TU0' and len(cmd) > 2:
+                    self.save_last_tune_cmd(cmd)
             if self.warn_if_not_connected():
                 return
             if Server.k4_set_only_cmd(base, cmd) or self.update_k4_parameter(base, cmd[len(base):]):
@@ -1108,6 +1126,8 @@ class Widget():
         self.afg = config_info.get('afg', Default.afg)
         if self.afg == None:
             self.afg = self.fg
+        self.padx = config_info.get('padx', 0)
+        self.pady = config_info.get('pady', 0)
         self.sticky = '' if config_info.get('sticky', None) == 'center' else 'nw'
 
         self.cached_font = None
@@ -1200,11 +1220,9 @@ class Widget():
 
         leading = config_info.get('leading', default_leading)
 
-        self.outer_frame.grid(row=container.row,
-                        column=container.column,
-                        rowspan=rowspan,
-                        columnspan=columnspan,
-                        sticky=self.sticky)
+        self.outer_frame.grid(row=container.row, column=container.column,
+            rowspan=rowspan, columnspan=columnspan,
+            sticky=self.sticky, padx=self.padx, pady=self.pady)
 
         if label == None and leading == 0:
             return self.outer_frame
@@ -1221,12 +1239,8 @@ class Widget():
         if label == None:
             inner_frame = tk.Frame(self.outer_frame)
         else:
-            inner_frame = tk.LabelFrame(self.outer_frame,
-                                       text=label,
-                                       font=self.label_font(),
-                                       labelanchor='nw',
-                                       bd=2,
-                                       relief='raised')
+            inner_frame = tk.LabelFrame(self.outer_frame, text=label,
+                font=self.label_font(), labelanchor='nw', bd=2, relief='raised')
         inner_frame.grid(row=row, column=0, sticky=self.sticky)
 
         return inner_frame
@@ -1458,8 +1472,9 @@ class Page(Container):
 class Group(Container):
     def __init__(self, config_info, container):
         required = ['item', 'contains']
-        optional = ['columns', 'column', 'columnspan', 'rowspan', 'childwidth', 'sticky',
-                   'label_font', 'button_font', 'tabname', 'label', 'leading']
+        optional = ['columns', 'column', 'columnspan', 'rowspan', 'childwidth',
+            'sticky', 'label_font', 'button_font', 'tabname', 'label', 'leading',
+            'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -1509,7 +1524,8 @@ class ButtonWidget():
 class Button(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        optional = ['text', 'cmd', 'bg', 'abg', 'fg', 'afg', 'justify', 'font', 'label', 'leading', 'button_font']
+        optional = ['text', 'cmd', 'bg', 'abg', 'fg', 'afg', 'justify', 'font',
+            'label', 'leading', 'button_font', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -1678,7 +1694,8 @@ class ToggleWidget():
 class Togglebutton(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        optional = ['wraparound', 'justify', 'selections', 'label', 'leading']
+        optional = ['wraparound', 'justify', 'selections', 'label', 'leading', 'width',
+            'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -1696,7 +1713,9 @@ class Radiobutton(Widget):
 
     def __init__(self, config_info, container):
         required = ['item', 'groupid']
-        optional = ['text', 'cmd', 'response', 'indicator', 'selectcolor', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font']
+        optional = ['text', 'cmd', 'response', 'indicator', 'selectcolor', 'label',
+            'leading', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font',
+            'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -1794,7 +1813,8 @@ class VFO(Widget):
 
     def __init__(self, config_info, container):
         required = ['item', 'AorB']
-        optional = ['width', 'activecolor', 'transmitcolor', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'blink', 'font']
+        optional = ['width', 'activecolor', 'transmitcolor', 'label', 'leading',
+            'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -1995,7 +2015,8 @@ class RIT(Widget):
 
     def __init__(self, config_info, container):
         required = ['item', 'AorB']
-        optional = ['width', 'ritcolor', 'xitcolor', 'ritxitcolor', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'blink', 'font']
+        optional = ['width', 'ritcolor', 'xitcolor', 'ritxitcolor', 'label',
+            'leading', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -2282,7 +2303,8 @@ class Slider(Widget):
     def __init__(self, config_info, container):
         required = ['item', 'evalcmd', 'from', 'to', 'evalresponse']
         optional = ['orient', 'width', 'length', 'evallength', 'evalincrement',
-            'showvalue', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font']
+            'showvalue', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font',
+            'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -2298,7 +2320,8 @@ class Slider(Widget):
 class Getvalue(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        optional = ['cmd', 'response', 'evalresponse', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font']
+        optional = ['cmd', 'response', 'evalresponse', 'label', 'leading',
+            'bg', 'abg', 'fg', 'afg', 'font', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -2335,9 +2358,10 @@ class Getvalue(Widget):
 class Bargraph(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        optional = ['cmd', 'response', 'evalresponse', 'orient', 'maximum', 'evalmaximum',
-                   'length', 'lengthpercent', 'lefttext', 'bottomtext', 'evalbottomtext',
-                   'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font', 'id']
+        optional = ['cmd', 'response', 'evalresponse', 'orient', 'maximum',
+            'evalmaximum', 'length', 'lengthpercent', 'lefttext', 'bottomtext',
+            'evalbottomtext', 'label', 'leading', 'bg', 'abg', 'fg', 'afg',
+            'font', 'id', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -2442,7 +2466,8 @@ class Bargraph(Widget):
 class Text(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        optional = ['text', 'evaltext', 'label', 'leading', 'fg', 'bg', 'justify', 'font']
+        optional = ['text', 'evaltext', 'label', 'leading', 'fg', 'bg',
+            'justify', 'font', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -2507,14 +2532,11 @@ class DropdownWidget():
         self.text_to_index = {}
 
         self.index = 0
-        self.blink_state = False
 
         self.selections = []
 
         self.bg = options['bg']
         self.fg = options['fg']
-        self.selectbg = options['selectbg']
-        self.selectfg = options['selectfg']
 
         font = options['font']
         justify = options.get('justify', 'right')
@@ -2534,7 +2556,7 @@ class DropdownWidget():
             selection = {}
 
             required = []
-            optional = ['text', 'cmd', 'evalcmd', 'response', 'evalresponse', 'blink']
+            optional = ['text', 'cmd', 'evalcmd', 'response', 'evalresponse', 'bg']
             validate_options(sel_opt, required, optional, name='dropdownbutton.selection')
 
             text = sel_opt.get('text', '')
@@ -2556,9 +2578,13 @@ class DropdownWidget():
                 selection['parameters'][base] = response
 
             selection['cmd'] = cmd
-            selection['blink'] = sel_opt.get('blink', False)
-            selection['evalcmd'] = sel_opt.get('evalcmd', None)
+            evalcmd = sel_opt.get('evalcmd', None)
+            selection['evalcmd'] = evalcmd
             selection['evalresponse'] = sel_opt.get('evalresponse', None)
+            bg = sel_opt.get('bg', None)
+            if bg == None:
+                bg = self.bg
+            selection['bg'] = bg
             self.selections.append(selection)
         width += 1
 
@@ -2571,15 +2597,15 @@ class DropdownWidget():
         # Define the style for this dropdown widget
         self.stylename = str(self) + '.TCombobox'
         self.style = ttk.Style()
-        self.style.configure(self.stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg)
-
-        self.val = tk.StringVar()
+        self.style.theme_use('alt')
+        self.style.map(self.stylename, fieldbackground=[('readonly', self.bg)]),
+        self.style.configure(self.stylename, background=self.bg, foreground=self.fg,
+            selectbackground=self.bg, selectforeground=self.fg, padding=(2,2,2,2))
 
         state = 'readonly' if self.evalcmd == None else 'normal'
 
         self.combobox = ttk.Combobox(
                 frame,
-                textvar=self.val,
                 font=font,
                 values=texts,
                 height=height,
@@ -2598,7 +2624,7 @@ class DropdownWidget():
             for key in ('<Up>', '<Down>', '<KP_Up>', '<KP_Down>'):
                 self.combobox.bind(key, self.on_increment)
 
-        self.val.trace('w', self.on_combobox_changed)
+        self.combobox.bind('<<ComboboxSelected>>', self.on_combobox_selected)
 
         self.combobox.grid(row=0, column=0, sticky='e')
 
@@ -2609,7 +2635,7 @@ class DropdownWidget():
             self.server.subscribe_responses(selection['response'], self.on_response_received)
 
     def on_increment(self, event):
-        value = float(self.val.get())
+        value = float(self.combobox.get())
         if event.keysym in ('Down', 'KP_down'):
             value -= .00000000001       # account for incr vs decr
         else:
@@ -2634,7 +2660,7 @@ class DropdownWidget():
         self.server.expand_and_send_cmds(cmd)
 
     def update_value(self, event):
-        text = self.val.get().strip()
+        text = self.combobox.get().strip()
         try:
             value = float(text)
         except:
@@ -2642,10 +2668,15 @@ class DropdownWidget():
 
         self.set_value(value)
 
-    def on_combobox_changed(self, var, index, mode):
+    def set_val(self, value):
+        self.combobox.state='normal'
+        self.combobox.set(value)
+        self.combobox.state='readonly'
+
+    def on_combobox_selected(self, event):
         if self.server.warn_if_not_connected():
             return
-        text = self.val.get()
+        text = self.combobox.get()
         if text == '':
             return
 
@@ -2679,13 +2710,9 @@ class DropdownWidget():
         for index, selection in enumerate(self.selections):
             if self.compare_parameters(selection):
                 self.index = index
-                self.combobox.state='normal'
-                self.val.set(selection['text'])
-                self.combobox.state='readonly'
-                if selection['blink']:
-                    self.blinkon()
-                else:
-                    self.blinkoff()
+                self.set_val(selection['text'])
+                self.style.map(self.stylename, fieldbackground=[('readonly', selection['bg'])])
+                self.style.configure(self.stylename, background=selection['bg'])
                 found = True
         if not found:
             if self.unexpected_response != '':
@@ -2694,29 +2721,14 @@ class DropdownWidget():
             else:
                 text = ''
 
-            self.combobox.state='normal'
-            self.val.set(text)
-            self.combobox.state='readonly'
-
-    def blinkon(self):
-        Poll.add(Widget.blink_mS, self.blink)
-
-    def blinkoff(self):
-        Poll.remove(self.blink)
-
-    def blink(self):
-        self.blink_state = not self.blink_state
-        if self.blink_state:
-            self.style.configure(self.stylename, selectbackground=self.selectfg, selectforeground=selectbg)
-        else:
-            self.style.configure(self.stylename, selectbackground=self.selectbg, selectforeground=selectfg)
+            self.set_val(text)
 
 class Dropdownbutton(Widget):
     def __init__(self, config_info, container):
         required = ['item', 'selections']
-        optional = ['bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg',
+        optional = ['bg', 'abg', 'fg', 'afg',
             'width', 'height', 'justify', 'unexpectedresponse', 'label',
-            'leading', 'evalincrement', 'evalcmd', 'from', 'to']
+            'leading', 'evalincrement', 'evalcmd', 'from', 'to', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -2727,12 +2739,6 @@ class Dropdownbutton(Widget):
         config_info['bg'] = self.bg
         config_info['fg'] = self.fg
 
-        if 'selectbg' not in config_info:
-            config_info['selectbg'] = self.bg
-
-        if 'selectfg' not in config_info:
-            config_info['selectfg'] = self.fg
-
         if 'width' not in config_info and self.container.childwidth != None:
             config_info['width'] = self.container.childwidth
 
@@ -2741,7 +2747,8 @@ class Dropdownbutton(Widget):
 class Equalizers(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        optional = ['length', 'width', 'label', 'leading', 'font', 'bg', 'fg', 'selectbg', 'selectfg']
+        optional = ['length', 'width', 'label', 'leading', 'font',
+            'bg', 'fg', 'selectbg', 'selectfg', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -3730,7 +3737,9 @@ class Menu(Widget):
 
     def __init__(self, config_info, container):
         required = ['item']
-        optional = ['entries_displayed', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'selectbg', 'selectfg', 'font', 'label_font' ]
+        optional = ['entries_displayed', 'label', 'leading', 'bg', 'abg',
+            'fg', 'afg', 'selectbg', 'selectfg', 'font', 'label_font',
+            'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -4484,7 +4493,8 @@ class Settings():
 class Settings_widget(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        optional = [ 'label', 'leading', 'bg', 'fg', 'abg', 'afg', 'selectbg', 'selectfg', 'font', 'label_font' ]
+        optional = [ 'label', 'leading', 'bg', 'fg', 'abg', 'afg',
+            'selectbg', 'selectfg', 'font', 'label_font', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -4871,7 +4881,8 @@ class Entry_Widget():
 class Entry(Widget):
     def __init__(self, config_info, container):
         required = ['item']
-        optional = ['width', 'show', 'bd', 'bg', 'fg', 'font', 'justify', 'label', 'leading']
+        optional = ['width', 'show', 'bd', 'bg', 'fg', 'font',
+            'justify', 'label', 'leading', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -4940,8 +4951,7 @@ class Dropdown_Widget():
         # Define the style for this dropdown widget
         self.stylename = str(self) + '.TCombobox'
         self.style = ttk.Style()
-        self.style.configure(self.stylename, background=bg, foreground=fg, selectbackground=selectbg, selectforeground=selectfg)
-        self.style.configure(self.stylename, margins=(20, 0, 20, 0))
+        self.style.configure(self.stylename, background=bg, foreground=fg, selectbackground=selectbg, selectforeground=selectfg, padding=(2,2,2,2), margins=(20, 0, 20, 0))
 
         self.combobox = ttk.Combobox(
                 parent_frame,
@@ -4993,7 +5003,8 @@ class Antenna(Widget):
         self.rx_select_bases = {'main':'AR', 'sub':'AR$'}
 
         required = ['item', 'type']
-        optional = ['bd', 'bg', 'fg', 'selectbg', 'selectfg', 'justify', 'height', 'font', 'label', 'leading', 'padx']
+        optional = ['bd', 'bg', 'fg', 'selectbg', 'selectfg', 'justify', 'height',
+            'font', 'label', 'leading', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -5003,11 +5014,10 @@ class Antenna(Widget):
         selectfg = config_info.get('selectfg', self.fg)
         justify = config_info.get('justify', 'left')
         height = config_info.get('height', 10)
-        padx = config_info.get('padx', 0)
         self.kind = config_info['type']
 
         if self.kind in ('main', 'sub', 'tx'):
-            self.dropdown = Dropdown_Widget(self.frame, bd=bd, padx=padx, bg=self.bg, fg=self.fg, abg=self.abg,
+            self.dropdown = Dropdown_Widget(self.frame, bd=bd, bg=self.bg, fg=self.fg, abg=self.abg,
                                             selectbg=selectbg, selectfg=selectfg,
                                             font=self.font(), justify=justify, height=height)
             self.dropdown.grid(row=0, column=0)
@@ -5199,7 +5209,7 @@ class CW(Widget):
 
     def __init__(self, config_info, container):
         required = ['item']
-        optional = ['bd', 'bg', 'fg', 'font', 'label', 'leading']
+        optional = ['bd', 'bg', 'fg', 'font', 'label', 'leading', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -5742,8 +5752,7 @@ class CW(Widget):
     def save_xy(self):
         w, h, x, y = split_geometry(self.top_level.geometry())
         xy = f'{x:+}{y:+}'
-        Settings.put('Window', 'CW.xy', xy)
-        Settings.save()
+        Settings.put_save('Window', 'CW.xy', xy)
 
     def on_mode_change(self, response=None):
         if self.tx_mode() == 'CW':
@@ -6390,8 +6399,7 @@ def exit():
 def save_xy():
     w, h, x, y = split_geometry(Page.top.geometry())
     xy = f'{x:+}{y:+}'
-    Settings.put('Window', 'root.xy', xy)
-    Settings.save()
+    Settings.put_save('Window', 'root.xy', xy)
 
 class Popup():
     queue = queue.Queue()

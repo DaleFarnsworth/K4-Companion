@@ -95,6 +95,7 @@
   contains: #{
     #include sw-release-group
     #include fwversions
+    #include k4-power-off-group
   #}
 #end
 
@@ -158,36 +159,27 @@
 - item: group
   columns: 1
   contains: #{
-    - item: group
-      contains: #{
-        #include receive-transmit-togglebutton
-        #include test-mode-togglebutton
-        #include audio-mx-togglebutton
-      #}
     #include vfos-control-group
-    #include power-off-exit-group
   #}
 #end
 
 #define tune-group
 - item: group
   contains: #{
-    - item: group
-      label: ATU
-      contains: #{
-        #include atu-bypass-togglebutton
-        #include atu-tune-togglebutton
-        #include atu-extended-tune-togglebutton
-        #}
-    #}
-- item: group
-  contains: #{
-    - item: group
-      label: Tune
-      contains: #{
-        #include tune-button
-        #include tune-lp-togglebutton
-      #}
+    #include atu-group
+    #include tunedrop-group
+    #include tune-button
+  #}
+#end
+
+#define tune-button
+- item: togglebutton
+  selections: #{
+    - { text: 'Tune*', cmd: TU0;, evalcmd: '"TU0;"' }
+    - { text: 'Tune*', cmd: TU1;, evalcmd: '"TUNE!;"', bg: yellow }
+    - { text: 'Tune*', cmd: TU2;, evalcmd: '"TU0;"', bg: yellow }
+    - { text: 'Tune*', cmd: TU3;, evalcmd: '"TU0;"', bg: yellow }
+    - { text: 'Tune*', cmd: TU4;, evalcmd: '"TU0;"', bg: yellow }
   #}
 #end
 
@@ -196,15 +188,25 @@
   columns: 1
   contains: #{
     - item: group
-      columns: 1
       contains: #{
+        #include audio-mx-togglebutton
         - item: group
           contains: #{
             #include xit-togglebutton
-            #include power-dropdown-button
-        #include tune-group
+          #}
+        #include power-dropdown-button
       #}
-    #}
+    #include tune-group
+    #include test-rxtx-group
+  #}
+#end
+#
+
+#define test-rxtx-group
+- item: group
+  contains: #{
+    #include test-mode-togglebutton
+    #include receive-transmit-togglebutton
   #}
 #end
 
@@ -251,19 +253,16 @@
 #define antenna-select-tx
 - item: antenna
   type: tx
-  padx: 30
 #end
 
 #define antenna-select-main
 - item: antenna
   type: main
-  padx: 30
 #end
 
 #define antenna-select-sub
 - item: antenna
   type: sub
-  padx: 30
 #end
 
 #define antenna-label-tx
@@ -791,7 +790,6 @@
 
 #define test-mode-togglebutton
 - item: togglebutton
-  label: Tx
   selections: #{
     - { text: "Test On",  cmd: TS1;, bg: yellow,    abg: yellow }
     - { text: "Test Off", cmd: TS0;, bg: '#00FF00', abg: '#00FF00' }
@@ -851,14 +849,6 @@
   evalresponse: 'float(value[3:6])'
 #end
 
-#define atu-bypass-togglebutton
-- item: togglebutton
-  selections: #{
-    - { text: "Bypass", cmd: AT1;,  bg: yellow }
-    - { text: "Auto",   cmd: AT2;, abg: yellow }
-  #}
-#end
-
 #define audio-mx-togglebutton
 - item: togglebutton
   label: 'Audio Mix'
@@ -876,35 +866,42 @@
   #}
 #end
 
-#define atu-tune-togglebutton
-- item: togglebutton
-  selections: #{
-  - { text: "Tune", cmd: TU3;, bg: yellow }
-  - { text: "Tune", cmd: TU0; }
+#define atu-group
+- item: group
+  pady: 4
+  contains: #{
+    #include atu-dropdownbutton
   #}
 #end
 
-#define atu-extended-tune-togglebutton
-- item: togglebutton
+#define atu-dropdownbutton
+- item: dropdownbutton
+  width: 6
+  unexpectedresponse: 'AT2 if value == "TU0;" else ""'
   selections: #{
-    - { text: "TUNE", cmd: TU4;, bg: yellow }
-    - { text: "TUNE", cmd: TU0; }
+    - { text: "ATU",    cmd: AT2; }
+    - { text: "Bypass", cmd: AT1;, bg: yellow }
+    - { text: "Tune",   cmd: AT2;TU3; }
+    - { text: "TUNE",   cmd: AT2;TU4; }
   #}
 #end
 
-#define tune-button
-- item: togglebutton
-  selections: #{
-    - { text: "Tune", cmd: TU1;, bg: yellow }
-    - { text: "Tune", cmd: TU0; }
+#define tunedrop-group
+- item: group
+  pady: 4
+  contains: #{
+    #include tune-dropdownbutton
   #}
 #end
 
-#define tune-lp-togglebutton
-- item: togglebutton
+#define tune-dropdownbutton
+- item: dropdownbutton
+  width: 8
+  padx: 4
   selections: #{
-    - { text: "Tune LP", cmd: TU2;, bg: yellow }
-    - { text: "Tune LP", cmd: TU0; }
+    - { text: "Tune Off", cmd: TU0;, evalresponse: 'value if value == "TU1;" or value == "TU2;" else "TU0;"' }
+    - { text: "Tune",     cmd: TU1;, evalcmd: '"TU1;" if self.k4param("TU") == "0" else "TU0;"' }
+    - { text: "Tune LP",  cmd: TU2;, evalcmd: '"TU2;" if self.k4param("TU") == "0" else "TU0;"' }
   #}
 #end
 
@@ -915,6 +912,14 @@
 - { item: button, text: "all A/B",  cmd:  AB5; }
 - { item: button, text: "all A->B", cmd:  AB3; }
 - { item: button, text: "all B->A", cmd:  AB4; }
+#end
+
+#define k4-power-off-group
+- item: group
+  pady: 10
+  contains: #{
+    #include k4-power-off-button
+  #}
 #end
 
 #define k4-power-off-button
@@ -955,7 +960,7 @@
 
 #define receive-transmit-togglebutton
 - item: togglebutton
-  label: 'Tx/Rx'
+  padx: 4
   selections: #{
     - { text: 'Receive',   cmd: RX;, evalresponse: '"RX;" if self.k4param("RX") != None else ""', bg: '#00FF00', abg: '#00FF00' }
     - { text: 'Transmit',  cmd: TX;, evalresponse: '"TX;" if self.k4param("TX") != None else ""', bg: yellow,    abg: yellow }
@@ -1458,6 +1463,8 @@
 #define xit-togglebutton
 - item: togglebutton
   label: XIT
+  padx: 4
+  width: 3
   selections: #{
     - { text: "On",  cmd: XT1;, bg: LightBlue, abg: LightBlue } 
     - { text: "Off", cmd: XT0; }
