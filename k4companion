@@ -1240,7 +1240,7 @@ class Widget():
             inner_frame = tk.Frame(self.outer_frame)
         else:
             inner_frame = tk.LabelFrame(self.outer_frame, text=label,
-                font=self.label_font(), labelanchor='nw', bd=2, relief='raised')
+                font=self.label_font(), labelanchor='nw', bd=1, relief='raised')
         inner_frame.grid(row=row, column=0, sticky=self.sticky)
 
         return inner_frame
@@ -2244,6 +2244,7 @@ class SliderWidget():
                          font=font,
                          bg=self.bg,
                          fg=self.fg,
+                         bd=2,
                          variable=self.value_var)
         self.scale.grid(row=0, column=0, sticky='nw')
 
@@ -3771,6 +3772,7 @@ class Menu(Widget):
                 selectbackground=self.selectbg,
                 selectforeground=self.selectfg,
                 exportselection=False,
+                bd=2,
                 )
 
         self.scrollbar = tk.Scrollbar(self.frame)
@@ -4514,9 +4516,9 @@ class Settings_widget(Widget):
                               text='Settings',
                               font=self.label_font(),
                               labelanchor='nw',
-                              bd=4,
-                              padx=4,
-                              pady=4,
+                              bd=2,
+                              padx=2,
+                              pady=2,
                               relief='raised')
         self.frame.grid(row=0, column=0)
 
@@ -4530,9 +4532,9 @@ class Settings_widget(Widget):
                               text='K4 Remote',
                               font=self.label_font(),
                               labelanchor='nw',
-                              bd=4,
-                              padx=4,
-                              pady=4,
+                              bd=2,
+                              padx=2,
+                              pady=2,
                               relief='raised')
 
         address_frame = self.k4_address_settings(frame)
@@ -4551,9 +4553,9 @@ class Settings_widget(Widget):
                               text='Address',
                               font=self.label_font(),
                               labelanchor='nw',
-                              bd=4,
-                              padx=4,
-                              pady=4,
+                              bd=2,
+                              padx=2,
+                              pady=2,
                               relief='raised')
 
         self.k4_address_var = tk.StringVar()
@@ -4587,9 +4589,9 @@ class Settings_widget(Widget):
                               text='Password',
                               font=self.label_font(),
                               labelanchor='nw',
-                              bd=4,
-                              padx=4,
-                              pady=4,
+                              bd=2,
+                              padx=2,
+                              pady=2,
                               relief='raised')
 
         self.password_var = tk.StringVar()
@@ -4627,9 +4629,9 @@ class Settings_widget(Widget):
                               text='SOCKS5 Address:Port',
                               font=self.label_font(),
                               labelanchor='nw',
-                              bd=4,
-                              padx=4,
-                              pady=4,
+                              bd=2,
+                              padx=2,
+                              pady=2,
                               relief='raised')
 
         self.k4_proxy_var = tk.StringVar()
@@ -4663,9 +4665,9 @@ class Settings_widget(Widget):
                               text='Audio Settings',
                               font=self.label_font(),
                               labelanchor='nw',
-                              bd=4,
-                              padx=4,
-                              pady=4,
+                              bd=2,
+                              padx=2,
+                              pady=2,
                               relief='raised')
 
         audio_input_frame = self.audio_input_settings(frame)
@@ -4686,15 +4688,15 @@ class Settings_widget(Widget):
                                     text='Current Input Device',
                                     font=self.label_font(),
                                     labelanchor='nw',
-                                    bd=4,
-                                    padx=4,
-                                    pady=4,
+                                    bd=2,
+                                    padx=2,
+                                    pady=2,
                                     relief='raised')
 
         # Define the style for this combobox widget
         stylename = str(self) + 'input.TCombobox'
         style = ttk.Style()
-        style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg)
+        style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg, bd=(2,2,2,2))
 
         input_names = Audio.input_device_names()
         width = 0
@@ -4739,15 +4741,15 @@ class Settings_widget(Widget):
                                      text='Current Output Device',
                                      font=self.label_font(),
                                      labelanchor='nw',
-                                     bd=4,
-                                     padx=4,
-                                     pady=4,
+                                     bd=2,
+                                     padx=2,
+                                     pady=2,
                                      relief='raised')
 
         # Define the style for this combobox widget
         stylename = str(self) + 'output.TCombobox'
         style = ttk.Style()
-        style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg)
+        style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg, bd=(2,2,2,2))
 
         output_names = Audio.output_device_names()
         width = 0
@@ -4793,15 +4795,15 @@ class Settings_widget(Widget):
                                      text='Control K4 Audio Settings?',
                                      font=self.label_font(),
                                      labelanchor='nw',
-                                     bd=4,
-                                     padx=4,
-                                     pady=4,
+                                     bd=2,
+                                     padx=2,
+                                     pady=2,
                                      relief='raised')
 
         # Define the style for this combobox widget
         stylename = str(self) + 'output.TCombobox'
         style = ttk.Style()
-        style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg)
+        style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg, padding=(2,2,2,2))
 
         values = ('Yes', 'No')
         width = 3
@@ -4939,8 +4941,9 @@ class Exit_cmds(Startup_cmds):
         self.server.exit_cmds = self.cmds
 
 class Dropdown_Widget():
-    def __init__(self, parent_frame, height=10, bd=2, padx=0, justify='left', font=Default.label_font,
-                 fg=Default.fg, bg=Default.bg, abg=Default.abg, afg=Default.afg, selectbg=None, selectfg=None):
+    def __init__(self, parent_frame, height=10, bd=2, padx=0, justify='left',
+        font=Default.label_font, fg=Default.fg, bg=Default.bg, abg=Default.abg,
+        afg=Default.afg, selectbg=None, selectfg=None):
         if afg == None:
             afg = fg
         if selectbg == None:
@@ -4951,7 +4954,9 @@ class Dropdown_Widget():
         # Define the style for this dropdown widget
         self.stylename = str(self) + '.TCombobox'
         self.style = ttk.Style()
-        self.style.configure(self.stylename, background=bg, foreground=fg, selectbackground=selectbg, selectforeground=selectfg, padding=(2,2,2,2), margins=(20, 0, 20, 0))
+        self.style.configure(self.stylename, background=bg, foreground=fg,
+            selectbackground=selectbg, selectforeground=selectfg,
+            padding=(2,2,2,2), margins=(20, 0, 20, 0))
 
         self.combobox = ttk.Combobox(
                 parent_frame,

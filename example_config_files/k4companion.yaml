@@ -286,7 +286,7 @@
 #define menu
 - item: menu
   label: Menu
-  entries_displayed: 18
+  entries_displayed: 24
   selectbg: pink
 #end
 
