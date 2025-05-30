@@ -27,7 +27,7 @@
 - item: server
   name: k4
   type: k4
-  address: K4-SNxxxxx.local      # match your serial number in the string
+#  address: K4-SNxxxxx.local      # match your serial number in the string
   port: 9205
   connect_on_start: True
 

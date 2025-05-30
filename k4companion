@@ -441,15 +441,15 @@ class Server():
         return cmd.split(';')
 
     def __init__(self, config_info):
-        required = ['item', 'name', 'address', 'port']
-        optional = ['type', 'connect_on_start', 'button_font']
+        required = ['item', 'name',  'port']
+        optional = ['type', 'address', 'connect_on_start', 'button_font']
         validate_options(config_info, required, optional)
 
         self.name = config_info['name']
         self.type = config_info.get('type', '').lower()
         self.startup_cmds = ''
         self.exit_cmds = ''
-        self.address = config_info['address']
+        self.address = config_info.get('address', '')
         self.port = config_info['port']
         self.proxy_address = ''
         self.proxy_port = ''
@@ -536,6 +536,10 @@ class Server():
 
     def connect(self):
         if self.connected:
+            return
+
+        if self.address == '':
+            Popup.error("Unknown server address. Add the address to the App tab.")
             return
 
         self.cat_only = self.port == 9200
@@ -1095,6 +1099,10 @@ class Server():
                 restart()
 
     def set_password(self, password):
+        self.password = password
+        self.__class__.password = password
+
+    def set_new_password(self, password):
         previous_password = self.password
         self.password = password
         self.__class__.password = password
@@ -4402,6 +4410,13 @@ class Settings():
     settings_changed = False
 
     @classmethod
+    def filename(cls):
+        filename = cls.settings_filename
+        if Options.radio != None:
+            filename = Options.radio + '-' + cls.settings_filename
+        return filename
+
+    @classmethod
     def put(cls, category, setting, value):
         if not cls.settings_loaded:
             cls.load()
@@ -4487,14 +4502,14 @@ class Settings():
         if not cls.settings_changed:
             return
 
-        filename = cls.platform_settings_filename(cls.settings_filename)
+        filename = cls.platform_settings_filename(cls.filename())
         with open(filename, 'w') as settingsfile:
             cls.settings.write(settingsfile)
         cls.settings_changed = False
 
     @classmethod
     def load(cls):
-        filename = cls.platform_settings_filename(cls.settings_filename)
+        filename = cls.platform_settings_filename(cls.filename())
         cls.settings.read(filename)
         cls.settings_loaded = True
 
@@ -4628,7 +4643,7 @@ class Settings_widget(Widget):
         pw = self.password_var.get()
         h = Reversable_hash.hash(pw)
         Settings.put_save('Elecraft K4', 'insecure_password_hash', h)
-        self.server.set_password(pw)
+        self.server.set_new_password(pw)
 
     def k4_proxy_settings(self, remote_frame):
         frame = tk.LabelFrame(remote_frame,
@@ -6376,12 +6391,15 @@ class Options():
                           help="output debugging messages")
         parser.add_option('--yaml', dest='yaml_file', default=None,
                           help="output preprocessed YAML to FILE", metavar="FILE")
+        parser.add_option('-r', '--radio', dest='radio', default=None,
+                          help="specify radio name for multiple instances")
         (options, args) = parser.parse_args()
 
         Options.config_file = options.config_file
         Options.verbose = options.verbose
         Options.debug = options.debug
         Options.yaml_file = options.yaml_file
+        Options.radio = options.radio
 
         if Options.debug > 0 and Options.verbose == 0:
             Options.verbose = Options.debug
