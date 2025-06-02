@@ -473,7 +473,8 @@ class Server():
         self.received_initial_parameters_callbacks = []
         self.cat_only = False
         self.printed_connection_warning = False
-        self.last_tune_cmd = Settings.get('command', 'tune', 'TU3;')
+        cmd = Settings.get('command', 'tune', 'TU3;')
+        self.last_tune_cmd = cmd
 
         self.ignored_errors = {}
 
@@ -666,6 +667,14 @@ class Server():
         self.received_initial_parameters = True
         for callback in self.received_initial_parameters_callbacks:
             callback(self)
+
+        cmd = self.last_tune_cmd
+        if cmd != None:
+            base = cmd_base(cmd)
+            orig_param = self.k4_parameter(base)
+            self.update_k4_parameter(cmd_base(cmd), cmd_parameter(cmd))
+            if orig_param != None:
+                self.update_k4_parameter(cmd_base(cmd), orig_param)
 
     def close(self):
         self.connected = False
@@ -1717,7 +1726,8 @@ class Togglebutton(Widget):
         config_info['caller'] = self
         config_info['server'] = self.server
         config_info['font'] = self.font()
-        config_info['width'] = container.items_width()
+        if not 'width' in config_info:
+            config_info['width'] = container.items_width()
 
         ToggleWidget(self, self.frame, config_info)
 
@@ -1935,7 +1945,7 @@ class VFO(Widget):
         self.server.send_cmds(cmd)
 
     def on_frequency_received(self, response):
-        freq = response_after_base(response).rstrip(';')
+        freq = cmd_parameter(response)
         self.set_frequency(float(freq))
 
     def set_step(self, step):
@@ -1948,7 +1958,7 @@ class VFO(Widget):
         self.server.send_cmds(cmd)
 
     def on_step_received(self, response):
-        step_str = response_after_base(response)
+        step_str = cmd_parameter(response)
         step_index = int(step_str[0])
         if step_index == 5:                             # Work around an apparent K4 bug
             cmd = f'VT{"$" if self.AorB == "B" else ""}2;'
@@ -2140,7 +2150,7 @@ class RIT(Widget):
         self.server.send_cmds(cmd)
 
     def on_offset_received(self, response):
-        offset = response_after_base(response).rstrip(';')
+        offset = cmd_parameter(response)
         self.set_offset(int(offset))
 
     def set_step(self, step):
@@ -2728,7 +2738,7 @@ class DropdownWidget():
     def compare_parameters(self, selection, response):
         response = response.rstrip(';')
         response_base = cmd_base(response)
-        response_parameter = response_after_base(response)
+        response_parameter = cmd_parameter(response)
 
         text = selection['text']
         parameters = selection['parameters']
@@ -3330,9 +3340,9 @@ def cmd_base(cmd):
             base += '!'
     return base
 
-def response_after_base(response):
+def cmd_parameter(response):
     i = len(cmd_base(response))
-    return response[i:]
+    return response[i:].rstrip(';')
 
 def true_values(v):
     if v == True or v == 1:
@@ -5988,7 +5998,7 @@ class CW(Widget):
         self.sending = False
 
     def on_text_buffer(self, response, widget):
-        param = response_after_base(response).rstrip(';')
+        param = cmd_parameter(response).rstrip(';')
         if not self.sending:
             r = int(param[0])
             self.tx_remaining_count = r

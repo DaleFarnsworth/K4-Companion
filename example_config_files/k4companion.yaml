@@ -174,12 +174,12 @@
 
 #define tune-button
 - item: togglebutton
+  width: 9
   selections: #{
-    - { text: 'Tune*', cmd: TU0;, evalcmd: '"TU0;"' }
-    - { text: 'Tune*', cmd: TU1;, evalcmd: '"TUNE!;"', bg: yellow }
-    - { text: 'Tune*', cmd: TU2;, evalcmd: '"TU0;"', bg: yellow }
-    - { text: 'Tune*', cmd: TU3;, evalcmd: '"TU0;"', bg: yellow }
-    - { text: 'Tune*', cmd: TU4;, evalcmd: '"TU0;"', bg: yellow }
+    - { text: 'Tune LP',  cmd: TU1;, evalcmd: '"TUNE!;"', evalresponse: '"TU1;" if self.k4param("TU") == "2" else ""' }
+    - { text: 'ATU Tune', cmd: TU2;, evalcmd: '"TUNE!;"', evalresponse: '"TU2;" if self.k4param("TU") == "3" else ""' }
+    - { text: 'ATU TUNE', cmd: TU3;, evalcmd: '"TUNE!;"', evalresponse: '"TU3;" if self.k4param("TU") == "4" else ""' }
+    - { text: 'Tune',     cmd: TU4;, evalcmd: '"TUNE!;"', evalresponse: '"TU4;" if self.k4param("TU") == "1" else ""' }
   #}
 #end
 
@@ -879,10 +879,10 @@
 - item: dropdownbutton
   width: 6
   selections: #{
-    - { text: "ATU",    cmd: AT2; }
+    - { text: "ATU",    cmd: AT2;, evalresponse: '"AT2;" if self.k4param("AT") == "2" and self.k4param("TU") not in ("3", "4") else ""' }
     - { text: "Bypass", cmd: AT1;, bg: yellow }
-    - { text: "Tune",   cmd: AT2;TU3; }
-    - { text: "TUNE",   cmd: AT2;TU4; }
+    - { text: "Tune",   cmd: TU3;, evalcmd: '"AT2;TU3;"', bg: yellow }
+    - { text: "TUNE",   cmd: TU4;, evalcmd: '"AT2;TU4;"', bg: yellow }
   #}
 #end
 
@@ -900,8 +900,8 @@
   padx: 4
   selections: #{
     - { text: "Tune Off", cmd: TU0;, evalresponse: 'value if value == "TU1;" or value == "TU2;" else "TU0;"' }
-    - { text: "Tune",     cmd: TU1;, evalcmd: '"TU1;" if self.k4param("TU") == "0" else "TU0;"' }
-    - { text: "Tune LP",  cmd: TU2;, evalcmd: '"TU2;" if self.k4param("TU") == "0" else "TU0;"' }
+    - { text: "Tune",     cmd: TU1;, evalcmd: '"TU1;" if self.k4param("TU") == "0" else "TU0;"', bg: yellow }
+    - { text: "Tune LP",  cmd: TU2;, evalcmd: '"TU2;" if self.k4param("TU") == "0" else "TU0;"', bg: yellow }
   #}
 #end
 
