@@ -95,7 +95,6 @@
   contains: #{
     #include sw-release-group
     #include fwversions
-    #include k4-power-off-group
   #}
 #end
 
@@ -210,6 +209,16 @@
   #}
 #end
 
+#define connect-power-off-exit-group
+- item: group
+  label: ''
+  columns: 1
+  contains: #{
+    #include connect-group
+    #include power-off-exit-group
+  #}
+#end
+
 #define power-off-exit-group
 - item: group
   label: ''
@@ -298,6 +307,7 @@
     #include app-version
     #include startup-cmds
     #include exit-cmds
+    #include connect-power-off-exit-group
   #}
 #end
 
@@ -924,6 +934,14 @@
 
 #define k4-power-off-button
 - { item: button, text: 'Power Off', cmd:  PS0; }
+#end
+
+#define connect-group
+- item: group
+  label: ''
+  contains: #{
+    #include connect-togglebutton
+  #}
 #end
 
 #define connect-togglebutton
