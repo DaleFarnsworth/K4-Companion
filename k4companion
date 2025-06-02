@@ -1441,16 +1441,14 @@ class Page(Container):
 
         self.show_widgets()
 
-    def set_geometry(self, counter=0):
+    def set_geometry(self):
         self.frame.update_idletasks()
-        w, h, x, y = split_geometry(Page.top.geometry())
+        w, h, _x, _y = split_geometry(Page.top.geometry())
         Settings.load()
-        xy = Settings.get('Window', 'root.xy')
-        if xy == None:
+        geometry = Settings.get('Window', 'root.geometry')
+        if geometry == None:
             return
-        m = re.search('([+-][^+-]+)(.*)', xy)
-        x, y = m.groups()
-        x, y = int(x), int(y)
+        _w, _h, x, y = split_geometry(geometry)
         screen_width = Page.top.winfo_screenwidth()
         screen_height = Page.top.winfo_screenheight()
         x_offset = screen_width - (x + w)
@@ -1466,9 +1464,6 @@ class Page(Container):
         w, h = self.top_frame.winfo_width(), self.frame.winfo_height()
         geometry = f'{w}x{h}{x:+}{y:+}'
         Page.top.geometry(geometry)
-        # Not sure why we have to repeat this, but we seem to need to
-        if counter < 12:
-            Poll.call(250, lambda i=counter+1: self.set_geometry(i))
 
     def show(self):
         self.frame.grid()
@@ -4550,6 +4545,10 @@ class Settings():
         cls.settings.read(filename)
         cls.settings_loaded = True
 
+        # clean up obsolete options
+        cls.settings.remove_option('Window', 'root.xy')
+        cls.settings.remove_option('Window', 'CW.xy')
+
 class Settings_widget(Widget):
     def __init__(self, config_info, container):
         required = ['item']
@@ -5019,6 +5018,7 @@ class Dropdown_Widget():
         self.combobox = ttk.Combobox(
                 parent_frame,
                 font=font,
+                width=0,
                 height = height,
                 state='readonly',
                 justify=justify,
@@ -5547,16 +5547,14 @@ class CW(Widget):
         config_vars_frame.grid(row=2, column=0, pady=1, sticky='w')
         self.add_config_vars(config_vars_frame)
 
-    def set_geometry(self, counter=0):
+    def set_geometry(self):
         self.frame.update_idletasks()
         w, h, x, y = split_geometry(self.top_level.geometry())
         Settings.load()
-        xy = Settings.get('Window', 'CW.xy')
-        if xy == None:
+        geometry = Settings.get('Window', 'CW.geometry')
+        if geometry == None:
             return
-        m = re.search('([+-][^+-]+)(.*)', xy)
-        x, y = m.groups()
-        x, y = int(x), int(y)
+        _w, _h, x, y = split_geometry(geometry)
         screen_width = Page.top.winfo_screenwidth()
         screen_height = Page.top.winfo_screenheight()
         x_offset = screen_width - (x + w)
@@ -5572,9 +5570,6 @@ class CW(Widget):
         w, h = self.frame.winfo_width(), self.frame.winfo_height()
         geometry = f'{w}x{h}{x:+}{y:+}'
         self.top_level.geometry(geometry)
-        # Not sure why we have to repeat this, but we seem to need to
-        if counter < 4:
-            Poll.call(250, lambda i=counter+1: self.set_geometry(i))
 
     def add_cw_controls(self, parent_frame):
         sidetone_frame = tk.LabelFrame(parent_frame, text='Sidetone Volume',
@@ -5800,7 +5795,7 @@ class CW(Widget):
         if not self.is_open:
             return
 
-        self.save_xy()
+        self.save_geometry()
 
         if self.tx_remaining_count > 0:
             self.stop_sending()
@@ -5813,10 +5808,9 @@ class CW(Widget):
         self.server.unsubscribe_response('KS;', self.on_keyer_speed_change)
         self.top_level.destroy()
 
-    def save_xy(self):
-        w, h, x, y = split_geometry(self.top_level.geometry())
-        xy = f'{x:+}{y:+}'
-        Settings.put_save('Window', 'CW.xy', xy)
+    def save_geometry(self):
+        geometry = self.top_level.geometry()
+        Settings.put_save('Window', 'CW.geometry', geometry)
 
     def on_mode_change(self, response=None):
         if self.tx_mode() == 'CW':
@@ -6459,14 +6453,13 @@ def exit():
     CW.close_window()
     clean_up(exit=True)
 
-    save_xy()
+    save_geometry()
 
     Page.top.quit()
 
-def save_xy():
-    w, h, x, y = split_geometry(Page.top.geometry())
-    xy = f'{x:+}{y:+}'
-    Settings.put_save('Window', 'root.xy', xy)
+def save_geometry():
+    geometry = Page.top.geometry()
+    Settings.put_save('Window', 'root.geometry', geometry)
 
 class Popup():
     queue = queue.Queue()
@@ -6695,12 +6688,6 @@ def tprint(*args, **kwargs):
 def trace_stack():
     traceback.print_stack()
 
-def main_page_visible(self):
-    page = Page.main()
-    server = page.server
-    if server.connect_on_start:
-        server.connect()
-
 def start():
     Poll.set_top(Page.top)
     Popup.show_popups()
@@ -6708,8 +6695,12 @@ def start():
     read_config(Options.config_file)
 
     page = Page.main()
-    page.frame.bind('<Visibility>', main_page_visible)
-    Page.show_page(page.name)
+    server = page.server
+    if server.connect_on_start:
+        server.connect()
+        server.subscribe_received_initial_parameters(lambda x: page.show_page(page.name))
+    else:
+        Page.show_page(page.name)
 
 def restart():
     exit()
@@ -6742,8 +6733,13 @@ def main():
     top = tk.Tk()
     Page.top = top
 
-    top.title('K4-Companion ' + version)
-    top.protocol("WM_DELETE_WINDOW", exit)
+    Settings.load()
+    geometry = Settings.get('Window', 'root.geometry')
+    if geometry != None:
+        Page.top.geometry(geometry)
+
+    Page.top.title('K4-Companion ' + version)
+    Page.top.protocol("WM_DELETE_WINDOW", exit)
     Page.top.resizable(False, False)
 
     start()
