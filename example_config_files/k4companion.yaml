@@ -878,7 +878,6 @@
 #define atu-dropdownbutton
 - item: dropdownbutton
   width: 6
-  unexpectedresponse: 'AT2 if value == "TU0;" else ""'
   selections: #{
     - { text: "ATU",    cmd: AT2; }
     - { text: "Bypass", cmd: AT1;, bg: yellow }
