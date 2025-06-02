@@ -5307,6 +5307,7 @@ class CW(Widget):
         self.top_level = tk.Toplevel(Page.top)
         self.top_level.protocol("WM_DELETE_WINDOW", self.hide)
         self.top_level.title('K4-Companion ' + version)
+        self.top_level.resizable(False, False)
         self.frame = tk.Frame(self.top_level)
         self.frame.grid(row=0, column=0)
         self.notebook = ttk.Notebook(self.frame)
@@ -6597,6 +6598,7 @@ class Popup():
         popup.popup.transient(Page.top)
         popup.popup.grab_set()
         popup.popup.protocol('WM_DELETE_WINDOW', popup.close)
+        popup.popup.resizable(False, False)
         Page.top.wait_window(popup.popup)
         return var.get()
 
@@ -6742,6 +6744,7 @@ def main():
 
     top.title('K4-Companion ' + version)
     top.protocol("WM_DELETE_WINDOW", exit)
+    Page.top.resizable(False, False)
 
     start()
 
