@@ -539,11 +539,11 @@ class Server():
 
     def connect(self):
         if self.connected:
-            return
+            return True
 
         if self.address == '':
             Popup.error("Unknown server address. Add the address to the App tab.")
-            return
+            return False
 
         self.cat_only = self.port == 9200
 
@@ -629,6 +629,9 @@ class Server():
             Page.main().select_tab('App')
             Page.show_page(Page.main().name)
             Popup.error(error, timeout=None)
+            return False
+
+        return True
 
     def check_for_received_cat_cmd(self):
         if not self.received_cat_cmd:
@@ -799,7 +802,7 @@ class Server():
         if self.connected:
             return False
         if not self.printed_connection_warning:
-            Popup.warning("Server '{name}' not connected.".format(name=self.name))
+            Popup.error("Server '{name}' not connected.".format(name=self.name))
         self.printed_connection_warning = True
         return True
 
@@ -1414,6 +1417,7 @@ class Page(Container):
         else:
            raise Exception("Page:'{name}' not found.".format(name=page_name))
 
+
     @staticmethod
     def current():
         if len(Page.name_stack) == 0:
@@ -1481,7 +1485,8 @@ class Page(Container):
 
     def show(self):
         self.frame.grid()
-        self.set_geometry()
+        if self == Page.main():
+            self.set_geometry()
 
     def hide(self):
         self.frame.grid_forget()
@@ -1584,8 +1589,8 @@ class ToggleWidget():
 
         self.wraparound = true_values(options.get('wraparound', True))
         self.justify = options.get('justify', 'left')
+        self.index = int(options.get('initialindex', 0))
 
-        self.index = 0
         self.blink_state = False
 
         self.selections = []
@@ -1726,7 +1731,7 @@ class Togglebutton(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         optional = ['wraparound', 'justify', 'selections', 'label', 'leading', 'width',
-            'padx', 'pady']
+            'padx', 'pady', 'initialindex']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -2292,6 +2297,7 @@ class SliderWidget():
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def on_received_initial_parameters(self, response):
+        self.scale.update_idletasks()
         cmd = self.caller.eval_value(self.evalcmd, self.value_var.get())
         if cmd != "":
             self.server.subscribe_response(cmd, self.on_response_received)
@@ -4558,9 +4564,12 @@ class Settings():
         cls.settings.read(filename)
         cls.settings_loaded = True
 
-        # clean up obsolete options
-        cls.settings.remove_option('Window', 'root.xy')
-        cls.settings.remove_option('Window', 'CW.xy')
+        try:
+            # clean up obsolete options
+            cls.settings.remove_option('Window', 'root.xy')
+            cls.settings.remove_option('Window', 'CW.xy')
+        except:
+            pass
 
 class Settings_widget(Widget):
     def __init__(self, config_info, container):
@@ -6463,11 +6472,12 @@ def clean_up(exit=False):
     Audio.close()
     Poll.remove_all()
 
-def exit():
+def exit(restart=False):
     CW.close_window()
     clean_up(exit=True)
 
-    save_geometry()
+    if not restart:
+        save_geometry()
 
     Page.top.quit()
 
@@ -6710,15 +6720,14 @@ def start():
 
     page = Page.main()
     server = page.server
-    if server.connect_on_start:
-        server.connect()
+    if server.connect_on_start and server.connect():
         server.subscribe_received_initial_parameters(lambda x: page.show_page(page.name))
     else:
         page.select_tab('App')
         Page.show_page(page.name)
 
 def restart():
-    exit()
+    exit(restart=True)
 
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         # running in a PyInstaller bundle
