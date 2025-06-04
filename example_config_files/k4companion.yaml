@@ -1556,8 +1556,44 @@
   label: VOX
   columns: 1
   contains: #{
-    #include vox-togglebutton
+    #include vox-onoff-group
     #include vox-slider-group
+  #}
+#end
+
+#define vox-onoff-group
+- item: group
+  contains: #{
+    #include vox-voice-togglebutton
+    #include vox-cw-togglebutton
+    #include vox-data-togglebutton
+  #}
+#end
+
+#define vox-voice-togglebutton
+- item: togglebutton
+  label: Voice
+  selections: #{
+    - { text: "On",  cmd: VXV1; } 
+    - { text: "Off", cmd: VXV0; } 
+  #}
+#end
+
+#define vox-cw-togglebutton
+- item: togglebutton
+  label: CW
+  selections: #{
+    - { text: "On",  cmd: VXC1; } 
+    - { text: "Off", cmd: VXC0; } 
+  #}
+#end
+
+#define vox-data-togglebutton
+- item: togglebutton
+  label: Data
+  selections: #{
+    - { text: "On",  cmd: VXD1; } 
+    - { text: "Off", cmd: VXD0; } 
   #}
 #end
 
@@ -1567,14 +1603,6 @@
     #include vox-delay-group
     #include vox-gain-slider
     #include vox-anti-slider
-  #}
-#end
-
-#define vox-togglebutton
-- item: togglebutton
-  selections: #{
-    - { text: "On",  cmd: VXV1; } 
-    - { text: "Off", cmd: VXV0; } 
   #}
 #end
 
