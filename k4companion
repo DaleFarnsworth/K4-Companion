@@ -6462,6 +6462,7 @@ class Options():
             parser.error("Unexpected argument '{arg}'".format(arg=args[0]))
 
 def clean_up(exit=False):
+    save_geometry()
     for server in Server.servers():
         server.cancel_k4_subscriptions()
         if exit:
@@ -6469,16 +6470,12 @@ def clean_up(exit=False):
         else:
             server.close()
 
+    CW.close_window()
     Audio.close()
     Poll.remove_all()
 
-def exit(restart=False):
-    CW.close_window()
+def exit():
     clean_up(exit=True)
-
-    if not restart:
-        save_geometry()
-
     Page.top.quit()
 
 def save_geometry():
@@ -6737,15 +6734,9 @@ def start():
         Page.show_page(page.name)
 
 def restart():
-    exit(restart=True)
-
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        # running in a PyInstaller bundle
-        subprocess.Popen(sys.argv)
-        sys.exit()
-
-    prog = sys.executable
-    os.execv(prog, [os.path.basename(prog)] + sys.argv)
+    clean_up()
+    Page.main().frame.destroy()
+    start()
 
 def close_splash_screen():
     try:
