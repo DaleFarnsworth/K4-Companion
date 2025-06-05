@@ -6745,7 +6745,7 @@ def close_splash_screen():
         pass
 
 def split_geometry(geometry):
-    m = re.search('([^x]+)x([^+-]+)([+-][^+-]+)(.*)', geometry)
+    m = re.search('([^x]+)x([^+]+)[+]([-]?[^+-]+)[+]?(.*)', geometry)
     w, h, x, y = m.groups()
     return int(w), int(h), int(x), int(y)
 
