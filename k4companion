@@ -476,6 +476,7 @@ class Server():
         self.printed_connection_warning = False
         cmd = Settings.get('command', 'tune', 'TU3;')
         self.last_tune_cmd = cmd
+        self.received_cat_cmd = False
 
         self.ignored_errors = {}
 
@@ -538,7 +539,7 @@ class Server():
         return self.k4_parameters.get(base, None)
 
     def connect(self):
-        if self.connected:
+        if self.connected and self.received_cat_cmd:
             return True
 
         if self.address == '':
@@ -596,6 +597,11 @@ class Server():
                     if self.password == None:
                         self.password = Popup.password(title="Connect to K4",
                             msg="Enter your k4 remote password:")
+                        if self.password == '':
+                            Page.main().select_tab('App')
+                            Page.show_page(Page.main().name)
+                            return False
+
                     h = hashlib.sha384(self.password.encode()).hexdigest()
                     self.send_str(h, force_as_string=True)
 
@@ -609,7 +615,6 @@ class Server():
             error = None
 
             if not self.cat_only:
-                self.received_cat_cmd = False
                 Poll.call(4000, self.check_for_received_cat_cmd)
 
         except socket.gaierror:
@@ -625,19 +630,30 @@ class Server():
                       name=self.name, addr=self.proxy_address, port=port)
 
         if error != None:
-            error += "\n\nCheck the K4 address in the App tab."
-            Page.main().select_tab('App')
-            Page.show_page(Page.main().name)
-            Popup.error(error, timeout=None)
+            if self.received_cat_cmd:
+                error += "\n\nCheck the K4 address in the App tab."
+                Page.main().select_tab('App')
+                Page.show_page(Page.main().name)
+                Popup.error(error, timeout=None)
             return False
 
         return True
 
     def check_for_received_cat_cmd(self):
         if not self.received_cat_cmd:
+            self.connnected = False
+
             error = 'No response received from: {name}'.format(name=self.name)
-            error += "\n\nCheck the K4 password in the App tab."
-            Popup.error(error, timeout=None)
+
+            pw = self.password_from_settings()
+            if pw == '' and self.password != '':
+                Popup.modal(error, timeout=1000)
+                restart()
+            else:
+                error += "\n\nCheck the K4 password in the App tab."
+                Page.main().select_tab('App')
+                Page.show_page(Page.main().name)
+                Popup.error(error, timeout=None)
 
     def request_initial_parameters(self):
         self.send_str('K41;')                # request K4 to respond in advanced mode
@@ -801,8 +817,8 @@ class Server():
     def warn_if_not_connected(self):
         if self.connected:
             return False
-        if not self.printed_connection_warning:
-            Popup.error("Server '{name}' not connected.".format(name=self.name))
+        if not self.printed_connection_warning and self.received_cat_cmd:
+            Popup.warning("Server '{name}' not connected.".format(name=self.name))
         self.printed_connection_warning = True
         return True
 
@@ -820,8 +836,7 @@ class Server():
                         self.socket.send(b)
                     except:
                         dprint1('socket.send error')
-                        Popup.error('Lost connection to ' + self.name, timeout=None)
-                        self.connected = False
+                        self.lost_connection()
                         return
 
             if Options.debug >= 1:
@@ -976,8 +991,7 @@ class Server():
                 return
             if len(in_error) > 0:
                 dprint1('select.select error')
-                Popup.error('Lost connection to ' + self.name, timeout=None)
-                self.connected = False
+                self.lost_connection()
                 return
             if len(readable) == 0:
                 continue
@@ -988,8 +1002,7 @@ class Server():
                 dprint1('socket.recv error')
                 recv_bytes = []
             if len(recv_bytes) == 0:
-                Popup.error('Lost connection to ' + self.name, timeout=None)
-                self.connected = False
+                self.lost_connection()
                 return
 
             try:
@@ -1006,8 +1019,7 @@ class Server():
                 return
             if len(in_error) > 0:
                 dprint1('select.select error')
-                Popup.error('Lost connection to ' + self.name, timeout=None)
-                self.connected = False
+                self.lost_connection()
                 return
             if len(readable) == 0:
                 continue
@@ -1018,8 +1030,7 @@ class Server():
                 dprint1('socket.recv error')
                 rb = []
             if len(rb) == 0:
-                Popup.error('Lost connection to ' + self.name, timeout=None)
-                self.connected = False
+                self.lost_connection()
                 return
 
             if self.partial_packet != None:
@@ -1145,6 +1156,19 @@ class Server():
 
     def is_directive(self, base):
         return base.endswith('!')
+
+    def password_from_settings(self):
+        h = Settings.get('Elecraft K4', 'insecure_password_hash')
+        if h == None:
+            pw = ''
+        else:
+            pw = Reversable_hash.unhash(h)
+        return pw
+
+    def lost_connection(self):
+        if self.received_cat_cmd:
+            Popup.error('Lost connection to ' + self.name, timeout=None)
+        self.connected = False
 
 class Widget():
     blink_mS = 500
@@ -1449,7 +1473,7 @@ class Page(Container):
         Page.pages[self.name] = self
 
         self.top_frame = tk.Frame(Page.top)
-        self.top_frame.grid(row=0, column=0)
+        self.top_frame.grid(row=0, column=0, sticky='w')
 
         if self.has_tabnames():
             self.frame = ttk.Notebook(self.top_frame)
@@ -4674,11 +4698,7 @@ class Settings_widget(Widget):
                               relief='raised')
 
         self.password_var = tk.StringVar()
-        h = Settings.get('Elecraft K4', 'insecure_password_hash')
-        if h == None:
-            pw = ''
-        else:
-            pw = Reversable_hash.unhash(h)
+        pw = self.server.password_from_settings()
         if pw != '':
             self.server.set_password(pw)
 

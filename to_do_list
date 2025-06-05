@@ -20,12 +20,6 @@ Add a setting to avoid loading the audio modules.
 
 Support PCM audio for systems that have difficulty with opus.
 
-Make power slider numberless like the audio sliders, with a separate box that shows the power level? Allow direct entry.
+Make power slider numberless like the audio sliders, with a separate box that shows the power level? Allow direct entry. ??
 
 Handle: ER43: Status Standby and ER44:Status Operate.
-
-fix window offset after updating K4 address in App tab.
-
-Permit direct entry on RF Gain
-
-Permit direct entry for BW
