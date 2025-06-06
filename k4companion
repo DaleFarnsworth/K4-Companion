@@ -1484,14 +1484,17 @@ class Page(Container):
 
     def set_geometry(self):
         self.frame.update_idletasks()
-        w, h, _x, _y = split_geometry(Page.top.geometry())
-        Settings.load()
-        geometry = Settings.get('Window', 'root.geometry')
-        if geometry == None:
-            return
-        _w, _h, x, y = split_geometry(geometry)
         screen_width = Page.top.winfo_screenwidth()
         screen_height = Page.top.winfo_screenheight()
+        w, h = self.top_frame.winfo_width(), self.frame.winfo_height()
+        Settings.load()
+        geometry = Settings.get('Window', 'root.geometry')
+        if geometry != None:
+            _w, _h, x, y = split_geometry(geometry)
+        else:
+            # center the main window
+            x = screen_width // 2 - w // 2
+            y = screen_height // 2 - h // 2
         x_offset = screen_width - (x + w)
         y_offset = screen_height - (y + h)
         if x_offset < 0:
@@ -1502,7 +1505,6 @@ class Page(Container):
             x = 0
         if y < 0:
             y = 0
-        w, h = self.top_frame.winfo_width(), self.frame.winfo_height()
         geometry = f'{w}x{h}{x:+}{y:+}'
         Page.top.geometry(geometry)
 
