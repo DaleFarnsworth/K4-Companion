@@ -1,4 +1,167 @@
+v1.2.10:
+    Update K4 Companion Windows installer for v1.2.10
+
+    Update K4 Companion Windows exe for v1.2.10
+
+    Update K4 Companion User Manual to v1.2.10
+
+    Improve handling if no password is given
+
+    Restart by redrawing windows, not by execv
+       We will reinitialize the windows, reather than restarting the program.
+   
+    Add a modal option to popup windows
+       Modal popups stop the mainline program execution until they are
+       dismissed.
+   
+    Fix parsing of window geometry
+       It failed when the x offset of the window was negative.
+   
+    Add VOX buttons for CW and Data
+       We already had a VOX button for Voice.
+   
+    Adjust the widths of the bar graphs and AF Gain
+       Also, make them more consistent between Linux and Windows.
+   
+    Add connect, poweroff, exit, and restart buttons
+       Add these buttons to the App tab.
+   
+    Improve the setting of the initial window geometry
+
+    Prevent the user from resizing windows
+       There is no need. This will prevent the user from accidentally resizing
+       the windows.
+   
+    Make Tune* button display what it will do
+
+    Bugfix: Remove response TU0; from the ATU button
+
+    Limit the selection rate at which dropdown values
+       High rates of value selections were particularly problematic on the
+       bandwidth dropdowns. It takes about 1 second for the K4 to respond
+       on a LAN, longer if we add the round-trip time of WAN latency.
+        I found the problem was avoided if I deferred the selection for
+       400 mS after a selection. I have set the deferral now to 1.5 seconds.
+       It still seems responsive enough and should account for at least 1
+       second of network latency.
+   
+    Add support for multiple radios
+       Added a new option "-r" or "--radio" that takes the name
+       of a radio. This option is implemented by using a different
+       settings file for each radio. The name of the settings file
+       is .../<radioname>-settings.ini. For example, on Linux, the
+       settings file for the radio K4one would be
+       ~/.configs/k4companion/K4one-settings.ini.
+   
+    Add Restart button to restart and reconnect
+
+    Adjust widget and frame spacing
+
+    Compact the Main tab vertically
+       Reorganize the Main tab controls.
+       Place the ATU buttons on a single dropdown button.
+       Place the Tune buttons on single dropdown button.
+       Introduce a Tune* button that repeats the most recent tune command.
+       Move the Power Off button to the Misc tab.
+       Remove the Exit button.
+   
+    Revise VFO area layout to conserve vertical space
+
+    Move WPM from Keyer Speed slider to the  header
+       Also remove numerical value from Sidetone Volume because it has no
+       real-world significance.
+   
+    Remove example_config_files/nk8o_k4companion.yaml
+       It's identical to example_config_files/k4companion.yaml now,
+       so it's not needed. We can add it back later if needed.
+   
+    Clean up exit handling a bit
+
+    Unify k4companion.yaml and nk8o_k4companion.yaml
+       The differences were minimal. Copy nk8o_companion.yaml to
+       k4companion.yaml
+   
+    Update nk8o_k4companion.yaml
+
+    Set Autospot button yellow while autospotting
+
+    Set APF background color to yellow when on
+
+    Fix ESSB toggle button
+
+    internal: In all evalcmd, round floats before int
+       Round float values before converting to ints.
+   
+    Add direct entry to the RF Gain dropdown button
+
+    Add direct entry to the BW dropdown button
+       Also reverse order of BW entries.
+   
+    Add increment/decrement of direct-entry dropdowns
+       Increment with Arrow-Up, decrement with Arrow-Down.
+       
+       It initially only works with the Power dropdown button.
+   
+    Make equalizer sliders narrower
+
+    Reserve red color for error conditions
+       Change red buttons to yellow or blue.
+   
+    Move RIT into VFO group
+
+    Change RIT slider to numeric text
+
+    Increase RIT/XIT resolution to 1 Hz
+
+    Change Main power setting to a dropdown button
+
+    Clarify python version variable name
+
+    Adjust layout of transmit tab
+       Move two items to row 2 so the window isn't so wide.
+   
+    Replace CW button label separater char | with &
+       At least for a while, we'll convert | to & in existing button values.
+   
+    Variable rename: options => optional
+
+    Add additional widgets to the CW window
+
+    Withdraw top_level instead of closing
+
+    Factor out ButtonWidget from Button
+
+    Factor out ToggleWidget from Togglebutton
+
+    Factor out DropdownWidget from Dropdownbutton
+
+    Add horizontal volume controls to VFO controls
+
+    Enable mouse wheel on Slider widgets
+
+    No longer bind vfo events on entire frame
+       We had a problem where other widgets that bind the up/down arrows
+       or mouse wheel. would change those widget AND the vfo.
+       It was a nice idea, but is too confusing and problematic.
+   
+    Restore saved window positions on open
+       Save the position of both the main windows and the CW window on
+       close and restore them on the next open.
+   
+    Open CW window in CW mode, close it otherwise
+
+    Ignore <Return> when editing CW buttons
+
+    Allow all ctrl chars to work in the CW Entry field
+       This allows copy/paste and navigation characters to function.
+   
+    Reset tx_sending_offset when CW window is opened.
+       This fixes the bug in which CW was not sent after configuring the CW
+       window.
+   
 v1.2.9:
+    Update changelog for v1.2.9
+
     Update K4 Companion Windows installer to version 1.2.9
 
     Update K4 Companion Windows EXE to version 1.2.9
