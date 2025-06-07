@@ -1707,6 +1707,7 @@ class ToggleWidget():
         self.configure()
 
     def do_selection(self):
+        self.button.focus_set()
         self.next_selection()
         self.configure()
 
