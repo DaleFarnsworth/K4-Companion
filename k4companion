@@ -1342,7 +1342,6 @@ class Container(Widget):
                 if Options.debug > 0:
                     label = config_info.get('label', '')
                     indent = '    ' * Container.depth
-                    dprint1('{indent}group {label}: row  {row}, column: {column}'.format(indent=indent, label=label, row=self.row, column=self.column))
                 child = Group(config_info, self)
             elif widget_type == 'button':
                 child = Button(config_info, self)
