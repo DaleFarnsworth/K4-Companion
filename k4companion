@@ -6051,9 +6051,9 @@ class CW(Widget):
         self.on_text_buffer(response, self.sub_text)
 
     def on_entry_text_modified(self, event):
-        c = event.char
-        if c != '\r':
-            if c < '\x20':     # ignore ctrl-v (paste)
+        if event.keysym != 'Return':
+            c = event.char
+            if c < '\x20':     # ignore C-c, C-v, C-x, Home, End, etc.
                 return
             if c.upper() not in CW.valid_CW_characters + '\x7f':
                 Popup.warning(f'Character "{c}" not supported for CW')
