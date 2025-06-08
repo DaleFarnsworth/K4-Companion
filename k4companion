@@ -2047,10 +2047,8 @@ class VFO(Widget):
         self.add_underline_tag()
 
     def on_mouse_wheel(self, event):
-        if event.num == 4 or event.delta == 120:
-            self.adjust_frequency(self.step)
-        if event.num == 5 or event.delta == -120:
-            self.adjust_frequency(-self.step)
+        step = self.step * mouse_wheel_mult(event)
+        self.adjust_frequency(step)
 
     def current_mode_index(self):
         base = f'MD{"$" if self.AorB == "B" else ""}'
@@ -2238,10 +2236,8 @@ class RIT(Widget):
         self.add_underline_tag()
 
     def on_mouse_wheel(self, event):
-        if event.num == 4 or event.delta == 120:
-            self.adjust_offset(self.step)
-        if event.num == 5 or event.delta == -120:
-            self.adjust_offset(-self.step)
+        step = self.step * mouse_wheel_mult(event)
+        self.adjust_offset(step)
 
     def current_mode_index(self):
         base = f'MD{self.suffix}'
@@ -2334,10 +2330,7 @@ class SliderWidget():
             self.scale.config(length=length)
 
     def on_mouse_wheel(self, event):
-        if event.num == 4 or event.delta == 120:
-            incr = self.resolution
-        if event.num == 5 or event.delta == -120:
-            incr = -self.resolution
+        incr = self.resolution * mouse_wheel_mult(event)
         value = round(self.value_var.get() + incr, 10)
         self.value_var.set(value)
 
@@ -6707,6 +6700,15 @@ def validate_options(dictionary, requireds, optional, name=None):
 
 def hex_decode(string):
     return re.sub('%(..)', lambda m: chr(int(m[1], 16)), string)
+
+def mouse_wheel_mult(event):
+    if sys.platform == 'linux':
+        mult = 1 if event.num == 4 else -1
+    elif sys.platform == 'win32':
+        mult = -event.delta // 120
+    elif sys.platform == 'darwin':
+        mult = 1 if event.delta > 0 else -1
+    return mult
 
 def dprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
