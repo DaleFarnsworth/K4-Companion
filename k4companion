@@ -6052,6 +6052,9 @@ class CW(Widget):
 
     def on_entry_text_modified(self, event):
         if event.keysym != 'Return':
+            if event.keysym == 'Escape':
+                self.stop_sending()
+                return 'break'
             c = event.char
             if c < '\x20':     # ignore C-c, C-v, C-x, Home, End, etc.
                 return
