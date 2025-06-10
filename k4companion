@@ -5283,10 +5283,7 @@ class CWText(tk.Text):
     def text(self, clear=False):
         text = self.get('1.0', tk.END+'-1c')
         if clear:
-            previous_state = self.cget('state')
-            self.config(state='normal')
-            self.delete('1.0', tk.END)
-            self.config(state=previous_state)
+            self.clear()
         return text
 
     def clear(self):
@@ -5719,7 +5716,7 @@ class CW(Widget):
         self.set_geometry()
 
     def add_text_fields(self, parent_frame):
-        self.entry_frame = tk.LabelFrame(parent_frame, text='Entry (Hit enter to send.)',
+        self.entry_frame = tk.LabelFrame(parent_frame, text='Delayed Tx (Press Enter key to send, Delete key to clear)',
             font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
         self.entry_frame.grid(row=0, column=0, sticky='w', pady=5)
         self.entry_text = CWText(self.entry_frame, bd=self.bd, bg=self.bg, fg=self.fg,
@@ -5727,12 +5724,12 @@ class CW(Widget):
         self.entry_text.grid(row=0, column=0, sticky='w')
         self.entry_text.bind('<Key>', self.on_entry_text_modified)
 
-        self.tx_frame = tk.LabelFrame(parent_frame, text='Tx (Click to stop sending.', font=self.label_font(),
+        self.tx_frame = tk.LabelFrame(parent_frame, text='Immediate Tx (Press Escape key to stop sending.)', font=self.label_font(),
              labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
         self.tx_frame.grid(row=1, column=0, sticky='w', pady=4)
         self.tx_text = CWText(self.tx_frame, bd=self.bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
             height=self.tx_height, width=self.text_width, wrap='word', state='disabled')
-        self.tx_text.bind('<Button-1>', self.stop_sending)
+        self.tx_text.bind('<Key>', self.on_tx_text_modified)
         self.tx_text.grid(row=0, column=0, sticky='w')
         self.tx_text.tag_config('underline', underline=1)
 
@@ -5948,6 +5945,8 @@ class CW(Widget):
             self.server.send_cmds(f'KY {chunk};ACN1;')
             self.sending = True
             Poll.call(self.tx_poll_interval, self.send_cw)
+        else:
+            self.update_sending_offset()
 
     def on_main_text_decode(self, response):
         previous = self.main_enabled
@@ -6051,29 +6050,48 @@ class CW(Widget):
         self.on_text_buffer(response, self.sub_text)
 
     def on_entry_text_modified(self, event):
-        if event.keysym != 'Return':
-            if event.keysym == 'Escape':
+        if event.keysym in ('Return', 'Escape', 'Delete'):
+            if event.keysym == 'Return':
+                text = self.entry_text.text(clear=True)
+                if not text.endswith(' '):
+                    text += ' '
+                if self.tx_text.text() == '':
+                    self.tx_offset = 0
+                    self.tx_remaining_count = 0
+                self.append_tx_text(text)
+                self.send_cw()
+            elif event.keysym == 'Escape':
                 self.stop_sending()
-                return 'break'
-            c = event.char
-            if c < '\x20':     # ignore C-c, C-v, C-x, Home, End, etc.
-                return
-            if c.upper() not in CW.valid_CW_characters + '\x7f':
-                Popup.warning(f'Character "{c}" not supported for CW')
-                return 'break'
-            return
+            elif event.keysym == 'Delete':
+                self.entry_text.clear()
+            return 'break'
 
-        text = self.entry_text.text(clear=True)
-        if not text.endswith(' '):
-            text += ' '
-        if self.tx_text.text() == '':
-            self.tx_offset = 0
-            self.tx_remaining_count = 0
-        self.append_tx_text(text)
+        c = event.char
+        if c < '\x20':     # ignore C-c, C-v, C-x, Home, End, etc.
+            return
+        if c.upper() not in CW.valid_CW_characters:
+            Popup.warning(f'Character "{c}" not supported for CW')
+            return 'break'
+
+    def on_tx_text_modified(self, event):
+        if event.keysym == 'Escape':
+            self.stop_sending()
+            return 'break'
+        c = event.char
+        if c < '\x20':     # ignore C-c, C-v, C-x, Home, End, etc.
+            return 'break'
+        if c.upper() not in CW.valid_CW_characters + '\x7f':
+            Popup.warning(f'Character "{c}" not supported for CW')
+            return 'break'
+
+        self.append_tx_text(c)
         self.send_cw()
         return 'break'
 
     def stop_sending(self, event=None):
+        if self.tx_remaining_count == 0:
+            return
+
         self.server.send_cmds('KY @;')
         pending_text = self.tx_text.text()
         offset = self.tx_send_offset - self.tx_remaining_count
