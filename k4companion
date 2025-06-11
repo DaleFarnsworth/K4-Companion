@@ -1111,6 +1111,8 @@ class Server():
             self.address = address
         if port != '':
             self.port = int(port)
+            if self.port > 65535:
+                self.bad_port()
         previous_address_port = self.address_port
         self.__class__.address_port = address_port
         if address_port != previous_address_port and previous_address_port != None:
@@ -1123,11 +1125,16 @@ class Server():
             self.proxy_address = address
         if port != '':
             self.proxy_port = int(port)
+            if self.proxy_port > 65535:
+                self.bad_port()
         previous_proxy_address_port = self.proxy_address_port
         self.__class__.proxy_address_port = proxy_address_port
         if proxy_address_port != previous_proxy_address_port and previous_proxy_address_port != None:
             if self.address != '' and self.password != None:
                 restart()
+
+    def bad_port(self):
+        Popup.error('Port must be less than 65536', timeout=None)
 
     def set_password(self, password):
         self.password = password
@@ -6560,22 +6567,22 @@ class Popup():
             cls.queue.put((msg, title, timeout, font, color, modal))
 
     @classmethod
-    def warning(cls, msg, timeout=2000):
+    def warning(cls, msg, timeout=2000, modal=False):
         if isinstance(msg, str):
             msg = 'Warning: ' +  msg
         else:
             msg[0] = 'Warning: ' + msg[0]
         dprint(msg)
-        cls.popup(msg=msg, title='Warning', timeout=timeout, font=None, color='yellow', modal=False)
+        cls.popup(msg=msg, title='Warning', timeout=timeout, font=None, color='yellow', modal=modal)
 
     @classmethod
-    def error(cls, msg, timeout=5000):
+    def error(cls, msg, timeout=5000, modal=False):
         if isinstance(msg, str):
             msg = 'Error: ' +  msg
         else:
             msg[0] = 'Error: ' + msg[0]
         dprint(msg)
-        cls.popup(msg=msg, title='Error', timeout=timeout, font=None, color='yellow', modal=False)
+        cls.popup(msg=msg, title='Error', timeout=timeout, font=None, color='yellow', modal=modal)
 
     @classmethod
     def modal(cls, msg, timeout=None):
