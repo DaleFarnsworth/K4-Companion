@@ -619,7 +619,7 @@ class Server():
 
         except socket.gaierror:
             error = 'Address not found: {addr}'.format(addr=self.address)
-        except OSError:
+        except:
             error = "Failed to connect to {name}, address {addr}, port {port}\n".format(
                 name=self.name, addr=self.address, port=self.port)
             if self.proxy_address != '':
