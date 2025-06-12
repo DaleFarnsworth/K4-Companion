@@ -17,23 +17,8 @@
   # Font used for buttons and other controls
   button_font: { family: Helvetica, size: 10, weight: normal }
 
-# Ports:
-#   9200: unauthenticated, unencrypted
-#   9205: authenticated, unencrypted
-#   9204; authenticated, encrypted (not yet supported)
-# Ports 9204 and 9205 require the K4 to accept remote client(s)
-# and the program will request the K4's remote password.
-#
-- item: server
-  name: k4
-  type: k4
-#  address: K4-SNxxxxx.local      # match your serial number in the string
-  port: 9205
-  connect_on_start: True
-
 - item: page
   name: main
-  server: k4
   contains: #{
     #include main-tab-group
     #include receive-tab-group
@@ -42,6 +27,7 @@
     #include menu-tab-group
     #include misc-tab-group
     #include app-settings-tab-group
+    #include server-settings-tab-group
   #}
 
 #define main-tab-group
@@ -145,9 +131,20 @@
   #}
 #end
 
+#define server-settings-tab-group
+- item: group
+  tabname: Server
+  label: ''
+  contains: #{
+    #include server-settings
+    #include server-column1
+  #}
+#end
+
 #define app-settings-tab-group
 - item: group
   tabname: App
+  label: ''
   contains: #{
     #include app-settings
     #include app-column1
@@ -211,7 +208,6 @@
 
 #define connect-power-off-exit-group
 - item: group
-  label: ''
   columns: 1
   contains: #{
     #include connect-restart-group
@@ -299,14 +295,26 @@
   selectbg: pink
 #end
 
+#define server-column1
+- item: group
+  columns: 1
+  contains: #{
+    #include startup-cmds
+    #include exit-cmds
+    #include connect-power-off-exit-group
+  #}
+#end
+
+#define server-settings
+- item: serversettings
+  selectbg: pink
+#end
+
 #define app-column1
 - item: group
   columns: 1
   contains: #{
     #include app-version
-    #include startup-cmds
-    #include exit-cmds
-    #include connect-power-off-exit-group
   #}
 #end
 
@@ -1684,17 +1692,9 @@
 
 # item descriptions:
 #
-# server options:
-#   name: The name of the server
-#   type: The type of the server
-#     k4 is required for k4 servers to receive responses
-#   address: The ip address of the server
-#   port: The port to connect to
-#   connect_on_start: if false, do not connect to the server automatically
 
 # page options:
 #   name: The page name (required).
-#   server: The default server items contained in this page will use
 #   columns: The number of columns in which contained items will be displayed.
 #   contains: The list of items this page contains
 #
@@ -1704,7 +1704,6 @@
 #   label: The label that will be displayed for this group.
 #   leading: Specifies the vertical space (in points) that will be displayed
 #     before the group. Default is 1 for groups with a label, 0 otherwise.
-#   server: The default server items contained in this group will use
 #   row: The row of the container in which this group will be placed.
 #   column: The column of the container in which this group will be placed.
 #   rowspan: The number of rows this group will occupy.
@@ -1718,13 +1717,9 @@
 #   label: surrounds this item with a frame with the specified "label"
 #   text: button text
 #   font: the font in which the text is to be displayed
-#   server: The server name of the server referenced by this button
 #   cmd: XXX, where XXX is one of:
 #     1. a text string to be sent to k4, or
-#     2. a python 'list' object containg server name/cmd pairs (python dict objects)
-#        to be sent, i.e. [ k4: k4cmd, s1: s1cmd ] would send 'k4cmd' to server k4, and
-#        then send 's1cmd' to server s1.
-#     3. a directive (a special command directed at the application, rather than the server):
+#     2. a directive (a special command directed at the application, rather than the server):
 #       'CONNECT!;', connects to the server if not previously connected
 #       'QUIT!;', terminates the program
 #       'SHOW!PREVIOUS;', displays the previously-displayed page
@@ -1743,13 +1738,9 @@
 #   selections: a list of selections, each of which may have the following elements
 #       text: button text
 #       font: the font in which the text is to be displayed
-#       server: The server name of the server referenced by this button
 #       cmd: XXX, where XXX is one of:
 #         1. a text string to be sent to k4; or
-#         2. a python 'list' object containg server name/cmd pairs (python dict objects)
-#            to be sent, i.e. [ k4: k4cmd, s1: s1cmd ] would send 'k4cmd' to server k4, and
-#            then send 's1cmd' to server s1; or
-#         3. a directive (a special command directed at the application, rather than the server):
+#         2. a directive (a special command directed at the application, rather than the server):
 #           'CONNECT!;', connects to the server if not previously connected
 #           'QUIT!;', terminates the program
 #           'SHOW!PREVIOUS;', displays the previously-displayed page
@@ -1769,12 +1760,13 @@
 #   indicator: Set to 0 if no indicator is to be displayed
 #   text: button text
 #   font: the font in which the text is to be displayed
-#   server: The server name of the server referenced by this button
-#   cmd: Either:
-#     a text string to be sent to k4, or
-#     a python 'list' object containg server name/cmd pairs (python dict objects)
-#     to be sent, i.e. [ k4: k4cmd, s1: s1cmd ] would send 'k4cmd' to server k4, and
-#     then send 's1cmd' to server s1.
+#   cmd: XXX, where XXX is one of:
+#     1. a text string to be sent to k4; or
+#     2. a directive (a special command directed at the application, rather than the server):
+#       'CONNECT!;', connects to the server if not previously connected
+#       'QUIT!;', terminates the program
+#       'SHOW!PREVIOUS;', displays the previously-displayed page
+#       'SHOW!YYY;', displays page with the name: YYY
 #   fg: foreground color
 #   bg: background color
 #   abg: active background color
@@ -1792,7 +1784,6 @@
 #   length: The length of the slider in pixels
 #   width: The width in pixels if the slider is verical, otherwise the height
 #   increment: A python expression to set the slider increment given the variable value
-#   server: The server name of the server referenced by this slider
 #   cmdvalue: A python expression to produce the K4 command given the variable 'value'.
 #   evalresponse: A python expression to extract the slider value from the K4 response.
 #   font: The font used for the slider's text.

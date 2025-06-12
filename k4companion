@@ -37,6 +37,7 @@
 
 import configparser
 import ctypes
+import glob
 import hashlib
 import math
 import numpy
@@ -95,11 +96,12 @@ class Default():
         Default.button_font = config_info.get('button_font', Default.button_font)
 
 class Server():
-    server_dict = {}
-    default_server_name = None
-    address_port = None
-    proxy_address_port = None
-    password = None
+    k4_name = ''
+    k4_server = None
+    index = 0
+    k4_section = 'Elecraft K4'
+    settings = None
+    main_settings = None
 
     receive_poll_interval = 1           # poll every 1 mS
     ping_poll_interval = 2000           # poll every 2 seconds
@@ -386,22 +388,6 @@ class Server():
     }
 
     @staticmethod
-    def server(server_name):
-        return Server.server_dict[server_name]
-
-    @staticmethod
-    def server_names():
-        return Server.server_dict.keys()
-
-    @staticmethod
-    def servers():
-        return Server.server_dict.values()
-
-    @staticmethod
-    def default():
-        return Server.server(Server.default_server_name)
-
-    @staticmethod
     def k4_set_only_cmd(base, cmd):
         if base in Server.k4_set_only_cmd_bases:
             if base == 'LI' and len(cmd) > 6:
@@ -424,8 +410,8 @@ class Server():
     @staticmethod
     def send_cmds_with_server(cmd_list):
         for server_name, cmds in cmd_list:
-            if server_name in Server.server_names():
-                server = Server.server(server_name)
+            if server_name == Server.k4_server.name:
+                server = Server.k4_server
                 server.send_cmds(cmds)
             elif server_name == 'delay':
                 delay = float(cmd_dict[server_name]) / 1000
@@ -439,20 +425,23 @@ class Server():
             cmd = cmd[0:-1]
         return cmd.split(';')
 
-    def __init__(self, config_info):
-        required = ['item', 'name',  'port']
-        optional = ['type', 'address', 'connect_on_start', 'button_font']
-        validate_options(config_info, required, optional)
+    def __init__(self):
+        Server.k4_server = self
+        Server.settings = Settings()
 
-        self.name = config_info['name']
-        self.type = config_info.get('type', '').lower()
+        section = Server.k4_section
+        self.name = Server.settings.get(section, 'name', f'K4 #{Server.index+1}')
+        self.address_port = Server.settings.get(section, 'address', '')
+        self.password = self.password_from_settings()
+        self.proxy_address_port =  Server.settings.get(section, 'proxy_address', '')
+        self.type = 'k4'
         self.startup_cmds = ''
         self.exit_cmds = ''
-        self.address = config_info.get('address', '')
-        self.port = config_info['port']
+        self.address = ''
+        self.port = 9205
         self.proxy_address = ''
         self.proxy_port = ''
-        self.connect_on_start = true_values(config_info.get('connect_on_start', True))
+        self.connect_on_start = true_values(Server.settings.get(section, 'connect_on_start', True))
         self.socket = None
         self.recv_buffer = ''
         self.send_queue = queue.Queue()
@@ -466,21 +455,21 @@ class Server():
         self.connect_callbacks = []
         self.partial_packet = None
         self.password = None
-        self.control_k4_audio = true_values(Settings.get('Audio', 'control_k4_audio_settings'))
+        self.control_k4_audio = true_values(Server.settings.get('Audio', 'control_k4_audio_settings'))
         self.audio_sequence_number = 0
         self.received_initial_parameters = False
         self.received_initial_parameters_callbacks = []
         self.cat_only = False
         self.printed_connection_warning = False
-        cmd = Settings.get('command', 'tune', 'TU3;')
-        self.last_tune_cmd = cmd
+        self.last_tune_cmd = Server.settings.get(section, 'tune_cmd', 'TU3;')
         self.received_cat_cmd = False
 
-        self.ignored_errors = {}
+        self.set_address(self.address_port)
+        self.set_proxy(self.proxy_address_port)
 
-        if Server.default_server_name == None:
-            Server.default_server_name = config_info['name']
-        Server.server_dict[self.name] = self
+        set_page_title(self.name)
+
+        self.ignored_errors = {}
 
         self.subscribe_response('ER;', self.on_error_code, send=False)
         self.subscribe_response('SIDU', self.on_received_initial_parameters, send=False)
@@ -541,7 +530,7 @@ class Server():
             return True
 
         if self.address == '':
-            Popup.error("Unknown server address. Add the address to the App tab.")
+            Popup.error("No server address. Add the address to the Server tab.")
             return False
 
         self.cat_only = self.port == 9200
@@ -566,6 +555,7 @@ class Server():
                 sock.set_proxy(socks.SOCKS5, self.proxy_address) # SOCKS5 uses port 1080 by default
             else:
                 sock.set_proxy(socks.SOCKS5, self.proxy_address, self.proxy_port)
+
         try:
             sock.settimeout(5)
             if python_major >= 3 and python_minor >= 13 and self.port == 9204:
@@ -596,7 +586,7 @@ class Server():
                         self.password = Popup.password(title="Connect to K4",
                             msg="Enter your k4 remote password:")
                         if self.password == '':
-                            Page.main().select_tab('App')
+                            Page.main().select_tab('Server')
                             Page.show_page(Page.main().name)
                             return False
 
@@ -628,11 +618,9 @@ class Server():
                       name=self.name, addr=self.proxy_address, port=port)
 
         if error != None:
-            if self.received_cat_cmd:
-                error += "\n\nCheck the K4 address in the App tab."
-                Page.main().select_tab('App')
-                Page.show_page(Page.main().name)
-                Popup.error(error, timeout=None)
+            Page.main().select_tab('Server')
+            Page.show_page(Page.main().name)
+            Popup.error(error, timeout=None)
             return False
 
         return True
@@ -648,8 +636,8 @@ class Server():
                 Popup.modal(error, timeout=1000)
                 restart()
             else:
-                error += "\n\nCheck the K4 password in the App tab."
-                Page.main().select_tab('App')
+                error += "\n\nCheck the K4 password in the Server tab."
+                Page.main().select_tab('Server')
                 Page.show_page(Page.main().name)
                 Popup.error(error, timeout=None)
 
@@ -707,6 +695,9 @@ class Server():
                 self.send_thread.join()
             if self.recv_thread != None:
                 self.recv_thread.join()
+            if self.socket != None:
+                self.socket.shutdown(socket.SHUT_RDWR)
+                self.socket.close()
 
     def exit(self):
         if self.connected:
@@ -775,7 +766,7 @@ class Server():
 
     def save_last_tune_cmd(self, cmd):
         self.last_tune_cmd = cmd + ';'
-        Settings.put_save('command', 'tune', self.last_tune_cmd)
+        Server.settings.put_save(Server.k4_section, 'tune', self.last_tune_cmd)
 
     def tune_directive(self):
         if self.k4_parameters.get('TU') == '0':
@@ -1097,14 +1088,18 @@ class Server():
     def add_ignored_error(self, base):
         self.ignored_errors[base] = True
 
-    def get_address_port(self, string):
+    def set_name(self, name):
+        self.name = name
+        set_page_title(self.name)
+
+    def split_address_port(self, string):
         match = re.search('^(.*):([0-9]+)', string)
         if match == None:
             return string, ''
         return match[1], match[2]
 
     def set_address(self, address_port):
-        address, port = self.get_address_port(address_port)
+        address, port = self.split_address_port(address_port)
         if address != '':
             self.address = address
         if port != '':
@@ -1112,13 +1107,12 @@ class Server():
             if self.port > 65535:
                 self.bad_port()
         previous_address_port = self.address_port
-        self.__class__.address_port = address_port
         if address_port != previous_address_port and previous_address_port != None:
             if self.password != None:
                 restart()
 
     def set_proxy(self, proxy_address_port):
-        address, port = self.get_address_port(proxy_address_port)
+        address, port = self.split_address_port(proxy_address_port)
         if address != '':
             self.proxy_address = address
         if port != '':
@@ -1126,7 +1120,6 @@ class Server():
             if self.proxy_port > 65535:
                 self.bad_port()
         previous_proxy_address_port = self.proxy_address_port
-        self.__class__.proxy_address_port = proxy_address_port
         if proxy_address_port != previous_proxy_address_port and previous_proxy_address_port != None:
             if self.address != '' and self.password != None:
                 restart()
@@ -1136,7 +1129,6 @@ class Server():
 
     def set_password(self, password):
         self.password = password
-        self.__class__.password = password
 
     def set_new_password(self, password):
         previous_password = self.password
@@ -1163,7 +1155,7 @@ class Server():
         return base.endswith('!')
 
     def password_from_settings(self):
-        h = Settings.get('Elecraft K4', 'insecure_password_hash')
+        h = Server.settings.get(Server.k4_section, 'insecure_password_hash')
         if h == None:
             pw = ''
         else:
@@ -1200,11 +1192,8 @@ class Widget():
         self.cached_button_font = None
         self.cached_label_font = None
 
-        if 'server' in self.config_info:
-            self.server = Server.server(self.config_info['server'])
-        else:
-            if self.container != None:
-                self.server = self.container.server
+        if self.container != None:
+            self.server = self.container.server
 
         if self.container != None:
             self.frame = self.label_and_leading_frame()
@@ -1374,8 +1363,10 @@ class Container(Widget):
                child = Equalizers(config_info, self)
             elif widget_type == 'menu':
                 child = Menu(config_info, self)
+            elif widget_type == 'serversettings':
+                child = ServerSettings_widget(config_info, self)
             elif widget_type == 'appsettings':
-                child = Settings_widget(config_info, self)
+                child = AppSettings_widget(config_info, self)
             elif widget_type == 'fwversions':
                 child = FWversions(config_info, self)
             elif widget_type == 'startup_cmds':
@@ -1468,8 +1459,10 @@ class Page(Container):
 
     def __init__(self, config_info):
         required = ['item', 'name', 'contains']
-        optional = ['server', 'columns', 'childwidth', 'label_font', 'button_font']
+        optional = ['columns', 'childwidth', 'label_font', 'button_font']
         validate_options(config_info, required, optional)
+
+        self.server = Server.k4_server
 
         super().__init__(config_info, None)
 
@@ -1492,8 +1485,8 @@ class Page(Container):
         screen_width = Page.top.winfo_screenwidth()
         screen_height = Page.top.winfo_screenheight()
         w, h = self.top_frame.winfo_width(), self.frame.winfo_height()
-        Settings.load()
-        geometry = Settings.get('Window', 'root.geometry')
+        Server.settings.load()
+        geometry = Server.settings.get('Window', 'root.geometry')
         if geometry != None:
             _w, _h, x, y = split_geometry(geometry)
         else:
@@ -1528,13 +1521,6 @@ class Page(Container):
     def button_font(self):
         font = self.config_info.get('button_font', Default.button_font)
         return tkFont.Font(family=font['family'], size=font['size'], weight=font['weight'])
-
-    def server(self):
-        if 'server' in self.config_info:
-            server = Server.server(self.config_info['server'])
-        else:
-            server = None
-        return server
 
     def select_tab(self, tab_name):
         self.frame.select(self.tab_ids[tab_name])
@@ -3298,14 +3284,14 @@ class Equalizers(Widget):
         self.tr_mode_combobox.configure(values=tr_modes, height=8, width=width)
 
     def save_settings(self):
-        category = 'Equalizers'
-        previous_settings = Settings.get_category(category)
-        Settings.clear_category(category)
+        section = 'Equalizers'
+        previous_settings = Server.settings.get_section(section)
+        Server.settings.clear_section(section)
 
-        Settings.put(category, 'enabled', str(self.enabled_var.get()))
-        Settings.put(category, 'active', self.active_alt_var.get())
-        Settings.put(category, 'alternates', ', '.join(self.alternates))
-        Settings.put(category, 'alt.tr.mode', '.'.join(self.alt_tr_mode()))
+        Server.settings.put(section, 'enabled', str(self.enabled_var.get()))
+        Server.settings.put(section, 'active', self.active_alt_var.get())
+        Server.settings.put(section, 'alternates', ', '.join(self.alternates))
+        Server.settings.put(section, 'alt.tr.mode', '.'.join(self.alt_tr_mode()))
 
         for alt in self.alternates:
             for tr in self.trs:
@@ -3313,35 +3299,35 @@ class Equalizers(Widget):
                     setting = '.'.join((alt, tr, mode))
                     values = self.values[alt][tr][mode]
                     values_str = self.values_str(values)
-                    Settings.put(category, setting, values_str)
+                    Server.settings.put(section, setting, values_str)
 
-        settings = Settings.get_category(category)
+        settings = Server.settings.get_section(section)
         if settings != previous_settings:
-            Settings.save()
+            Server.settings.save()
 
     def load_settings(self):
-        category = 'Equalizers'
-        enabled = Settings.get(category, "enabled")
+        section = 'Equalizers'
+        enabled = Server.settings.get(section, "enabled")
         if enabled == None:
             enabled = 0
         self.enabled_var.set(int(enabled))
 
-        active = Settings.get(category, 'active')
+        active = Server.settings.get(section, 'active')
         if active == None:
             active = self.alternates[0]
         self.active_alt_var.set(active)
 
-        vfo = Settings.get(category, 'follows_vfo')
+        vfo = Server.settings.get(section, 'follows_vfo')
         if vfo == None:
             vfo = 'A'
         self.vfo_var.set(vfo)
 
-        alternates = Settings.get(category, 'alternates')
+        alternates = Server.settings.get(section, 'alternates')
         if alternates == None:
             alternates = 'Main'
         self.alternates = alternates.split(', ')
 
-        alt_tr_mode = Settings.get(category, 'alt.tr.mode')
+        alt_tr_mode = Server.settings.get(section, 'alt.tr.mode')
         if alt_tr_mode == None:
             alt = self.alternates[0]
             tr = self.trs[0]
@@ -3357,7 +3343,7 @@ class Equalizers(Widget):
                 self.values[alt][tr] = {}
                 for mode in self.modes:
                     setting = '.'.join((alt, tr, mode))
-                    values_str = Settings.get(category, setting)
+                    values_str = Server.settings.get(section, setting)
                     if values_str != None:
                         self.values[alt][tr][mode] = self.str_values(values_str)
                     else:
@@ -4067,30 +4053,30 @@ class Audio():
         cmd = cmd[len(base):]
 
         if base == 'AG':
-            Settings.put_save('Audio', 'main_volume', cmd)
+            Server.settings.put_save('Audio', 'main_volume', cmd)
             self.a_volume = float(cmd) / 60.0
         elif base == 'AG$':
-            Settings.put_save('Audio', 'sub_volume', cmd)
+            Server.settings.put_save('Audio', 'sub_volume', cmd)
             self.b_volume = float(cmd) / 60.0
         elif base == 'MG':
-            Settings.put_save('Audio', 'mic_gain', cmd)
+            Server.settings.put_save('Audio', 'mic_gain', cmd)
             self.mic_gain = float(cmd) / 80.0
         elif base == 'SB':
             self.sub_on = cmd != '0'
 
     @classmethod
     def local_audio_responses(cls):
-        a_volume = Settings.get('Audio', 'main_volume')
+        a_volume = Server.settings.get('Audio', 'main_volume')
         if a_volume == None:
             a_volume = '000'
         responses = 'AG' + a_volume + ';'
 
-        b_volume = Settings.get('Audio', 'sub_volume')
+        b_volume = Server.settings.get('Audio', 'sub_volume')
         if b_volume == None:
             b_volume = '000'
         responses += 'AG$' + b_volume + ';'
 
-        mic_gain = Settings.get('Audio', 'mic_gain')
+        mic_gain = Server.settings.get('Audio', 'mic_gain')
         if mic_gain == None:
             mic_gain = '020'
         responses += 'MG' + mic_gain + ';'
@@ -4148,17 +4134,17 @@ class Audio():
         self.sub_on = True
         self.transmit_audio = False
 
-        a_volume = Settings.get('Audio', 'main_volume')
+        a_volume = Server.settings.get('Audio', 'main_volume')
         if a_volume == None:
             a_volume = '015'
         self.a_volume = float(a_volume) / 60.0
 
-        b_volume = Settings.get('Audio', 'sub_volume')
+        b_volume = Server.settings.get('Audio', 'sub_volume')
         if b_volume == None:
             b_volume = '010'
         self.b_volume = float(b_volume) / 60.0
 
-        mic_gain = Settings.get('Audio', 'mic_gain')
+        mic_gain = Server.settings.get('Audio', 'mic_gain')
         if mic_gain == None:
             mic_gain = '040'
         self.mic_gain = float(mic_gain) / 80.0
@@ -4478,49 +4464,63 @@ class Audio():
             server.send_audio_packet(audio_packet, self.input_encode_mode, frame_size)
 
 class Settings():
-    settings_filename = 'settings.ini'
-    settings = configparser.RawConfigParser()
-    settings.optionxform = str
-    settings_loaded = False
-    settings_changed = False
+    def __init__(self, index=None):
+        self.settings = configparser.RawConfigParser()
+        self.settings.optionxform = str
+        self.settings_loaded = False
+        self.settings_changed = False
+        self.cached_platform_settings_dirname = None
 
-    @classmethod
-    def filename(cls):
-        filename = cls.settings_filename
-        if Options.radio != None:
-            filename = Options.radio + '-' + cls.settings_filename
-        return filename
+        if Server.main_settings == None:
+            Server.main_settings = 'pending'
+            Server.main_settings = Settings(index='main')
 
-    @classmethod
-    def put(cls, category, setting, value):
-        if not cls.settings_loaded:
-            cls.load()
+        if index == 'main':
+            self.filename = self.platform_settings_filename('settings.ini')
+        else:
+            if index == None:
+                index = Server.main_settings.getint('Remote', 'server_index', 0)
+                Server.index = index
+            self.filename = self.platform_settings_filename(f'settings-{index}.ini')
+            if index == 0:
+                main_filename = self.platform_settings_filename('settings.ini')
+                if os.path.isfile(main_filename) and not os.path.isfile(self.filename):
+                    os.rename(main_filename, self.filename)
+                    Server.main_settings.clear()
+                    Server.main_settings.put('Remote', 'server_index', index)
+                    Server.main_settings.save()
+
+        self.load()
+
+    def filename(self):
+        return f'settings.ini'
+
+    def put(self, section, setting, value):
+        if not self.settings_loaded:
+            self.load()
         value = str(value)
-        if not category in cls.settings:
-            cls.settings[category] = {}
-        previous_value = cls.settings[category].get(setting, None)
+        if not section in self.settings:
+            self.settings[section] = {}
+        previous_value = self.settings[section].get(setting, None)
         if value != previous_value:
-            cls.settings[category][setting] = value
-            cls.settings_changed = True
+            self.settings[section][setting] = value
+            self.settings_changed = True
 
-    @classmethod
-    def put_save(cls, category, setting, value):
-        cls.put(category, setting, value)
-        cls.save()
+    def put_save(self, section, setting, value):
+        self.put(section, setting, value)
+        self.save()
 
-    @classmethod
-    def get(cls, category, setting, default=None):
-        if not cls.settings_loaded:
-            cls.load()
-        if category not in cls.settings:
+    def get(self, section, setting, default=None):
+        if not self.settings_loaded:
+            self.load()
+        if section not in self.settings:
             return default
-        if setting not in cls.settings[category]:
+        if setting not in self.settings[section]:
             return default
-        return cls.settings[category][setting]
+        return self.settings[section][setting]
 
-    @classmethod
-    def getint(cls, category, setting, default=None, minimum=None, maximum=None):
-        val = cls.get(category, setting, default)
+    def getint(self, section, setting, default=None, minimum=None, maximum=None):
+        val = self.get(section, setting, default)
         if val != None:
             val = int(val)
             if minimum != None and val < minimum:
@@ -4529,24 +4529,28 @@ class Settings():
                 val = maximum
         return val
 
-    @classmethod
-    def clear_category(cls, category):
-        cls.settings[category] = {}
+    def clear(self):
+        for section in self.settings.sections():
+            self.settings.remove_section(section)
 
-    @classmethod
-    def get_category(cls, category):
-        if not cls.settings_loaded:
-            cls.load()
+    def clear_section(self, section):
+        self.settings.remove_section(section)
+
+    def get_section(self, section):
+        if not self.settings_loaded:
+            self.load()
         settings = {}
         try:
-            for k, v in cls.settings[category].items():
+            for k, v in self.settings[section].items():
                 settings[k] = v
         except:
             pass
         return settings
 
-    @classmethod
-    def platform_settings_filename(cls, filename):
+    def platform_settings_dirname(self):
+        if self.cached_platform_settings_dirname != None:
+            return self.cached_platform_settings_dirname
+
         if sys.platform == 'darwin':
             from AppKit import NSSearchPathForDirectoriesInDomains
             # http://developer.apple.com/DOCUMENTATION/Cocoa/Reference/Foundation/Miscellaneous/Foundation_Functions/Reference/reference.html#//apple_ref/c/func/NSSearchPathForDirectoriesInDomains
@@ -4564,38 +4568,52 @@ class Settings():
             else:
                 config_dir = os.path.join(home_dir, '.' + appname)
         else:
-            dprint(f'{sys.platform} not supported.')
+            raise exception(f'{sys.platform} not supported.')
 
         if not os.path.isdir(config_dir):
             os.mkdir(config_dir, 0o755)
-        filename = os.path.join(config_dir, filename)
 
+        self.cached_platform_settings_dirname = config_dir
+        return config_dir
+
+    def platform_settings_filename(self, filename):
+        config_dir = self.platform_settings_dirname()
+        filename = os.path.join(config_dir, filename)
         return filename
 
-    @classmethod
-    def save(cls):
-        if not cls.settings_changed:
+    def save(self):
+        if not self.settings_changed:
             return
 
-        filename = cls.platform_settings_filename(cls.filename())
-        with open(filename, 'w') as settingsfile:
-            cls.settings.write(settingsfile)
-        cls.settings_changed = False
+        with open(self.filename, 'w') as settingsfile:
+            self.settings.write(settingsfile)
+        self.settings_changed = False
 
-    @classmethod
-    def load(cls):
-        filename = cls.platform_settings_filename(cls.filename())
-        cls.settings.read(filename)
-        cls.settings_loaded = True
+    def load(self):
+        self.settings.read(self.filename)
+        self.settings_loaded = True
 
-        try:
-            # clean up obsolete options
-            cls.settings.remove_option('Window', 'root.xy')
-            cls.settings.remove_option('Window', 'CW.xy')
-        except:
-            pass
+        if self.settings.has_section('command'):
+            for option in self.settings.options('command'):
+                value = self.get('command', option)
+                if value != None:
+                    self.put('Commands', option, value)
 
-class Settings_widget(Widget):
+        # clean up obsolete categories
+        if self.settings.remove_section('command'):
+            self.settings_changed = True
+
+        self.save()
+
+    def k4_names(self):
+        names = []
+        for i in range(10):
+            settings = Settings(i)
+            name = settings.get(Server.k4_section, 'name', f'K4 #{i+1}')
+            names.append(name)
+        return names
+
+class ServerSettings_widget(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         optional = [ 'label', 'leading', 'bg', 'fg', 'abg', 'afg',
@@ -4604,35 +4622,15 @@ class Settings_widget(Widget):
 
         super().__init__(config_info, container)
 
-        input_device_name = Settings.get('Audio', 'input_device_name')
-        if input_device_name != None:
-            Audio.set_input_device_name(input_device_name)
-
-        output_device_name = Settings.get('Audio', 'output_device_name')
-        if output_device_name != None:
-            Audio.set_output_device_name(output_device_name)
-
         self.selectbg = config_info.get('selectbg', self.bg)
         self.selectfg = config_info.get('selectfg', self.fg)
 
-        self.frame = tk.LabelFrame(self.frame,
-                              text='Settings',
-                              font=self.label_font(),
-                              labelanchor='nw',
-                              bd=2,
-                              padx=2,
-                              pady=2,
-                              relief='raised')
-        self.frame.grid(row=0, column=0)
-
-        remote_frame = self.remote_settings()
-        remote_frame.grid(row=0, column=0, sticky='w')
-        audio_frame = self.audio_settings()
-        audio_frame.grid(row=1, column=0, sticky='w', pady=8)
+        self.frame = self.remote_settings()
+        self.frame.grid(row=0, column=0, sticky='w')
 
     def remote_settings(self):
         frame = tk.LabelFrame(self.frame,
-                              text='K4 Remote',
+                              text='',
                               font=self.label_font(),
                               labelanchor='nw',
                               bd=2,
@@ -4640,16 +4638,89 @@ class Settings_widget(Widget):
                               pady=2,
                               relief='raised')
 
+        server_frame = self.select_server(frame)
+        server_frame.grid(row=0, column=0, sticky='w', pady=2)
+
+        name_frame = self.k4_name(frame)
+        name_frame.grid(row=1, column=0, sticky='w', pady=2)
+
         address_frame = self.k4_address_settings(frame)
-        address_frame.grid(row=0, column=0, sticky='w', pady=2)
+        address_frame.grid(row=2, column=0, sticky='w', pady=2)
 
         password_frame = self.k4_password_settings(frame)
-        password_frame.grid(row=1, column=0, sticky='w', pady=2)
+        password_frame.grid(row=3, column=0, sticky='w', pady=2)
 
         proxy_frame = self.k4_proxy_settings(frame)
-        proxy_frame.grid(row=2, column=0, sticky='w', pady=2)
+        proxy_frame.grid(row=4, column=0, sticky='w', pady=2)
 
         return frame
+
+    def select_server(self, remote_frame):
+        frame = tk.LabelFrame(remote_frame,
+                              text='Remote K4',
+                              font=self.label_font(),
+                              labelanchor='nw',
+                              bd=2,
+                              padx=2,
+                              pady=2,
+                              relief='raised')
+
+        self.dropdown = Dropdown_Widget(frame, bd=2, bg=self.bg,
+            fg=self.fg, abg=self.abg, selectbg=self.selectbg, selectfg=self.selectfg,
+            font=self.font(), justify='left', height=0)
+        self.dropdown.grid(row=0, column=0)
+
+        self.dropdown.select_callback(self.on_new_server)
+
+        k4_names = Server.settings.k4_names()
+        self.dropdown.values(k4_names)
+        self.dropdown.index(Server.index)
+
+        return frame
+
+    def on_new_server(self, event):
+        Server.main_settings.put_save('Remote', 'server_index', self.dropdown.index())
+        restart()
+
+    def k4_name(self, remote_frame):
+        frame = tk.LabelFrame(remote_frame,
+                              text='Name',
+                              font=self.label_font(),
+                              labelanchor='nw',
+                              bd=2,
+                              padx=2,
+                              pady=2,
+                              relief='raised')
+
+        self.k4_name_var = tk.StringVar()
+        k4_name = Server.settings.get(Server.k4_section, 'name', f'K4 #{self.dropdown.index()+1}')
+        if k4_name == None:
+            k4_name = ''
+
+        self.k4_name_var.set(k4_name)
+
+        entry = tk.Entry(frame,
+            textvariable=self.k4_name_var,
+            bd=2,
+            font=self.font(),
+            justify='left',
+            fg=self.fg,
+            bg=self.bg)
+        entry.grid(row=0, column=0)
+        entry.bind('<Return>', self.set_k4_name)
+        entry.bind('<FocusOut>', self.set_k4_name)
+
+        return frame
+
+    def set_k4_name(self, event=None):
+        name = self.k4_name_var.get()
+        Server.settings.put_save(Server.k4_section, 'name', name)
+        self.server.set_name(name)
+
+        values = list(self.dropdown.values())
+        values[self.dropdown.index()] = name
+        self.dropdown.values(values)
+        self.dropdown.value(name)
 
     def k4_address_settings(self, remote_frame):
         frame = tk.LabelFrame(remote_frame,
@@ -4662,7 +4733,7 @@ class Settings_widget(Widget):
                               relief='raised')
 
         self.k4_address_var = tk.StringVar()
-        k4_address = Settings.get('Elecraft K4', 'address')
+        k4_address = Server.settings.get(Server.k4_section, 'address')
         if k4_address == None:
             k4_address = ''
 
@@ -4684,7 +4755,8 @@ class Settings_widget(Widget):
 
     def set_k4_server_address(self, event=None):
         address = self.k4_address_var.get()
-        Settings.put_save('Elecraft K4', 'address', address)
+        if address != ''or Server.settings.get(Server.k4_section, 'address', '') != '':
+            Server.settings.put_save(Server.k4_section, 'address', address)
         self.server.set_address(address)
 
     def k4_password_settings(self, remote_frame):
@@ -4720,7 +4792,7 @@ class Settings_widget(Widget):
     def set_k4_password(self, event=None):
         pw = self.password_var.get()
         h = Reversable_hash.hash(pw)
-        Settings.put_save('Elecraft K4', 'insecure_password_hash', h)
+        Server.settings.put_save(Server.k4_section, 'insecure_password_hash', h)
         self.server.set_new_password(pw)
 
     def k4_proxy_settings(self, remote_frame):
@@ -4734,7 +4806,7 @@ class Settings_widget(Widget):
                               relief='raised')
 
         self.k4_proxy_var = tk.StringVar()
-        k4_proxy = Settings.get('Elecraft K4', 'proxy_address')
+        k4_proxy = Server.settings.get(Server.k4_section, 'proxy_address')
         if k4_proxy == None:
             k4_proxy = ''
 
@@ -4756,8 +4828,32 @@ class Settings_widget(Widget):
 
     def set_k4_server_proxy(self, event=None):
         proxy = self.k4_proxy_var.get()
-        Settings.put_save('Elecraft K4', 'proxy_address', proxy)
+        if proxy != '':
+            Server.settings.put_save(Server.k4_section, 'proxy_address', proxy)
         self.server.set_proxy(proxy)
+
+class AppSettings_widget(Widget):
+    def __init__(self, config_info, container):
+        required = ['item']
+        optional = [ 'label', 'leading', 'bg', 'fg', 'abg', 'afg',
+            'selectbg', 'selectfg', 'font', 'label_font', 'padx', 'pady']
+        validate_options(config_info, required, optional)
+
+        super().__init__(config_info, container)
+
+        input_device_name = Server.settings.get('Audio', 'input_device_name')
+        if input_device_name != None:
+            Audio.set_input_device_name(input_device_name)
+
+        output_device_name = Server.settings.get('Audio', 'output_device_name')
+        if output_device_name != None:
+            Audio.set_output_device_name(output_device_name)
+
+        self.selectbg = config_info.get('selectbg', self.bg)
+        self.selectfg = config_info.get('selectfg', self.fg)
+
+        self._frame = self.audio_settings()
+        self._frame.grid(row=0, column=0, sticky='w', pady=8)
 
     def audio_settings(self):
         frame = tk.LabelFrame(self.frame,
@@ -4779,7 +4875,7 @@ class Settings_widget(Widget):
         return frame
 
     def audio_input_settings(self, frame):
-        input_device_name = Settings.get('Audio', 'input_device_name')
+        input_device_name = Server.settings.get('Audio', 'input_device_name')
         if input_device_name == None or Audio.input_device_index() < 0:
             input_device_name = Audio.input_device_name()
 
@@ -4828,11 +4924,11 @@ class Settings_widget(Widget):
         if input_name == '':
             return
 
-        Settings.put_save('Audio', 'input_device_name', input_name)
+        Server.settings.put_save('Audio', 'input_device_name', input_name)
         Audio.set_input_device_name(input_name)
 
     def audio_output_settings(self, frame):
-        output_device_name = Settings.get('Audio', 'output_device_name')
+        output_device_name = Server.settings.get('Audio', 'output_device_name')
         if output_device_name == None or Audio.output_device_index() < 0:
             output_device_name = Audio.output_device_name()
 
@@ -4881,11 +4977,11 @@ class Settings_widget(Widget):
         if output_name == '':
             return
 
-        Settings.put_save('Audio', 'output_device_name', output_name)
+        Server.settings.put_save('Audio', 'output_device_name', output_name)
         Audio.set_output_device_name(output_name)
 
     def audio_k4_control_setting(self, frame):
-        setting = true_values(Settings.get('Audio', 'control_k4_audio_settings'))
+        setting = true_values(Server.settings.get('Audio', 'control_k4_audio_settings'))
         if setting == None:
             setting = self.cat_only
         self.server.set_control_k4_audio(setting)
@@ -4935,7 +5031,7 @@ class Settings_widget(Widget):
 
         setting = current_value == 'Yes'
 
-        Settings.put_save('Audio', 'control_k4_audio_settings', setting)
+        Server.settings.put_save('Audio', 'control_k4_audio_settings', setting)
         self.server.set_control_k4_audio(setting)
 
 class FWversions(Text):
@@ -5022,14 +5118,14 @@ class Startup_cmds(Entry):
         self.server.startup_cmds = self.cmds
 
     def load_settings(self):
-        self.cmds = Settings.get('Elecraft K4', self.settings_key)
+        self.cmds = Server.settings.get(Server.k4_section, self.settings_key)
         if self.cmds == None:
             self.cmds = 'TS1;'
         self.entry.value(self.cmds)
         self.got_cmds()
 
     def save_settings(self):
-        Settings.put_save('Elecraft K4', self.settings_key, self.cmds)
+        Server.settings.put_save(Server.k4_section, self.settings_key, self.cmds)
 
 class Exit_cmds(Startup_cmds):
     def __init__(self, config_info, container):
@@ -5049,6 +5145,8 @@ class Dropdown_Widget():
             selectbg = bg
         if selectfg == None:
             selectfg = fg
+
+        self.justify = justify
 
         # Define the style for this dropdown widget
         self.stylename = str(self) + '.TCombobox'
@@ -5082,7 +5180,7 @@ class Dropdown_Widget():
             self.config(values=values)
         return self.combobox.cget('values')
 
-    def callback(self, callback):
+    def select_callback(self, callback):
         self.combobox.bind('<<ComboboxSelected>>', callback)
 
     def grid(self, **opts):
@@ -5122,9 +5220,9 @@ class Antenna(Widget):
         self.kind = config_info['type']
 
         if self.kind in ('main', 'sub', 'tx'):
-            self.dropdown = Dropdown_Widget(self.frame, bd=bd, bg=self.bg, fg=self.fg, abg=self.abg,
-                                            selectbg=selectbg, selectfg=selectfg,
-                                            font=self.font(), justify=justify, height=height)
+            self.dropdown = Dropdown_Widget(self.frame, bd=bd, bg=self.bg,
+                fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
+                font=self.font(), justify=justify, height=height)
             self.dropdown.grid(row=0, column=0)
         else:
             raise Exception(f'unknown type: {self.kind} in item antenna.')
@@ -5133,7 +5231,7 @@ class Antenna(Widget):
 
     def on_received_initial_parameters(self, response):
         self.server.subscribe_responses('ACN1;ACN2;ACN3;ACN4;ACN5;', self.on_received_name)
-        self.dropdown.callback(self.on_select)
+        self.dropdown.select_callback(self.on_select)
         self.server.subscribe_response('AN;', self.on_k4_select_tx)
 
         if self.kind == 'tx':
@@ -5345,7 +5443,7 @@ class CW(Widget):
         self.is_open = True
         self.top_level = tk.Toplevel(Page.top)
         self.top_level.protocol("WM_DELETE_WINDOW", self.hide)
-        self.top_level.title('K4-Companion ' + version)
+        self.top_level.title(Page.top.title())
         self.top_level.resizable(False, False)
         self.frame = tk.Frame(self.top_level)
         self.frame.grid(row=0, column=0)
@@ -5589,8 +5687,8 @@ class CW(Widget):
     def set_geometry(self):
         self.frame.update_idletasks()
         w, h, x, y = split_geometry(self.top_level.geometry())
-        Settings.load()
-        geometry = Settings.get('Window', 'CW.geometry')
+        Server.settings.load()
+        geometry = Server.settings.get('Window', 'CW.geometry')
         if geometry == None:
             return
         _w, _h, x, y = split_geometry(geometry)
@@ -5849,7 +5947,7 @@ class CW(Widget):
 
     def save_geometry(self):
         geometry = self.top_level.geometry()
-        Settings.put_save('Window', 'CW.geometry', geometry)
+        Server.settings.put_save('Window', 'CW.geometry', geometry)
 
     def on_mode_change(self, response=None):
         if self.tx_mode() == 'CW':
@@ -6169,19 +6267,19 @@ class CW(Widget):
         return True
 
     def load_settings(self):
-        category = 'CW'
+        section = 'CW'
 
-        self.rows = Settings.getint(category, 'button_rows', 5, minimum=1, maximum=20)
-        self.columns = Settings.getint(category, 'button_columns', 4, minimum=1, maximum=20)
-        self.button_width = Settings.getint(category, 'button_width', 15, minimum=5, maximum=60)
-        self.text_width = Settings.getint(category, 'text_width', 65, minimum=10, maximum=150)
-        self.entry_height = Settings.getint(category, 'entry_height', 3, minimum=1, maximum=20)
-        self.tx_height = Settings.getint(category, 'tx_height', 3, minimum=1, maximum=20)
-        self.rx_height = Settings.getint(category, 'rx_height', 3, minimum=1, maximum=20)
+        self.rows = Server.settings.getint(section, 'button_rows', 5, minimum=1, maximum=20)
+        self.columns = Server.settings.getint(section, 'button_columns', 4, minimum=1, maximum=20)
+        self.button_width = Server.settings.getint(section, 'button_width', 15, minimum=5, maximum=60)
+        self.text_width = Server.settings.getint(section, 'text_width', 65, minimum=10, maximum=150)
+        self.entry_height = Server.settings.getint(section, 'entry_height', 3, minimum=1, maximum=20)
+        self.tx_height = Server.settings.getint(section, 'tx_height', 3, minimum=1, maximum=20)
+        self.rx_height = Server.settings.getint(section, 'rx_height', 3, minimum=1, maximum=20)
 
         self.button_values = []
         self.button_labels = []
-        buttons = Settings.get(category, 'buttons')
+        buttons = Server.settings.get(section, 'buttons')
         if buttons != None:
             values = buttons.split('\n')
         else:
@@ -6203,17 +6301,17 @@ class CW(Widget):
             self.button_labels.append('')
 
     def save_settings(self):
-        category = 'CW'
-        previous_settings = Settings.get_category(category)
-        Settings.clear_category(category)
+        section = 'CW'
+        previous_settings = Server.settings.get_section(section)
+        Server.settings.clear_section(section)
 
-        Settings.put(category, 'button_rows', self.rows)
-        Settings.put(category, 'button_columns', self.columns)
-        Settings.put(category, 'button_width', self.button_width)
-        Settings.put(category, 'text_width', self.text_width)
-        Settings.put(category, 'entry_height', self.entry_height)
-        Settings.put(category, 'tx_height', self.tx_height)
-        Settings.put(category, 'rx_height', self.rx_height)
+        Server.settings.put(section, 'button_rows', self.rows)
+        Server.settings.put(section, 'button_columns', self.columns)
+        Server.settings.put(section, 'button_width', self.button_width)
+        Server.settings.put(section, 'text_width', self.text_width)
+        Server.settings.put(section, 'entry_height', self.entry_height)
+        Server.settings.put(section, 'tx_height', self.tx_height)
+        Server.settings.put(section, 'rx_height', self.rx_height)
 
         values = []
         for i, value in enumerate(self.button_values):
@@ -6229,11 +6327,11 @@ class CW(Widget):
                 break
             values.pop()
         buttons = '\n '.join(values)
-        Settings.put(category, 'buttons', buttons)
+        Server.settings.put(section, 'buttons', buttons)
 
-        settings = Settings.get_category(category)
+        settings = Server.settings.get_section(section)
         if settings != previous_settings:
-            Settings.save()
+            Server.settings.save()
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure
@@ -6497,15 +6595,12 @@ class Options():
                           help="output debugging messages")
         parser.add_option('--yaml', dest='yaml_file', default=None,
                           help="output preprocessed YAML to FILE", metavar="FILE")
-        parser.add_option('-r', '--radio', dest='radio', default=None,
-                          help="specify radio name for multiple instances")
         (options, args) = parser.parse_args()
 
         Options.config_file = options.config_file
         Options.verbose = options.verbose
         Options.debug = options.debug
         Options.yaml_file = options.yaml_file
-        Options.radio = options.radio
 
         if Options.debug > 0 and Options.verbose == 0:
             Options.verbose = Options.debug
@@ -6515,12 +6610,12 @@ class Options():
 
 def clean_up(exit=False):
     save_geometry()
-    for server in Server.servers():
-        server.cancel_k4_subscriptions()
-        if exit:
-            server.exit()
-        else:
-            server.close()
+    server = Server.k4_server
+    server.cancel_k4_subscriptions()
+    if exit:
+        server.exit()
+    else:
+        server.close()
 
     CW.close_window()
     Audio.close()
@@ -6532,7 +6627,7 @@ def exit():
 
 def save_geometry():
     geometry = Page.top.geometry()
-    Settings.put_save('Window', 'root.geometry', geometry)
+    Server.settings.put_save('Window', 'root.geometry', geometry)
 
 class Popup():
     queue = queue.Queue()
@@ -6779,19 +6874,22 @@ def tprint(*args, **kwargs):
 
 def trace_stack():
     traceback.print_stack()
-
+    
 def start():
     Poll.set_top(Page.top)
     Popup.show_popups()
+
+    Server()
 
     read_config(Options.config_file)
 
     page = Page.main()
     server = page.server
+    Server.settings = Settings()
     if server.connect_on_start and server.connect():
         server.subscribe_received_initial_parameters(lambda x: page.show_page(page.name))
     else:
-        page.select_tab('App')
+        page.select_tab('Server')
         Page.show_page(page.name)
 
 def restart():
@@ -6811,6 +6909,9 @@ def split_geometry(geometry):
     w, h, x, y = m.groups()
     return int(w), int(h), int(x), int(y)
 
+def set_page_title(server_name):
+    Page.top.title(f'K4-Companion {version} [{server_name}]')
+
 def main():
     close_splash_screen()
 
@@ -6819,12 +6920,11 @@ def main():
     top = tk.Tk()
     Page.top = top
 
-    Settings.load()
-    geometry = Settings.get('Window', 'root.geometry')
+    Server.settings = Settings()
+    geometry = Server.settings.get('Window', 'root.geometry')
     if geometry != None:
         Page.top.geometry(geometry)
 
-    Page.top.title('K4-Companion ' + version)
     Page.top.protocol("WM_DELETE_WINDOW", exit)
     Page.top.resizable(False, False)
 
