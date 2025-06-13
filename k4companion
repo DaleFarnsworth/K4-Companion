@@ -41,6 +41,7 @@ import hashlib
 import math
 import numpy
 import opuslib
+import optparse
 import os
 import platform
 import pyaudio
@@ -61,9 +62,6 @@ import tkinter.ttk as ttk
 import tkinter.font as tkFont
 import traceback
 import yaml
-
-from optparse import OptionParser
-from tkinter import simpledialog
 
 appname = 'k4companion'
 version = "1.2.10"
@@ -6471,6 +6469,17 @@ class Poll():
     def call(interval, callback):
         Poll.add(interval, callback, repeat=False)
 
+class MyOptionParser(optparse.OptionParser):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        super().set_usage(optparse.SUPPRESS_USAGE)
+
+    def error(self, str):
+        print('Usage: k4companion [options]\n')
+        self.print_help()
+        print()
+        super().error(str)
+
 class Options():
     config_file = None
     verbose = 0
@@ -6479,7 +6488,7 @@ class Options():
 
     @staticmethod
     def Parse():
-        parser = OptionParser(version=version)
+        parser = MyOptionParser(version=version)
         parser.add_option('-c', '--config', dest='config_file', default='k4companion.yaml',
                           help="use config file FILE", metavar="FILE")
         parser.add_option('-v', '--verbose', action='count', dest='verbose', default = 0,
