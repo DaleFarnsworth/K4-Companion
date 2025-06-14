@@ -1448,6 +1448,7 @@
 #define sw-release-group
 - item: group
   label: "Software Release"
+  padx: 2
   columns: 1
   contains: #{
     #include sw-release-dropdown-button
@@ -1674,6 +1675,7 @@
 
 #define fwversions
 - item: fwversions
+  padx: 2
   label: FW Versions
 #end
 

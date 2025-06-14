@@ -98,10 +98,8 @@ class Default():
 class Server():
     k4_name = ''
     k4_server = None
-    index = 0
     k4_section = 'Elecraft K4'
     settings = None
-    main_settings = None
 
     receive_poll_interval = 1           # poll every 1 mS
     ping_poll_interval = 2000           # poll every 2 seconds
@@ -430,7 +428,7 @@ class Server():
         Server.settings = Settings()
 
         section = Server.k4_section
-        self.name = Server.settings.get(section, 'name', f'K4 #{Server.index+1}')
+        self.name = Server.settings.get(section, 'name', '*new*')
         self.address_port = Server.settings.get(section, 'address', '')
         self.password = self.password_from_settings()
         self.proxy_address_port =  Server.settings.get(section, 'proxy_address', '')
@@ -441,7 +439,6 @@ class Server():
         self.port = 9205
         self.proxy_address = ''
         self.proxy_port = ''
-        self.connect_on_start = true_values(Server.settings.get(section, 'connect_on_start', True))
         self.socket = None
         self.recv_buffer = ''
         self.send_queue = queue.Queue()
@@ -1164,6 +1161,13 @@ class Server():
         if self.received_cat_cmd:
             Popup.error('Lost connection to ' + self.name, timeout=None)
         self.connected = False
+
+    def connect_on_start(self):
+        if self.address == '':
+            return False
+        if Settings.server_count() == 1:
+            return True
+        return Settings.restart()
 
 class Widget():
     blink_mS = 500
@@ -4462,88 +4466,70 @@ class Audio():
             server.send_audio_packet(audio_packet, self.input_encode_mode, frame_size)
 
 class Settings():
-    def __init__(self, index=None):
-        self.settings = configparser.RawConfigParser()
-        self.settings.optionxform = str
-        self.settings_loaded = False
-        self.settings_changed = False
-        self.cached_platform_settings_dirname = None
+    max_servers = 25
 
-        if Server.main_settings == None and index != 'main':
-            Server.main_settings = Settings(index='main')
+    cached_server_count = None
+    cached_server_index = None
+    cached_main_settings = None
+    cached_platform_settings_dirname = None
 
-        if index == 'main':
-            self.filename = self.platform_settings_filename('settings.ini')
-        else:
-            if index == None:
-                index = Server.main_settings.getint('Remote', 'server_index', 0)
-                Server.index = index
-            self.filename = self.platform_settings_filename(f'settings-{index+1}.ini')
-            if index == 0:
-                main_filename = self.platform_settings_filename('settings.ini')
-                if os.path.isfile(main_filename) and not os.path.isfile(self.filename):
-                    os.rename(main_filename, self.filename)
-                    Server.main_settings.clear()
-                    Server.main_settings.put('Remote', 'server_index', index)
-                    Server.main_settings.save()
+    @classmethod
+    def server_count(cls):
+        if cls.cached_server_count == None:
+            cls.cached_server_count = len(cls.k4_names())
+        return cls.cached_server_count
 
-        self.load()
+    @classmethod
+    def server_index(cls, index=None):
+        if index != None:
+            cls.cached_server_index = index
+            return
 
-    def put(self, section, setting, value):
-        if not self.settings_loaded:
-            self.load()
-        value = str(value)
-        if not section in self.settings:
-            self.settings[section] = {}
-        previous_value = self.settings[section].get(setting, None)
-        if value != previous_value:
-            self.settings[section][setting] = value
-            self.settings_changed = True
+        if cls.cached_server_index == None:
+            cls.cached_server_index = cls.main().getint('Remote', 'server_index', 0)
+        return cls.cached_server_index
 
-    def put_save(self, section, setting, value):
-        self.put(section, setting, value)
-        self.save()
+    @classmethod
+    def main(cls):
+        if cls.cached_main_settings == None:
+            cls.cached_main_settings = Settings('main')
+        return cls.cached_main_settings
 
-    def get(self, section, setting, default=None):
-        if not self.settings_loaded:
-            self.load()
-        if section not in self.settings:
-            return default
-        if setting not in self.settings[section]:
-            return default
-        return self.settings[section][setting]
+    @classmethod
+    def k4_names(cls):
+        names = []
+        active_indexes = []
+        for i in range(cls.max_servers):
+            settings = Settings(i)
+            name = settings.get(Server.k4_section, 'name', '')
+            if name != '':
+                names.append(name)
+                active_indexes.append(i)
+        if len(active_indexes) > 0 and len(names) != active_indexes[-1] + 1:
+            cls.rename_files(active_indexes)
+            return cls.k4_names()
+        return names
 
-    def getint(self, section, setting, default=None, minimum=None, maximum=None):
-        val = self.get(section, setting, default)
-        if val != None:
-            val = int(val)
-            if minimum != None and val < minimum:
-                val = minimum
-            if maximum != None and val > maximum:
-                val = maximum
-        return val
+    @classmethod
+    def rename_files(cls, active_indexes):
+        for i, index in enumerate(active_indexes):
+            if i != index:
+                os.rename(cls.settings_pathname(index), cls.settings_pathname(i))
+                if cls.server_index() > i:
+                    cls.server_index(cls.server_index()-1)
+                    cls.main().put_save('Remote', 'server_index', Server.index)
 
-    def clear(self):
-        for section in self.settings.sections():
-            self.settings.remove_section(section)
+    @classmethod
+    def restart(cls, restart=None):
+        if restart != None:
+            Settings.main().put_save('Remote', 'restart', restart)
+            return
+        return true_values(Settings.main().get('Remote', 'restart', False))
 
-    def clear_section(self, section):
-        self.settings.remove_section(section)
-
-    def get_section(self, section):
-        if not self.settings_loaded:
-            self.load()
-        settings = {}
-        try:
-            for k, v in self.settings[section].items():
-                settings[k] = v
-        except:
-            pass
-        return settings
-
-    def platform_settings_dirname(self):
-        if self.cached_platform_settings_dirname != None:
-            return self.cached_platform_settings_dirname
+    @classmethod
+    def platform_settings_dirname(cls):
+        if cls.cached_platform_settings_dirname != None:
+            return cls.cached_platform_settings_dirname
 
         if sys.platform == 'darwin':
             from AppKit import NSSearchPathForDirectoriesInDomains
@@ -4567,26 +4553,113 @@ class Settings():
         if not os.path.isdir(config_dir):
             os.mkdir(config_dir, 0o755)
 
-        self.cached_platform_settings_dirname = config_dir
+        cls.cached_platform_settings_dirname = config_dir
         return config_dir
 
-    def platform_settings_filename(self, filename):
-        config_dir = self.platform_settings_dirname()
-        filename = os.path.join(config_dir, filename)
-        return filename
+    @classmethod
+    def settings_pathname(cls, index):
+        config_dir = cls.platform_settings_dirname()
+        if index == 'main':
+            suffix = ''
+        else:
+            suffix = f'-{index+1}'
+        return os.path.join(config_dir,f'settings{suffix}.ini')
+
+    def __init__(self, index=None):
+        self.settings = configparser.RawConfigParser()
+        self.settings.optionxform = str
+        self.settings_loaded = False
+        self.settings_changed = False
+
+        main_pathname = Settings.settings_pathname('main')
+        if index == 'main':
+            self.pathname = main_pathname
+        else:
+            main_settings = Settings.main()
+            if index == None:
+                index = main_settings.getint('Remote', 'server_index', 0)
+                if index > Settings.server_count() or index >= Settings.max_servers:
+                    index = 0
+                    main_settings.put_save('Remote', 'server_index', index)
+                Settings.server_index(index)
+            self.pathname = Settings.settings_pathname(index)
+            if index == 0:
+                # Check for old settings.ini format
+                if os.path.isfile(main_pathname) and not os.path.isfile(self.pathname):
+                    if main_settings.settings.has_section('Elecraft K4'):
+                        os.rename(main_pathname, self.pathname)
+                        main_settings.clear()
+                        main_settings.put_save('Remote', 'server_index', index)
+        self.index = index
+        self.load()
+
+    def put(self, section, setting, value):
+        if not self.settings_loaded and os.path.isfile(self.pathname):
+            self.load()
+        value = str(value)
+        if not section in self.settings:
+            self.settings[section] = {}
+        previous_value = self.settings[section].get(setting, None)
+        if value != previous_value:
+            self.settings[section][setting] = value
+            self.settings_changed = True
+
+    def put_save(self, section, setting, value):
+        self.put(section, setting, value)
+        self.save()
+
+    def get(self, section, setting, default=None):
+        self.load()
+        if section not in self.settings:
+            return default
+        if setting not in self.settings[section]:
+            return default
+        return self.settings[section][setting]
+
+    def getint(self, section, setting, default=None, minimum=None, maximum=None):
+        val = self.get(section, setting, default)
+        if val != None:
+            val = int(val)
+            if minimum != None and val < minimum:
+                val = minimum
+            if maximum != None and val > maximum:
+                val = maximum
+        return val
+
+    def get_section(self, section):
+        self.load()
+        settings = {}
+        try:
+            for k, v in self.settings[section].items():
+                settings[k] = v
+        except:
+            pass
+        return settings
+
+    def clear(self):
+        for section in self.settings.sections():
+            Settings.remove_section(section)
+
+    def clear_section(self, section):
+        self.settings.remove_section(section)
 
     def save(self):
         if not self.settings_changed:
             return
 
-        with open(self.filename, 'w') as settingsfile:
+        with open(self.pathname, 'w') as settingsfile:
             self.settings.write(settingsfile)
         self.settings_changed = False
 
     def load(self):
-        self.settings.read(self.filename)
+        if self.settings_loaded:
+            return
+        if self.index == 'main' and not os.path.isfile(self.pathname):
+            self.put_save('Remote', 'server_index', 0)
+        self.settings.read(self.pathname)
         self.settings_loaded = True
 
+        # rename obsolete options
         if self.settings.has_section('command'):
             for option in self.settings.options('command'):
                 value = self.get('command', option)
@@ -4599,13 +4672,20 @@ class Settings():
 
         self.save()
 
-    def k4_names(self):
-        names = []
-        for i in range(10):
-            settings = Settings(i)
-            name = settings.get(Server.k4_section, 'name', f'K4 #{i+1}')
-            names.append(name)
-        return names
+    def unique_name(self, orig_name, new=False):
+        names = list(Settings.k4_names())
+        if not new and self.index < len(names):
+            del names[self.index]
+        name = orig_name
+        for i in range(2, Settings.max_servers+1):
+            if name not in names:
+                break
+            name = f'{orig_name} #{i}'
+        return name
+
+    def remove_file(self):
+        if os.path.exists(self.pathname):
+            os.remove(self.pathname)
 
 class ServerSettings_widget(Widget):
     def __init__(self, config_info, container):
@@ -4664,16 +4744,29 @@ class ServerSettings_widget(Widget):
             font=self.font(), justify='left', height=0)
         self.dropdown.grid(row=0, column=0)
 
-        self.dropdown.select_callback(self.on_new_server)
+        self.dropdown.select_callback(self.on_select_server)
 
-        k4_names = Server.settings.k4_names()
-        self.dropdown.values(k4_names)
-        self.dropdown.index(Server.index)
+        names = Settings.k4_names()
+        if len(names) == 0:
+            name = Server.settings.unique_name('K4', new=True)
+            Server.settings.put_save(Server.k4_section, 'name', name)
+            names = [name]
+
+        if len(names) < Settings.max_servers:
+            names.append('*new*')
+        self.dropdown.values(names)
+        self.dropdown.index(Settings.server_index())
 
         return frame
 
-    def on_new_server(self, event):
-        Server.main_settings.put_save('Remote', 'server_index', self.dropdown.index())
+    def on_select_server(self, event):
+        index = self.dropdown.index()
+        Settings.server_index(index)
+        Settings.main().put_save('Remote', 'server_index', index)
+        if self.dropdown.value() == '*new*':
+            settings = Settings(index)
+            name = settings.unique_name('K4', new=True)
+            settings.put_save(Server.k4_section, 'name', name)
         restart()
 
     def k4_name(self, remote_frame):
@@ -4687,11 +4780,13 @@ class ServerSettings_widget(Widget):
                               relief='raised')
 
         self.k4_name_var = tk.StringVar()
-        k4_name = Server.settings.get(Server.k4_section, 'name', f'K4 #{self.dropdown.index()+1}')
-        if k4_name == None:
-            k4_name = ''
+        name = Server.settings.get(Server.k4_section, 'name', '')
+        self.k4_name_var.set(name)
 
-        self.k4_name_var.set(k4_name)
+        names = list(self.dropdown.values())
+        names[self.dropdown.index()] = name
+        self.dropdown.values(names)
+        self.dropdown.value(name)
 
         entry = tk.Entry(frame,
             textvariable=self.k4_name_var,
@@ -4700,14 +4795,50 @@ class ServerSettings_widget(Widget):
             justify='left',
             fg=self.fg,
             bg=self.bg)
-        entry.grid(row=0, column=0)
+        entry.grid(row=0, column=0, sticky='w')
         entry.bind('<Return>', self.set_k4_name)
         entry.bind('<FocusOut>', self.set_k4_name)
 
+        label = tk.Label(frame,
+                    text='(Erase name to remove.)',
+                    bd='2',
+                    font=self.font(),
+                    fg=self.fg,
+                    bg=None,
+                    padx=2,
+                    pady=2)
+        label.grid(row=1, column=0, sticky='w')
+
         return frame
 
-    def set_k4_name(self, event=None):
-        name = self.k4_name_var.get()
+    def set_k4_name(self, event=None, name = None):
+        if name == None:
+            name = self.k4_name_var.get()
+
+        previous_name = Server.settings.get(Server.k4_section, 'name', '')
+        if name == previous_name:
+            return
+
+        if name == '*new*' or name in Settings.k4_names():
+            if name == '*new*':
+                msg = 'The name "*new*" is reserved.'
+            else:
+                msg = f'The name "{name} already exists.'
+            Popup.warning(msg)
+
+            self.k4_name_var.set(previous_name)
+            return
+
+        if name == '':
+            Server.settings.remove_file()
+            Settings.k4_names() # trigger renaming of files
+            Settings.main().put_save('Remote', 'server_index', 0)
+            restart()
+            return
+
+        name = Server.settings.unique_name(name)
+        self.k4_name_var.set(name)
+
         Server.settings.put_save(Server.k4_section, 'name', name)
         self.server.set_name(name)
 
@@ -4715,6 +4846,9 @@ class ServerSettings_widget(Widget):
         values[self.dropdown.index()] = name
         self.dropdown.values(values)
         self.dropdown.value(name)
+
+    def get_k4_name(self):
+        return self.k4_name_var.get()
 
     def k4_address_settings(self, remote_frame):
         frame = tk.LabelFrame(remote_frame,
@@ -4727,10 +4861,7 @@ class ServerSettings_widget(Widget):
                               relief='raised')
 
         self.k4_address_var = tk.StringVar()
-        k4_address = Server.settings.get(Server.k4_section, 'address')
-        if k4_address == None:
-            k4_address = ''
-
+        k4_address = Server.settings.get(Server.k4_section, 'address', '')
         self.k4_address_var.set(k4_address)
         self.set_k4_server_address()
 
@@ -4749,8 +4880,7 @@ class ServerSettings_widget(Widget):
 
     def set_k4_server_address(self, event=None):
         address = self.k4_address_var.get()
-        if address != ''or Server.settings.get(Server.k4_section, 'address', '') != '':
-            Server.settings.put_save(Server.k4_section, 'address', address)
+        Server.settings.put_save(Server.k4_section, 'address', address)
         self.server.set_address(address)
 
     def k4_password_settings(self, remote_frame):
@@ -6612,6 +6742,7 @@ def clean_up(exit=False):
 
 def exit():
     clean_up(exit=True)
+    Settings.restart(False)
     Page.top.quit()
 
 def save_geometry():
@@ -6875,7 +7006,7 @@ def start():
     page = Page.main()
     server = page.server
     Server.settings = Settings()
-    if server.connect_on_start and server.connect():
+    if server.connect_on_start() and server.connect():
         server.subscribe_received_initial_parameters(lambda x: page.show_page(page.name))
     else:
         page.select_tab('Server')
@@ -6883,6 +7014,7 @@ def start():
 
 def restart():
     clean_up()
+    Settings.restart(True)
     Page.main().frame.destroy()
     start()
 
