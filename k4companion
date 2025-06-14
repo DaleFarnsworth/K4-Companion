@@ -759,8 +759,6 @@ class Server():
                 Page.show_previous()
             else:
                 Page.show_page(page)
-        elif lcmd == 'cw!':
-            CW.show_window()
         else:
            raise Exception('Unknown directive: ', directive)
 
@@ -4471,8 +4469,7 @@ class Settings():
         self.settings_changed = False
         self.cached_platform_settings_dirname = None
 
-        if Server.main_settings == None:
-            Server.main_settings = 'pending'
+        if Server.main_settings == None and index != 'main':
             Server.main_settings = Settings(index='main')
 
         if index == 'main':
@@ -4481,7 +4478,7 @@ class Settings():
             if index == None:
                 index = Server.main_settings.getint('Remote', 'server_index', 0)
                 Server.index = index
-            self.filename = self.platform_settings_filename(f'settings-{index}.ini')
+            self.filename = self.platform_settings_filename(f'settings-{index+1}.ini')
             if index == 0:
                 main_filename = self.platform_settings_filename('settings.ini')
                 if os.path.isfile(main_filename) and not os.path.isfile(self.filename):
@@ -4491,9 +4488,6 @@ class Settings():
                     Server.main_settings.save()
 
         self.load()
-
-    def filename(self):
-        return f'settings.ini'
 
     def put(self, section, setting, value):
         if not self.settings_loaded:
@@ -5400,10 +5394,6 @@ class CW(Widget):
     singleton = None
 
     @classmethod
-    def show_window(cls):
-        cls.singleton.show()
-
-    @classmethod
     def close_window(cls):
         cls.singleton.close()
 
@@ -5453,6 +5443,8 @@ class CW(Widget):
         self.add_cw_tab()
         self.add_more_tab()
         self.add_config_tab()
+
+        self.set_geometry()
 
     def add_cw_tab(self):
         self.cw_frame = tk.Frame(self.notebook)
@@ -5816,7 +5808,6 @@ class CW(Widget):
             if column >= self.columns:
                 row += 1
                 column = 0
-        self.set_geometry()
 
     def add_text_fields(self, parent_frame):
         self.entry_frame = tk.LabelFrame(parent_frame, text='Delayed Tx (Press Enter key to send, Delete key to clear)',
@@ -6111,8 +6102,6 @@ class CW(Widget):
         if autospot_right > window_width:
             self.apf_frame.grid(row=1, column=0, sticky='w', padx=2, pady=2)
             self.autospot_frame.grid(row=1, column=1, sticky='w', padx=2, pady=2)
-
-        self.set_geometry()
 
     def update_sending_offset(self):
         text = self.tx_text
