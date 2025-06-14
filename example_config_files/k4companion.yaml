@@ -125,7 +125,7 @@
 
 #define equalizers-tab-group
 - item: group
-  tabname: Equalizers
+  tabname: EQ
   contains: #{
     #include equalizers
   #}
