@@ -128,16 +128,16 @@
   contains: #{
     #include server-column1
     #include server-column2
+    #include server-column3
   #}
 #end
 
 #define app-settings-tab-group
 - item: group
-  tabname: App
+  tabname: Audio
   label: ''
   contains: #{
     #include app-settings
-    #include app-column1
   #}
 #end
 
@@ -305,17 +305,17 @@
   #}
 #end
 
-#define server-settings
-- item: serversettings
-  selectbg: pink
-#end
-
-#define app-column1
+#define server-column3
 - item: group
   columns: 1
   contains: #{
     #include app-version
   #}
+#end
+
+#define server-settings
+- item: serversettings
+  selectbg: pink
 #end
 
 #define app-settings
@@ -325,8 +325,8 @@
 
 #define app-version
 - item: text
-  label: k4companion
-  evaltext: '"Version: " + version'
+  label: "K4-Companion\nVersion"
+  evaltext: version
 #end
 
 #define startup-cmds
