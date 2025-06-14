@@ -25,7 +25,6 @@
     #include transmit-tab-group
     #include equalizers-tab-group
     #include menu-tab-group
-    #include misc-tab-group
     #include app-settings-tab-group
     #include server-settings-tab-group
   #}
@@ -72,15 +71,6 @@
   tabname: Menu
   contains: #{
     #include menu
-  #}
-#end
-
-#define misc-tab-group
-- item: group
-  tabname: Misc
-  contains: #{
-    #include sw-release-group
-    #include fwversions
   #}
 #end
 
@@ -136,8 +126,8 @@
   tabname: Server
   label: ''
   contains: #{
-    #include server-settings
     #include server-column1
+    #include server-column2
   #}
 #end
 
@@ -299,9 +289,19 @@
 - item: group
   columns: 1
   contains: #{
+    #include server-settings
+    #include sw-release-group
+  #}
+#end
+
+#define server-column2
+- item: group
+  columns: 1
+  contains: #{
     #include startup-cmds
     #include exit-cmds
     #include connect-power-off-exit-group
+    #include fwversions
   #}
 #end
 
