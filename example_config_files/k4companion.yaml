@@ -425,7 +425,7 @@
 - item: bargraph
   leading: 1
   maximum: 42
-  lengthpercent: 96
+  lengthpercent: 98
   cmd: SM1;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ' '
@@ -450,8 +450,8 @@
 #define alc-bargraph
 - item: bargraph
   label: ALC
-  maximum: 8
-  lengthpercent: 100
+  maximum: 7
+  lengthpercent: 93
   cmd: TM1;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ''
@@ -464,7 +464,7 @@
   label: CMP
   leading: 2
   maximum: 32
-  lengthpercent: 100
+  lengthpercent: 96
   cmd: TM1;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ''
@@ -670,7 +670,7 @@
 - item: bargraph
   leading: 1
   maximum: 42
-  lengthpercent: 96
+  lengthpercent: 98
   cmd: SM1;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ' '

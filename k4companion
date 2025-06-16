@@ -1167,7 +1167,7 @@ class Server():
             return False
         if Settings.server_count() == 1:
             return True
-        return Settings.restart()
+        return Settings.restarting()
 
 class Widget():
     blink_mS = 500
@@ -4473,6 +4473,8 @@ class Settings():
     cached_main_settings = None
     cached_platform_settings_dirname = None
 
+    restart = False
+
     @classmethod
     def server_count(cls):
         if cls.cached_server_count == None:
@@ -4520,11 +4522,11 @@ class Settings():
                     cls.main().put_save('Remote', 'server_index', Server.index)
 
     @classmethod
-    def restart(cls, restart=None):
+    def restarting(cls, restart=None):
         if restart != None:
-            Settings.main().put_save('Remote', 'restart', restart)
+            Settings.restart = restart
             return
-        return true_values(Settings.main().get('Remote', 'restart', False))
+        return Settings.restart
 
     @classmethod
     def platform_settings_dirname(cls):
@@ -4659,7 +4661,9 @@ class Settings():
         self.settings.read(self.pathname)
         self.settings_loaded = True
 
-        # rename obsolete options
+        # rename or removed obsolete options
+        if self.settings.has_option('Remote', 'restart'):
+            self.settings.remove_option('Remote', 'restart')
         if self.settings.has_section('command'):
             for option in self.settings.options('command'):
                 value = self.get('command', option)
@@ -6742,7 +6746,6 @@ def clean_up(exit=False):
 
 def exit():
     clean_up(exit=True)
-    Settings.restart(False)
     Page.top.quit()
 
 def save_geometry():
@@ -7014,7 +7017,7 @@ def start():
 
 def restart():
     clean_up()
-    Settings.restart(True)
+    Settings.restarting(True)
     Page.main().frame.destroy()
     start()
 
