@@ -93,7 +93,7 @@ Section "Start Menu Shortcut"
 SectionEnd
 
 ; Optional section (can be disabled by the user)
-Section /o "Desktop Shortcut"
+Section "Desktop Shortcut"
   SetOutPath $INSTDIR
   CreateShortCut "$DESKTOP\k4companion.lnk" "$INSTDIR\k4companion.exe" "" "$INSTDIR\k4companion.ico" 0
 SectionEnd
