@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import optparse
 import os
 import re
 import subprocess
@@ -97,20 +98,31 @@ def update_version(filename, version):
     os.rename(tmpfilename, filename)
 
 def increment_version(version):
-    match = re.search('^([^.]*).([^.]*).([^.]*)$', version)
-    major = int(match[1])
-    inter = int(match[2])
-    minor = int(match[3])
+    match = re.search('^([^.]*).([^.]*)$', version)
+    if match != None:
+        major = int(match[1])
+        minor = int(match[2])
+        patch = 0
+    else:
+        match = re.search('^([^.]*).([^.]*).([^.]*)$', version)
+        major = int(match[1])
+        minor = int(match[2])
+        patch = int(match[3])
 
-    minor += 1
+    branch = current_branch()
+    if branch == 'main':
+        minor += 1
+    else:
+        patch += 1
+
     if minor > 40:
         minor = 0
-        inter += 1
-        if inter > 40:
-            inter = 0
-            major += 1
+        major += 1
 
-    version = '{major:d}.{inter:d}.{minor:d}'.format(major=major, inter=inter, minor=minor)
+    if branch == 'main':
+        version = f'{major:d}.{minor:d}'
+    else:
+        version = f'{major:d}.{minor:d}.{patch:d}'
     return version
 
 def update_files():
@@ -120,18 +132,19 @@ def update_files():
             versions[file] = get_version(file)
 
     files = list(versions.keys())
-    version = None
-    
-    for file in files:
+
+    if Options.version != None:
+        new_version = Options.version
+    else:
+        version = None
+        for file in files:
+            if version == None:
+                version = versions[file]
+            elif versions[file] != version:
+                raise Exception("version mismatch", versions)
         if version == None:
-            version = versions[file]
-        elif versions[file] != version:
-            raise Exception("version mismatch", versions)
-
-    if version == None:
-        return None
-
-    new_version = increment_version(version)
+            return None
+        new_version = increment_version(version)
 
     for file in files:
         update_version(file, new_version)
@@ -164,7 +177,40 @@ def current_branch():
             return branch
     return None
 
+class MyOptionParser(optparse.OptionParser):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        super().set_usage(optparse.SUPPRESS_USAGE)
+
+    def error(self, str):
+        print('Usage: update_version [options]\n')
+        self.print_help()
+        print()
+        super().error(str)
+
+class Options():
+    changelog = False
+    version = None
+
+    @staticmethod
+    def Parse():
+        parser = MyOptionParser()
+        parser.add_option("-c", "--changelog", action="store_true", dest="changelog",
+                          help="create a changelog")
+        parser.add_option("-v", "--version", dest="version", default=None,
+                          help="set version to VERSION", metavar="VERSION")
+        (options, args) = parser.parse_args()
+
+        Options.changelog = options.changelog
+        Options.version = options.version
+        print(f'{Options.version=}')
+
+        if len(args) != 0:
+            parser.error("Unexpected argument '{arg}'".format(arg=args[0]))
+
 def main():
+    Options.Parse()
+
     branch = current_branch()
     if branch != 'main' and branch != 'dev':
         print('On branch "{b}", do: git checkout main'.format(b=branch))
@@ -189,16 +235,20 @@ def main():
         return
     version = 'v' + version
 
-    with open('changelog', 'w') as changelog:
-        run(['tools/generateChangelog', version], stdout=changelog)
-    run(['git', 'add', 'changelog'])
-    run(['git', 'commit', '-m', 'Update changelog for ' + version])
+    if branch == 'main' or Options.changelog:
+        with open('changelog', 'w') as changelog:
+            run(['tools/generateChangelog', version], stdout=changelog)
+        run(['git', 'add', 'changelog'])
+        run(['git', 'commit', '-m', 'Update changelog for ' + version])
 
+    comment = 'Version ' + version
+    if branch == 'dev' and re.search('^([^.]*).([^.]*)$', version) != None:
+        # vX.Y on dev
+        comment = f'Proposed {comment}'
+
+    run(['git', 'commit', '-a', '-m', comment])
     if branch == 'main':
-        run(['git', 'commit', '-a', '-m', 'Version '+ version])
         run(['git', 'tag', '-a', '-m', version, version])
-    else:
-        run(['git', 'commit', '-a', '-m', 'Tentative Version '+ version])
 
     run(['git', 'show', '--name-only'])
 
