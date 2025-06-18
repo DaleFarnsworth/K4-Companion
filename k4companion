@@ -5559,10 +5559,6 @@ class CW(Widget):
 
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
-    def bring_to_front(self):
-        # This only works on some (most) window managers
-        self.top_level.lift()
-
     def open(self):
         self.is_open = True
         self.top_level = tk.Toplevel(Page.top)
@@ -5573,14 +5569,37 @@ class CW(Widget):
         self.frame.grid(row=0, column=0)
         self.notebook = ttk.Notebook(self.frame)
         self.notebook.grid(row=0, column=0)
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+
+        self.current_tab_id = None
 
         self.add_cw_tab()
         self.add_more_tab()
         self.add_config_tab()
 
-        self.top_level.bind_all('<Escape>', self.stop_sending)
+        self.top_level.bind('<FocusIn>', self.focus_in)
+        self.top_level.bind('<FocusOut>', self.focus_out)
 
         self.set_geometry()
+
+    def on_tab_changed(self, event):
+        self.current_tab_id = self.notebook.select()
+
+    def focus_in(self, event=None):
+        self.top_level.bind_all('<Key>', self.on_key_pressed)
+
+    def focus_out(self, event=None):
+        self.top_level.unbind_all('<Key>')
+        for i in range(1, 13):
+            self.top_level.unbind_all(f'F{i+1}')
+
+    def on_key_pressed(self, event):
+        if self.current_tab_id == str(self.config_frame):
+            return
+        elif self.top_level.focus_get() == self.entry_text:
+            self.on_entry_text_modified(event)
+        else:
+            self.on_tx_text_modified(event)
 
     def add_cw_tab(self):
         self.cw_frame = tk.Frame(self.notebook)
@@ -5804,12 +5823,22 @@ class CW(Widget):
             padx=2, pady=2, command=self.on_save_button)
         self.save_button.grid(row=0, column=1, pady=1, sticky='e')
 
+        info_frame = tk.Frame(self.config_frame)
+        info_frame.grid(row=1, column=0, pady=1, sticky='w')
+        text = '''The first 12 values are bound to function keys.
+
+If a value contains &, everything before the & is displayed
+and everything after the & is sent.'''
+        info = tk.Label(info_frame, text=text, justify='left',
+            font=self.font(), bg=self.bg)
+        info.grid(row=0, column=0, sticky='e')
+
         self.config_buttons_frame = tk.Frame(self.config_frame)
-        self.config_buttons_frame.grid(row=1, column=0, pady=1, sticky='w')
+        self.config_buttons_frame.grid(row=2, column=0, pady=1, sticky='w')
         self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
 
         config_vars_frame = tk.Frame(self.config_frame)
-        config_vars_frame.grid(row=2, column=0, pady=1, sticky='w')
+        config_vars_frame.grid(row=3, column=0, pady=1, sticky='w')
         self.add_config_vars(config_vars_frame)
 
     def set_geometry(self):
@@ -5917,8 +5946,8 @@ class CW(Widget):
                     grandchild.unbind('<Button-1>')
                 grandchild.unbind('<Return>')
             child.destroy()
-        buttons_frame = tk.LabelFrame(parent_frame, text='',
-            font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+        buttons_frame = tk.LabelFrame(parent_frame, text='', font=self.label_font(),
+            labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
         buttons_frame.grid(row=0, column=0, sticky='w')
 
         for i in range(len(self.button_values), self.rows*self.columns):
@@ -5931,15 +5960,20 @@ class CW(Widget):
         for i, value in enumerate(self.button_values):
             if row >= self.rows:
                 break
-            button = tk.Text(buttons_frame, bd=2, padx=1, pady=0, bg=self.bg, fg=self.fg,
+            if i < 12:
+                text = f'F{i+1}'
+            else:
+                text = ''
+            font = scale_font(self.label_font(), 0.7)
+            label_frame = tk.LabelFrame(buttons_frame, text=text, font=font,
+                labelanchor='nw')
+            label_frame.grid(row=row, column=column, sticky='w', padx=2, pady=2)
+            button = tk.Text(label_frame, bd=0, padx=0, pady=0, bg=self.bg, fg=self.fg,
                              font=self.monospaced_font, height=1, width=self.button_width,
                              cursor='hand2', relief='raised', wrap='none')
-            button.grid(row=row, column=column, sticky='w', padx=2, pady=2)
+            button.grid(row=0, column=0, sticky='w')
             buttons.append(button)
             self.load_button_value(buttons, i, edit=edit)
-            if not edit:
-                button.bind('<Button-1>', lambda event, i=i: self.on_button1_click(i))
-            button.bind('<Return>', lambda event: 'break')
             column += 1
             if column >= self.columns:
                 row += 1
@@ -5959,7 +5993,6 @@ class CW(Widget):
         self.tx_frame.grid(row=1, column=0, sticky='w', pady=4)
         self.tx_text = CWText(self.tx_frame, bd=self.bd, bg=self.bg, fg=self.fg, font=self.monospaced_font,
             height=self.tx_height, width=self.text_width, wrap='word', state='disabled')
-        self.tx_text.bind('<Key>', self.on_tx_text_modified)
         self.tx_text.grid(row=0, column=0, sticky='w')
         self.tx_text.tag_config('underline', underline=1)
 
@@ -6053,7 +6086,8 @@ class CW(Widget):
             self.open()
         else:
             self.top_level.deiconify()
-            self.bring_to_front()
+            self.top_level.lift()
+            self.top_level.focus_set()
 
     def close(self):
         if not self.is_open:
@@ -6061,7 +6095,7 @@ class CW(Widget):
 
         self.save_geometry()
 
-        self.top_level.unbind_all('<Escape>')
+        self.focus_out()
 
         if self.tx_remaining_count > 0:
             self.stop_sending()
@@ -6097,6 +6131,11 @@ class CW(Widget):
             button.config(bg='Yellow', state='normal', cursor='')
         else:
             button.config(bg=self.bg, state='disabled', cursor='hand2')
+            send_button = lambda event, index=index: self.send_button(index)
+            button.bind('<Button-1>', send_button)
+            self.top_level.unbind_all(f'<F{index+1}>')
+            self.top_level.bind_all(f'<F{index+1}>', send_button)
+        button.bind('<Return>', lambda event: 'break')
 
     def button_label_value(self, button):
         value = button.get('1.0', tk.END).strip()
@@ -6145,7 +6184,7 @@ class CW(Widget):
         else:
             Popup.warning(f'Cannot transmit CW in {tx_mode} mode.')
 
-    def on_button1_click(self, index):
+    def send_button(self, index):
         value = self.button_values[index]
         if value == '':
             return
@@ -6376,6 +6415,10 @@ class CW(Widget):
         self.entry_height_var.set(self.entry_height)
         self.tx_height_var.set(self.tx_height)
         self.rx_height_var.set(self.rx_height)
+        self.add_buttons(self.cw_buttons, self.cw_buttons_frame, edit=False)
+        self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
+        self.config_cw_fields()
+        self.notebook.select(self.cw_frame)
 
     def valid_button_value(self, buttons, i):
         button = buttons[i]
@@ -6968,6 +7011,12 @@ def mouse_wheel_mult(event):
     elif sys.platform == 'darwin':
         mult = 1 if event.delta > 0 else -1
     return mult
+
+def scale_font(font, scale):
+    family = font.cget('family')
+    size = int(round(font.cget('size') * scale))
+    weight = font.cget('weight')
+    return tkFont.Font(family=family, size=size, weight=weight)
 
 def dprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
