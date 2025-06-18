@@ -65,7 +65,7 @@ import traceback
 import yaml
 
 appname = 'k4companion'
-version = "1.2.10"
+version = "1.3"
 
 python_version = platform.python_version_tuple()
 python_major = int(python_version[0])
