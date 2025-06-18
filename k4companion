@@ -4640,7 +4640,7 @@ class Settings():
 
     def clear(self):
         for section in self.settings.sections():
-            Settings.remove_section(section)
+            self.settings.remove_section(section)
 
     def clear_section(self, section):
         self.settings.remove_section(section)
