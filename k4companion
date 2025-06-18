@@ -1871,7 +1871,7 @@ class Radiobutton(Widget):
 class VFO(Widget):
     step = (1, 10, 100, 1000, 10000)
     step_index = {1: 0, 10: 1, 100: 2, 1000: 3, 10000:4}
-    low_frequency_limit=10000
+    low_frequency_limit=100000
     high_frequency_limit=54000000
 
     def __init__(self, config_info, container):
@@ -1959,29 +1959,26 @@ class VFO(Widget):
             self.tb.edit_modified(False)
         try:
             freq = round(float(self.tb.get('1.0', '1.0 lineend')) * 1000)
-            self.set_frequency(freq)
-            if freq < VFO.low_frequency_limit:
-                freq = VFO.low_frequency_limit
-            if freq > VFO.high_frequency_limit:
-                freq = VFO.high_frequency_limit
         except:
-            self.set_frequency(self.freq)
+            freq = self.freq
+        self.set_frequency(freq, send=True)
         return 'break'
 
-    def set_frequency(self, freq):
+    def set_frequency(self, freq, send=False):
+        if freq < VFO.low_frequency_limit:
+            freq = VFO.low_frequency_limit
+        if freq > VFO.high_frequency_limit:
+            freq = VFO.high_frequency_limit
         freq_str = f'{freq / 1000:12.3f}'[12-self.width:]
         if freq_str != self.tb.get('1.0', '1.0 lineend'):
             self.tb.delete('1.0', '1.0 lineend')
             self.tb.insert('1.0', freq_str)
             self.add_tags()
-        if freq != self.freq:
-            self.freq = freq
-            self.send_frequency(freq)
+        if send:
+            cmd = f'F{self.AorB}{freq:011.0f};'
+            self.server.send_cmds(cmd)
+        self.freq = freq
         self.set_vfo_bg()
-
-    def send_frequency(self, freq):
-        cmd = f'F{self.AorB}{freq:011f};'
-        self.server.send_cmds(cmd)
 
     def on_frequency_received(self, response):
         freq = cmd_parameter(response)
@@ -2027,7 +2024,7 @@ class VFO(Widget):
         freq -= mod
         if mod != 0 and step < 0:
             freq -= step
-        self.set_frequency(freq)
+        self.set_frequency(freq, send=True)
 
     def on_bump_frequency(self, event):
         step = self.step
@@ -2043,7 +2040,7 @@ class VFO(Widget):
         step = VFO.step[step_index]
         if event.keysym in ('Next', 'KP_Next'):
             step = -step
-        self.set_frequency(self.freq + step)
+        self.set_frequency(self.freq + step, send=True)
         self.add_underline_tag()
 
     def on_mouse_wheel(self, event):
