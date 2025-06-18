@@ -1,4 +1,62 @@
+v1.3:
+    Update K4 Companion Windows installer to version 1.3
+
+    Update K4 Companion Windows EXE to version 1.3
+
+    Add K4 Companion Windows Quick Start
+
+    Update K4 Companion User Manual to version 1.3
+
+    windowsinstaller: Select the Desktop Shortcut option
+       Previously, the desktop shortcut option was unchecked by default.
+       Now, it will be checked by default.
+   
+    Fine tune Transmit meter lengths
+
+    Modify tools/update_version to new version numbers
+
+    Revise selection of multiple servers
+
+    Rename App tab to Audio
+       Also move the K4-Companion versin number to Server tab, column 3.
+   
+    Remove Misc tab and move contents to Server tab
+
+    Rename Equalizer tab to EQ
+
+    Fix saving and restoring location of CW window
+       Previously, the CW window location was erroneously set when the CW
+       window was reconfigured. Now, we only set its location when it is first
+       opened.
+   
+    Improve specification of multiple K4 servers
+
+    Print a better usage message on error
+
+    Add label indiating K4's address can specify port
+
+    Disallow port numbers greater than 65535
+
+    Handle all K4 connect exceptions
+
+    Add immediate mode CW Tx
+
+    Stop sending CW when Escape key is pressed
+
+    Handle Mac Enter key in CW text Entry
+
+    Accommodate Mac mouse wheel scrolling
+
+    Set focus on the click of toggle buttons
+
+    Improve the setting of initial geometry
+
+    Remove debug printing of group names/hierarchy
+       This was useful early on, but less so now.
+   
 v1.2.10:
+    Update changelog for v1.2.10
+
     Update K4 Companion Windows installer for v1.2.10
 
     Update K4 Companion Windows exe for v1.2.10
