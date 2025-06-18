@@ -72,6 +72,13 @@ python_major = int(python_version[0])
 python_minor = int(python_version[1])
 python_patchlevel = int(python_version[2])
 
+try:
+    # Create our own stderr so we can print to stderr while fd 2 is closed.
+    stderr = os.fdopen(os.dup(2), 'w')
+except:
+    # If running in a PyInstaller bundle, fdopen of dup doesn't work.
+    stderr = sys.stderr
+
 class Default():
 # may be overriden by values in the config file
     bg = 'maroon1'
@@ -7019,34 +7026,39 @@ def scale_font(font, scale):
     return tkFont.Font(family=family, size=size, weight=weight)
 
 def dprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
+    try:
+        # fails in a pyinstaller bundle while stderr is closed
+        print(*args, file=stderr, **kwargs)
+    except:
+        # ignore that failure
+        pass
 
 def dprint1(*args, **kwargs):
     if Options.debug >= 1:
-        print(*args, file=sys.stderr, **kwargs)
+        dprint(*args, **kwargs)
 
 def dprint2(*args, **kwargs):
     if Options.debug >= 2:
-        print(*args, file=sys.stderr, **kwargs)
+        dprint(*args, **kwargs)
 
 def dprint3(*args, **kwargs):
     if Options.debug >= 3:
-        print(*args, file=sys.stderr, **kwargs)
+        dprint(*args, **kwargs)
 
 def dprint4(*args, **kwargs):
     if Options.debug >= 4:
-        print(*args, file=sys.stderr, **kwargs)
+        dprint(*args, **kwargs)
 
 def vprint1(*args, **kwargs):
     if Options.verbose >= 1:
-        print(*args, **kwargs)
+        dprint(*args, **kwargs)
 
 def vprint2(*args, **kwargs):
     if Options.verbose >= 2:
-        print(*args, **kwargs)
+        dprint(*args, **kwargs)
 
 def tprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
+    dprint(*args, **kwargs)
 
 def trace_stack():
     traceback.print_stack()
