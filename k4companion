@@ -5578,6 +5578,8 @@ class CW(Widget):
         self.add_more_tab()
         self.add_config_tab()
 
+        self.top_level.bind_all('<Escape>', self.stop_sending)
+
         self.set_geometry()
 
     def add_cw_tab(self):
@@ -6058,6 +6060,8 @@ class CW(Widget):
             return
 
         self.save_geometry()
+
+        self.top_level.unbind_all('<Escape>')
 
         if self.tx_remaining_count > 0:
             self.stop_sending()
