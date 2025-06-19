@@ -1,4 +1,38 @@
+v1.4:
+    Update Windows files and User Manual to v1.4
+       Updated Documentation/K4 Companion User Manual.pdf
+       Updated Windows/k4companion-installer.exe
+       Updated Windows/k4companion.exe
+   
+    bugfix: Do not re-send a frequency rcvd from the K4
+       We were echoing back change frequency commands (FA$) received from the
+       K4. This caused problems. We no longe do so.
+       
+       Also fix the lower frequency limit. The K4 caught this, so no harm
+       was caused, but now it's fixed.
+       
+       Also fix the format of the sent FA$ commands. Again, the K4 accepted
+       what we sent, but now we conform to the spec.
+   
+    Use our own stderr file descriptor
+       We briefly close FD 2 while using pyaudio to avoid its voluminous
+       output to stderr. However, other threads may want to print debug output
+       during those brief periods. So, we print using our own file descriptor
+       dup'ed from FD 2.
+   
+    Bind function keys to the first 12 CW macros
+
+    Enable the Escape key to always stop CW sending
+       Now, pressing the Escape key will stop CW sending whenever the CW window
+       is open.
+   
+    Fix bug occuring during settings profile conversion
+       An exception occurred after converting an older single-server settings
+       file to the new multi-server settings. This commit fixes it.
+   
 v1.3:
+    Update changelog for v1.3
+
     Update K4 Companion Windows installer to version 1.3
 
     Update K4 Companion Windows EXE to version 1.3
