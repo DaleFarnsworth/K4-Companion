@@ -6117,7 +6117,7 @@ and everything after the & is sent.'''
         Server.settings.put_save('Window', 'CW.geometry', geometry)
 
     def on_mode_change(self, response=None):
-        if self.tx_mode() == 'CW':
+        if self.tx_mode() in ('CW', 'CW-R'):
             self.show()
         else:
             self.hide()
@@ -6170,7 +6170,8 @@ and everything after the & is sent.'''
         if split:
             base += '$'
         mode_index = int(self.k4param(base))
-        mode = ('', 'LSB', 'USB', 'CW', 'FM', 'AM', '', 'CW', '', '')[mode_index]
+        modes = ('', 'LSB', 'USB', 'CW', 'FM', 'AM', 'DATA', 'CW-R', '', 'DATA-R')
+        mode = modes[mode_index]
 # The following lines are commented out because we don't support sending CW in SSB yet.
 #        if mode == 'LSB' or mode == 'USB':
 #            if self.k4param('RX') != None:
@@ -6183,7 +6184,7 @@ and everything after the & is sent.'''
 
     def append_tx_text(self, s):
         tx_mode = self.tx_mode()
-        if tx_mode == 'CW':
+        if tx_mode in ('CW', 'CW-R'):
             self.tx_text.append(s)
         else:
             Popup.warning(f'Cannot transmit CW in {tx_mode} mode.')
