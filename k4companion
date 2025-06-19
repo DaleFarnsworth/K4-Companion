@@ -5528,6 +5528,8 @@ class CWText(tk.Text):
         self.config(state=previous_state)
 
 class CW(Widget):
+    tx_queue_max = 9
+    tx_queue_low = 8
     valid_CW_characters = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_,./?(+=%*!'
     singleton = None
 
@@ -6204,12 +6206,14 @@ and everything after the & is sent.'''
         if not self.is_open:
             return
 
-        if self.tx_remaining_count > 5:
+        if self.tx_remaining_count > CW.tx_queue_low:
             Poll.call(self.tx_poll_interval, self.send_cw)
             return
 
+        max_tx_chars = CW.tx_queue_max - self.tx_remaining_count
+
         index = f'1.{self.tx_send_offset}'
-        end_index = f'1.{self.tx_send_offset+4}'
+        end_index = f'1.{self.tx_send_offset+max_tx_chars}'
         chunk = self.tx_text.get(index, end_index)
         chunk_len = len(chunk)
         if chunk_len > 0:
