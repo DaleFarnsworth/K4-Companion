@@ -1197,6 +1197,11 @@ class Widget():
         self.pady = config_info.get('pady', 0)
         self.sticky = '' if config_info.get('sticky', None) == 'center' else 'nw'
 
+        self.tabcount = 0
+        self.tabids = {}
+        self.tabnames = {}
+        self.current_tabname = None
+
         self.cached_font = None
         self.cached_button_font = None
         self.cached_label_font = None
@@ -1309,6 +1314,26 @@ class Widget():
 
         return inner_frame
 
+    def notebook_frame(self, parent_frame):
+        frame = ttk.Notebook(parent_frame)
+        self.notebook = frame
+        frame.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        return self.notebook
+
+    def on_tab_changed(self, event):
+        tabid = self.notebook.select()
+        tabname = self.tabnames[tabid]
+        self.current_tabname = tabname
+
+    def select_tab(self, tab_name):
+        self.notebook.select(self.tabids[tab_name])
+
+    def add_tab(self, frame, tabname):
+            self.notebook.add(frame, text=tabname)
+            tabid = str(frame)
+            self.tabids[tabname] = tabid
+            self.tabnames[tabid] = tabname
+
 class Container(Widget):
     depth = -1
 
@@ -1322,8 +1347,6 @@ class Container(Widget):
         self.columns = config_info.get('columns', len(self.config_info['contains']))
         self.row = 0
         self.column = 0
-        self.tab_ids = {}
-
         self.children = []
 
     def next_column(self):
@@ -1414,23 +1437,23 @@ class Container(Widget):
         return width
 
     def has_tabnames(self):
+        if self.tabcount > 0:
+            return True
+
         children = self.config_info['contains']
-        tabcount = 0
         for child in children:
             tabname = child.get('tabname', None)
             if child.get('item', None) == 'group' and tabname != None:
-                self.tab_ids[tabname] = tabcount
-                tabcount += 1
-        if tabcount > 0 and tabcount != len(children):
+                self.tabcount += 1
+        if self.tabcount > 0 and self.tabcount != len(children):
             raise Exception('Error: Some, but not all contained items specify a tabname')
 
-        return tabcount > 0
+        return self.tabcount > 0
 
 class Page(Container):
     pages = {}
     name_stack = []
     top = None
-    notebook = None
 
     @staticmethod
     def show_page(page_name):
@@ -1482,8 +1505,7 @@ class Page(Container):
         self.top_frame.grid(row=0, column=0, sticky='w')
 
         if self.has_tabnames():
-            self.frame = ttk.Notebook(self.top_frame)
-            Page.notebook = self.frame
+            self.frame = self.notebook_frame(self.top_frame)
         else:
             self.frame = tk.Frame(self.top_frame)
 
@@ -1531,9 +1553,6 @@ class Page(Container):
         font = self.config_info.get('button_font', Default.button_font)
         return tkFont.Font(family=font['family'], size=font['size'], weight=font['weight'])
 
-    def select_tab(self, tab_name):
-        self.frame.select(self.tab_ids[tab_name])
-
 class Group(Container):
     def __init__(self, config_info, container):
         required = ['item', 'contains']
@@ -1548,7 +1567,7 @@ class Group(Container):
         self.show_widgets()
 
         if isinstance(container.frame, ttk.Notebook):
-            container.frame.add(self.outer_frame, text=self.tabname)
+            container.add_tab(self.outer_frame, self.tabname)
 
 class ButtonWidget():
     def __init__(self, caller, frame, options):
@@ -2564,7 +2583,7 @@ class Notebook(Container):
 
         super().__init__(config_info, container)
 
-        if not has_tabnames():
+        if not self.has_tabnames():
             raise Exception('notebook contains items without tabnames')
 
         self.frame = None
@@ -2576,7 +2595,7 @@ class Notebook(Container):
         for child in self.children:
             if not isinstance(child, Group):
                 raise Exception('Notebook contains an item that is not a group', child)
-            notebook.add(child.frame, text=child.tabname)
+            self.add_tab(child.frame, child.tabname)
 
 class DropdownWidget():
     def __init__(self, caller, frame, options):
@@ -5573,11 +5592,8 @@ class CW(Widget):
         self.top_level.resizable(False, False)
         self.frame = tk.Frame(self.top_level)
         self.frame.grid(row=0, column=0)
-        self.notebook = ttk.Notebook(self.frame)
+        self.notebook = self.notebook_frame(self.frame)
         self.notebook.grid(row=0, column=0)
-        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
-
-        self.current_tab_id = None
 
         self.add_cw_tab()
         self.add_more_tab()
@@ -5588,9 +5604,6 @@ class CW(Widget):
 
         self.set_geometry()
 
-    def on_tab_changed(self, event):
-        self.current_tab_id = self.notebook.select()
-
     def focus_in(self, event=None):
         self.top_level.bind_all('<Key>', self.on_key_pressed)
 
@@ -5600,7 +5613,7 @@ class CW(Widget):
             self.top_level.unbind_all(f'F{i+1}')
 
     def on_key_pressed(self, event):
-        if self.current_tab_id == str(self.config_frame):
+        if self.current_tabname == 'Configure':
             return
         elif self.top_level.focus_get() == self.entry_text:
             self.on_entry_text_modified(event)
@@ -5610,7 +5623,7 @@ class CW(Widget):
     def add_cw_tab(self):
         self.cw_frame = tk.Frame(self.notebook)
         self.cw_frame.grid(row=0, column=0)
-        self.notebook.add(self.cw_frame, text='CW')
+        self.add_tab(self.cw_frame, 'CW')
 
         self.main_enabled = False
         self.sub_enabled = False
@@ -5644,7 +5657,7 @@ class CW(Widget):
     def add_more_tab(self):
         self.more_frame = tk.Frame(self.notebook)
         self.more_frame.grid(row=0, column=0)
-        self.notebook.add(self.more_frame, text='More')
+        self.add_tab(self.more_frame, 'More')
 
         cw_pitch_frame = tk.LabelFrame(self.more_frame, text='CW Pitch',
             font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=5, relief='raised')
@@ -5815,7 +5828,7 @@ class CW(Widget):
     def add_config_tab(self):
         self.config_frame = tk.Frame(self.notebook)
         self.config_frame.grid(row=0, column=0)
-        self.notebook.add(self.config_frame, text='Configure')
+        self.add_tab(self.config_frame, 'Configure')
 
         top_frame = tk.Frame(self.config_frame)
         top_frame.grid(row=0, column=0, sticky='e')
@@ -6412,7 +6425,7 @@ and everything after the & is sent.'''
         self.add_buttons(self.cw_buttons, self.cw_buttons_frame, edit=False)
         self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
         self.config_cw_fields()
-        self.notebook.select(self.cw_frame)
+        self.select_tab('CW')
 
     def on_cancel_button(self):
         for i, button in enumerate(self.config_buttons):
@@ -6427,7 +6440,7 @@ and everything after the & is sent.'''
         self.add_buttons(self.cw_buttons, self.cw_buttons_frame, edit=False)
         self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
         self.config_cw_fields()
-        self.notebook.select(self.cw_frame)
+        self.select_tab('CW')
 
     def valid_button_value(self, buttons, i):
         button = buttons[i]
