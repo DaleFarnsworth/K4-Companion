@@ -996,8 +996,8 @@
 - item: togglebutton
   padx: 4
   selections: #{
-    - { text: 'Receive',   cmd: RX;, evalresponse: '"RX;" if self.k4param("RX") != None else ""', bg: '#00FF00', abg: '#00FF00' }
-    - { text: 'Transmit',  cmd: TX;, evalresponse: '"TX;" if self.k4param("TX") != None else ""', bg: yellow,    abg: yellow }
+    - { text: 'Receive',   cmd: 'TRR;', bg: '#00FF00', abg: '#00FF00' }
+    - { text: 'Transmit',  cmd: 'TRT;', bg: yellow,    abg: yellow }
   #}
 #end
 

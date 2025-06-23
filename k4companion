@@ -290,6 +290,7 @@ class Server():
         'XV',
         'XV$',
         # The following are pseudo commands/responses
+        'TR',
         '!ES0',
         '!ES1',
     ]
@@ -503,9 +504,9 @@ class Server():
     def update_k4_parameter(self, base, parameter):
         if base in ('TX', 'RX', 'SD0', 'SD1', 'ES', 'TB', 'TB$'):
             if base == 'TX':
-                self.k4_parameters['RX'] = None
+                self.update_k4_parameter('TR', 'T')
             elif base == 'RX':
-                self.k4_parameters['TX'] = None
+                self.update_k4_parameter('TR', 'R')
             elif base in ('SD0', 'SD1'):   # Differentiate between the variants
                 base, parameter = base[0:2] + parameter[0], base[2] + parameter[1:]
             elif base == 'ES':
@@ -787,8 +788,16 @@ class Server():
             if self.is_directive(base):
                 self.directive(base, cmd)
                 continue
-            if base in ('SDC', 'SDV', 'SDD', 'SB', 'TU') + Server.control_k4_audio_cmd_bases:
-                if base in ('SDC', 'SDV', 'SDD'):
+            if base in ('TR', 'SDC', 'SDV', 'SDD', 'SB', 'TU') + Server.control_k4_audio_cmd_bases:
+                if base == 'TR':
+                    if cmd[2] == 'T':
+                        self.update_k4_parameter('TR', 'T')
+                        self.send_str('TX;')
+                    else:
+                        self.update_k4_parameter('TR', 'R')
+                        self.send_str('RX;')
+                    return
+                elif base in ('SDC', 'SDV', 'SDD'):
                     cmd = cmd[0:2] + cmd[3] + cmd[2] + cmd[4:]
                     base = cmd[0:3]
                 elif base == 'SB':
@@ -1074,8 +1083,9 @@ class Server():
             parameter = self.k4_parameters.get(base, None)
             if parameter != None:
                 callback(base + parameter + ';')
-            elif self.connected and base not in ('TX', 'RX'):
-                self.send_str(base + ';')
+            elif self.connected:
+                if not base.startswith('!'):
+                    self.send_str(base + ';')
 
     def unsubscribe_response(self, cmd, callback):
         base = cmd_base(cmd)
@@ -1519,10 +1529,10 @@ class Page(Container):
             Page.top.unbind('<space>')
 
     def toggle_tr(self, event):
-        if self.k4param('TX') != None:
-            self.server.send_cmds('RX;')
+        if self.k4param('TR') == 'T':
+            self.server.send_cmds('TRR;')
         else:
-            self.server.send_cmds('TX;')
+            self.server.send_cmds('TRT;')
 
     def set_geometry(self):
         self.frame.update_idletasks()
@@ -1967,7 +1977,7 @@ class VFO(Widget):
         self.server.subscribe_response(step_cmd, self.on_step_received)
         self.server.subscribe_response(f'F{self.AorB};', self.on_frequency_received)
         # subscribe to split and transmit on/off changes
-        self.server.subscribe_responses('FT;TX;RX;', self.set_vfo_bg)
+        self.server.subscribe_responses('FT;TR;', self.set_vfo_bg)
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def on_received_initial_parameters(self, response):
@@ -2095,8 +2105,7 @@ class VFO(Widget):
 
     def set_vfo_bg(self, arg=None):
         if self.AorB == self.transmit_vfo():
-            transmit = self.k4param('TX') != None
-            if transmit:
+            if self.k4param('TR') == 'T':
                 self.tb.configure(bg=self.transmit_color)
             else:
                 self.tb.configure(bg=self.active_color)
@@ -2171,7 +2180,7 @@ class RIT(Widget):
 #        self.server.subscribe_response(f'VT{self.suffix};', self.on_step_received)
         self.server.subscribe_response(f'RO{self.suffix};', self.on_offset_received)
         # subscribe to split and transmit on/off changes
-        cmds = f'RT{self.suffix};XT;FT;TX;RX;'
+        cmds = f'RT{self.suffix};XT;FT;TR;'
         self.server.subscribe_responses(cmds, self.set_rit_bg)
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
@@ -3137,7 +3146,7 @@ class Equalizers(Widget):
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def on_received_initial_parameters(self, response):
-        self.server.subscribe_responses('TX;RX;MD;MD$;FT;', self.on_k4_mode_changed)
+        self.server.subscribe_responses('TR;MD;MD$;FT;', self.on_k4_mode_changed)
         self.set_k4_equalizer()
         self.configure()
 
@@ -3168,7 +3177,7 @@ class Equalizers(Widget):
         return f'{alt} - {tr} - {mode}'
 
     def k4_tr(self):
-        tr_index = 1 if self.k4param('TX') != None else 0
+        tr_index = 1 if self.k4param('TR') == 'T' else 0
         return self.trs[tr_index]
 
     def k4_mode(self):
@@ -4141,7 +4150,7 @@ class Audio():
     def server_connected(cls, server):
         self = cls.get_singleton()
         cls.server = server
-        server.subscribe_responses('TX;RX;', lambda response: self.on_transmit_changed(server, response), send=False)
+        server.subscribe_responses('TR;', lambda response: self.on_transmit_changed(server, response), send=False)
         server.subscribe_response('MX;', lambda response: self.on_mx_changed(server, response), send=False)
         server.subscribe_received_initial_parameters(cls.on_received_initial_parameters)
 
@@ -4400,7 +4409,7 @@ class Audio():
             output_stream.write(stereo.tobytes())
 
     def on_transmit_changed(self, server, response):
-        transmit = server.k4_parameters.get('TX', None) != None
+        transmit = server.k4_parameters.get('TR') == 'T'
         tune = server.k4_parameters.get('TU', "0") != '0'
         if transmit and not tune:
             split = server.k4_parameters.get('FT') == '1'
@@ -6218,7 +6227,7 @@ and everything after the & is sent.'''
         mode = modes[mode_index]
 # The following lines are commented out because we don't support sending CW in SSB yet.
 #        if mode == 'LSB' or mode == 'USB':
-#            if self.k4param('RX') != None:
+#            if self.k4param('TR') == 'R':
 #                cw_in_ssb = Menu.entry(104).current == 1
 #                if cw_in_ssb:
 #                    mode = 'CW'
