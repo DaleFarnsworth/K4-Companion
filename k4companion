@@ -1511,6 +1511,19 @@ class Page(Container):
 
         self.show_widgets()
 
+    def on_tab_changed(self, event):
+        super().on_tab_changed(event)
+        if self.current_tabname == 'Main':
+            Page.top.bind('<space>', self.toggle_tr)
+        else:
+            Page.top.unbind('<space>')
+
+    def toggle_tr(self, event):
+        if self.k4param('TX') != None:
+            self.server.send_cmds('RX;')
+        else:
+            self.server.send_cmds('TX;')
+
     def set_geometry(self):
         self.frame.update_idletasks()
         screen_width = Page.top.winfo_screenwidth()
@@ -1541,6 +1554,7 @@ class Page(Container):
         self.frame.grid()
         if self == Page.main():
             self.set_geometry()
+            Page.top.focus_set()
 
     def hide(self):
         self.frame.grid_forget()
@@ -1939,6 +1953,8 @@ class VFO(Widget):
         for button in mouse_buttons:
             tb.bind(button, self.on_mouse_wheel)
 
+        tb.bind('<KeyRelease>', self.on_key_release)
+
         for step in VFO.step:
             tb.tag_bind(f'step_{step}', '<Button-1>', lambda response, step=step: self.on_button_one(step))
 
@@ -1957,6 +1973,9 @@ class VFO(Widget):
     def on_received_initial_parameters(self, response):
         self.set_vfo_bg()
 
+    def on_key_release(self, event):
+        self.validate_frequency(event, send=False)
+
     def on_button_one(self, step):
         self.set_step(step)
 
@@ -1972,7 +1991,7 @@ class VFO(Widget):
         self.tb.tag_remove('underline', '1.0', '1.0 lineend')
         self.tb.tag_add('underline', self.step_text_index[self.step])
 
-    def validate_frequency(self, event):
+    def validate_frequency(self, event, send=True):
         if self.tb.edit_modified():
             self.add_tags()
             self.tb.edit_modified(False)
@@ -1980,7 +1999,7 @@ class VFO(Widget):
             freq = round(float(self.tb.get('1.0', '1.0 lineend')) * 1000)
         except:
             freq = self.freq
-        self.set_frequency(freq, send=True)
+        self.set_frequency(freq, send=send)
         return 'break'
 
     def set_frequency(self, freq, send=False):
@@ -2680,6 +2699,7 @@ class DropdownWidget():
             selectbackground=self.bg, selectforeground=self.fg, padding=(2,2,2,2))
 
         state = 'readonly' if self.evalcmd == None else 'normal'
+        no_space_wrapper = (Page.top.register(self.no_space), '%d', '%S')
 
         self.combobox = ttk.Combobox(
                 frame,
@@ -2690,6 +2710,8 @@ class DropdownWidget():
                 state=state,
                 justify=justify,
                 style=self.stylename,
+                validate='key',
+                validatecommand=no_space_wrapper,
                 )
         self.combobox.option_add('*TCombobox*Listbox*Font', font)
         self.combobox.option_add('*TCombobox*Listbox*Justify', 'center')
@@ -2823,6 +2845,13 @@ class DropdownWidget():
                 text = ''
 
             self.set_val(text)
+
+    def no_space(self, action, key):
+        if action != '1':
+            return True
+        if key != ' ':
+            return True
+        return False
 
 class Dropdownbutton(Widget):
     def __init__(self, config_info, container):
@@ -7123,6 +7152,8 @@ def main():
 
     top = tk.Tk()
     Page.top = top
+    Page.top.unbind_class('Button', '<space>')
+    Page.top.unbind_class('Combobox', '<space>')
 
     Server.settings = Settings()
     geometry = Server.settings.get('Window', 'root.geometry')
