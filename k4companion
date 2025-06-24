@@ -1535,7 +1535,7 @@ class Page(Container):
             self.server.send_cmds('TRT;')
 
     def set_geometry(self):
-        self.frame.update_idletasks()
+        Page.top.update_idletasks()
         screen_width = Page.top.winfo_screenwidth()
         screen_height = Page.top.winfo_screenheight()
         w, h = self.top_frame.winfo_width(), self.frame.winfo_height()
@@ -5532,6 +5532,180 @@ class Antenna(Widget):
 
         self.dropdown.values(values)
 
+class TextButtons(Widget):
+    def __init__(self, config_info, container):
+        super().__init__(config_info, container)
+
+        self.bd = config_info.get('bd', 2)
+        font = self.font()
+        self.monospaced_font = ('DejaVu Sans Mono', font['size'])
+
+        self.buttons = []
+        self.config_buttons = []
+        self.button_values = []
+        self.button_labels = []
+        self.button_width = None
+        self.rows = None
+        self.columns = None
+        self.valid_characters = None
+
+    def add_buttons(self, buttons, parent_frame, edit):
+        for child in parent_frame.winfo_children():
+            # Should be only one child: buttons_frame
+            for grandchild in child.winfo_children():
+                if not edit:
+                    grandchild.unbind('<Button-1>')
+                grandchild.unbind('<Return>')
+            child.destroy()
+        buttons_frame = tk.LabelFrame(parent_frame, text='', font=self.label_font(),
+            labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+        buttons_frame.grid(row=0, column=0, sticky='w')
+
+        for i in range(len(self.button_values), self.rows*self.columns):
+            self.button_values.append('')
+            self.button_labels.append('')
+
+        buttons.clear()
+        row = 0
+        column = 0
+        for i, value in enumerate(self.button_values):
+            if row >= self.rows:
+                break
+            if i < 12:
+                text = f'F{i+1}'
+            else:
+                text = ''
+            font = scale_font(self.label_font(), 0.7)
+            label_frame = tk.LabelFrame(buttons_frame, text=text, font=font,
+                labelanchor='nw')
+            label_frame.grid(row=row, column=column, sticky='w', padx=2, pady=2)
+            button = tk.Text(label_frame, bd=0, padx=0, pady=0, bg=self.bg, fg=self.fg,
+                             font=self.monospaced_font, height=1, width=self.button_width,
+                             cursor='hand2', relief='raised', wrap='none')
+            button.grid(row=0, column=0, sticky='w')
+            buttons.append(button)
+            self.load_button_value(buttons, i, edit=edit)
+            column += 1
+            if column >= self.columns:
+                row += 1
+                column = 0
+
+    def add_config_vars(self, parent_frame):
+        self.rows_var = tk.IntVar()
+        self.rows_var.set(self.rows)
+        frame = tk.Frame(parent_frame)
+        frame.grid(row=0, column=0, padx=10)
+        label = tk.Label(frame, text='Button Rows:', font=self.font(), bg=self.bg)
+        label.grid(row=0, column=0, sticky='e')
+        rows_entry = tk.Entry(frame, textvariable=self.rows_var, width=2, justify='right', font=self.font(), bg='yellow')
+        rows_entry.grid(row=0, column=1, sticky='w')
+
+        self.columns_var = tk.IntVar()
+        self.columns_var.set(self.columns)
+        frame = tk.Frame(parent_frame)
+        frame.grid(row=0, column=1, padx=10, pady=3, sticky='w')
+        label = tk.Label(frame, text='Button Columns:', font=self.font(), bg=self.bg)
+        label.grid(row=0, column=0, sticky='e')
+        entry = tk.Entry(frame, textvariable=self.columns_var, width=2, justify='right', font=self.font(), bg='yellow')
+        entry.grid(row=0, column=1, sticky='w')
+
+        self.button_width_var = tk.IntVar()
+        self.button_width_var.set(self.button_width)
+        frame = tk.Frame(parent_frame)
+        frame.grid(row=1, column=0, padx=10, pady=3, sticky='w')
+        label = tk.Label(frame, text='Button Width:', font=self.font(), bg=self.bg)
+        label.grid(row=0, column=0, sticky='e')
+        entry = tk.Entry(frame, textvariable=self.button_width_var, width=2, justify='right', font=self.font(), bg='yellow')
+        entry.grid(row=0, column=1, sticky='w')
+
+    def load_button_value(self, buttons, index, edit=False):
+        value = self.button_values[index]
+        label = self.button_labels[index]
+        if label != '':
+            value = f'{label}&{value}' if edit else label
+        button = buttons[index]
+        button.delete('1.0', tk.END)
+        button.insert('1.0', value)
+        button.see('1.0')
+        if edit:
+            button.config(bg='Yellow', state='normal', cursor='')
+        else:
+            button.config(bg=self.bg, state='disabled', cursor='hand2')
+            send_button = lambda event, index=index: self.send_button(index)
+            button.bind('<Button-1>', send_button)
+            self.top_level.unbind_all(f'<F{index+1}>')
+            self.top_level.bind_all(f'<F{index+1}>', send_button)
+        button.bind('<Return>', lambda event: 'break')
+
+    def button_label_value(self, button):
+        value = button.get('1.0', tk.END).strip()
+        fields = value.split('&', 1)
+        if len(fields) == 2:
+            label, value = fields
+        else:
+            label = ''
+        return label, value
+
+    def store_button_value(self, buttons, index):
+        button = buttons[index]
+        label, value = self.button_label_value(button)
+        self.button_labels[index] = label
+        self.button_values[index] = value
+        if label != '':
+            value = label
+        button.config(state='normal')
+        button.delete('1.0', tk.END)
+        button.insert('1.0', value)
+        button.see('1.0')
+        button.config(bg=self.bg, state='disabled', cursor='hand2')
+        self.save_settings()
+
+    def valid_button_value(self, buttons, i):
+        button = buttons[i]
+        label, value = self.button_label_value(button)
+        for c in value:
+            if c.upper() not in self.valid_characters:
+                Popup.warning(f'Character "{c}" not allowed in Button {i+1}')
+                self.load_button_value(buttons, i, edit=True)
+                return False
+        return True
+
+    def valid_button_values(self, buttons):
+        for i, button in enumerate(buttons):
+            if not self.valid_button_value(buttons, i):
+                return False
+        return True
+
+    def on_save_button(self):
+        if not self.valid_button_values(self.config_buttons):
+            return
+        for i, button in enumerate(self.config_buttons):
+            self.store_button_value(self.config_buttons, i)
+        try:
+            self.rows = self.rows_var.get()
+        except:
+            self.rows_var.set(self.rows)
+        try:
+            self.columns = self.columns_var.get()
+        except:
+            self.columns_var.set(self.columns)
+        try:
+            self.button_width = self.button_width_var.get()
+        except:
+            self.button_width_var.set(self.button_width)
+
+        self.add_buttons(self.buttons, self.buttons_frame, edit=False)
+        self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
+
+    def on_cancel_button(self):
+        for i, button in enumerate(self.config_buttons):
+            self.load_button_value(self.config_buttons, i, edit=True)
+        self.rows_var.set(self.rows)
+        self.columns_var.set(self.columns)
+        self.button_width_var.set(self.button_width)
+        self.add_buttons(self.buttons, self.buttons_frame, edit=False)
+        self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
+
 class CWText(tk.Text):
     def __init__(self, container, **kwargs):
         super().__init__(container, **kwargs)
@@ -5584,10 +5758,9 @@ class CWText(tk.Text):
         self.delete('1.0', tk.END)
         self.config(state=previous_state)
 
-class CW(Widget):
+class CW(TextButtons):
     tx_queue_max = 9
     tx_queue_low = 8
-    valid_CW_characters = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_,./?(+=%*!'
     singleton = None
 
     @classmethod
@@ -5601,9 +5774,7 @@ class CW(Widget):
 
         super().__init__(config_info, container)
 
-        self.bd = config_info.get('bd', 2)
-        font = self.font()
-        self.monospaced_font = ('DejaVu Sans Mono', font['size'])
+        self.valid_characters = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_,./?(+=%*!'
 
         self.load_settings()
 
@@ -5616,9 +5787,6 @@ class CW(Widget):
 
         CW.singleton = self
         self.is_open = False
-
-        self.cw_buttons = []
-        self.config_buttons = []
 
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
@@ -5647,7 +5815,7 @@ class CW(Widget):
 
     def focus_out(self, event=None):
         self.top_level.unbind_all('<Key>')
-        for i in range(1, 13):
+        for i in range(12):
             self.top_level.unbind_all(f'F{i+1}')
 
     def on_key_pressed(self, event):
@@ -5673,9 +5841,9 @@ class CW(Widget):
         self.buttons_and_text_frame = tk.Frame(self.cw_frame)
         self.buttons_and_text_frame.grid(row=1, column=0, sticky='w')
 
-        self.cw_buttons_frame = tk.Frame(self.buttons_and_text_frame)
-        self.cw_buttons_frame.grid(row=0, column=0, sticky='w')
-        self.add_buttons(self.cw_buttons, self.cw_buttons_frame, edit=False)
+        self.buttons_frame = tk.Frame(self.buttons_and_text_frame)
+        self.buttons_frame.grid(row=0, column=0, sticky='w')
+        self.add_buttons(self.buttons, self.buttons_frame, edit=False)
 
         self.text_fields_frame = tk.Frame(self.buttons_and_text_frame)
         self.text_fields_frame.grid(row=1, column=0, sticky='w')
@@ -5899,7 +6067,7 @@ and everything after the & is sent.'''
         self.add_config_vars(config_vars_frame)
 
     def set_geometry(self):
-        self.frame.update_idletasks()
+        self.top_level.update_idletasks()
         w, h, x, y = split_geometry(self.top_level.geometry())
         Server.settings.load()
         geometry = Server.settings.get('Window', 'CW.geometry')
@@ -5995,47 +6163,6 @@ and everything after the & is sent.'''
         }
         ToggleWidget(self, self.autospot_frame, spot_options)
 
-    def add_buttons(self, buttons, parent_frame, edit):
-        for child in parent_frame.winfo_children():
-            # Should be only one child: buttons_frame
-            for grandchild in child.winfo_children():
-                if not edit:
-                    grandchild.unbind('<Button-1>')
-                grandchild.unbind('<Return>')
-            child.destroy()
-        buttons_frame = tk.LabelFrame(parent_frame, text='', font=self.label_font(),
-            labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
-        buttons_frame.grid(row=0, column=0, sticky='w')
-
-        for i in range(len(self.button_values), self.rows*self.columns):
-            self.button_values.append('')
-            self.button_labels.append('')
-
-        buttons.clear()
-        row = 0
-        column = 0
-        for i, value in enumerate(self.button_values):
-            if row >= self.rows:
-                break
-            if i < 12:
-                text = f'F{i+1}'
-            else:
-                text = ''
-            font = scale_font(self.label_font(), 0.7)
-            label_frame = tk.LabelFrame(buttons_frame, text=text, font=font,
-                labelanchor='nw')
-            label_frame.grid(row=row, column=column, sticky='w', padx=2, pady=2)
-            button = tk.Text(label_frame, bd=0, padx=0, pady=0, bg=self.bg, fg=self.fg,
-                             font=self.monospaced_font, height=1, width=self.button_width,
-                             cursor='hand2', relief='raised', wrap='none')
-            button.grid(row=0, column=0, sticky='w')
-            buttons.append(button)
-            self.load_button_value(buttons, i, edit=edit)
-            column += 1
-            if column >= self.columns:
-                row += 1
-                column = 0
-
     def add_text_fields(self, parent_frame):
         self.entry_frame = tk.LabelFrame(parent_frame, text='Delayed Tx (Press Enter key to send, Delete key to clear)',
             font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
@@ -6068,32 +6195,7 @@ and everything after the & is sent.'''
         self.config_cw_fields()
 
     def add_config_vars(self, parent_frame):
-        self.rows_var = tk.IntVar()
-        self.rows_var.set(self.rows)
-        frame = tk.Frame(parent_frame)
-        frame.grid(row=0, column=0, padx=10)
-        label = tk.Label(frame, text='Button Rows:', font=self.font(), bg=self.bg)
-        label.grid(row=0, column=0, sticky='e')
-        rows_entry = tk.Entry(frame, textvariable=self.rows_var, width=2, justify='right', font=self.font(), bg='yellow')
-        rows_entry.grid(row=0, column=1, sticky='w')
-
-        self.columns_var = tk.IntVar()
-        self.columns_var.set(self.columns)
-        frame = tk.Frame(parent_frame)
-        frame.grid(row=0, column=1, padx=10, pady=3, sticky='w')
-        label = tk.Label(frame, text='Button Columns:', font=self.font(), bg=self.bg)
-        label.grid(row=0, column=0, sticky='e')
-        entry = tk.Entry(frame, textvariable=self.columns_var, width=2, justify='right', font=self.font(), bg='yellow')
-        entry.grid(row=0, column=1, sticky='w')
-
-        self.button_width_var = tk.IntVar()
-        self.button_width_var.set(self.button_width)
-        frame = tk.Frame(parent_frame)
-        frame.grid(row=1, column=0, padx=10, pady=3, sticky='w')
-        label = tk.Label(frame, text='Button Width:', font=self.font(), bg=self.bg)
-        label.grid(row=0, column=0, sticky='e')
-        entry = tk.Entry(frame, textvariable=self.button_width_var, width=2, justify='right', font=self.font(), bg='yellow')
-        entry.grid(row=0, column=1, sticky='w')
+        super().add_config_vars(parent_frame)
 
         self.text_width_var = tk.IntVar()
         self.text_width_var.set(self.text_width)
@@ -6169,53 +6271,22 @@ and everything after the & is sent.'''
         geometry = self.top_level.geometry()
         Server.settings.put_save('Window', 'CW.geometry', geometry)
 
+    def load_button_value(self, buttons, index, edit=False):
+        super().load_button_value(buttons, index, edit=edit)
+        if not edit:
+            send_button = lambda event, index=index: self.send_button(index)
+            button = buttons[index]
+            button.bind('<Button-1>', send_button)
+
+    def store_button_value(self, buttons, index):
+        super().store_button_value(buttons, index)
+        self.save_settings()
+
     def on_mode_change(self, response=None):
         if self.tx_mode() in ('CW', 'CW-R'):
             self.show()
         else:
             self.hide()
-
-    def load_button_value(self, buttons, index, edit=False):
-        value = self.button_values[index]
-        label = self.button_labels[index]
-        if label != '':
-            value = f'{label}&{value}' if edit else label
-        button = buttons[index]
-        button.delete('1.0', tk.END)
-        button.insert('1.0', value)
-        button.see('1.0')
-        if edit:
-            button.config(bg='Yellow', state='normal', cursor='')
-        else:
-            button.config(bg=self.bg, state='disabled', cursor='hand2')
-            send_button = lambda event, index=index: self.send_button(index)
-            button.bind('<Button-1>', send_button)
-            self.top_level.unbind_all(f'<F{index+1}>')
-            self.top_level.bind_all(f'<F{index+1}>', send_button)
-        button.bind('<Return>', lambda event: 'break')
-
-    def button_label_value(self, button):
-        value = button.get('1.0', tk.END).strip()
-        fields = value.split('&', 1)
-        if len(fields) == 2:
-            label, value = fields
-        else:
-            label = ''
-        return label, value
-
-    def store_button_value(self, buttons, index):
-        button = buttons[index]
-        label, value = self.button_label_value(button)
-        self.button_labels[index] = label
-        self.button_values[index] = value
-        if label != '':
-            value = label
-        button.config(state='normal')
-        button.delete('1.0', tk.END)
-        button.insert('1.0', value)
-        button.see('1.0')
-        button.config(bg=self.bg, state='disabled', cursor='hand2')
-        self.save_settings()
 
     def tx_mode(self):
         base = 'MD'
@@ -6398,7 +6469,7 @@ and everything after the & is sent.'''
         c = event.char
         if c < '\x20':     # ignore C-c, C-v, C-x, Home, End, etc.
             return
-        if c.upper() not in CW.valid_CW_characters:
+        if c.upper() not in self.valid_characters:
             Popup.warning(f'Character "{c}" not supported for CW')
             return 'break'
 
@@ -6409,7 +6480,7 @@ and everything after the & is sent.'''
         c = event.char
         if c < '\x20':     # ignore C-c, C-v, C-x, Home, End, etc.
             return 'break'
-        if c.upper() not in CW.valid_CW_characters + '\x7f':
+        if c.upper() not in self.valid_characters + '\x7f':
             Popup.warning(f'Character "{c}" not supported for CW')
             return 'break'
 
@@ -6448,53 +6519,37 @@ and everything after the & is sent.'''
         self.keyer_speed_frame.config(text=f'Keyer: {wpm} WPM')
 
     def on_save_button(self):
-        if not self.valid_button_values(self.config_buttons):
-            return
-        for i, button in enumerate(self.config_buttons):
-            self.store_button_value(self.config_buttons, i)
-        self.rows = self.rows_var.get()
-        self.columns = self.columns_var.get()
-        self.button_width = self.button_width_var.get()
-        self.text_width = self.text_width_var.get()
-        self.entry_height = self.entry_height_var.get()
-        self.tx_height = self.tx_height_var.get()
-        self.rx_height = self.rx_height_var.get()
+        super().on_save_button()
+
+        try:
+            self.text_width = self.text_width_var.get()
+        except:
+            self.text_width_var.set(self.text_width)
+        try:
+            self.entry_height = self.entry_height_var.get()
+        except:
+            self.entry_height_var.set(self.entry_height)
+        try:
+            self.tx_height = self.tx_height_var.get()
+        except:
+            self.tx_height_var.set(self.tx_height)
+        try:
+            self.rx_height = self.rx_height_var.get()
+        except:
+            self.rx_height_var.set(self.rx_height)
         self.save_settings()
-        self.add_buttons(self.cw_buttons, self.cw_buttons_frame, edit=False)
-        self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
         self.config_cw_fields()
+        self.set_geometry()
         self.select_tab('CW')
 
     def on_cancel_button(self):
-        for i, button in enumerate(self.config_buttons):
-            self.load_button_value(self.config_buttons, i, edit=True)
-        self.rows_var.set(self.rows)
-        self.columns_var.set(self.columns)
-        self.button_width_var.set(self.button_width)
-        self.text_width_var.set(self.text_width)
+        super().on_cancel_button()
+
         self.entry_height_var.set(self.entry_height)
         self.tx_height_var.set(self.tx_height)
         self.rx_height_var.set(self.rx_height)
-        self.add_buttons(self.cw_buttons, self.cw_buttons_frame, edit=False)
-        self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
         self.config_cw_fields()
         self.select_tab('CW')
-
-    def valid_button_value(self, buttons, i):
-        button = buttons[i]
-        label, value = self.button_label_value(button)
-        for c in value:
-            if c.upper() not in CW.valid_CW_characters:
-                Popup.warning(f'Character "{c}" not allowed in Button {i+1}')
-                self.load_button_value(buttons, i, edit=True)
-                return False
-        return True
-
-    def valid_button_values(self, buttons):
-        for i, button in enumerate(buttons):
-            if not self.valid_button_value(buttons, i):
-                return False
-        return True
 
     def load_settings(self):
         section = 'CW'
