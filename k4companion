@@ -6966,13 +6966,13 @@ class Popup():
         cls.popup(msg=msg, title='Warning', timeout=timeout, font=None, color='yellow', modal=modal)
 
     @classmethod
-    def error(cls, msg, timeout=5000, modal=False):
+    def error(cls, msg, timeout=5000, modal=False, font=None):
         if isinstance(msg, str):
             msg = 'Error: ' +  msg
         else:
             msg[0] = 'Error: ' + msg[0]
         dprint(msg)
-        cls.popup(msg=msg, title='Error', timeout=timeout, font=None, color='yellow', modal=modal)
+        cls.popup(msg=msg, title='Error', timeout=timeout, font=font, color='yellow', modal=modal)
 
     @classmethod
     def modal(cls, msg, timeout=None):
@@ -7183,6 +7183,14 @@ def start():
     alt_config_file = os.path.join(script_directory, config_file)
     if not os.path.isfile(config_file) and os.path.isfile(alt_config_file):
         config_file = alt_config_file
+
+    if not os.path.isfile(config_file):
+        font = Default.button_font
+        font = tkFont.Font(family=font['family'], size=font['size'], weight=font['weight'])
+        Popup.error(f'Configuration file "{config_file}" not found.',
+                    modal=True, font=font)
+        sys.exit()
+
     read_config(config_file)
 
     page = Page.main()
