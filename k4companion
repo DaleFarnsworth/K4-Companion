@@ -44,6 +44,7 @@ import numpy
 import opuslib
 import optparse
 import os
+import pathlib
 import platform
 import pyaudio
 import queue
@@ -7177,7 +7178,12 @@ def start():
 
     Server()
 
-    read_config(Options.config_file)
+    script_directory = pathlib.Path(__file__).parent.resolve()
+    config_file = Options.config_file
+    alt_config_file = os.path.join(script_directory, config_file)
+    if not os.path.isfile(config_file) and os.path.isfile(alt_config_file):
+        config_file = alt_config_file
+    read_config(config_file)
 
     page = Page.main()
     server = page.server
