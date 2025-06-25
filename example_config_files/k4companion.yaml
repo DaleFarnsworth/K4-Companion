@@ -178,10 +178,6 @@
     - item: group
       contains: #{
         #include audio-mx-togglebutton
-        - item: group
-          contains: #{
-            #include xit-togglebutton
-          #}
         #include power-dropdown-button
       #}
     #include tune-group
@@ -416,6 +412,7 @@
     #include atten-a-dropdown-button
     #include preamp-a-dropdown-button
     #include rfgain-a-dropdown-button
+    #include xit-togglebutton
   #}
 #end
 
