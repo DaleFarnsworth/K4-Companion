@@ -306,6 +306,7 @@ class Server():
         '#H': ['#HDPM', '#HDSM', '#HREF', '#HWBS', '#HWFC', '#HWFH'],
         'KZ': ['KZL', 'KZF'],
         'LO': ['LOG'],
+        '!M': ['!MACROS'],
         'ME': ['MEDF'],
         'ML': ['ML0', 'ML1', 'ML2'],
         '#M': ['#MP'],
@@ -461,7 +462,7 @@ class Server():
         self.connect_callbacks = []
         self.partial_packet = None
         self.password = None
-        self.control_k4_audio = true_values(Server.settings.get('Audio', 'control_k4_audio_settings'))
+        self.control_k4_audio = Server.settings.getbool('Audio', 'control_k4_audio_settings')
         self.audio_sequence_number = 0
         self.received_initial_parameters = False
         self.received_initial_parameters_callbacks = []
@@ -759,7 +760,7 @@ class Server():
             self.tune_directive()
         elif lcmd == 'restart!':
             restart()
-        elif base.lower() == 'show!':
+        elif lbase == 'show!':
             page = lcmd[len(base):].strip()
             if page == 'previous':
                 Page.show_previous()
@@ -780,6 +781,7 @@ class Server():
         self.send_cmds(cmd)
 
     def send_cmds(self, cmds):
+        send = True
         if isinstance(cmds, str):
             cmds = Server.split_cmd(cmds)
         for cmd in cmds:
@@ -789,7 +791,7 @@ class Server():
             if self.is_directive(base):
                 self.directive(base, cmd)
                 continue
-            if base in ('TR', 'SDC', 'SDV', 'SDD', 'SB', 'TU') + Server.control_k4_audio_cmd_bases:
+            if base in ('TR', 'SDC', 'SDV', 'SDD', 'SB', 'TU', '!MACROS') + Server.control_k4_audio_cmd_bases:
                 if base == 'TR':
                     if cmd[2] == 'T':
                         self.update_k4_parameter('TR', 'T')
@@ -809,9 +811,11 @@ class Server():
                         continue
                 elif base == 'TU' and cmd != 'TU0' and len(cmd) > 2:
                     self.save_last_tune_cmd(cmd)
+                elif base == '!MACROS':
+                    send = False
             if self.warn_if_not_connected():
                 return
-            if Server.k4_set_only_cmd(base, cmd) or self.update_k4_parameter(base, cmd[len(base):]):
+            if (Server.k4_set_only_cmd(base, cmd) or self.update_k4_parameter(base, cmd[len(base):])) and send:
                 cmd += ';'
                 self.send_str(cmd)
 
@@ -979,10 +983,7 @@ class Server():
                 continue
             response = response[len(base):]
             if response == '?' and base not in self.ignored_errors:
-                if Options.debug > 0:
-                    raise Exception('Received error response from K4: ', base + response)
-                else:
-                    Popup.warning('Received error response from K4: ' + base + response)
+                Popup.warning('Received error response from K4: ' + base + response)
             self.update_k4_parameter(base, response)
 
     def cat_only_recv_loop(self):
@@ -1420,6 +1421,8 @@ class Container(Widget):
                 child = Antenna(config_info, self)
             elif widget_type == 'cw':
                 child = CW(config_info, self)
+            elif widget_type == 'macros':
+                child = Macros(config_info, self)
             else:
                 raise Exception('Error: config file: unknown item "{type}"'.format(type=widget_type))
 
@@ -3430,7 +3433,7 @@ def cmd_base(cmd):
 
 def cmd_parameter(response):
     i = len(cmd_base(response))
-    return response[i:].rstrip(';')
+    return response[i:].rstrip(';').upper()
 
 def true_values(v):
     if v == True or v == 1:
@@ -4680,6 +4683,9 @@ class Settings():
             return default
         return self.settings[section][setting]
 
+    def getbool(self, section, setting, default=None):
+        return true_values(self.get(section, setting, default))
+
     def getint(self, section, setting, default=None, minimum=None, maximum=None):
         val = self.get(section, setting, default)
         if val != None:
@@ -5171,7 +5177,7 @@ class AppSettings_widget(Widget):
         Audio.set_output_device_name(output_name)
 
     def audio_k4_control_setting(self, frame):
-        setting = true_values(Server.settings.get('Audio', 'control_k4_audio_settings'))
+        setting = Server.settings.getbool('Audio', 'control_k4_audio_settings')
         if setting == None:
             setting = self.cat_only
         self.server.set_control_k4_audio(setting)
@@ -5623,7 +5629,7 @@ class TextButtons(Widget):
         value = self.button_values[index]
         label = self.button_labels[index]
         if label != '':
-            value = f'{label}&{value}' if edit else label
+            value = f'{label} & {value}' if edit else label
         button = buttons[index]
         button.delete('1.0', tk.END)
         button.insert('1.0', value)
@@ -5632,10 +5638,6 @@ class TextButtons(Widget):
             button.config(bg='Yellow', state='normal', cursor='')
         else:
             button.config(bg=self.bg, state='disabled', cursor='hand2')
-            send_button = lambda event, index=index: self.send_button(index)
-            button.bind('<Button-1>', send_button)
-            self.top_level.unbind_all(f'<F{index+1}>')
-            self.top_level.bind_all(f'<F{index+1}>', send_button)
         button.bind('<Return>', lambda event: 'break')
 
     def button_label_value(self, button):
@@ -5643,6 +5645,8 @@ class TextButtons(Widget):
         fields = value.split('&', 1)
         if len(fields) == 2:
             label, value = fields
+            label = label.strip()
+            value = value.strip()
         else:
             label = ''
         return label, value
@@ -5766,7 +5770,8 @@ class CW(TextButtons):
 
     @classmethod
     def close_window(cls):
-        cls.singleton.close()
+        if cls.singleton != None:
+            cls.singleton.close()
 
     def __init__(self, config_info, container):
         required = ['item']
@@ -5792,6 +5797,8 @@ class CW(TextButtons):
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def open(self):
+        if self.is_open:
+            return
         self.is_open = True
         self.top_level = tk.Toplevel(Page.top)
         self.top_level.protocol("WM_DELETE_WINDOW", self.hide)
@@ -5812,15 +5819,15 @@ class CW(TextButtons):
         self.set_geometry()
 
     def focus_in(self, event=None):
-        self.top_level.bind_all('<Key>', self.on_key_pressed)
+        self.top_level.bind('<Key>', self.on_key_pressed)
 
     def focus_out(self, event=None):
-        self.top_level.unbind_all('<Key>')
+        self.top_level.unbind('<Key>')
         for i in range(12):
-            self.top_level.unbind_all(f'F{i+1}')
+            self.top_level.unbind(f'F{i+1}')
 
     def on_key_pressed(self, event):
-        if self.current_tabname == 'Configure':
+        if self.current_tabname != 'CW':
             return
         elif self.top_level.focus_get() == self.entry_text:
             self.on_entry_text_modified(event)
@@ -6235,7 +6242,7 @@ and everything after the & is sent.'''
         entry.grid(row=0, column=1, sticky='w')
 
     def on_received_initial_parameters(self, response):
-        self.server.subscribe_responses('MD;MD$;', self.on_mode_change)
+        self.server.subscribe_responses('MD;MD$;', self.on_mode_response)
 
     def hide(self):
         if self.is_open:
@@ -6247,7 +6254,7 @@ and everything after the & is sent.'''
         else:
             self.top_level.deiconify()
             self.top_level.lift()
-            self.top_level.focus_set()
+            Page.top.focus_set()
 
     def close(self):
         if not self.is_open:
@@ -6266,9 +6273,12 @@ and everything after the & is sent.'''
         self.server.unsubscribe_response('TB$;', self.on_sub_text_buffer)
         self.server.unsubscribe_response('ACN1;', self.on_transmit_ack)
         self.server.unsubscribe_response('KS;', self.on_keyer_speed_change)
+
+        self.is_open = False
         self.top_level.destroy()
 
     def save_geometry(self):
+        self.top_level.update_idletasks()
         geometry = self.top_level.geometry()
         Server.settings.put_save('Window', 'CW.geometry', geometry)
 
@@ -6278,12 +6288,13 @@ and everything after the & is sent.'''
             send_button = lambda event, index=index: self.send_button(index)
             button = buttons[index]
             button.bind('<Button-1>', send_button)
+            self.top_level.bind(f'<F{index+1}>', send_button)
 
     def store_button_value(self, buttons, index):
         super().store_button_value(buttons, index)
         self.save_settings()
 
-    def on_mode_change(self, response=None):
+    def on_mode_response(self, response=None):
         if self.tx_mode() in ('CW', 'CW-R'):
             self.show()
         else:
@@ -6577,6 +6588,8 @@ and everything after the & is sent.'''
             fields = value.split('&', 1)
             if len(fields) == 2:
                 label, value = fields
+                label = label.strip()
+                value = value.strip()
             else:
                 label = ''
             self.button_values.append(value)
@@ -6616,6 +6629,276 @@ and everything after the & is sent.'''
         Server.settings.put(section, 'buttons', buttons)
 
         settings = Server.settings.get_section(section)
+        if settings != previous_settings:
+            Server.settings.save()
+
+class Macros(TextButtons):
+    singleton = None
+
+    @classmethod
+    def close_window(cls):
+        if cls.singleton != None:
+            cls.singleton.close()
+
+    def __init__(self, config_info, container):
+        required = ['item']
+        optional = ['bd', 'bg', 'fg', 'font', 'label', 'leading', 'padx', 'pady']
+        validate_options(config_info, required, optional)
+
+        super().__init__(config_info, container)
+
+        self.valid_characters = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890$;-_,./?(+=%*!'
+
+        self.section = 'Macros'
+        self.load_settings()
+
+        Macros.singleton = self
+        self.is_open = False
+        self.previous_tabname = None
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
+    def on_received_initial_parameters(self, response):
+        self.server.subscribe_responses('!MACROS;', self.on_macros_cmd)
+        self.open()
+        self.show_or_hide()
+
+    def show_or_hide(self):
+        if self.enabled:
+            self.show()
+        else:
+            self.hide()
+
+    def on_macros_cmd(self, response):
+        self.enabled = cmd_parameter(response) == 'ENABLE'
+        Server.settings.put_save(self.section, 'enabled', self.enabled)
+        self.show_or_hide()
+
+    def open(self):
+        if self.k4param('!MACROS') != 'ENABLE':
+            self.server.update_k4_parameter('!MACROS', 'ENABLE')
+        if self.is_open:
+            return
+        self.is_open = True
+        self.top_level = tk.Toplevel(Page.top)
+        self.top_level.protocol("WM_DELETE_WINDOW", self.hide)
+        self.top_level.title(Page.top.title())
+        self.top_level.resizable(False, False)
+        self.frame = tk.Frame(self.top_level)
+        self.frame.grid(row=0, column=0)
+        self.notebook = self.notebook_frame(self.frame)
+        self.notebook.grid(row=0, column=0)
+
+        self.add_macros_tab()
+        self.add_config_tab()
+
+        self.set_geometry()
+
+    def add_macros_tab(self):
+        self.macros_frame = tk.Frame(self.notebook)
+        self.macros_frame.grid(row=0, column=0)
+        self.add_tab(self.macros_frame, 'Macros')
+
+        self.buttons_and_text_frame = tk.Frame(self.macros_frame)
+        self.buttons_and_text_frame.grid(row=1, column=0, sticky='w')
+
+        self.buttons_frame = tk.Frame(self.buttons_and_text_frame)
+        self.buttons_frame.grid(row=0, column=0, sticky='w')
+        self.add_buttons(self.buttons, self.buttons_frame, edit=False)
+
+    def add_config_tab(self):
+        config_frame = tk.Frame(self.notebook)
+        config_frame.grid(row=0, column=0)
+        self.add_tab(config_frame, 'Configure')
+
+        self.config_frame = tk.Frame(config_frame)
+
+        self.top_frame = tk.Frame(self.config_frame)
+        self.top_frame.grid(row=0, column=0, sticky='e')
+        self.cancel_button = tk.Button(self.top_frame, bd='2', text='Cancel', font=self.font(),
+            justify='center', relief='raised', fg=self.fg, bg=self.bg,
+            padx=2, pady=2, command=self.on_cancel_button)
+        self.cancel_button.grid(row=0, column=0, pady=1, sticky='e')
+
+        self.save_button = tk.Button(self.top_frame, bd='2', text='Save', font=self.font(),
+            justify='center', relief='raised', fg=self.fg, bg=self.bg,
+            padx=2, pady=2, command=self.on_save_button)
+        self.save_button.grid(row=0, column=1, pady=1, sticky='e')
+
+        info_frame = tk.Frame(self.config_frame)
+        info_frame.grid(row=1, column=0, pady=1, sticky='w')
+        text = '''The first 12 values are bound to function keys.
+
+If a value contains &, everything before the & is displayed
+and everything after the & is sent.'''
+        info = tk.Label(info_frame, text=text, justify='left',
+            font=self.font(), bg=self.bg)
+        info.grid(row=0, column=0, sticky='e')
+
+        self.config_buttons_frame = tk.Frame(self.config_frame)
+        self.config_buttons_frame.grid(row=2, column=0, pady=1, sticky='w')
+        self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
+
+        config_vars_frame = tk.Frame(self.config_frame)
+        config_vars_frame.grid(row=3, column=0, pady=1, sticky='w')
+        self.add_config_vars(config_vars_frame)
+
+    def on_tab_changed(self, event):
+        super().on_tab_changed(event)
+        if self.current_tabname == 'Configure':
+            self.config_frame.grid(row=0, column=0)
+            self.set_geometry()
+        else:
+            self.config_frame.grid_forget()
+            self.set_geometry()
+            if self.previous_tabname == 'Configure':
+                self.close()
+                self.open()
+        self.previous_tabname = self.current_tabname
+
+    def set_geometry(self):
+        self.top_level.update_idletasks()
+        w, h, x, y = split_geometry(self.top_level.geometry())
+        Server.settings.load()
+        geometry = Server.settings.get('Window', 'Macros.geometry')
+        if geometry == None:
+            return
+        _w, _h, x, y = split_geometry(geometry)
+        screen_width = Page.top.winfo_screenwidth()
+        screen_height = Page.top.winfo_screenheight()
+        x_offset = screen_width - (x + w)
+        y_offset = screen_height - (y + h)
+        if x_offset < 0:
+            x += x_offset
+        if y_offset < 0:
+            y += y_offset
+        if x < 0:
+            x = 0
+        if y < 0:
+            y = 0
+        w, h = self.frame.winfo_width(), self.frame.winfo_height()
+        geometry = f'{w}x{h}{x:+}{y:+}'
+        self.top_level.geometry(geometry)
+
+    def hide(self):
+        if self.is_open:
+            if self.k4param('!MACROS') != 'DISABLE':
+                self.server.update_k4_parameter('!MACROS', 'DISABLE')
+            self.top_level.withdraw()
+
+    def show(self):
+        if not self.is_open:
+            self.open()
+        else:
+            if self.k4param('!MACROS') != 'ENABLE':
+                self.server.update_k4_parameter('!MACROS', 'ENABLE')
+            self.top_level.deiconify()
+            self.top_level.lift()
+            self.top_level.focus_set()
+
+    def close(self):
+        if self.k4param('!MACROS') != 'DISABLE':
+            self.server.update_k4_parameter('!MACROS', 'DISABLE')
+        if not self.is_open:
+            return
+        self.is_open = False
+        self.save_geometry()
+        self.top_level.destroy()
+
+    def save_geometry(self):
+        self.top_level.update_idletasks()
+        geometry = self.top_level.geometry()
+        Server.settings.put_save('Window', 'Macros.geometry', geometry)
+
+    def load_button_value(self, buttons, index, edit=False):
+        super().load_button_value(buttons, index, edit=edit)
+        if not edit:
+            send_button = lambda event, index=index: self.send_button(index)
+            button = buttons[index]
+            button.bind('<Button-1>', send_button)
+            self.top_level.bind(f'<F{index+1}>', send_button)
+            Page.top.bind(f'<F{index+1}>', send_button)
+
+    def store_button_value(self, buttons, index):
+        super().store_button_value(buttons, index)
+        self.save_settings()
+
+    def send_button(self, index):
+        value = self.button_values[index]
+        label = self.button_labels[index]
+        if label == '':
+            label = value
+        Popup.popup(f'Macro: {label}', timeout=1000, color='white')
+
+        if value == '':
+            return
+        if not value.endswith(';'):
+            value += ';'
+        self.server.send_cmds(value)
+
+    def on_save_button(self):
+        super().on_save_button()
+        self.save_settings()
+        self.select_tab('Macros')
+
+    def on_cancel_button(self):
+        super().on_cancel_button()
+        self.select_tab('Macros')
+
+    def load_settings(self):
+        self.enabled = Server.settings.getbool(self.section, 'enabled', True)
+
+        self.rows = Server.settings.getint(self.section, 'button_rows', 3, minimum=1, maximum=20)
+        self.columns = Server.settings.getint(self.section, 'button_columns', 4, minimum=1, maximum=20)
+        self.button_width = Server.settings.getint(self.section, 'button_width', 15, minimum=5, maximum=60)
+
+        self.button_values = []
+        self.button_labels = []
+        buttons = Server.settings.get(self.section, 'buttons')
+        if buttons != None:
+            values = buttons.split('\n')
+        else:
+            values = ('Main Data A & MD6;DT0;', 'Main AFSK A & MD6;DT1;', 'Main FSK D & MD6;DT2;', 'Main PSK D & MD6;DT3;','Sub Data A & MD$6;DT$0;', 'Sub AFSK A & MD$6;DT$1;', 'Sub FSK D & MD$6;DT$2;', 'Sub PSK D & MD$6;DT$3;')
+        for value in values:
+            value = value.strip()
+            fields = value.split('&', 1)
+            if len(fields) == 2:
+                label, value = fields
+                label = label.strip()
+                value = value.strip()
+            else:
+                label = ''
+            self.button_values.append(value)
+            self.button_labels.append(label)
+        total_buttons = self.rows * self.columns
+        while len(self.button_values) < total_buttons:
+            self.button_values.append('')
+            self.button_labels.append('')
+
+    def save_settings(self):
+        previous_settings = Server.settings.get_section(self.section)
+        Server.settings.clear_section(self.section)
+
+        Server.settings.put(self.section, 'button_rows', self.rows)
+        Server.settings.put(self.section, 'button_columns', self.columns)
+        Server.settings.put(self.section, 'button_width', self.button_width)
+
+        values = []
+        for i, value in enumerate(self.button_values):
+            label = self.button_labels[i]
+            if label != '':
+                value = f'{label} & {value}'
+            values.append(value)
+        while True:
+            ln = len(values)
+            if ln <= 0:
+                break
+            if values[ln-1] != '':
+                break
+            values.pop()
+        buttons = '\n '.join(values)
+        Server.settings.put(self.section, 'buttons', buttons)
+
+        settings = Server.settings.get_section(self.section)
         if settings != previous_settings:
             Server.settings.save()
 
@@ -6904,6 +7187,7 @@ def clean_up(exit=False):
         server.close()
 
     CW.close_window()
+    Macros.close_window()
     Audio.close()
     Poll.remove_all()
 
@@ -6912,6 +7196,7 @@ def exit():
     Page.top.quit()
 
 def save_geometry():
+    Page.top.update_idletasks()
     geometry = Page.top.geometry()
     Server.settings.put_save('Window', 'root.geometry', geometry)
 

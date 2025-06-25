@@ -38,6 +38,7 @@
     #include main-tab-row2
     #include main-tab-row3
     #include cw-window
+    #include macros-window
     #}
 #end
 
@@ -110,6 +111,7 @@
   contains: #{
     #include vox-group
     #include ctcss-group
+    #include macros-button
   #}
 #end
 
@@ -1373,6 +1375,16 @@
   #}
 #end
 
+#define macros-button
+- item: togglebutton
+  label: "Macros\nWindow"
+  width: 9
+  selections: #{
+    - { text: 'Disable',  cmd: '!MACROSENABLE;' }
+    - { text: 'Enable', cmd: '!MACROSDISABLE;' }
+  #}
+#end
+
 #define ctcss-togglebutton
 - item: togglebutton
   selections: #{
@@ -1441,6 +1453,10 @@
 
 #define cw-window
 - item: cw
+#end
+
+#define macros-window
+- item: macros
 #end
 
 #define equalizers
