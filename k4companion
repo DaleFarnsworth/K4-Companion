@@ -6214,19 +6214,10 @@ and everything after the & is sent.'''
         entry = tk.Entry(frame, textvariable=self.text_width_var, width=2, justify='right', font=self.font(), bg='yellow')
         entry.grid(row=0, column=1, sticky='w')
 
-        self.entry_height_var = tk.IntVar()
-        self.entry_height_var.set(self.entry_height)
-        frame = tk.Frame(parent_frame)
-        frame.grid(row=2, column=0, padx=10, pady=3, sticky='w')
-        label = tk.Label(frame, text='Entry lines:', font=self.font(), bg=self.bg)
-        label.grid(row=0, column=0, sticky='e')
-        entry = tk.Entry(frame, textvariable=self.entry_height_var, width=2, justify='right', font=self.font(), bg='yellow')
-        entry.grid(row=0, column=1, sticky='w')
-
         self.tx_height_var = tk.IntVar()
         self.tx_height_var.set(self.tx_height)
         frame = tk.Frame(parent_frame)
-        frame.grid(row=3, column=0, padx=10, pady=3, sticky='w')
+        frame.grid(row=2, column=0, padx=10, pady=3, sticky='w')
         label = tk.Label(frame, text='Tx lines:', font=self.font(), bg=self.bg)
         label.grid(row=0, column=0, sticky='e')
         entry = tk.Entry(frame, textvariable=self.tx_height_var, width=2, justify='right', font=self.font(), bg='yellow')
@@ -6235,10 +6226,19 @@ and everything after the & is sent.'''
         self.rx_height_var = tk.IntVar()
         self.rx_height_var.set(self.rx_height)
         frame = tk.Frame(parent_frame)
-        frame.grid(row=4, column=0, padx=10, pady=3, sticky='w')
+        frame.grid(row=2, column=1, padx=10, pady=3, sticky='w')
         label = tk.Label(frame, text='Rx lines:', font=self.font(), bg=self.bg)
         label.grid(row=0, column=0, sticky='e')
         entry = tk.Entry(frame, textvariable=self.rx_height_var, width=2, justify='right', font=self.font(), bg='yellow')
+        entry.grid(row=0, column=1, sticky='w')
+
+        self.entry_height_var = tk.IntVar()
+        self.entry_height_var.set(self.entry_height)
+        frame = tk.Frame(parent_frame)
+        frame.grid(row=3, column=0, padx=10, pady=3, sticky='w')
+        label = tk.Label(frame, text='Entry lines:', font=self.font(), bg=self.bg)
+        label.grid(row=0, column=0, sticky='e')
+        entry = tk.Entry(frame, textvariable=self.entry_height_var, width=2, justify='right', font=self.font(), bg='yellow')
         entry.grid(row=0, column=1, sticky='w')
 
     def on_received_initial_parameters(self, response):
@@ -6827,7 +6827,8 @@ and everything after the & is sent.'''
         label = self.button_labels[index]
         if label == '':
             label = value
-        Popup.popup(f'Macro: {label}', timeout=1000, color='white')
+        if label != '':
+            Popup.popup(label, timeout=1000, color='white')
 
         if value == '':
             return
@@ -6857,7 +6858,7 @@ and everything after the & is sent.'''
         if buttons != None:
             values = buttons.split('\n')
         else:
-            values = ('Main Data A & MD6;DT0;', 'Main AFSK A & MD6;DT1;', 'Main FSK D & MD6;DT2;', 'Main PSK D & MD6;DT3;','Sub Data A & MD$6;DT$0;', 'Sub AFSK A & MD$6;DT$1;', 'Sub FSK D & MD$6;DT$2;', 'Sub PSK D & MD$6;DT$3;')
+            values = ('Clear RIT/XIT & RC;RT0;XT0;', 'XIT +5 kHz & XT1;RO+5000;')
         for value in values:
             value = value.strip()
             fields = value.split('&', 1)
