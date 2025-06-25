@@ -6294,7 +6294,8 @@ and everything after the & is sent.'''
             send_button = lambda event, index=index: self.send_button(index)
             button = buttons[index]
             button.bind('<Button-1>', send_button)
-            self.top_level.bind(f'<F{index+1}>', send_button)
+            if index < 12:
+                self.top_level.bind(f'<F{index+1}>', send_button)
 
     def store_button_value(self, buttons, index):
         super().store_button_value(buttons, index)
@@ -6828,8 +6829,9 @@ and everything after the & is sent.'''
             send_button = lambda event, index=index: self.send_button(index)
             button = buttons[index]
             button.bind('<Button-1>', send_button)
-            self.top_level.bind(f'<F{index+1}>', send_button)
-            Page.top.bind(f'<F{index+1}>', send_button)
+            if index < 12:
+                self.top_level.bind(f'<F{index+1}>', send_button)
+                Page.top.bind(f'<F{index+1}>', send_button)
 
     def store_button_value(self, buttons, index):
         super().store_button_value(buttons, index)
