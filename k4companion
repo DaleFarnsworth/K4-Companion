@@ -5757,6 +5757,12 @@ class CWText(tk.Text):
             self.clear()
         return text
 
+    def set(self, value):
+        self.config(state='normal')
+        self.delete('1.0', tk.END)
+        self.insert('1.0', value)
+        self.config(state='disabled')
+
     def clear(self):
         previous_state = self.cget('state')
         self.config(state='normal')
@@ -6490,6 +6496,13 @@ and everything after the & is sent.'''
             self.stop_sending()
             return 'break'
         c = event.char
+        if c == '\x08':
+            pending_text = self.tx_text.text()
+            offset = self.tx_send_offset - self.tx_remaining_count
+            if (len(pending_text) - offset) > CW.tx_queue_max + 1:
+                self.tx_text.set(pending_text[0:-1])
+            return 'break'
+
         if c < '\x20':     # ignore C-c, C-v, C-x, Home, End, etc.
             return 'break'
         if c.upper() not in self.valid_characters + '\x7f':
