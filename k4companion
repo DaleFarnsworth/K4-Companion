@@ -5808,7 +5808,7 @@ class CW(TextButtons):
         self.is_open = True
         self.top_level = tk.Toplevel(Page.top)
         self.top_level.protocol("WM_DELETE_WINDOW", self.hide)
-        self.top_level.title(Page.top.title())
+        self.top_level.title(Page.top.title() + ' CW')
         self.top_level.resizable(False, False)
         self.frame = tk.Frame(self.top_level)
         self.frame.grid(row=0, column=0)
@@ -6694,7 +6694,7 @@ class Macros(TextButtons):
         self.is_open = True
         self.top_level = tk.Toplevel(Page.top)
         self.top_level.protocol("WM_DELETE_WINDOW", self.hide)
-        self.top_level.title(Page.top.title())
+        self.top_level.title(Page.top.title() + ' Macros')
         self.top_level.resizable(False, False)
         self.frame = tk.Frame(self.top_level)
         self.frame.grid(row=0, column=0)
