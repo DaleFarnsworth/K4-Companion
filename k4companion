@@ -505,7 +505,7 @@ class Server():
             self.connect_callbacks.append(callback)
 
     def update_k4_parameter(self, base, parameter):
-        if base in ('TX', 'RX', 'SD0', 'SD1', 'ES', 'TB', 'TB$'):
+        if base in ('TX', 'RX', 'SD0', 'SD1', 'ES', 'TB', 'TB$', 'SB'):
             if base == 'TX':
                 self.update_k4_parameter('TR', 'T')
             elif base == 'RX':
@@ -520,6 +520,8 @@ class Server():
             elif base in ('TB', 'TB$'):
                 if len(parameter) < 3:
                     return
+            elif base == 'SB' and parameter == '3': # Workaround K4 bug
+                parameter = '1'
 
         old = self.k4_parameters.get(base, None)
         self.k4_parameters[base] = parameter

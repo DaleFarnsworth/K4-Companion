@@ -985,9 +985,8 @@
 - item: togglebutton
   selections: #{
     - { text: 'Div on',   cmd: DV1; }
-    - { text: 'Div off',  cmd: DV0;SB1; }
-    - { text: 'Sub on',   cmd: DV0;SB1 }
-    - { text: 'Sub off' , cmd: SB0; }
+    - { text: 'Sub on',   cmd: DV0;SB1; }
+    - { text: 'Sub off' , cmd: DV0;SB0; }
   #}
 #end
 
