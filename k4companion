@@ -7339,7 +7339,7 @@ class Popup():
             msg = 'Warning: ' +  msg
         else:
             msg[0] = 'Warning: ' + msg[0]
-        dprint(msg)
+        dprint(' '.join(msg))
         cls.popup(msg=msg, title='Warning', timeout=timeout, font=None, color='yellow', modal=modal)
 
     @classmethod
@@ -7348,12 +7348,12 @@ class Popup():
             msg = 'Error: ' +  msg
         else:
             msg[0] = 'Error: ' + msg[0]
-        dprint(msg)
+        dprint(' '.join(msg))
         cls.popup(msg=msg, title='Error', timeout=timeout, font=font, color='yellow', modal=modal)
 
     @classmethod
     def modal(cls, msg, timeout=None):
-        dprint(msg)
+        dprint(' '.join(msg))
         cls.popup(msg=msg, title='K4-Companion', timeout=timeout, font=None, color='yellow', modal=True)
 
     @classmethod
