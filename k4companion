@@ -1064,7 +1064,7 @@ class Server():
                         pass
                 else:
                     # If we're behind in emptying the queue, don't bother adding to it.
-                    if self.output_audio_queue.qsize() < 2:
+                    if self.output_audio_queue.qsize() < 5 :
                         self.output_audio_queue.put(payload)
 
                 if remaining_length == end_offset:
