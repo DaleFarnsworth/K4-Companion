@@ -6766,8 +6766,6 @@ class Macros(TextButtons):
         self.show_or_hide()
 
     def open(self):
-        if self.k4param('!MACROS') != 'ENABLE':
-            self.server.update_k4_parameter('!MACROS', 'ENABLE')
         if self.is_open:
             return
         self.is_open = True

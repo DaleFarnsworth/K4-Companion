@@ -1376,8 +1376,8 @@
   label: "Macros\nWindow"
   width: 9
   selections: #{
-    - { text: 'Disable',  cmd: '!MACROSENABLE;' }
-    - { text: 'Enable', cmd: '!MACROSDISABLE;' }
+    - { text: 'Enabled',  cmd: '!MACROSENABLE;' }
+    - { text: 'Disabled', cmd: '!MACROSDISABLE;' }
   #}
 #end
 
