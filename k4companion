@@ -463,6 +463,7 @@ class Server():
         self.partial_packet = None
         self.password = None
         self.control_k4_audio = Server.settings.getbool('Audio', 'control_k4_audio_settings')
+        self.buffered_audio_packets = Server.settings.getint('Audio', 'buffered_packets', 1, minimum=1, maximum=100)
         self.audio_sequence_number = 0
         self.received_initial_parameters = False
         self.received_initial_parameters_callbacks = []
@@ -1064,7 +1065,7 @@ class Server():
                         pass
                 else:
                     # If we're behind in emptying the queue, don't bother adding to it.
-                    if self.output_audio_queue.qsize() < 5 :
+                    if self.output_audio_queue.qsize() < self.buffered_audio_packets+1:
                         self.output_audio_queue.put(payload)
 
                 if remaining_length == end_offset:
@@ -1154,6 +1155,9 @@ class Server():
 
     def set_control_k4_audio(self, val):
         self.control_k4_audio = val
+
+    def set_buffered_audio_packets(self, val):
+        self.buffered_audio_packets = val
 
     def update_local_audio_parameters(self):
         responses = Audio.local_audio_responses()
@@ -5087,6 +5091,8 @@ class AppSettings_widget(Widget):
         audio_output_frame.grid(row=1, column=0, sticky='w', pady=4)
         audio_k4_control_frame = self.audio_k4_control_setting(frame)
         audio_k4_control_frame.grid(row=2, column=0, sticky='w')
+        audio_buffered_packets_frame = self.audio_buffered_packets_setting(frame)
+        audio_buffered_packets_frame.grid(row=3, column=0, sticky='w')
 
         return frame
 
@@ -5249,6 +5255,56 @@ class AppSettings_widget(Widget):
 
         Server.settings.put_save('Audio', 'control_k4_audio_settings', setting)
         self.server.set_control_k4_audio(setting)
+
+    def audio_buffered_packets_setting(self, frame):
+        current_value = Server.settings.getint('Audio', 'buffered_packets', 1, minimum=1, maximum=100)
+        self.server.set_buffered_audio_packets(int(current_value))
+
+        buffered_packets_frame = tk.LabelFrame(frame,
+                                     text='Buffered Output Packets',
+                                     font=self.label_font(),
+                                     labelanchor='nw',
+                                     bd=2,
+                                     padx=2,
+                                     pady=2,
+                                     relief='raised')
+
+        # Define the style for this combobox widget
+        stylename = str(self) + 'output.TCombobox'
+        style = ttk.Style()
+        style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg, padding=(2,2,2,2))
+
+        values = ('1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '50', '100')
+        width = 3
+
+        self.buffered_packets_val = tk.StringVar()
+        self.buffered_packets_val.set(str(current_value))
+
+        buffered_packets_combobox = ttk.Combobox(
+                buffered_packets_frame,
+                textvar=self.buffered_packets_val,
+                font=self.font(),
+                values=values,
+                height=len(values),
+                width=width,
+                state='readonly',
+                justify='left',
+                style=stylename,
+                )
+        buffered_packets_combobox.grid(row=0, column=0, sticky='w')
+
+        self.buffered_packets_val.trace('w', self.on_buffered_packets_combobox_changed)
+
+        return buffered_packets_frame
+
+    def on_buffered_packets_combobox_changed(self, var, index, mode):
+        current_value = self.buffered_packets_val.get()
+        if current_value == '':
+            return
+
+        Server.settings.put_save('Audio', 'buffered_packets', current_value)
+        self.server.set_buffered_audio_packets(int(current_value))
+        restart()
 
 class FWversions(Text):
     def __init__(self, config_info, container):
