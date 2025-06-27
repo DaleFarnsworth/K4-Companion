@@ -1074,7 +1074,7 @@ class Server():
     def received_audio_packet(self, payload):
         Audio.output_packet_counter += 1
         queued_count = self.output_audio_queue.qsize()
-        queue_full = queued_count > Audio.output_packet_qlen + 2
+        queue_full = queued_count > Audio.output_packet_qlen + 5
         if queue_full:
             return
 
@@ -4479,9 +4479,14 @@ class Audio():
                 mode = server.k4_parameters.get('MD')
 
             if mode in ("1", "2", "4", "5"):        # LSB, USB, FM, AM
+                # Discard queued audio
+                while self.output_queue.qsize() > 2:
+                    self.output_queue.get_nowait()
+
                 if not self.transmit_audio:
                     self.transmit_audio = True
                     self.start_input_thread(server)
+
                 return
 
         self.transmit_audio = False
