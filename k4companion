@@ -463,7 +463,6 @@ class Server():
         self.partial_packet = None
         self.password = None
         self.control_k4_audio = Server.settings.getbool('Audio', 'control_k4_audio_settings')
-        self.buffered_audio_packets = Server.settings.getint('Audio', 'buffered_packets', 1, minimum=1, maximum=100)
         self.audio_sequence_number = 0
         self.received_initial_parameters = False
         self.received_initial_parameters_callbacks = []
@@ -1066,13 +1065,24 @@ class Server():
                     except queue.ShutDown:
                         pass
                 else:
-                    # If we're behind in emptying the queue, don't bother adding to it.
-                    if self.output_audio_queue.qsize() < self.buffered_audio_packets+1:
-                        self.output_audio_queue.put(payload)
+                    self.received_audio_packet(payload)
 
                 if remaining_length == end_offset:
                     break
                 rb = rb[end_offset:]
+
+    def received_audio_packet(self, payload):
+        Audio.output_packet_counter += 1
+        queued_count = self.output_audio_queue.qsize()
+        queue_full = queued_count > Audio.output_packet_qlen + 2
+        if queue_full:
+            return
+
+        if queued_count == 0:
+            Audio.reset_output_packet_counter()
+
+        if queued_count < Audio.output_packet_qlen + 2:
+            self.output_audio_queue.put(payload)
 
     def subscribe_response(self, cmd, callback, send=True):
         base = cmd_base(cmd)
@@ -1157,9 +1167,6 @@ class Server():
 
     def set_control_k4_audio(self, val):
         self.control_k4_audio = val
-
-    def set_buffered_audio_packets(self, val):
-        self.buffered_audio_packets = val
 
     def update_local_audio_parameters(self):
         responses = Audio.local_audio_responses()
@@ -4037,6 +4044,10 @@ class Audio():
     input_encode_mode = encode_mode_opus_float
     server = None
 
+    output_packet_counter = 0
+    output_packet_qlen = 0
+    output_dequeueing_packets = False
+
     @classmethod
     def get_singleton(cls):
         if cls.singleton == None:
@@ -4092,7 +4103,6 @@ class Audio():
         if self.input_device_index < 0:
             return None
         return self.input_device_infos[self.input_device_index]
-
 
     @classmethod
     def output_device_info(cls):
@@ -4193,6 +4203,16 @@ class Audio():
     def on_received_initial_parameters(cls, server):
         self = cls.get_singleton()
         self.start_output_thread(cls.server.output_audio_queue)
+
+    @classmethod
+    def reset_output_packet_counter(cls):
+        Audio.output_dequeueing_packets = False
+        Audio.output_packet_counter = 1
+
+    @classmethod
+    def set_receive_latency(cls, latency):
+        Audio.output_packet_qlen = latency / 40
+        Audio.reset_output_packet_counter()
 
     def pyaudio(self):
         fd = os.dup(2)
@@ -4348,6 +4368,11 @@ class Audio():
         warned = False
 
         while True:
+            if not Audio.output_dequeueing_packets and Audio.output_packet_counter < Audio.output_packet_qlen:
+                time.sleep(.01)
+                continue
+
+            Audio.output_dequeueing_packets = True
             packet = self.output_queue.get()
             if len(packet) == 0:
                 return
@@ -5093,13 +5118,13 @@ class AppSettings_widget(Widget):
                               relief='raised')
 
         audio_input_frame = self.audio_input_settings(frame)
-        audio_input_frame.grid(row=0, column=0, sticky='w')
+        audio_input_frame.grid(row=0, column=0, sticky='w', pady=2)
         audio_output_frame = self.audio_output_settings(frame)
-        audio_output_frame.grid(row=1, column=0, sticky='w', pady=4)
+        audio_output_frame.grid(row=1, column=0, sticky='w', pady=2)
         audio_k4_control_frame = self.audio_k4_control_setting(frame)
-        audio_k4_control_frame.grid(row=2, column=0, sticky='w')
-        audio_buffered_packets_frame = self.audio_buffered_packets_setting(frame)
-        audio_buffered_packets_frame.grid(row=3, column=0, sticky='w')
+        audio_k4_control_frame.grid(row=2, column=0, sticky='w', pady=2)
+        audio_receive_latency_frame = self.audio_receive_latency_setting(frame)
+        audio_receive_latency_frame.grid(row=3, column=0, sticky='w', pady=2)
 
         return frame
 
@@ -5263,12 +5288,12 @@ class AppSettings_widget(Widget):
         Server.settings.put_save('Audio', 'control_k4_audio_settings', setting)
         self.server.set_control_k4_audio(setting)
 
-    def audio_buffered_packets_setting(self, frame):
-        current_value = Server.settings.getint('Audio', 'buffered_packets', 1, minimum=1, maximum=100)
-        self.server.set_buffered_audio_packets(int(current_value))
+    def audio_receive_latency_setting(self, frame):
+        current_value = Server.settings.getint('Audio', 'receive_latency', 0, minimum=0, maximum=1000)
+        Audio.set_receive_latency(current_value)
 
-        buffered_packets_frame = tk.LabelFrame(frame,
-                                     text='Buffered Output Packets',
+        receive_latency_frame = tk.LabelFrame(frame,
+                                     text='Receive Latency (mS)',
                                      font=self.label_font(),
                                      labelanchor='nw',
                                      bd=2,
@@ -5281,15 +5306,15 @@ class AppSettings_widget(Widget):
         style = ttk.Style()
         style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg, padding=(2,2,2,2))
 
-        values = ('1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '50', '100')
-        width = 3
+        values = (0, 50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800, 900, 1000)
+        width = 4
 
-        self.buffered_packets_val = tk.StringVar()
-        self.buffered_packets_val.set(str(current_value))
+        self.receive_latency_val = tk.StringVar()
+        self.receive_latency_val.set(str(current_value))
 
-        buffered_packets_combobox = ttk.Combobox(
-                buffered_packets_frame,
-                textvar=self.buffered_packets_val,
+        receive_latency_combobox = ttk.Combobox(
+                receive_latency_frame,
+                textvar=self.receive_latency_val,
                 font=self.font(),
                 values=values,
                 height=len(values),
@@ -5298,20 +5323,19 @@ class AppSettings_widget(Widget):
                 justify='left',
                 style=stylename,
                 )
-        buffered_packets_combobox.grid(row=0, column=0, sticky='w')
+        receive_latency_combobox.grid(row=0, column=0, sticky='w')
 
-        self.buffered_packets_val.trace('w', self.on_buffered_packets_combobox_changed)
+        self.receive_latency_val.trace('w', self.on_receive_latency_combobox_changed)
 
-        return buffered_packets_frame
+        return receive_latency_frame
 
-    def on_buffered_packets_combobox_changed(self, var, index, mode):
-        current_value = self.buffered_packets_val.get()
+    def on_receive_latency_combobox_changed(self, var, index, mode):
+        current_value = self.receive_latency_val.get()
         if current_value == '':
             return
 
-        Server.settings.put_save('Audio', 'buffered_packets', current_value)
-        self.server.set_buffered_audio_packets(int(current_value))
-        restart()
+        Server.settings.put_save('Audio', 'receive_latency', current_value)
+        Audio.set_receive_latency(int(current_value))
 
 class FWversions(Text):
     def __init__(self, config_info, container):
