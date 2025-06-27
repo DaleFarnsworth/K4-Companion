@@ -14,12 +14,12 @@ Implement panadapter and waterfall, as well as minipan.
 See if we can recover from audio output_stream being None.
 
 Turn off receive audio immediately when going into transmit mode, without
-waiting for confirmation from the K4.
+waiting for confirmation from the K4?
 
 Add a setting to avoid loading the audio modules.
 
 Support PCM audio for systems that have difficulty with opus.
 
-Make power slider numberless like the audio sliders, with a separate box that shows the power level? Allow direct entry. ??
-
 Handle: ER43: Status Standby and ER44:Status Operate.
+
+Add per-band ATU on/off setting.
