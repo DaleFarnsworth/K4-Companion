@@ -98,10 +98,11 @@ def update_version(filename, version):
     os.rename(tmpfilename, filename)
 
 def increment_version(version):
-    match = re.search('^([^.]*).([^.]*)$', version)
+    match = re.search('^([^.]*).([^-.]*)(.*)?$', version)
     if match != None:
         major = int(match[1])
         minor = int(match[2])
+        minor_suffix = match[3]
         patch = 0
     else:
         match = re.search('^([^.]*).([^.]*).([^.]*)$', version)
@@ -110,7 +111,7 @@ def increment_version(version):
         patch = int(match[3])
 
     branch = current_branch()
-    if branch == 'main':
+    if branch == 'main' and not minor_suffix.startswith('-'):
         minor += 1
     else:
         patch += 1
@@ -242,9 +243,6 @@ def main():
         run(['git', 'commit', '-m', 'Update changelog for ' + version])
 
     comment = 'Version ' + version
-    if branch == 'dev' and re.search('^([^.]*).([^.]*)$', version) != None:
-        # vX.Y on dev
-        comment = f'Proposed {comment}'
 
     run(['git', 'commit', '-a', '-m', comment])
     if branch == 'main':
