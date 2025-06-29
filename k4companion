@@ -5085,8 +5085,7 @@ class ServerSettings_widget(Widget):
 
     def set_k4_server_proxy(self, event=None):
         proxy = self.k4_proxy_var.get()
-        if proxy != '':
-            Server.settings.put_save(Server.k4_section, 'proxy_address', proxy)
+        Server.settings.put_save(Server.k4_section, 'proxy_address', proxy)
         self.server.set_proxy(proxy)
 
 class AppSettings_widget(Widget):
