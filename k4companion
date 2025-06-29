@@ -4594,7 +4594,6 @@ class Audio():
 class Settings():
     max_servers = 25
 
-    cached_server_count = None
     cached_server_index = None
     cached_main_settings = None
     cached_platform_settings_dirname = None
@@ -4603,9 +4602,7 @@ class Settings():
 
     @classmethod
     def server_count(cls):
-        if cls.cached_server_count == None:
-            cls.cached_server_count = len(cls.k4_names())
-        return cls.cached_server_count
+        return len(cls.k4_names())
 
     @classmethod
     def server_index(cls, index=None):
@@ -4813,6 +4810,9 @@ class Settings():
         for i in range(2, Settings.max_servers+1):
             if name not in names:
                 break
+            match = re.search(r'(.*) #\d+$', orig_name)
+            if match != None:
+                orig_name = match.group(1)
             name = f'{orig_name} #{i}'
         return name
 
@@ -4881,7 +4881,7 @@ class ServerSettings_widget(Widget):
 
         names = Settings.k4_names()
         if len(names) == 0:
-            name = Server.settings.unique_name('K4', new=True)
+            name = Server.settings.unique_name('K4 #1', new=True)
             Server.settings.put_save(Server.k4_section, 'name', name)
             names = [name]
 
@@ -4898,7 +4898,7 @@ class ServerSettings_widget(Widget):
         Settings.main().put_save('Remote', 'server_index', index)
         if self.dropdown.value() == '*new*':
             settings = Settings(index)
-            name = settings.unique_name('K4', new=True)
+            name = settings.unique_name('K4 #1', new=True)
             settings.put_save(Server.k4_section, 'name', name)
         restart()
 
