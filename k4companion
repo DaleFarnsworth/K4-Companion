@@ -6676,7 +6676,6 @@ and everything after the & is sent.'''
             self.rx_height_var.set(self.rx_height)
         self.save_settings()
         self.config_cw_fields()
-        self.set_geometry()
         self.select_tab('CW')
 
     def on_cancel_button(self):
@@ -6869,11 +6868,12 @@ and everything after the & is sent.'''
         super().on_tab_changed(event)
         if self.current_tabname == 'Configure':
             self.config_frame.grid(row=0, column=0)
+            self.save_geometry()
             self.set_geometry()
         else:
             self.config_frame.grid_forget()
-            self.set_geometry()
             if self.previous_tabname == 'Configure':
+                # do open/close in order to shrink frame if needed
                 self.close()
                 self.open()
         self.previous_tabname = self.current_tabname
