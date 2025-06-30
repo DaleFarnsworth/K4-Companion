@@ -784,6 +784,7 @@ class Server():
 
     def send_cmds(self, cmds):
         send = True
+        adjust = False
         if isinstance(cmds, str):
             cmds = Server.split_cmd(cmds)
         for cmd in cmds:
@@ -793,7 +794,7 @@ class Server():
             if self.is_directive(base):
                 self.directive(base, cmd)
                 continue
-            if base in ('TR', 'SDC', 'SDV', 'SDD', 'SB', 'TU', '!MACROS') + Server.control_k4_audio_cmd_bases:
+            if base in ('TR', 'SDC', 'SDV', 'SDD', 'SB', 'TU', 'ME', '!MACROS') + Server.control_k4_audio_cmd_bases:
                 if base == 'TR':
                     if cmd[2] == 'T':
                         self.update_k4_parameter('TR', 'T')
@@ -813,11 +814,17 @@ class Server():
                         continue
                 elif base == 'TU' and cmd != 'TU0' and len(cmd) > 2:
                     self.save_last_tune_cmd(cmd)
+                elif base == 'ME':
+                    if re.search('[.][+-]', cmd) != None:
+                        adjust = True
                 elif base == '!MACROS':
                     send = False
             if self.warn_if_not_connected():
                 return
-            if (Server.k4_set_only_cmd(base, cmd) or self.update_k4_parameter(base, cmd[len(base):])) and send:
+            param = cmd[len(base):]
+            if len(param) > 0 and param[0] in '+-/^>~':
+                adjust = True
+            if (Server.k4_set_only_cmd(base, cmd) or adjust or self.update_k4_parameter(base, param)) and send:
                 cmd += ';'
                 self.send_str(cmd)
 
