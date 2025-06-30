@@ -7634,6 +7634,11 @@ def set_page_title(server_name):
     Page.top.title(f'K4-Companion {version} [{server_name}]')
 
 def main():
+    # remove obsolete settings file
+    obsolete_settings_file = Settings.settings_pathname(-1)
+    if os.path.isfile(obsolete_settings_file):
+        os.remove(obsolete_settings_file)
+
     close_splash_screen()
 
     Options.Parse()
