@@ -1,4 +1,107 @@
+v1.5:
+    Update K4 Companion Windows files to version 1.5
+       Both the Windows EXE and the installer
+   
+    Update K4 Companion User Manual to version 1.5
+       Limit changelog to updates since the last production release
+   
+    Maintain CW and Macros positions on tab change
+
+    Remove obsolete settings file, if it exists
+       The .../settings-0.ini file is no longer used and should be removed.
+       This commit removes it.
+   
+    Remove the server proxy when it is set to blank
+
+    Fix bug in creation of new servers
+       Previously, we would cache the number of servers, resulting in
+       incorrect restart behavior when going from one server to multiple
+       servers. This fix is to not cache the number of servers.
+       
+       Also, change the default name of a new server from "K4" to "K4 #1".
+   
+    Discard queued audio on transition to transmit
+
+    Set audio output queue size by specifying latency
+
+    Add per-band ATU on/off setting to the To-Do list
+
+    Maintain cursor position on VFO adjutments
+
+    Fix initial setting of whether macros are enabled
+
+    Workaround for sub-recevier on setting
+       THe K4 returns SB3; when the sub-receiver is on, rather than the
+       documented SB1;. We'll now accept SB3; and treat it as SB1;.
+   
+    Change formatting of printed warning messages
+
+    Make buffered audio packet count configurable
+       Adds a dropdown in the Audio tab to set the number of buffered audio
+       output packets.
+   
+    Increase output audio queue size
+       Allow up to 4 audio packets to be queued rather than 1.
+       This is in hopes of mitigating audio artifacts caused by network
+       jitter.
+   
+    Fix VFO field character validation code
+       Previously, the insertion cursor was set to the far left or far right of
+       the field on every character. Now it only happens when an invalid
+       character is entered.
+   
+    Limit binding to 12 function keys
+
+    Append CW and Macros to their window titles
+
+    Allow backspace on Tx text field if possible
+       It is only possible if there are greater than 10 unsent characters in
+       the Tx text field.
+   
+    Move XIT toggle button into the VFO A group
+
+    Modify initial macro values
+       Include "Clear RIT/XIT" and "XIT +5 kHz" buttons.
+       
+       Also don't show a popup message for blank macros.
+   
+    Add Macros window
+
+    Show error popup on missing config file
+
+    Look for k4companion.yaml in the script dir
+       If k4companion.yaml is not found in the current directory,
+       look for it in the directory where k4companon itself is located.
+   
+    Refactor TextButtons out of the CW class
+       THis is in preparation for using them in the Macros class.
+   
+    internal only: Introduce TR pseudo cmd
+       Combine the TX; and RX; commands into a single command,
+       TRT; and TRR;, respectively. This simplifies some internal logic.
+   
+    Enable space bar to toggle TX/RX
+       When the main window has focus, the space bar will not toggle
+       transmit/receive.
+   
+    Clean up tab selection logic
+
+    Keep the CW Tx queue as full as possible
+       To receive accurate feedback from the K4 on how many characters are in
+       its CW Tx queue, we are limited to a maximum of 9 characters in its
+       queue.
+       
+       We'll try to keep up to 9 characters in the K4's CW tx queue, even if
+       that means that we'll normally be sending 1 character at a time to the
+       K4.
+   
+    Add CW-R and DATA-R modes
+
+    tools/update: remove 'Proposed' from commit title
+
 v1.4:
+    Update changelog for v1.4
+
     Update Windows files and User Manual to v1.4
        Updated Documentation/K4 Companion User Manual.pdf
        Updated Windows/k4companion-installer.exe
