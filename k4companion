@@ -6707,8 +6707,6 @@ and everything after the & is sent.'''
             values = ('<KN>&(', '<AR>&+', '<BT>&=', '<AS>&%', '<SK>&*', '<VE>&!')
         for value in values:
             value = value.strip()
-            if '|' in value:
-                value = value.replace('|', '&')
             fields = value.split('&', 1)
             if len(fields) == 2:
                 label, value = fields
@@ -6740,7 +6738,7 @@ and everything after the & is sent.'''
         for i, value in enumerate(self.button_values):
             label = self.button_labels[i]
             if label != '':
-                value = f'{label}&{value}'
+                value = f'{label} & {value}'
             values.append(value)
         while True:
             ln = len(values)
@@ -6771,7 +6769,7 @@ class Macros(TextButtons):
 
         super().__init__(config_info, container)
 
-        self.valid_characters = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890$;-_,./?(+=%*!'
+        self.valid_characters = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890$;-_,./?(+=%*!#){}\\&^~`[]|<>:"' + "'"
 
         self.section = 'Macros'
         self.load_settings()
