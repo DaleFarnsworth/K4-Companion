@@ -39,6 +39,7 @@ import configparser
 import ctypes
 import glob
 import hashlib
+import io
 import math
 import numpy
 import opuslib
@@ -7082,71 +7083,78 @@ class Config():
         self.blocks[Config.main_block_name] = current_block
         in_block = False
         line_count = 0
-        with open(filename) as stream:
-            while True:
-                line = stream.readline()
-                if line == '':
-                    break
-                line_count += 1
-                match = re.search("^([ \t]*)#(define|end|include)([ \t]+([_A-Za-z][-_A-Za-z0-9]*)([ \t]*)(.*)$)?", line)
-                if not match:
-                    current_block['lines'].append(line)
-                else:
-                    indent = match.group(1)
-                    directive = match.group(2)
-                    after_directive = match.group(3)
-                    block_name = match.group(4)
-                    trailing = match.group(6)
-                    if directive == 'define':
-                        if indent != '':
-                            dprint('Error ({filename}:{line_count}): #define must be in column 1'.format(filename=filename, line_count=line_count))
-                            self.errors += 1
-                            continue
-                        elif block_name == None:
-                            dprint('Error ({filename}:{line_count}): Invalid block name after #define'.format(filename=filename, line_count=line_count))
-                            self.errors += 1
-                            continue
-                        elif trailing != '':
-                            dprint('Error ({filename}:{line_count}): unexpected characters after #define {name}'.format(filename=filename, line_count=line_count, name=block_name))
-                            self.errors += 1
-                            continue
-                        elif in_block:
-                            pname = current_block['name']
-                            dprint('Error ({filename}:{line_count}): #define {name}, encountered while defining {pname}'.format(filename=filename, line_count=line_count, name=block_name, pname=pname))
-                            self.errors += 1
-                            continue
-                        elif block_name in self.blocks:
-                            dprint('Error ({filename}:{line_count}): #define {name}, redefined. Previously defined at line {pline_count}'.format(filename=filename, line_count=line_count, name=block_name, pline_count=self.blocks[block_name]['line_count']))
-                            self.errors += 1
-                            continue
+        if filename != None:
+            stream = open(filename)
+        else:
+            filename = 'variable:config_data'
+            stream = io.StringIO(config_data)
 
-                        block_stack.append(current_block)
-                        current_block = { 'name':block_name, 'lines':[], 'line_count':line_count }
-                        self.blocks[block_name] = current_block
-                        in_block = True
-                    elif directive == 'end':
-                        if not in_block:
-                            dprint('Error ({filename}:{line_count}): #end encountered while not defining a block'.format(filename=filename, line_count=line_count))
-                            self.errors += 1
-                            continue
-                        elif after_directive != None:
-                            dprint('Error ({filename}:{line_count}): extra characters found after #end'.format(filename=filename, line_count=line_count))
-                            self.errors += 1
-                            continue
-                        current_block = block_stack.pop()
-                        if current_block['name']:
-                            in_block = False
-                    elif directive == 'include':
-                        if block_name == None:
-                            dprint('Error ({filename}:{line_count}): Invalid block name after #include'.format(filename=filename, line_count=line_count))
-                            self.errors += 1
-                            continue
-                        elif trailing != '':
-                            dprint('Error ({filename}:{line_count}): unexpected characters after #include {name}'.format(filename=filename, line_count=line_count, name=block_name))
-                            self.errors += 1
-                            continue
-                        line = { 'indent':indent, 'block_name':block_name, 'line_count':line_count }
-                        current_block['lines'].append(line)
+        while True:
+            line = stream.readline()
+            if line == '':
+                break
+            line_count += 1
+            match = re.search("^([ \t]*)#(define|end|include)([ \t]+([_A-Za-z][-_A-Za-z0-9]*)([ \t]*)(.*)$)?", line)
+            if not match:
+                current_block['lines'].append(line)
+            else:
+                indent = match.group(1)
+                directive = match.group(2)
+                after_directive = match.group(3)
+                block_name = match.group(4)
+                trailing = match.group(6)
+                if directive == 'define':
+                    if indent != '':
+                        dprint('Error ({filename}:{line_count}): #define must be in column 1'.format(filename=filename, line_count=line_count))
+                        self.errors += 1
+                        continue
+                    elif block_name == None:
+                        dprint('Error ({filename}:{line_count}): Invalid block name after #define'.format(filename=filename, line_count=line_count))
+                        self.errors += 1
+                        continue
+                    elif trailing != '':
+                        dprint('Error ({filename}:{line_count}): unexpected characters after #define {name}'.format(filename=filename, line_count=line_count, name=block_name))
+                        self.errors += 1
+                        continue
+                    elif in_block:
+                        pname = current_block['name']
+                        dprint('Error ({filename}:{line_count}): #define {name}, encountered while defining {pname}'.format(filename=filename, line_count=line_count, name=block_name, pname=pname))
+                        self.errors += 1
+                        continue
+                    elif block_name in self.blocks:
+                        dprint('Error ({filename}:{line_count}): #define {name}, redefined. Previously defined at line {pline_count}'.format(filename=filename, line_count=line_count, name=block_name, pline_count=self.blocks[block_name]['line_count']))
+                        self.errors += 1
+                        continue
+
+                    block_stack.append(current_block)
+                    current_block = { 'name':block_name, 'lines':[], 'line_count':line_count }
+                    self.blocks[block_name] = current_block
+                    in_block = True
+                elif directive == 'end':
+                    if not in_block:
+                        dprint('Error ({filename}:{line_count}): #end encountered while not defining a block'.format(filename=filename, line_count=line_count))
+                        self.errors += 1
+                        continue
+                    elif after_directive != None:
+                        dprint('Error ({filename}:{line_count}): extra characters found after #end'.format(filename=filename, line_count=line_count))
+                        self.errors += 1
+                        continue
+                    current_block = block_stack.pop()
+                    if current_block['name']:
+                        in_block = False
+                elif directive == 'include':
+                    if block_name == None:
+                        dprint('Error ({filename}:{line_count}): Invalid block name after #include'.format(filename=filename, line_count=line_count))
+                        self.errors += 1
+                        continue
+                    elif trailing != '':
+                        dprint('Error ({filename}:{line_count}): unexpected characters after #include {name}'.format(filename=filename, line_count=line_count, name=block_name))
+                        self.errors += 1
+                        continue
+                    line = { 'indent':indent, 'block_name':block_name, 'line_count':line_count }
+                    current_block['lines'].append(line)
+
+        stream.close()
 
         if in_block:
             block_name = current_block['name']
@@ -7291,7 +7299,7 @@ class Options():
     @staticmethod
     def Parse():
         parser = MyOptionParser(version=version)
-        parser.add_option('-c', '--config', dest='config_file', default='k4companion.yaml',
+        parser.add_option('-c', '--config', dest='config_file', default=None,
                           help="use config file FILE", metavar="FILE")
         parser.add_option('-v', '--verbose', action='count', dest='verbose', default = 0,
                           help="output additional status messages")
@@ -7311,6 +7319,9 @@ class Options():
 
         if len(args) != 0:
             parser.error("Unexpected argument '{arg}'".format(arg=args[0]))
+
+        if Options.config_file == None and len(config_data.rstrip()) == 0:
+            Options.config_file = 'k4companion.yaml'
 
 def clean_up(exit=False):
     save_geometry()
@@ -7600,16 +7611,17 @@ def start():
 
     script_directory = pathlib.Path(__file__).parent.resolve()
     config_file = Options.config_file
-    alt_config_file = os.path.join(script_directory, config_file)
-    if not os.path.isfile(config_file) and os.path.isfile(alt_config_file):
-        config_file = alt_config_file
+    if config_file != None:
+        alt_config_file = os.path.join(script_directory, config_file)
+        if not os.path.isfile(config_file) and os.path.isfile(alt_config_file):
+            config_file = alt_config_file
 
-    if not os.path.isfile(config_file):
-        font = Default.button_font
-        font = tkFont.Font(family=font['family'], size=font['size'], weight=font['weight'])
-        Popup.error(f'Configuration file "{config_file}" not found.',
-                    modal=True, font=font)
-        sys.exit()
+        if not os.path.isfile(config_file) and len(config_data.rstrip()) == 0:
+            font = Default.button_font
+            font = tkFont.Font(family=font['family'], size=font['size'], weight=font['weight'])
+            Popup.error(f'Configuration file "{config_file}" not found.',
+                        modal=True, font=font)
+            sys.exit()
 
     read_config(config_file)
 
@@ -7669,6 +7681,9 @@ def main():
     start()
 
     top.mainloop()
+
+config_data = '''
+'''
 
 if __name__ == '__main__':
     main()
