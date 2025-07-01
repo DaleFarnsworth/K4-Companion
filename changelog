@@ -1,4 +1,29 @@
+v1.5.2:
+    Update Window EXE and installer to version 1.5.2
+
+    Update K4 Companion User Manual
+       Add latest features to documentation
+   
+    Handle FA and FB macros that use partial digits
+       Suport 1- or 2-digit MHz values, 3- to 5-digit kHz values, and
+       Hz for > 5-digit values.
+   
+    Version v1.5.1
+
+    Support cmds that don't directly set a value
+       For examples, commands that normally directly set an integer value,
+       but can take a special character like +, -, /, ^, >, or ~ to instead
+       adjust the current value.
+   
+    Permit additional characters in macro commands
+       We make the following characters permissible: #){}\\&^~`[]|<>:"'
+       This should include all printable characters in ASCII.
+       Note that & is permitted only if there is an earlier & in the string
+       separating the displayed label from the macro command.
+   
 v1.5:
+    Update changelog for v1.5
+
     Update K4 Companion Windows files to version 1.5
        Both the Windows EXE and the installer
    
