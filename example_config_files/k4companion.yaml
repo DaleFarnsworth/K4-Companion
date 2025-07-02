@@ -111,7 +111,6 @@
   contains: #{
     #include vox-group
     #include ctcss-group
-    #include macros-button
   #}
 #end
 
@@ -179,6 +178,7 @@
       contains: #{
         #include audio-mx-togglebutton
         #include power-dropdown-button
+        #include macros-button
       #}
     #include tune-group
     #include test-rxtx-group
@@ -1373,7 +1373,7 @@
 
 #define macros-button
 - item: togglebutton
-  label: "Macros\nWindow"
+  label: "Macros"
   width: 9
   selections: #{
     - { text: 'Enabled',  cmd: '!MACROSENABLE;' }
