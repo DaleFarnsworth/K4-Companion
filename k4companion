@@ -7554,7 +7554,7 @@ def mouse_wheel_mult(event):
     if sys.platform == 'linux':
         mult = 1 if event.num == 4 else -1
     elif sys.platform == 'win32':
-        mult = -event.delta // 120
+        mult = event.delta // 120
     elif sys.platform == 'darwin':
         mult = 1 if event.delta > 0 else -1
     return mult
