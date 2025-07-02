@@ -7691,6 +7691,1868 @@ def main():
     top.mainloop()
 
 config_data = '''
+---
+
+# version = "1.5.3"
+
+# A description of the various items is provided at the end of this file.
+
+- item: defaults
+  # Colors
+  bg: white
+  abg: gray
+  fg: black
+  # afg: black                # non-existent means same as fg
+  selectcolor: yellow            # inherited by radiobutton
+
+  # Font used for labels
+  label_font: { family: Helvetica, size: 10, weight: normal }
+  # Font used for buttons and other controls
+  button_font: { family: Helvetica, size: 10, weight: normal }
+
+- item: page
+  name: main
+  contains: #{
+    #include main-tab-group
+    #include receive-tab-group
+    #include transmit-tab-group
+    #include equalizers-tab-group
+    #include menu-tab-group
+    #include app-settings-tab-group
+    #include server-settings-tab-group
+  #}
+
+#define main-tab-group
+- item: group
+  tabname: Main
+  columns: 1
+  contains: #{
+    #include main-tab-row1
+    #include main-tab-row2
+    #include main-tab-row3
+    #include cw-window
+    #include macros-window
+    #}
+#end
+
+#define main-tab-row1
+- item: group
+  contains: #{
+    #include rx-a-group
+    #include rx-b-group
+    #}
+#end
+
+#define main-tab-row2
+- item: group
+  sticky: center
+  leading: 1
+  contains: #{
+    #include antenna-select-group
+    #}
+#end
+
+#define main-tab-row3
+- item: group
+  contains: #{
+    #include main-tab-row3-column1
+    #include main-tab-row3-column2
+    #}
+#end
+
+#define menu-tab-group
+- item: group
+  tabname: Menu
+  contains: #{
+    #include menu
+  #}
+#end
+
+#define receive-tab-group
+- item: group
+  tabname: Receive
+  columns: 1
+  contains: #{
+    #include receive-tab-row1-group
+    #include receive-tab-row2-group
+  #}
+#end
+
+#define transmit-tab-group
+- item: group
+  tabname: Transmit
+  columns: 1
+  contains: #{
+    #include transmit-tab-row1-group
+    #include transmit-tab-row2-group
+  #}
+#end
+
+#define transmit-tab-row1-group
+- item: group
+  contains: #{
+    #include essb-togglebutton
+    #include ssb-bandwidth-slider
+    #include compression-level-slider
+    #include mic-gain-slider
+    #include voice-monitor-level-slider
+  #}
+#end
+
+#define transmit-tab-row2-group
+- item: group
+  contains: #{
+    #include vox-group
+    #include ctcss-group
+  #}
+#end
+
+#define equalizers-tab-group
+- item: group
+  tabname: EQ
+  contains: #{
+    #include equalizers
+  #}
+#end
+
+#define server-settings-tab-group
+- item: group
+  tabname: Server
+  label: ''
+  contains: #{
+    #include server-column1
+    #include server-column2
+    #include server-column3
+  #}
+#end
+
+#define app-settings-tab-group
+- item: group
+  tabname: Audio
+  label: ''
+  contains: #{
+    #include app-settings
+  #}
+#end
+
+#define main-tab-row3-column1
+- item: group
+  columns: 1
+  contains: #{
+    #include vfos-control-group
+  #}
+#end
+
+#define tune-group
+- item: group
+  contains: #{
+    #include atu-group
+    #include tunedrop-group
+    #include tune-button
+  #}
+#end
+
+#define tune-button
+- item: togglebutton
+  width: 9
+  selections: #{
+    - { text: 'Tune LP',  cmd: TU1;, evalcmd: '"TUNE!;"', evalresponse: '"TU1;" if self.k4param("TU") == "2" else ""' }
+    - { text: 'ATU Tune', cmd: TU2;, evalcmd: '"TUNE!;"', evalresponse: '"TU2;" if self.k4param("TU") == "3" else ""' }
+    - { text: 'ATU TUNE', cmd: TU3;, evalcmd: '"TUNE!;"', evalresponse: '"TU3;" if self.k4param("TU") == "4" else ""' }
+    - { text: 'Tune',     cmd: TU4;, evalcmd: '"TUNE!;"', evalresponse: '"TU4;" if self.k4param("TU") == "1" else ""' }
+  #}
+#end
+
+#define main-tab-row3-column2
+- item: group
+  columns: 1
+  contains: #{
+    - item: group
+      contains: #{
+        #include audio-mx-togglebutton
+        #include power-dropdown-button
+        #include macros-button
+      #}
+    #include tune-group
+    #include test-rxtx-group
+  #}
+#end
+#
+
+#define test-rxtx-group
+- item: group
+  contains: #{
+    #include test-mode-togglebutton
+    #include receive-transmit-togglebutton
+  #}
+#end
+
+#define connect-power-off-exit-group
+- item: group
+  columns: 1
+  contains: #{
+    #include connect-restart-group
+    #include power-off-exit-group
+  #}
+#end
+
+#define power-off-exit-group
+- item: group
+  label: ''
+  contains: #{
+    #include k4-power-off-button
+    #include exit-button
+  #}
+#end
+
+#define receive-tab-row1-group
+- item: group
+  contains: #{
+    #include agc-group
+    #include auto-notch-group
+    #include audio-effects-group
+  #}
+#end
+
+#define receive-tab-row2-group
+- item: group
+  contains: #{
+    #include af-limiter-slider
+    #include af-center-pitch-group
+    #include noise-blanker-group
+    #include noise-reduction-group
+  #}
+#end
+
+#define antenna-select-group
+- item: group
+  contains: #{
+    #include antenna-label-main
+    #include antenna-select-main
+    #include antenna-label-tx
+    #include antenna-select-tx
+    #include antenna-label-sub
+    #include antenna-select-sub
+  #}
+#end
+
+#define antenna-select-tx
+- item: antenna
+  type: tx
+#end
+
+#define antenna-select-main
+- item: antenna
+  type: main
+#end
+
+#define antenna-select-sub
+- item: antenna
+  type: sub
+#end
+
+#define antenna-label-tx
+- item: text
+  bg: None
+  text: '    Tx'
+#end
+
+#define antenna-label-main
+- item: text
+  bg: None
+  text: 'Main Rx'
+#end
+
+#define antenna-label-sub
+- item: text
+  bg: None
+  text: '    Sub Rx'
+#end
+
+#define menu
+- item: menu
+  label: Menu
+  entries_displayed: 24
+  selectbg: pink
+#end
+
+#define server-column1
+- item: group
+  columns: 1
+  contains: #{
+    #include server-settings
+    #include sw-release-group
+  #}
+#end
+
+#define server-column2
+- item: group
+  columns: 1
+  contains: #{
+    #include startup-cmds
+    #include exit-cmds
+    #include connect-power-off-exit-group
+    #include fwversions
+  #}
+#end
+
+#define server-column3
+- item: group
+  columns: 1
+  contains: #{
+    #include app-version
+  #}
+#end
+
+#define server-settings
+- item: serversettings
+  selectbg: pink
+#end
+
+#define app-settings
+- item: appsettings
+  selectbg: pink
+#end
+
+#define app-version
+- item: text
+  label: "K4-Companion\nVersion"
+  evaltext: version
+#end
+
+#define startup-cmds
+- item: startup_cmds
+  label: Startup Commands
+#end
+
+#define exit-cmds
+- item: exit_cmds
+  label: Exit Commands
+#end
+
+#define rx-a-group
+- item: group
+  label: VFO A
+  columns: 1
+  contains: #{
+    #include vfo-a
+    #include s-meter-a-bargraph
+    #include rf-out-alc-group
+    #include rx-a-controls-group
+  #}
+#end
+
+#define rf-out-alc-group
+- item: group
+  contains: #{
+    #include rf-out-bargraph
+    #include alc-bargraph
+  #}
+#end
+
+#define rx-a-controls-group
+- item: group
+  columns: 1
+  contains: #{
+    #include rx-a-controls-row1
+    #include rx-a-controls-row2
+  #}
+#end
+
+#define rx-a-controls-row1
+- item: group
+  contains: #{
+    #include rx-a-controls-row1-column1
+    #include rx-a-controls-row1-column2
+  #}
+#end
+
+#define rx-a-controls-row1-column1
+- item: group
+  columns: 1
+  contains: #{
+    #include rx-a-controls-row1-column1-row1
+    #include rx-a-controls-row1-column1-row2
+  #}
+#end
+
+#define rx-a-controls-row1-column1-row1
+- item: group
+  contains: #{
+    #include main-volume-horizontal-slider-group
+  #}
+#end
+
+#define rx-a-controls-row1-column1-row2
+- item: group
+  contains: #{
+    #include band-a-dropdown-button
+    #include mode-a-dropdown-button
+    #include bandwidth-a-dropdown-button
+  #}
+#end
+
+#define rx-a-controls-row1-column2
+- item: group
+  contains: #{
+    #include vfo-a-rit-group
+  #}
+#end
+
+#define rx-a-controls-row2
+- item: group
+  contains: #{
+    #include atten-a-dropdown-button
+    #include preamp-a-dropdown-button
+    #include rfgain-a-dropdown-button
+    #include xit-togglebutton
+  #}
+#end
+
+#define vfo-a
+- { item: vfo, AorB: A, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: LightBlue, transmitcolor: DodgerBlue }
+#end
+
+#define s-meter-a-bargraph
+- item: bargraph
+  leading: 1
+  maximum: 42
+  lengthpercent: 98
+  cmd: SM1;
+  font: { family: TkFixedFont, size: 8, weight: normal }
+  lefttext: ' '
+  bottomtext: "S1 2 3 4 5 6 7 8 9  +10 +20 +30 +40 +50 +60"
+  response: SM;
+  evalresponse: 'value.rstrip(";")[2:]'
+#end
+
+#define rf-out-bargraph
+- item: bargraph
+  id: rfout
+  label: Power out
+  evalmaximum: "0 if self.len_k4param('PC') < 4 else 11.7 if self.k4param('PC')[3] == 'L' else 117"
+  lengthpercent: 100
+  cmd: TM1;PC;
+  font: { family: TkFixedFont, size: 8, weight: normal }
+  lefttext: ''
+  evalbottomtext: "'' if self.len_k4param('PC') < 4 else '0      2      4      6      8     10      ' if self.k4param('PC')[3] == 'L' else '0     20     40     60     80    100      '"
+  evalresponse: "float(self.k4param('TM')[6:9])/10 if self.k4param('PC')[3] == 'L' else self.k4param('TM')[6:9]"
+#end
+
+#define alc-bargraph
+- item: bargraph
+  label: ALC
+  maximum: 7
+  lengthpercent: 93
+  cmd: TM1;
+  font: { family: TkFixedFont, size: 8, weight: normal }
+  lefttext: ''
+  bottomtext: "1    3    5    7"
+  evalresponse: "float(self.k4param('TM')[0:3])"
+#end
+
+#define cmp-bargraph
+- item: bargraph
+  label: CMP
+  leading: 2
+  maximum: 32
+  lengthpercent: 96
+  cmd: TM1;
+  font: { family: TkFixedFont, size: 8, weight: normal }
+  lefttext: ''
+  bottomtext: "0    10    20    30"
+  evalresponse: "float(self.k4param('TM')[3:6])"
+#end
+
+#define swr-bargraph
+- item: bargraph
+  label: SWR
+  maximum: 35
+  lengthpercent: 100
+  cmd: TM1;TQ;TU;
+  font: { family: TkFixedFont, size: 8, weight: normal }
+  lefttext: ' '
+  bottomtext: "1:1          2:1          3:1       "
+  evalresponse: "float(self.k4param('TM')[9:12])-10"
+#end
+
+#define band-a-dropdown-button
+- item: dropdownbutton
+  label: Band
+  selections: #{
+    - { text: "  6", cmd: BN10; }
+    - { text: " 10", cmd: BN09; }
+    - { text: " 12", cmd: BN08; }
+    - { text: " 15", cmd: BN07; }
+    - { text: " 17", cmd: BN06; }
+    - { text: " 20", cmd: BN05; }
+    - { text: " 30", cmd: BN04; }
+    - { text: " 40", cmd: BN03; }
+    - { text: " 60", cmd: BN02; }
+    - { text: " 80", cmd: BN01; }
+    - { text: "160", cmd: BN00; }
+  #}
+#end
+
+#define mode-a-dropdown-button
+- item: dropdownbutton
+  label: Mode
+  selections: #{
+    - { text: "  CW", cmd: MD3; }
+    - { text: "CW-R", cmd: MD7; }
+    - { text: " USB", cmd: MD2; }
+    - { text: " LSB", cmd: MD1; }
+    - { text: "  AM", cmd: MD5; }
+    - { text: "  FM", cmd: MD4; }
+    - { text: "DATA", cmd: MD6; }
+    - { text: "DT-R", cmd: MD9; }
+  #}
+#end
+
+#define bandwidth-a-dropdown-button
+- item: dropdownbutton
+  label: BW
+  from: .05
+  to: 5
+  evalincrement: .05
+  evalcmd: f'BW{int(round(value*100)):04d};'
+  unexpectedresponse: 'f"{float(value[2:6])/100:.2f}"'
+  selections: #{
+    - { text: '5.00', cmd: BW0500; }
+    - { text: '4.00', cmd: BW0400; }
+    - { text: '3.50', cmd: BW0350; }
+    - { text: '2.80', cmd: BW0280; }
+    - { text: '1.80', cmd: BW0180; }
+    - { text: '0.50', cmd: BW0050; }
+    - { text: '0.40', cmd: BW0040; }
+    - { text: '0.30', cmd: BW0030; }
+    - { text: '0.20', cmd: BW0020; }
+    - { text: '0.10', cmd: BW0010; }
+    - { text: '0.05', cmd: BW0005; }
+  #}
+#end
+
+#define preamp-a-dropdown-button
+- item: dropdownbutton
+  label: Pre
+  width: 3
+  selections: #{
+    - { text: "0", cmd: PA00; }
+    - { text: "1", cmd: PA11; }
+    - { text: "2", cmd: PA21; }
+    - { text: "3", cmd: PA31; }
+  #}
+#end
+
+#define atten-a-dropdown-button
+- item: dropdownbutton
+  label: Att
+  selections: #{
+    - { text: " 0 dB", cmd: RA000; }
+    - { text: " 3 dB", cmd: RA031; }
+    - { text: " 6 dB", cmd: RA061; }
+    - { text: " 9 dB", cmd: RA091; }
+    - { text: "12 dB", cmd: RA121; }
+    - { text: "15 dB", cmd: RA151; }
+    - { text: "18 dB", cmd: RA181; }
+    - { text: "21 dB", cmd: RA211; }
+  #}
+#end
+
+#define rfgain-a-dropdown-button
+- item: dropdownbutton
+  label: RF Gain
+  from: -60
+  to: -0
+  evalincrement: '5'
+  evalcmd: f'RG{int(round(value)):+03d};'
+  unexpectedresponse: '"-0" if int(value[2:5]) == 0 else f"{int(value[2:5]):-02d}" if int(value[2:5]) > -10 else f"{int(value[2:5]):-03d}"'
+  selections: #{
+    - { text: ' -0', cmd: RG-00; }
+    - { text: '-10', cmd: RG-10; }
+    - { text: '-20', cmd: RG-20; }
+    - { text: '-30', cmd: RG-30; }
+    - { text: '-40', cmd: RG-40; }
+    - { text: '-50', cmd: RG-50; }
+    - { text: '-60', cmd: RG-60; }
+  #}
+#end
+
+#define rx-b-group
+- item: group
+  label: VFO B
+  columns: 1
+  contains: #{
+    #include vfo-b
+    #include s-meter-b-bargraph
+    #include swr-and-cmp-group
+    #include rx-b-controls-group
+  #}
+#end
+
+#define rx-b-controls-group
+- item: group
+  columns: 1
+  contains: #{
+    #include rx-b-controls-row1
+    #include rx-b-controls-row2
+  #}
+#end
+
+#define rx-b-controls-row1
+- item: group
+  contains: #{
+    #include rx-b-controls-row1-column1
+    #include rx-b-controls-row1-column2
+  #}
+#end
+
+#define rx-b-controls-row1-column1
+- item: group
+  columns: 1
+  contains: #{
+    #include rx-b-controls-row1-column1-row1
+    #include rx-b-controls-row1-column1-row2
+  #}
+#end
+
+#define rx-b-controls-row1-column1-row1
+- item: group
+  contains: #{
+    #include sub-volume-horizontal-slider-group
+  #}
+#end
+
+#define rx-b-controls-row1-column1-row2
+- item: group
+  contains: #{
+    #include band-b-dropdown-button
+    #include mode-b-dropdown-button
+    #include bandwidth-b-dropdown-button
+  #}
+#end
+
+#define rx-b-controls-row1-column2
+- item: group
+  contains: #{
+    #include vfo-b-rit-group
+  #}
+#end
+
+#define rx-b-controls-row2
+- item: group
+  contains: #{
+    #include atten-b-dropdown-button
+    #include preamp-b-dropdown-button
+    #include rfgain-b-dropdown-button
+  #}
+#end
+
+#define swr-and-cmp-group
+- item: group
+  contains: #{
+    #include swr-bargraph
+    #include cmp-bargraph
+  #}
+#end
+
+#define vfo-b
+- { item: vfo, AorB: B, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: LightBlue, transmitcolor: Blue }
+#end
+
+#define s-meter-b-bargraph
+- item: bargraph
+  leading: 1
+  maximum: 42
+  lengthpercent: 98
+  cmd: SM1;
+  font: { family: TkFixedFont, size: 8, weight: normal }
+  lefttext: ' '
+  bottomtext: "S1 2 3 4 5 6 7 8 9  +10 +20 +30 +40 +50 +60"
+  response: SM$;
+  evalresponse: 'value.rstrip(";")[3:]'
+#end
+
+#define band-b-dropdown-button
+- item: dropdownbutton
+  label: Band
+  selections: #{
+    - { text: "  6", cmd: BN$10; }
+    - { text: " 10", cmd: BN$09; }
+    - { text: " 12", cmd: BN$08; }
+    - { text: " 15", cmd: BN$07; }
+    - { text: " 17", cmd: BN$06; }
+    - { text: " 20", cmd: BN$05; }
+    - { text: " 30", cmd: BN$04; }
+    - { text: " 40", cmd: BN$03; }
+    - { text: " 60", cmd: BN$02; }
+    - { text: " 80", cmd: BN$01; }
+    - { text: "160", cmd: BN$00; }
+  #}
+#end
+
+#define mode-b-dropdown-button
+- item: dropdownbutton
+  label: Mode
+  selections: #{
+    - { text: "  CW", cmd: MD$3; }
+    - { text: "CW-R", cmd: MD$7; }
+    - { text: " USB", cmd: MD$2; }
+    - { text: " LSB", cmd: MD$1; }
+    - { text: "  AM", cmd: MD$5; }
+    - { text: "  FM", cmd: MD$4; }
+    - { text: "DATA", cmd: MD$6; }
+    - { text: "DT-R", cmd: MD$9; }
+  #}
+#end
+
+#define bandwidth-b-dropdown-button
+- item: dropdownbutton
+  label: BW
+  from: .05
+  to: 5
+  evalincrement: .05
+  evalcmd: f'BW${int(round(value*100)):04d};'
+  unexpectedresponse: 'f"{float(value[3:7])/100:.2f}"'
+  selections: #{
+    - { text: '5.00', cmd: BW$0500; }
+    - { text: '4.00', cmd: BW$0400; }
+    - { text: '3.50', cmd: BW$0350; }
+    - { text: '2.80', cmd: BW$0280; }
+    - { text: '1.80', cmd: BW$0180; }
+    - { text: '0.50', cmd: BW$0050; }
+    - { text: '0.40', cmd: BW$0040; }
+    - { text: '0.30', cmd: BW$0030; }
+    - { text: '0.20', cmd: BW$0020; }
+    - { text: '0.10', cmd: BW$0010; }
+    - { text: '0.05', cmd: BW$0005; }
+  #}
+#end
+
+#define preamp-b-dropdown-button
+- item: dropdownbutton
+  label: Pre
+  width: 3
+  selections: #{
+    - { text: "0", cmd: PA$00; }
+    - { text: "1", cmd: PA$11; }
+    - { text: "2", cmd: PA$21; }
+    - { text: "3", cmd: PA$31; }
+  #}
+#end
+
+#define atten-b-dropdown-button
+- item: dropdownbutton
+  label: Att
+  selections: #{
+    - { text: " 0 dB", cmd: RA$000; }
+    - { text: " 3 dB", cmd: RA$031; }
+    - { text: " 6 dB", cmd: RA$061; }
+    - { text: " 9 dB", cmd: RA$091; }
+    - { text: "12 dB", cmd: RA$121; }
+    - { text: "15 dB", cmd: RA$151; }
+    - { text: "18 dB", cmd: RA$181; }
+    - { text: "21 dB", cmd: RA$211; }
+  #}
+#end
+
+#define rfgain-b-dropdown-button
+- item: dropdownbutton
+  label: RF Gain
+  from: -60
+  to: -0
+  evalincrement: '5'
+  evalcmd: f'RG${int(value):+03d};'
+  unexpectedresponse: '"-0" if int(value[3:6]) == 0 else f"{int(value[3:6]):-02d}" if int(value[3:6]) > -10 else f"{int(value[3:6]):-03d}"'
+  selections: #{
+    - { text: ' -0', cmd: RG$-00; }
+    - { text: '-10', cmd: RG$-10; }
+    - { text: '-20', cmd: RG$-20; }
+    - { text: '-30', cmd: RG$-30; }
+    - { text: '-40', cmd: RG$-40; }
+    - { text: '-50', cmd: RG$-50; }
+    - { text: '-60', cmd: RG$-60; }
+  #}
+#end
+
+#define vfos-control-group
+- item: group
+  label: VFOs
+  columns: 3
+  contains: #{
+    #include vfos-linked-togglebutton
+    #include split-togglebutton
+    #include sub-receiver-togglebutton
+    #include AB-swap-buttons
+  #}
+#end
+
+#define vfos-linked-togglebutton
+- item: togglebutton
+  selections: #{
+  - { text: "  Linked", cmd: BI0; }
+  - { text: "Unlinked", cmd: BI1; }
+  #}
+#end
+
+#define vfos-locked-togglebutton
+- item: togglebutton
+  selections: #{
+  - { text: "  Locked", cmd: LK1;LK$1;, }
+  - { text: "Unlocked", cmd: LK0;LK$0;, }
+  #}
+#end
+
+#define test-mode-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "Test On",  cmd: TS1;, bg: yellow,    abg: yellow }
+    - { text: "Test Off", cmd: TS0;, bg: '#00FF00', abg: '#00FF00' }
+  #}
+#end
+
+#define power-dropdown-button
+- item: dropdownbutton
+  label: Power
+  width: 6
+  from: 0
+  to: 110
+  evalincrement: '.0001 if value > 0.0 and value <= .01 else .1 if value <= 10.0 else 1.0'
+  evalcmd: 'f"PC{int(round(value*10000)):03d}X;" if .0001 <= value <= 0.01 else f"PC{int(round(value*10)):03d}L;" if value <= 10 else f"PC{int(round(value)):03d}H;"'
+  unexpectedresponse: 'str(float(value[2:5])/10 if value[5] == "L" else float(value[2:5])/10000 if value[5] == "X" else float(value[2:5]))'
+  selections: #{
+    - { text: "100", cmd: PC100H; }
+    - { text: " 75", cmd: PC075H; }
+    - { text: " 50", cmd: PC050H; }
+    - { text: " 25", cmd: PC025H; }
+    - { text: " 10", cmd: PC100L; }
+    - { text: "  5", cmd: PC050L; }
+  #}
+#end
+
+#define main-volume-horizontal-slider-group
+- item: group
+  columnspan: 2
+  contains: #{
+    #include main-volume-horizontal-slider
+  #}
+#end
+
+#define main-volume-horizontal-slider
+- item: slider
+  label: AF Gain
+  orient: horizontal
+  from: 0
+  to: 60
+  evallength: 'Widget.by_id["rfout"].frame.winfo_width()'
+  showvalue: False
+  evalincrement: '1'
+  evalcmd: '"AG{:03d};".format(int(round(value)))'
+  evalresponse: 'float(value[2:5])'
+#end
+
+#define sub-volume-horizontal-slider-group
+- item: slider
+  label: AF Gain
+  orient: horizontal
+  from: 0
+  to: 60
+  evallength: 'Widget.by_id["rfout"].frame.winfo_width()'
+  showvalue: False
+  evalincrement: '1'
+  evalcmd: '"AG${:03d};".format(int(round(value)))'
+  evalresponse: 'float(value[3:6])'
+#end
+
+#define audio-mx-togglebutton
+- item: togglebutton
+  label: 'Audio Mix'
+  selections: #{
+    - { text: 'Audio A+B', cmd: 'MXA.B;' }
+    - { text: 'Audio A',   cmd: 'MXA.A;' }
+    - { text: 'Audio B',   cmd: 'MXB.B;' }
+    - { text: 'L=AB,R=AB', cmd: 'MXAB.AB;', hidden: True }
+    - { text: 'L=A,R=-A',  cmd: 'MXA.-A;',  hidden: True }
+    - { text: 'L=A,R=AB',  cmd: 'MXA.AB;',  hidden: True }
+    - { text: 'L=AB,R=B',  cmd: 'MXAB.A;',  hidden: True }
+    - { text: 'L=AB,R=A',  cmd: 'MXAB.A;',  hidden: True }
+    - { text: 'L=B,R=AB',  cmd: 'MXB.AB;',  hidden: True }
+    - { text: 'L=B,R=A',   cmd: 'MXB.A',    hidden: True }
+  #}
+#end
+
+#define atu-group
+- item: group
+  pady: 4
+  contains: #{
+    #include atu-dropdownbutton
+  #}
+#end
+
+#define atu-dropdownbutton
+- item: dropdownbutton
+  width: 6
+  selections: #{
+    - { text: "ATU",    cmd: AT2;, evalresponse: '"AT2;" if self.k4param("AT") == "2" and self.k4param("TU") not in ("3", "4") else ""' }
+    - { text: "Bypass", cmd: AT1;, bg: yellow }
+    - { text: "Tune",   cmd: TU3;, evalcmd: '"AT2;TU3;"', bg: yellow }
+    - { text: "TUNE",   cmd: TU4;, evalcmd: '"AT2;TU4;"', bg: yellow }
+  #}
+#end
+
+#define tunedrop-group
+- item: group
+  pady: 4
+  contains: #{
+    #include tune-dropdownbutton
+  #}
+#end
+
+#define tune-dropdownbutton
+- item: dropdownbutton
+  width: 8
+  padx: 4
+  selections: #{
+    - { text: "Tune Off", cmd: TU0;, evalresponse: 'value if value == "TU1;" or value == "TU2;" else "TU0;"' }
+    - { text: "Tune",     cmd: TU1;, evalcmd: '"TU1;" if self.k4param("TU") == "0" else "TU0;"', bg: yellow }
+    - { text: "Tune LP",  cmd: TU2;, evalcmd: '"TU2;" if self.k4param("TU") == "0" else "TU0;"', bg: yellow }
+  #}
+#end
+
+#define AB-swap-buttons
+- { item: button, text: "A/B",      cmd:  AB2; }
+- { item: button, text: "A->B",     cmd:  AB0; }
+- { item: button, text: "B->A",     cmd:  AB1; }
+- { item: button, text: "all A/B",  cmd:  AB5; }
+- { item: button, text: "all A->B", cmd:  AB3; }
+- { item: button, text: "all B->A", cmd:  AB4; }
+#end
+
+#define k4-power-off-group
+- item: group
+  pady: 10
+  contains: #{
+    #include k4-power-off-button
+  #}
+#end
+
+#define k4-power-off-button
+- { item: button, text: 'Power Off', cmd:  PS0; }
+#end
+
+#define connect-restart-group
+- item: group
+  label: ''
+  contains: #{
+    #include connect-togglebutton
+    #include restart-button
+  #}
+#end
+
+#define connect-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: 'Connect', bg: yellow, abg: yellow, blink: on }
+    - { text: 'Connecting', cmd: CONNECT!; }
+    - { text: 'Connected', response: PONG;, hidden: True }
+  #}
+#end
+
+#define exit-button
+- { item: button, text: 'Exit', cmd: QUIT!; }
+#end
+
+#define restart-button
+- { item: button, text: 'Restart', cmd: RESTART!; }
+#end
+
+#define split-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: 'Split on',   cmd: FT1;, bg: yellow, abg: yellow }
+    - { text: 'Split off', cmd: FT0; }
+  #}
+#end
+
+#define sub-receiver-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: 'Div on',   cmd: DV1; }
+    - { text: 'Sub on',   cmd: DV0;SB1; }
+    - { text: 'Sub off' , cmd: DV0;SB0; }
+  #}
+#end
+
+#define receive-transmit-togglebutton
+- item: togglebutton
+  padx: 4
+  selections: #{
+    - { text: 'Receive',   cmd: 'TRR;', bg: '#00FF00', abg: '#00FF00' }
+    - { text: 'Transmit',  cmd: 'TRT;', bg: yellow,    abg: yellow }
+  #}
+#end
+
+#define compression-level-slider
+- item: slider
+  label: CMP
+  orient: vertical
+  from: 30
+  to: 0
+  length: 150
+  showvalue: True
+  evalincrement: '1'
+  evalcmd: '"CP{:03d};".format(int(round(value)))'
+  evalresponse: 'float(value[2:5])'
+#end
+
+#define essb-togglebutton
+- item: togglebutton
+  label: ESSB
+  selections: #{
+    - { text: "On",  cmd: ES1;, evalcmd: '"ES1"+self.k4param("!ES1")+";"', evalresponse: 'value[0:3]+";"' } 
+    - { text: "Off", cmd: ES0;, evalcmd: '"ES0"+self.k4param("!ES0")+";"', evalresponse: 'value[0:3]+";"' }
+  #}
+#end
+
+#define ssb-bandwidth-slider
+- item: slider
+  label: SSB BW
+  orient: vertical
+  from: "2.8 if self.len_k4param('ES') < 3 or self.k4param('ES')[0] == '0' else 4.5"
+  to: "2.4 if self.len_k4param('ES') < 3 or self.k4param('ES')[0] == '0' else 3.0"
+  length: 150
+  showvalue: True
+  evalincrement: '0.1'
+  evalcmd: '"ES{mode}{bw:02d};".format(mode=1 if value > 2.8 else 0, bw=int(round(value*10)))'
+  evalresponse: 'float(self.k4param("!ES0"))/10 if value[2] == "0" else float(self.k4param("!ES1"))/10'
+#end
+
+#define af-limiter-slider
+- item: slider
+  label: AF Limiter
+  orient: vertical
+  from: 30
+  to: 1
+  length: 150
+  evalincrement: '1'
+  showvalue: True
+  evalcmd: '"AL{:02d};".format(int(round(value)))'
+  evalresponse: 'float(value.rstrip(";")[2:])'
+#end
+
+#define audio-effects-group
+- item: group
+  label: Audio
+  contains: #{
+    #include audio-effects-togglebutton
+  #}
+#end
+
+#define audio-effects-togglebutton
+- item: togglebutton
+  label: Effects
+  leading: 0
+  selections: #{
+    - { text: "Off",        cmd: FX0; }
+    - { text: "Sim Stereo", cmd: FX1; }
+    - { text: "Pitch Map",  cmd: FX2; }
+  #}
+#end
+
+#define agc-group
+- item: group
+  label: AGC
+  contains: #{
+    #include main-agc-togglebutton
+#    #include sub-agc-togglebutton    # Contrary to documentation, AGC affects both main & sub
+  #}
+#end
+
+#define main-agc-togglebutton
+- item: togglebutton
+#  label: Main
+  leading: 0
+  selections: #{
+    - { text: "Off",  cmd: GT0; }
+    - { text: "Slow", cmd: GT1; }
+    - { text: "Fast", cmd: GT2; }
+  #}
+#end
+
+#define sub-agc-togglebutton
+- item: togglebutton
+  label: Sub
+  leading: 0
+  selections: #{
+    - { text: "Off",  cmd: GT$0; }
+    - { text: "Slow", cmd: GT$1; }
+    - { text: "Fast", cmd: GT$2; }
+  #}
+#end
+
+#define af-center-pitch-group
+- item: group
+  label: AF Center Pitch
+  contains: #{
+    #include main-af-center-pitch-group
+    #include sub-af-center-pitch-group
+  #}
+#end
+
+#define main-af-center-pitch-group
+- item: group
+  columns: 1
+  contains: #{
+    #include main-af-center-pitch-slider
+    #include main-af-center-pitch-normal-button
+  #}
+#end
+
+#define sub-af-center-pitch-group
+- item: group
+  columns: 1
+  contains: #{
+    #include sub-af-center-pitch-slider
+    #include sub-af-center-pitch-normal-button
+  #}
+#end
+
+#define main-af-center-pitch-slider
+- item: slider
+  label: Main
+  leading: 0
+  orient: vertical
+  from: '1500 if self.k4param("MD") == "3" else 3000'
+  to: 300
+  length: 150
+  evalincrement: '10'
+  showvalue: True
+  evalcmd: '"IS{:04d};".format(int(round(value/10)))'
+  evalresponse: 'int(value[2:6])*10'
+#end
+
+#define sub-af-center-pitch-slider
+- item: slider
+  label: Sub
+  leading: 0
+  orient: vertical
+  from: '1500 if self.k4param("MD$") == "3" else 3000'
+  to: 300
+  length: 150
+  evalincrement: '10'
+  showvalue: True
+  evalcmd: '"IS${:04d};".format(int(round(value/10)))'
+  evalresponse: 'int(value[3:7])*10'
+#end
+
+#define main-af-center-pitch-normal-button
+- item: button
+  text: Normal
+  cmd: is9000;
+#end
+
+#define sub-af-center-pitch-normal-button
+- item: button
+  text: Normal
+  cmd: is$9000;
+#end
+
+#define mic-gain-slider
+- item: slider
+  label: Mic Gain
+  orient: vertical
+  from: 80
+  to: 0
+  length: 150
+  evalincrement: '1'
+  showvalue: False
+  evalcmd: '"MG{:03d};".format(int(round(value)))'
+  evalresponse: 'int(value[2:5])'
+#end
+
+#define voice-monitor-level-slider
+- item: slider
+  label: Monitor Level
+  orient: vertical
+  from: 60        # Programmer's Reference says 100, but the K4 disagrees
+  to: 0
+  length: 150
+  evalincrement: '1'
+  showvalue: False
+  evalcmd: '"ML2{:03d};".format(int(round(value)))'
+  evalresponse: 'float(value[3:6])'
+#end
+
+#define auto-notch-group
+- item: group
+  label: Auto Notch
+  contains: #{
+    #include main-auto-notch-togglebutton
+    #include sub-auto-notch-togglebutton
+  #}
+#end
+
+#define main-auto-notch-togglebutton
+- item: togglebutton
+  label: Main
+  leading: 0
+  selections: #{
+    - { text: "Off", cmd: NA0; }
+    - { text:  "On", cmd: NA1; }
+  #}
+#end
+
+#define sub-auto-notch-togglebutton
+- item: togglebutton
+  label: Sub
+  leading: 0
+  selections: #{
+    - { text: "Off", cmd: NA$0; }
+    - { text:  "On", cmd: NA$1; }
+  #}
+#end
+
+#define noise-blanker-group
+- item: group
+  label: NB
+  contains: #{
+    #include main-noise-blanker-group
+    #include sub-noise-blanker-group
+  #}
+#end
+
+#define main-noise-blanker-group
+- item: group
+  label: Main
+  leading: 0
+  columns: 1
+  contains: #{
+    #include main-noise-blanker-togglebutton
+    #include main-noise-blanker-slider
+  #}
+#end
+
+#define sub-noise-blanker-group
+- item: group
+  label: Sub
+  leading: 0
+  columns: 1
+  contains: #{
+    #include sub-noise-blanker-togglebutton
+    #include sub-noise-blanker-slider
+  #}
+#end
+  
+#define main-noise-blanker-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: NB1;, evalresponse: 'value if len(value) < 5 else value[0:2]+value[4]+";"' } 
+    - { text: "Off", cmd: NB0;, evalresponse: 'value if len(value) < 5 else value[0:2]+value[4]+";"' }
+  #}
+#end
+
+#define sub-noise-blanker-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: NB$1;, evalresponse: 'value if len(value) < 6 else value[0:3]+value[5]+";"' } 
+    - { text: "Off", cmd: NB$0;, evalresponse: 'value if len(value) < 6 else value[0:3]+value[5]+";"' }
+  #}
+#end
+
+#define main-noise-blanker-slider
+- item: slider
+  orient: vertical
+  from: 15
+  to: 0
+  length: 150
+  evalincrement: '1'
+  showvalue: True
+  evalcmd: '"NB{v:02d}{on};".format(v=int(round(value)), on=self.k4param("NB")[0] if self.len_k4param("NB") < 3 else self.k4param("NB")[2])'
+  evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
+#end
+
+#define sub-noise-blanker-slider
+- item: slider
+  orient: vertical
+  from: 15
+  to: 0
+  length: 150
+  evalincrement: '1'
+  showvalue: True
+  evalcmd: '"NB${v:02d}{on};".format(v=int(round(value)), on=self.k4param("NB$")[0] if self.len_k4param("NB$") < 3 else self.k4param("NB$")[2])'
+  evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
+#end
+
+#define noise-reduction-group
+- item: group
+  label: NR
+  contains: #{
+    #include main-noise-reduction-group
+    #include sub-noise-reduction-group
+  #}
+#end
+
+#define main-noise-reduction-group
+- item: group
+  label: Main
+  leading: 0
+  columns: 1
+  contains: #{
+    #include main-noise-reduction-togglebutton
+    #include main-noise-reduction-slider
+  #}
+#end
+
+#define sub-noise-reduction-group
+- item: group
+  label: Sub
+  leading: 0
+  columns: 1
+  contains: #{
+    #include sub-noise-reduction-togglebutton
+    #include sub-noise-reduction-slider
+  #}
+#end
+
+#define main-noise-reduction-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: NR1;, evalcmd: '"NR{v}1;".format(v=self.k4param("NR")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' } 
+    - { text: "Off", cmd: NR0;, evalcmd: '"NR{v}0;".format(v=self.k4param("NR")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' }
+  #}
+#end
+
+#define sub-noise-reduction-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: NR$1;, evalcmd: '"NR${v}1;".format(v=self.k4param("NR$")[0:2])', evalresponse: 'value[0:3]+value[5]+";"' } 
+    - { text: "Off", cmd: NR$0;, evalcmd: '"NR${v}0;".format(v=self.k4param("NR$")[0:2])', evalresponse: 'value[0:3]+value[5]+";"' }
+  #}
+#end
+
+#define main-noise-reduction-slider
+- item: slider
+  orient: vertical
+  from: 10
+  to: 0
+  length: 150
+  evalincrement: '1'
+  showvalue: True
+  evalcmd: '"NR{v:02d}{on};".format(v=int(round(value)), on=self.k4param("NR")[0] if self.len_k4param("NR") < 3 else self.k4param("NR")[2])'
+  evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
+#end
+
+#define sub-noise-reduction-slider
+- item: slider
+  orient: vertical
+  from: 10
+  to: 0
+  length: 150
+  evalincrement: '1'
+  showvalue: True
+  evalcmd: '"NR${v:02d}{on};".format(v=int(round(value)), on=self.k4param("NR$")[0] if self.len_k4param("NR$") < 3 else self.k4param("NR$")[2])'
+  evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
+#end
+
+#define ctcss-group
+- item: group
+  label: CTCSS
+  columns: 1
+  contains: #{
+    #include ctcss-togglebutton
+    #include ctcss-dropdown-button
+  #}
+#end
+
+#define macros-button
+- item: togglebutton
+  label: "Macros"
+  width: 9
+  selections: #{
+    - { text: 'Enabled',  cmd: '!MACROSENABLE;' }
+    - { text: 'Disabled', cmd: '!MACROSDISABLE;' }
+  #}
+#end
+
+#define ctcss-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: PL1;, evalcmd: '"PL{v}1;".format(v=self.k4param("PL")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' } 
+    - { text: "Off", cmd: PL0;, evalcmd: '"PL{v}0;".format(v=self.k4param("PL")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' }
+  #}
+#end
+
+#define ctcss-dropdown-button
+- item: dropdownbutton
+  width: 6
+  height: 10
+  selections: #{
+    - { text: " 67.0", cmd: PL01;, evalcmd: '"PL01{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' } 
+    - { text: " 69.3", cmd: PL02;, evalcmd: '"PL02{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 71.9", cmd: PL03;, evalcmd: '"PL03{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 74.4", cmd: PL04;, evalcmd: '"PL04{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 77.0", cmd: PL05;, evalcmd: '"PL05{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 79.7", cmd: PL06;, evalcmd: '"PL06{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 82.5", cmd: PL07;, evalcmd: '"PL07{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 85.4", cmd: PL08;, evalcmd: '"PL08{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 88.5", cmd: PL09;, evalcmd: '"PL09{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 91.5", cmd: PL10;, evalcmd: '"PL10{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: " 94.8", cmd: PL11;, evalcmd: '"PL11{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' } 
+    - { text: " 97.4", cmd: PL12;, evalcmd: '"PL12{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "100.0", cmd: PL13;, evalcmd: '"PL13{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "103.5", cmd: PL14;, evalcmd: '"PL14{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "107.2", cmd: PL15;, evalcmd: '"PL15{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "110.9", cmd: PL16;, evalcmd: '"PL16{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "114.8", cmd: PL17;, evalcmd: '"PL17{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "118.8", cmd: PL18;, evalcmd: '"PL18{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "123.0", cmd: PL19;, evalcmd: '"PL19{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "127.3", cmd: PL20;, evalcmd: '"PL20{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "131.8", cmd: PL21;, evalcmd: '"PL21{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' } 
+    - { text: "136.5", cmd: PL22;, evalcmd: '"PL22{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "141.3", cmd: PL23;, evalcmd: '"PL23{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "146.2", cmd: PL24;, evalcmd: '"PL24{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "151.4", cmd: PL25;, evalcmd: '"PL25{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "156.7", cmd: PL26;, evalcmd: '"PL26{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "159.8", cmd: PL27;, evalcmd: '"PL27{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "162.2", cmd: PL28;, evalcmd: '"PL28{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "165.5", cmd: PL29;, evalcmd: '"PL29{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "167.9", cmd: PL30;, evalcmd: '"PL30{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "171.3", cmd: PL31;, evalcmd: '"PL31{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' } 
+    - { text: "173.8", cmd: PL32;, evalcmd: '"PL32{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "177.3", cmd: PL33;, evalcmd: '"PL33{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "179.9", cmd: PL34;, evalcmd: '"PL34{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "183.5", cmd: PL35;, evalcmd: '"PL35{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "186.2", cmd: PL36;, evalcmd: '"PL36{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "189.9", cmd: PL37;, evalcmd: '"PL37{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "192.8", cmd: PL38;, evalcmd: '"PL38{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "196.6", cmd: PL39;, evalcmd: '"PL39{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "199.5", cmd: PL40;, evalcmd: '"PL40{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "203.5", cmd: PL41;, evalcmd: '"PL41{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' } 
+    - { text: "206.5", cmd: PL42;, evalcmd: '"PL42{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "210.7", cmd: PL43;, evalcmd: '"PL43{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "218.1", cmd: PL44;, evalcmd: '"PL44{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "225.7", cmd: PL45;, evalcmd: '"PL45{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "229.1", cmd: PL46;, evalcmd: '"PL46{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "233.6", cmd: PL47;, evalcmd: '"PL47{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "241.8", cmd: PL48;, evalcmd: '"PL48{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "250.3", cmd: PL49;, evalcmd: '"PL49{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+    - { text: "254.1", cmd: PL50;, evalcmd: '"PL50{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
+  #}
+#end
+
+#define cw-window
+- item: cw
+#end
+
+#define macros-window
+- item: macros
+#end
+
+#define equalizers
+- item: equalizers
+  width: 13
+  length: 150
+#end
+
+#define sw-release-group
+- item: group
+  label: "Software Release"
+  padx: 2
+  columns: 1
+  contains: #{
+    #include sw-release-dropdown-button
+    #include sw-release-apply-button
+  #}
+#end
+
+#define sw-release-dropdown-button
+- item: dropdownbutton
+  width: 13
+  justify: left
+  selections: #{
+    - { text: Production, cmd: RLP; }
+    - { text: Beta, cmd: RLB; }
+    - { text: "Previous Prod.", cmd: RLX; }
+  #}
+#end
+
+#define sw-release-apply-button
+- item: button
+  text: "Apply and\nReboot"
+  cmd: PS88;
+#end
+
+#define rit-xit-group
+- item: group
+  columns: 1
+  contains: #{
+    #include xit-togglebutton
+    #include rit-group
+  #}
+#end
+
+#define rit-group
+- item: group
+  label: RIT
+  contains: #{
+    #include vfo-a-rit-group
+    #include vfo-b-rit-group
+  #}
+#end
+
+#define xit-togglebutton
+- item: togglebutton
+  label: XIT
+  padx: 4
+  width: 3
+  selections: #{
+    - { text: "On",  cmd: XT1;, bg: LightBlue, abg: LightBlue } 
+    - { text: "Off", cmd: XT0; }
+  #}
+#end
+
+#define vfo-a-rit-group
+- item: group
+  label: RIT
+  columns: 1
+  contains: #{
+    #include vfo-a-rit-togglebutton
+    #include vfo-a-rit
+    #include vfo-a-ritxit-clear-button
+  #}
+#end
+
+#define vfo-b-rit-group
+- item: group
+  label: RIT
+  columns: 1
+  contains: #{
+    #include vfo-b-rit-togglebutton
+    #include vfo-b-rit
+    #include vfo-b-ritxit-clear-button
+  #}
+#end
+
+#define vfo-a-rit-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: RT1;, bg: LightGreen, abg: LightGreen } 
+    - { text: "Off", cmd: RT0; }
+  #}
+#end
+
+#define vfo-b-rit-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: RT$1;, bg: LightGreen, abg: LightGreen } 
+    - { text: "Off", cmd: RT$0; }
+  #}
+#end
+
+#define vfo-a-rit
+- { item: rit, AorB: A, ritcolor: LightGreen, xitcolor: LightBlue, ritxitcolor: Turquoise }
+#end
+
+#define vfo-b-rit
+- { item: rit, AorB: B, ritcolor: LightGreen, xitcolor: LightBlue, ritxitcolor: Turquoise }
+#end
+
+#define vfo-a-ritxit-clear-button
+- item: button
+  text: Clear
+  cmd: RO+0000;
+#end
+
+#define vfo-b-ritxit-clear-button
+- item: button
+  text: Clear
+  cmd: RO$+0000;
+#end
+
+#define vox-group
+- item: group
+  label: VOX
+  columns: 1
+  contains: #{
+    #include vox-onoff-group
+    #include vox-slider-group
+  #}
+#end
+
+#define vox-onoff-group
+- item: group
+  contains: #{
+    #include vox-voice-togglebutton
+    #include vox-cw-togglebutton
+    #include vox-data-togglebutton
+  #}
+#end
+
+#define vox-voice-togglebutton
+- item: togglebutton
+  label: Voice
+  selections: #{
+    - { text: "On",  cmd: VXV1; } 
+    - { text: "Off", cmd: VXV0; } 
+  #}
+#end
+
+#define vox-cw-togglebutton
+- item: togglebutton
+  label: CW
+  selections: #{
+    - { text: "On",  cmd: VXC1; } 
+    - { text: "Off", cmd: VXC0; } 
+  #}
+#end
+
+#define vox-data-togglebutton
+- item: togglebutton
+  label: Data
+  selections: #{
+    - { text: "On",  cmd: VXD1; } 
+    - { text: "Off", cmd: VXD0; } 
+  #}
+#end
+
+#define vox-slider-group
+- item: group
+  contains: #{
+    #include vox-delay-group
+    #include vox-gain-slider
+    #include vox-anti-slider
+  #}
+#end
+
+#define vox-delay-group
+- item: group
+  label: Delay
+  columns: 1
+  contains: #{
+    #include vox-delay-togglebutton
+    #include vox-delay-slider
+  #}
+#end
+
+# Note that k4parm swaps characters 2 and 3 from the actual commands/responses
+#define vox-delay-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: SDV1;, evalcmd: '"SDV1{d:03s};".format(d=self.k4param("SDV")[1:4])', evalresponse: '"SDV"+self.k4param("SDV")[0]+";"' } 
+    - { text: "Off", cmd: SDV0;, evalcmd: '"SDV0{d:03s};".format(d=self.k4param("SDV")[1:4])', evalresponse: '"SDV"+self.k4param("SDV")[0]+";"' } 
+  #}
+#end
+
+# Note that k4parm swaps characters 2 and 3 from the actual commands/responses
+#define vox-delay-slider
+- item: slider
+  orient: vertical
+  from: 2.55
+  to: 0
+  length: 150
+  evalincrement: "-.01"
+  showvalue: True
+  evalcmd: '"SDV{f}{d:03d};".format(f=self.k4param("SDV")[0], d=int(round(float(value)*100)))'
+  evalresponse: 'float(value[4:7])/100'
+#end
+
+#define vox-gain-slider
+- item: slider
+  label: Gain
+  orient: vertical
+  from: 60
+  to: 0
+  length: 150
+  evalincrement: '1'
+  showvalue: False
+  evalcmd: '"VGD{:03d};".format(int(round(value)))'
+  evalresponse: 'float(value[3:6])'
+#end
+
+#define vox-anti-slider
+- item: slider
+  label: Anti
+  orient: vertical
+  from: 60
+  to: 0
+  length: 150
+  evalincrement: '1'
+  showvalue: False
+  evalcmd: '"VI{:03d};".format(int(round(value)))'
+  evalresponse: 'float(value[2:5])'
+#end
+
+#define fwversions
+- item: fwversions
+  padx: 2
+  label: FW Versions
+#end
+
+# preprocessor directives:
+#   #define <block_name>
+#     - defines a block, <block_name>,  containing all following lines until a #end directive
+#       must appear in column 1
+#
+#   #end
+#     - terminates a block definition
+#       must appear in column 1
+#
+#   #include <block_name>
+#     - is replaced by the block <block_name>
+#       indentation is preserved.
+
+# item descriptions:
+#
+
+# page options:
+#   name: The page name (required).
+#   columns: The number of columns in which contained items will be displayed.
+#   contains: The list of items this page contains
+#
+#   The first page defined will be the initially displayed page
+
+# group options:
+#   label: The label that will be displayed for this group.
+#   leading: Specifies the vertical space (in points) that will be displayed
+#     before the group. Default is 1 for groups with a label, 0 otherwise.
+#   row: The row of the container in which this group will be placed.
+#   column: The column of the container in which this group will be placed.
+#   rowspan: The number of rows this group will occupy.
+#   columnspan: The number of columns this group will occupy.
+#   columns: The number of columns in which contained items will be displayed.
+#   tabname: Contains the name displayed on this tab of the containing notebook
+#   contains: The list of items this group contains
+
+# button options:
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
+#   text: button text
+#   font: the font in which the text is to be displayed
+#   cmd: XXX, where XXX is one of:
+#     1. a text string to be sent to k4, or
+#     2. a directive (a special command directed at the application, rather than the server):
+#       'CONNECT!;', connects to the server if not previously connected
+#       'QUIT!;', terminates the program
+#       'SHOW!PREVIOUS;', displays the previously-displayed page
+#       'SHOW!YYY;', displays page with the name: YYY
+#   fg: foreground color
+#   bg: background color
+#   abg: active background color
+#   justify: 'left', 'right', 'center' to justify text within the Button
+
+# togglebutton options:
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
+#   wraparound: true or false. whether the button wraps back around to the first selection
+#     defaults to true
+#   justify: 'left', 'right', 'center' to justify text within the Button
+#   selections: a list of selections, each of which may have the following elements
+#       text: button text
+#       font: the font in which the text is to be displayed
+#       cmd: XXX, where XXX is one of:
+#         1. a text string to be sent to k4; or
+#         2. a directive (a special command directed at the application, rather than the server):
+#           'CONNECT!;', connects to the server if not previously connected
+#           'QUIT!;', terminates the program
+#           'SHOW!PREVIOUS;', displays the previously-displayed page
+#           'SHOW!YYY;', displays page with the name: YYY
+#       response: When this response is received, the selection will be selected.`
+#       evalresponse: A python expression to modify the response received before matching the selection.
+#       fg: foreground color
+#       bg: background color
+#       abg: active background color
+#       justify: 'left', 'right', 'center' to justify text within the Button
+#       blink: If set to true, the button will blink.
+
+# radiobutton options:
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
+#   groupid: a string shared by all buttons in this group, unique to all groups
+#   indicator: Set to 0 if no indicator is to be displayed
+#   text: button text
+#   font: the font in which the text is to be displayed
+#   cmd: XXX, where XXX is one of:
+#     1. a text string to be sent to k4; or
+#     2. a directive (a special command directed at the application, rather than the server):
+#       'CONNECT!;', connects to the server if not previously connected
+#       'QUIT!;', terminates the program
+#       'SHOW!PREVIOUS;', displays the previously-displayed page
+#       'SHOW!YYY;', displays page with the name: YYY
+#   fg: foreground color
+#   bg: background color
+#   abg: active background color
+#   selectcolor: button color when selected
+#   blink: If set to true, the button will blink.
+
+# slider options:
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
+#   from: The lowest value of the slider
+#   to: The highest value of he slider
+#   orient: Either:
+#     vertical: Specifies a vertical slider
+#     horizontal: Specifies a horizontal slider
+#   length: The length of the slider in pixels
+#   width: The width in pixels if the slider is verical, otherwise the height
+#   increment: A python expression to set the slider increment given the variable value
+#   cmdvalue: A python expression to produce the K4 command given the variable 'value'.
+#   evalresponse: A python expression to extract the slider value from the K4 response.
+#   font: The font used for the slider's text.
+#   fg: foreground color
+#   bg: background color
+
+# vfo options:
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
+#   AorB: 'A' for vfo A and 'B' for vfo B
+#   fg: foreground color
+#   bg: background color
+#   font: the font used for the vfo
+#   width: the number of characters in the frequency spinbox
+#   step_spinbox: When set to 'true', the vfo step will be selected by a spinbox
+
+# notebook (tabs) options:
+# A notebook contains only groups, each selecable by a tab
+# Each group it contains must have a tabname option
+
+# bargraph options
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
+#   orient: Either:
+#     vertical: Specifies a vertical bar graph
+#     horizontal: Specifies a horizontal bar graph
+#   cmd: Command(s) sent to initiate bar graph responses
+#   response: The base for requested responses for the bar graph (defaults to cmd)
+#   evalresponse: A python expression to extract the bar graph value from the K4 response.
+#   maximum: The maximum value the bar graph may be set to
+#   evalmaximum: A python expression to generate the maximum value
+#   length: The length of the bar graph in pixels
+#   font: the font used for the bar graph texts
+#   lefttext: Value of a text label placed to the left of the bar graph
+#   bottomtext: Value of a text label placed below the bar graph
+#   evalbottomtext: A python expression to generate a text label placed below the bar graph
+#   lengthpercent: Length of bar graph as a percentage of the length of bottomtext
+
+# text options
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
+#   text: the text to be displayed
+#   font: the font in which the text is to be displayed
+#   fg: foreground color
+#   bg: background color
+
+# menu options:
+#   leading: the number of "points" of vertical spacing to be added before this item
+#   label: surrounds this item with a frame with the specified "label"
+#   entries_displayed: The number of menu items to display at a time
+#   fg: foreground color
+#   bg: background color
+#   abg: active background color
+#   afg; active foreround color
+#   selectbg: selected background color
+#   selectfg: selected foreground color
+#   font: the font used for the menu
+#   label_font: the font used for the menu's labels
 '''
 
 if __name__ == '__main__':
