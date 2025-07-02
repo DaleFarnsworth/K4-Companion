@@ -1567,13 +1567,13 @@
 #define vfo-a-ritxit-clear-button
 - item: button
   text: Clear
-  cmd: RO+0000
+  cmd: RO+0000;
 #end
 
 #define vfo-b-ritxit-clear-button
 - item: button
   text: Clear
-  cmd: RO$+0000
+  cmd: RO$+0000;
 #end
 
 #define vox-group
