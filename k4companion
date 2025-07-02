@@ -6966,7 +6966,7 @@ and everything after the & is sent.'''
         if label == '':
             label = value
         if label != '':
-            Popup.popup(label, timeout=1000, color='white')
+            Popup.popup(label, timeout=500, color='white')
 
         if value == '':
             return
