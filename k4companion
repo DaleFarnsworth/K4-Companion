@@ -816,7 +816,7 @@ class Server():
                 elif base == 'TU' and cmd != 'TU0' and len(cmd) > 2:
                     self.save_last_tune_cmd(cmd)
                 elif base == 'ME':
-                    if re.search('[.][+-]', cmd) != None:
+                    if re.search('[.][/+-]', cmd) != None:
                         adjust = True
                 elif base in ('FA', 'FB'):
                     if len(cmd) < 5:
