@@ -831,7 +831,9 @@ class Server():
             if len(param) > 0 and param[0] in '+-/^>~\\':
                 if base not in ('RO', 'RO$', 'XVO'):
                     adjust = True
-            if (Server.k4_set_only_cmd(base, cmd) or adjust or self.update_k4_parameter(base, param)) and send:
+            if not Server.k4_set_only_cmd(base, cmd) and not adjust:
+                self.update_k4_parameter(base, param)
+            if send:
                 cmd += ';'
                 self.send_str(cmd)
 
