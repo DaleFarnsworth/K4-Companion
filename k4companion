@@ -7166,7 +7166,12 @@ class Config():
 
         if Options.yaml_file != None:
             with open(Options.yaml_file, 'w') as stream:
-                self.write_block(stream, Config.main_block_name, '', 1)
+                if Options.config_file == None:
+                    # Write out the internally-contained yaml file
+                    stream.write(config_data)
+                else:
+                    # Write out the preprocessed yaml file
+                    self.write_block(stream, Config.main_block_name, '', 1)
         else:
             tmpfile = tempfile.TemporaryFile(mode='w+')
             self.write_block(tmpfile, Config.main_block_name, '', 1)
@@ -7306,7 +7311,7 @@ class Options():
         parser.add_option('-d', '--debug', action='count', dest='debug', default=0,
                           help="output debugging messages")
         parser.add_option('--yaml', dest='yaml_file', default=None,
-                          help="output preprocessed YAML to FILE", metavar="FILE")
+                          help="output YAML config to FILE", metavar="FILE")
         (options, args) = parser.parse_args()
 
         Options.config_file = options.config_file
