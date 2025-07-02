@@ -417,7 +417,7 @@
 #end
 
 #define vfo-a
-- { item: vfo, AorB: A, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: LightBlue, transmitcolor: Blue }
+- { item: vfo, AorB: A, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: LightBlue, transmitcolor: DodgerBlue }
 #end
 
 #define s-meter-a-bargraph
