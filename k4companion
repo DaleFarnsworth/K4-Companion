@@ -337,6 +337,7 @@ class Server():
         'RE': ['RESTART!'],
         'TU': ['TUNE!'],
         'SH': ['SHOW!'],
+        'IN': ['INJECT!'],
     }
 
     # commands that end in +, -, /, \, ^, > are also pseudo set-only commands
@@ -791,6 +792,8 @@ class Server():
             self.tune_directive()
         elif lcmd == 'restart!':
             restart()
+        elif lbase == 'inject!':
+            self.receive_k4_responses(cmd[7:].split(';'))
         elif lbase == 'show!':
             page = lcmd[len(base):].strip()
             if page == 'previous':
@@ -798,7 +801,7 @@ class Server():
             else:
                 Page.show_page(page)
         else:
-           raise Exception('Unknown directive: ', directive)
+           raise Exception('Unknown directive: ', self.directive)
 
     def save_last_tune_cmd(self, cmd):
         self.last_tune_cmd = cmd + ';'
