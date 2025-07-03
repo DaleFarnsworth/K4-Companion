@@ -2106,7 +2106,7 @@ class VFO(Widget):
                 cursor_index += '-1c'
             self.tb.mark_set(tk.INSERT, cursor_index)
             self.add_tags()
-        if send:
+        if send and freq != self.freq:
             cmd = f'F{self.AorB}{freq:011.0f};'
             self.server.send_cmds(cmd)
         self.freq = freq
