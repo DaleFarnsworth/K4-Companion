@@ -471,6 +471,7 @@ class Server():
         self.printed_connection_warning = False
         self.last_tune_cmd = Server.settings.get(section, 'tune_cmd', 'TU3;')
         self.received_cat_cmd = False
+        self.previous_ov_bits = 0
 
         self.set_address(self.address_port)
         self.set_proxy(self.proxy_address_port)
@@ -484,6 +485,7 @@ class Server():
         self.subscribe_connect(self.on_server_connect)
 
     def on_server_connect(self):
+        self.subscribe_response('OV;OV$;', self.on_ov_received, send=False)
         self.request_initial_parameters()
         self.update_local_audio_parameters()
         if self.type == 'k4' and not self.cat_only:
@@ -694,6 +696,32 @@ class Server():
             self.update_k4_parameter(cmd_base(cmd), cmd_parameter(cmd))
             if orig_param != None:
                 self.update_k4_parameter(cmd_base(cmd), orig_param)
+
+    def on_ov_received(self, response):
+        param = cmd_parameter(response)
+        ov_bits = int(param, 2)
+        changed = ov_bits ^ self.previous_ov_bits
+        self.previous_ov_bits = ov_bits
+        msg = ''
+        if ov_bits & 2 or changed & 2:
+            msg += 'ADC Overflow '
+            if ov_bits & 2:
+                msg += 'On'
+            else:
+                msg += 'Off'
+        if ov_bits & 1 or changed & 1:
+            if len(msg) > 0:
+                msg += ', '
+            msg += 'COR Relay '
+            if ov_bits & 1:
+                msg += 'On'
+            else:
+                msg += 'Off'
+        if len(msg) > 0:
+            timeout = 2000
+            if ov_bits != 0:
+                timeout = 0
+            Popup.modal(msg, timeout=timeout, color='yellow')
 
     def close(self):
         self.connected = False
@@ -7415,9 +7443,9 @@ class Popup():
         cls.popup(msg=msg, title='Error', timeout=timeout, font=font, color='yellow', modal=modal)
 
     @classmethod
-    def modal(cls, msg, timeout=None):
+    def modal(cls, msg, timeout=None, color='yellow'):
         dprint(' '.join(msg))
-        cls.popup(msg=msg, title='K4-Companion', timeout=timeout, font=None, color='yellow', modal=True)
+        cls.popup(msg=msg, title='K4-Companion', timeout=timeout, font=None, color=color, modal=True)
 
     @classmethod
     def remove_previous(cls):
