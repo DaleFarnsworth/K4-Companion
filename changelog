@@ -1,4 +1,44 @@
+v1.5.4:
+    Send KY @; cmd unconditinally on escape key:wq
+
+    Embed k4companion.yaml within k4companion
+
+    Reduce macro popup acknowledgement to 500 mS
+
+    Move button to enable macros window to the main tab
+
+    Fix repeated send of cmds like VO$+nnnnn;
+       We previously avoided send the identical command multiple times in
+       a row. However, it make sense for some commands to be repeated, so
+       we'll remove this unnecessary attempt at optimization.
+   
+    Properly support VT$\;
+
+    Fix RIT/XIT clear offset cmds RO+0000 & RO$+0000
+
+    Output internal YAML file given the --yaml option
+       If YAML code is contained within the config_data variable and
+       no YAML config_file is specified on the command line, then output
+       the internal YAML code when the --yaml command line argument is given.
+       
+       If a YAML file is specified on the command line, the --yaml command line
+       argument will cause the preprocessed YAML code to be output.
+   
+    Make the VFO transmit color a bit lighter blue
+
+    Correct direction of mouse-wheel scroll on Windows
+
+    Version v1.5.3
+
+    Add tools/add_data_variable
+       This script can copy the contents of a file into a variable contained
+       inside of a python script.
+   
+    Read config data from a variable if available
+
 v1.5.2:
+    Update changelog for v1.5.2
+
     Update Window EXE and installer to version 1.5.2
 
     Update K4 Companion User Manual
@@ -8,8 +48,7 @@ v1.5.2:
        Suport 1- or 2-digit MHz values, 3- to 5-digit kHz values, and
        Hz for > 5-digit values.
    
-    Version v1.5.1
-
+v1.5.1:
     Support cmds that don't directly set a value
        For examples, commands that normally directly set an integer value,
        but can take a special character like +, -, /, ^, >, or ~ to instead
