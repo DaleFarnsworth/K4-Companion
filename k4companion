@@ -6642,10 +6642,11 @@ and everything after the & is sent.'''
         return 'break'
 
     def stop_sending(self, event=None):
+        self.server.send_cmds('KY @;')
+
         if self.tx_remaining_count == 0:
             return
 
-        self.server.send_cmds('KY @;')
         pending_text = self.tx_text.text()
         offset = self.tx_send_offset - self.tx_remaining_count
         if offset == len(pending_text):
