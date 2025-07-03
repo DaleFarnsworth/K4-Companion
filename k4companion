@@ -7392,9 +7392,15 @@ class Popup():
     previous_popup = None
 
     @classmethod
-    def show_popup(cls, msg, title, timeout, font, color, modal=False):
+    def show_popup(cls, msg, title, prefix, timeout, font, color, modal=False):
         if isinstance(msg, str):
-            msg = [ msg ]
+            msg = [ prefix + msg ]
+        else:
+            msg[0] = prefix + msg[0]
+        log_prefix = ''
+        if prefix == '':
+            log_prefix = 'Popup: '
+        dprint(log_prefix + ' '.join(msg))
         msg = "\n\n".join(msg)
         popup = cls(title=title, timeout=timeout, font=font, color=color)
         label = tk.Label(popup.frame, text=msg, anchor='center', justify='left', font=font, bg=color)
@@ -7413,41 +7419,30 @@ class Popup():
     def dequeue_popups(cls):
         while True:
             try:
-                msg, title, timeout, font, color, modal = cls.queue.get_nowait()
-                cls.show_popup(msg, title, timeout, font, color, modal)
+                msg, title, prefix, timeout, font, color, modal = cls.queue.get_nowait()
+                cls.show_popup(msg, title, prefix, timeout, font, color, modal)
             except queue.Empty:
                 break
 
         Poll.call(cls.poll_interval, cls.dequeue_popups)
 
     @classmethod
-    def popup(cls, msg='', title='', timeout=None, font=None, color='yellow', modal=False):
+    def popup(cls, msg='', title='', prefix='', timeout=None, font=None, color='yellow', modal=False):
         if threading.current_thread() == threading.main_thread():
-            cls.show_popup(msg, title, timeout, font, color, modal)
+            cls.show_popup(msg, title, prefix, timeout, font, color, modal)
         else:
-            cls.queue.put((msg, title, timeout, font, color, modal))
+            cls.queue.put((msg, title, prefix, timeout, font, color, modal))
 
     @classmethod
     def warning(cls, msg, timeout=2000, modal=False):
-        if isinstance(msg, str):
-            msg = 'Warning: ' +  msg
-        else:
-            msg[0] = 'Warning: ' + msg[0]
-        dprint(' '.join(msg))
-        cls.popup(msg=msg, title='Warning', timeout=timeout, font=None, color='yellow', modal=modal)
+        cls.popup(msg=msg, title='Warning', prefix='Warning: ', timeout=timeout, font=None, color='yellow', modal=modal)
 
     @classmethod
     def error(cls, msg, timeout=5000, modal=False, font=None):
-        if isinstance(msg, str):
-            msg = 'Error: ' +  msg
-        else:
-            msg[0] = 'Error: ' + msg[0]
-        dprint(' '.join(msg))
-        cls.popup(msg=msg, title='Error', timeout=timeout, font=font, color='yellow', modal=modal)
+        cls.popup(msg=msg, title='Error', prefix='Error: ', timeout=timeout, font=font, color='yellow', modal=modal)
 
     @classmethod
     def modal(cls, msg, timeout=None, color='yellow'):
-        dprint(' '.join(msg))
         cls.popup(msg=msg, title='K4-Companion', timeout=timeout, font=None, color=color, modal=True)
 
     @classmethod
