@@ -98,12 +98,12 @@ def update_version(filename, version):
     os.rename(tmpfilename, filename)
 
 def increment_version(version):
-    match = re.search('^([^.]*).([^-.]*)(.*)?$', version)
+    match = re.search('^([^.]*).([^-.]*)([^.]*.([^.]*))?$', version)
     if match != None:
         major = int(match[1])
         minor = int(match[2])
         minor_suffix = match[3]
-        patch = 0
+        patch = int(match[4])
     else:
         match = re.search('^([^.]*).([^.]*).([^.]*)$', version)
         major = int(match[1])
@@ -204,10 +204,12 @@ class Options():
 
         Options.changelog = options.changelog
         Options.version = options.version
-        print(f'{Options.version=}')
 
         if len(args) != 0:
             parser.error("Unexpected argument '{arg}'".format(arg=args[0]))
+
+def tprint(*args, **kwargs):
+    print(*args, **kwargs)
 
 def main():
     Options.Parse()
