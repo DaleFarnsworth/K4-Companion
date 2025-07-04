@@ -1,4 +1,25 @@
-v1.5.4:
+v1.5.5:
+    Update K4 Companion EXE and Windows installer to version 1.5.5
+       Bug fixes, some cosmetic changes, and slight reorganization of buttons.
+       Now incorporates YAML information into the main executable file
+   
+    Update K4 Companion User Manual to version 1.5.5
+
+    Only send VFO frequency if it has changed
+
+    Reformat popup messages
+
+    Add INJECT!; directive to simulate receiving cmds
+
+    Display a popup msg on receipt of an OV; cmd
+       This response indicates an ADC overload and/or the COR relay is enabled.
+   
+    update_version: Fix patch incrementing
+
+    Version v1.5.4
+
+    Update changelog for v1.5.4
+
     Send KY @; cmd unconditinally on escape key:wq
 
     Embed k4companion.yaml within k4companion
