@@ -995,7 +995,7 @@
   padx: 4
   selections: #{
     - { text: 'Receive',   cmd: 'TRR;', bg: '#00FF00', abg: '#00FF00' }
-    - { text: 'Transmit',  cmd: 'TRT;', bg: yellow,    abg: yellow }
+    - { text: 'Transmit',  cmd: 'TRT;', bg: DodgerBlue,    abg: DodgerBlue }
   #}
 #end
 
