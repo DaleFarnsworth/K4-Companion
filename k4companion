@@ -4842,9 +4842,25 @@ class Settings():
         self.settings.read(self.pathname)
         self.settings_loaded = True
 
-        # rename or removed obsolete options
+        # rename or remove obsolete options
+        if self.index != 'main':
+            main = Settings.main()
+            name =  self.get('Audio', 'output_device_name')
+            if name != None and not main.settings.has_option('Client', 'audio_output_device_name'):
+                main.put_save('Client', 'audio_output_device_name', name)
+            name =  self.get('Audio', 'input_device_name')
+            if name != None and not main.settings.has_option('Client', 'audio_input_device_name'):
+                main.put_save('Client', 'audio_input_device_name', name)
+
+        if self.settings.has_option('Audio', 'output_device_name'):
+            self.settings.remove_option('Audio', 'output_device_name')
+            self.settings_changed = True
+        if self.settings.has_option('Audio', 'input_device_name'):
+            self.settings.remove_option('Audio', 'input_device_name')
+            self.settings_changed = True
         if self.settings.has_option('Remote', 'restart'):
             self.settings.remove_option('Remote', 'restart')
+            self.settings_changed = True
         if self.settings.has_section('command'):
             for option in self.settings.options('command'):
                 value = self.get('command', option)
@@ -5152,11 +5168,11 @@ class AppSettings_widget(Widget):
 
         super().__init__(config_info, container)
 
-        input_device_name = Server.settings.get('Audio', 'input_device_name')
+        input_device_name = self.input_device_name()
         if input_device_name != None:
             Audio.set_input_device_name(input_device_name)
 
-        output_device_name = Server.settings.get('Audio', 'output_device_name')
+        output_device_name = self.output_device_name()
         if output_device_name != None:
             Audio.set_output_device_name(output_device_name)
 
@@ -5165,6 +5181,16 @@ class AppSettings_widget(Widget):
 
         self._frame = self.audio_settings()
         self._frame.grid(row=0, column=0, sticky='w', pady=8)
+
+    def input_device_name(self, name=None):
+        if name != None:
+            Settings.main().put_save('Client', 'audio_input_device_name', name)
+        return Settings.main().get('Client', 'audio_input_device_name')
+
+    def output_device_name(self, name=None):
+        if name != None:
+            Settings.main().put_save('Client', 'audio_output_device_name', name)
+        return Settings.main().get('Client', 'audio_output_device_name')
 
     def audio_settings(self):
         frame = tk.LabelFrame(self.frame,
@@ -5188,7 +5214,7 @@ class AppSettings_widget(Widget):
         return frame
 
     def audio_input_settings(self, frame):
-        input_device_name = Server.settings.get('Audio', 'input_device_name')
+        input_device_name = self.input_device_name()
         if input_device_name == None or Audio.input_device_index() < 0:
             input_device_name = Audio.input_device_name()
 
@@ -5237,11 +5263,11 @@ class AppSettings_widget(Widget):
         if input_name == '':
             return
 
-        Server.settings.put_save('Audio', 'input_device_name', input_name)
+        self.input_device_name(input_name)
         Audio.set_input_device_name(input_name)
 
     def audio_output_settings(self, frame):
-        output_device_name = Server.settings.get('Audio', 'output_device_name')
+        output_device_name = self.output_device_name()
         if output_device_name == None or Audio.output_device_index() < 0:
             output_device_name = Audio.output_device_name()
 
@@ -5290,7 +5316,7 @@ class AppSettings_widget(Widget):
         if output_name == '':
             return
 
-        Server.settings.put_save('Audio', 'output_device_name', output_name)
+        self.output_device_name(output_name)
         Audio.set_output_device_name(output_name)
 
     def audio_k4_control_setting(self, frame):
