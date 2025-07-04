@@ -1,4 +1,21 @@
+v1.5.7:
+    Update Windows EXE and installer to version 1.5.7
+       Implements several feature requests and improvements
+   
+    Update K4 Companion User Manual to version 1.5.7
+
+    update_version: Add minimal version validation
+
+    Add hidden reverse_mouse wheel direction option
+       If the following two lines are added to Settings.ini, the
+       mouse wheel direction will be reversed.
+       
+       [Client]
+       reverse_mouse_wheel = True
+   
 vv1.5.6:
+    Update changelog for vv1.5.6
+
     Add K4 Companion Windows Installer 1.5.5
 
 v1.5.5:
