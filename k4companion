@@ -4645,6 +4645,8 @@ class Settings():
     cached_main_settings = None
     cached_platform_settings_dirname = None
 
+    cached_reverse_mouse_wheel = None
+
     restart = False
 
     @classmethod
@@ -4736,6 +4738,12 @@ class Settings():
         else:
             suffix = f'-{index+1}'
         return os.path.join(config_dir,f'settings{suffix}.ini')
+
+    @classmethod
+    def reverse_mouse_wheel(cls):
+        if cls.cached_reverse_mouse_wheel == None:
+            cls.cached_reverse_mouse_wheel = Settings.main().getbool('Client', 'reverse_mouse_wheel', False)
+        return cls.cached_reverse_mouse_wheel
 
     def __init__(self, index=None):
         self.settings = configparser.RawConfigParser()
@@ -7592,6 +7600,8 @@ def mouse_wheel_mult(event):
         mult = event.delta // 120
     elif sys.platform == 'darwin':
         mult = 1 if event.delta > 0 else -1
+    if Settings.reverse_mouse_wheel():
+        mult = -mult
     return mult
 
 def scale_font(font, scale):
