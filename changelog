@@ -1,4 +1,9 @@
+vv1.5.6:
+    Add K4 Companion Windows Installer 1.5.5
+
 v1.5.5:
+    Update changelog for v1.5.5
+
     Update K4 Companion EXE and Windows installer to version 1.5.5
        Bug fixes, some cosmetic changes, and slight reorganization of buttons.
        Now incorporates YAML information into the main executable file
@@ -16,8 +21,7 @@ v1.5.5:
    
     update_version: Fix patch incrementing
 
-    Version v1.5.4
-
+v1.5.4:
     Update changelog for v1.5.4
 
     Send KY @; cmd unconditinally on escape key:wq
@@ -49,8 +53,7 @@ v1.5.5:
 
     Correct direction of mouse-wheel scroll on Windows
 
-    Version v1.5.3
-
+v1.5.3:
     Add tools/add_data_variable
        This script can copy the contents of a file into a variable contained
        inside of a python script.
