@@ -1,7 +1,7 @@
 This list is primarily a reminder of feature additions and bug fixes.
-It does not represent a committment to implement them all and the
-order in which the items appear doesn't represent their priority
-nor order of possible implementation.
+It does not represent a committment to implement them all and the order
+in which the items appear doesn't represent their priority nor order of
+possible implementation.
 
 Add padx, pady to grid calls, when passed as options for widgets.
 
@@ -13,8 +13,8 @@ Implement panadapter and waterfall, as well as minipan.
 
 See if we can recover from audio output_stream being None.
 
-Turn off receive audio immediately when going into transmit mode, without
-waiting for confirmation from the K4?
+Turn off receive audio immediately when going into transmit mode,
+without waiting for confirmation from the K4?
 
 Add a setting to avoid loading the audio modules.
 
@@ -23,3 +23,13 @@ Support PCM audio for systems that have difficulty with opus.
 Handle: ER43: Status Standby and ER44:Status Operate.
 
 Add per-band ATU on/off setting.
+
+Import/export server settings.
+
+A connection-poll option that will connect to a K4 when it becomes
+available on the network.
+
+If you have made requests or suggestions that have not made it to
+this list (or been rejected), I apologize. Please resend it to me.
+
+dale@farnsworth.org
