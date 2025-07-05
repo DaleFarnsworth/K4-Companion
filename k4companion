@@ -5435,7 +5435,7 @@ class FWversions(Text):
         self.server.subscribe_response('RV;', self.on_received_versions)
 
     def on_received_versions(self, response):
-        version = response.rstrip(';').lstrip('RV.')
+        version = response.rstrip(';').removeprefix('RV.')
         if len(version) > self.width:
             self.width = len(version)
         self.height += 1
