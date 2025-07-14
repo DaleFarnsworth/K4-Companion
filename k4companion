@@ -6440,7 +6440,7 @@ and everything after the & is sent.'''
         entry.grid(row=0, column=1, sticky='w')
 
     def on_received_initial_parameters(self, response):
-        self.server.subscribe_responses('MD;MD$;', self.on_mode_response)
+        self.server.subscribe_responses('MD;MD$;FT;', self.on_mode_response)
 
     def hide(self):
         if self.is_open:
