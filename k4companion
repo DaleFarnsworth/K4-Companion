@@ -826,7 +826,7 @@ class Server():
             if self.is_directive(base):
                 self.directive(base, cmd)
                 continue
-            if base in ('TR', 'SDC', 'SDV', 'SDD', 'SB', 'TU', 'ME', 'FA', 'FB', '!MACROS') + Server.control_k4_audio_cmd_bases:
+            if base in ('TR', 'SDC', 'SDV', 'SDD', 'SB', 'TU', 'ME', 'FA', 'FB', 'IS', 'IS$', '!MACROS') + Server.control_k4_audio_cmd_bases:
                 if base == 'TR':
                     if cmd[2] == 'T':
                         self.update_k4_parameter('TR', 'T')
@@ -854,6 +854,10 @@ class Server():
                         cmd += '000000'
                     elif len(cmd) < 8:
                         cmd += '000'
+                elif base in ('IS', 'IS$'):
+                    param = cmd[len(base):]
+                    if param == '9000':
+                        adjust = True
                 elif base == '!MACROS':
                     send = False
             if self.warn_if_not_connected():
