@@ -204,7 +204,7 @@ class Options():
 
         Options.changelog = options.changelog
         Options.version = options.version
-        if Options.version[0] not in '0123456789':
+        if Options.version != None and Options.version[0] not in '0123456789':
             parser.error(f'Bad version number: {Options.version}')
 
         if len(args) != 0:
