@@ -50,6 +50,7 @@ import platform
 import pyaudio
 import queue
 import re
+import rtmidi.midiutil
 import select
 import socket
 import socks
@@ -5983,7 +5984,8 @@ class CW(TextButtons):
 
     def __init__(self, config_info, container):
         required = ['item']
-        optional = ['bd', 'bg', 'fg', 'font', 'label', 'leading', 'padx', 'pady']
+        optional = ['bd', 'bg', 'fg', 'font', 'label', 'leading', 'padx', 'pady',
+                    'selectbg', 'selectfg']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -6025,6 +6027,7 @@ class CW(TextButtons):
         self.top_level.bind('<FocusOut>', self.focus_out)
 
         self.set_geometry()
+        MidiInput.open()
 
     def focus_in(self, event=None):
         self.top_level.bind('<Key>', self.on_key_pressed)
@@ -6081,24 +6084,8 @@ class CW(TextButtons):
         self.more_frame.grid(row=0, column=0)
         self.add_tab(self.more_frame, 'More')
 
-        cw_pitch_frame = tk.LabelFrame(self.more_frame, text='CW Pitch',
-            font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=5, relief='raised')
-        cw_pitch_frame.grid(row=0, column=0, sticky='w', padx=2, pady=2)
-
-        cw_pitch_options = {
-            'orient': 'horizontal', 'from': 300, 'to': 900,
-            'length': 150, 'evalincrement': '10', 'showvalue': True,
-            'evalcmd': '"CW{:02d};".format(int(int(value)/10))', 'evalresponse': 'int(value[2:4])*10',
-            'bg': self.bg, 'fg': self.fg, 'font': self.font(),
-        }
-        self.cw_pitch = SliderWidget(self, cw_pitch_frame, cw_pitch_options)
-
-        apf_width = self.apf_frame.winfo_width()
-        # subtract 8 to account for extra width of LabelFrame
-        self.cw_pitch.scale.config(length=apf_width-8)
-
         qsk_frame = tk.Frame(self.more_frame)
-        qsk_frame.grid(row=1, column=0, sticky='nw', padx=2, pady=5)
+        qsk_frame.grid(row=0, column=0, sticky='nw', padx=2, pady=5)
         qsk_onoff_frame = tk.LabelFrame(qsk_frame, text='QSK',
             font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
         qsk_onoff_frame.grid(row=0, column=0, sticky='nw', padx=2, pady=2)
@@ -6148,8 +6135,24 @@ class CW(TextButtons):
         }
         SliderWidget(self, delay_slider_frame, delay_slider_options)
 
+        cw_pitch_frame = tk.LabelFrame(self.more_frame, text='CW Pitch',
+            font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=5, relief='raised')
+        cw_pitch_frame.grid(row=0, column=1, sticky='w', padx=2, pady=2)
+
+        cw_pitch_options = {
+            'orient': 'horizontal', 'from': 300, 'to': 900,
+            'length': 150, 'evalincrement': '10', 'showvalue': True,
+            'evalcmd': '"CW{:02d};".format(int(int(value)/10))', 'evalresponse': 'int(value[2:4])*10',
+            'bg': self.bg, 'fg': self.fg, 'font': self.font(),
+        }
+        self.cw_pitch = SliderWidget(self, cw_pitch_frame, cw_pitch_options)
+
+        apf_width = self.apf_frame.winfo_width()
+        # subtract 8 to account for extra width of LabelFrame
+        self.cw_pitch.scale.config(length=apf_width-8)
+
         decode_frame = tk.Frame(self.more_frame)
-        decode_frame.grid(row=2, column=0, sticky='nw', padx=2, pady=5)
+        decode_frame.grid(row=1, column=0, sticky='nw', padx=2, pady=5)
 
         main_decode_frame = tk.LabelFrame(decode_frame, text='Main Decode',
             font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
@@ -6246,6 +6249,47 @@ class CW(TextButtons):
             'width': 4, 'bg': self.bg, 'fg': self.fg, 'selectbg': self.bg, 'selectfg': self.fg, 'font': self.font(),
         }
         DropdownWidget(self, sub_threshold_frame, sub_threshold_options)
+
+        key_down_delay_frame = tk.LabelFrame(self.more_frame, text='Key Down Initial Delay',
+            font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=5, relief='raised')
+        key_down_delay_frame.grid(row=2, column=0, sticky='w', padx=2, pady=2)
+
+        key_down_delay_options = {
+            'orient': 'horizontal', 'from': 0, 'to': 1000,
+            'length': 150, 'evalincrement': '10', 'showvalue': True,
+            'evalcmd': '"KZL{:04d};".format(int(value))', 'evalresponse': 'round(int(value[3:7].strip(";")), -1)',
+            'bg': self.bg, 'fg': self.fg, 'font': self.font(),
+        }
+        self.key_down_delay = SliderWidget(self, key_down_delay_frame, key_down_delay_options)
+
+        self.select_midi_port_frame = tk.LabelFrame(self.more_frame, text='Midi Key Device',
+            font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+        self.select_midi_port_frame.grid(row=3, column=0, sticky='nw', padx=2, pady=5)
+
+        MidiInput.set_port_updater(self.update_midi_ports)
+        self.update_midi_ports()
+
+    def update_midi_ports(self):
+        selectbg = self.bg
+        selectfg = self.fg
+        self.midi_port_dropdown = Dropdown_Widget(self.select_midi_port_frame, bd=2,
+            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
+            font=self.font(), justify='left', height=0)
+        self.midi_port_dropdown.grid(row=0, column=0)
+
+        self.midi_port_dropdown.select_callback(self.on_select_midi_port)
+
+        selections = [ 'None' ]
+        ports = MidiInput.available_ports()
+        if ports != None:
+            selections += ports
+
+        self.midi_port_dropdown.values(selections)
+        self.midi_port_dropdown.value(MidiInput.port_name)
+
+    def on_select_midi_port(self, event):
+        port_name = self.midi_port_dropdown.value()
+        MidiInput.set_port_name(port_name)
 
     def add_config_tab(self):
         self.config_frame = tk.Frame(self.notebook)
@@ -6467,6 +6511,8 @@ and everything after the & is sent.'''
     def close(self):
         if not self.is_open:
             return
+
+        MidiInput.close()
 
         self.save_geometry()
 
@@ -7116,6 +7162,156 @@ and everything after the & is sent.'''
         settings = Server.settings.get_section(self.section)
         if settings != previous_settings:
             Server.settings.save()
+
+class MidiInput():
+    singleton = None
+    poll_interval = 1000        # check for new devices every 1 seconds
+    midiin = None
+    port_names = None
+    port_name = 'None'
+    port_updater = None
+    port_serial_number = 0
+    previous_port_serial_number = -1
+
+    @classmethod
+    def open(cls):
+        if cls.singleton != None:
+            raise Exception('Opening MidiInput when already open.')
+
+        cls.singleton = MidiInput()
+
+    @classmethod
+    def close(cls):
+        Poll.remove(cls.singleton.poll_new_device)
+        cls.midiin.close_port()
+        cls.singleton = None
+
+    @classmethod
+    def set_port_name(cls, name):
+        cls.port_name = name
+        cls.port_serial_number += 1
+        Server.settings.put_save('CW', 'midi_input_device', name)
+
+    @classmethod
+    def available_ports(cls):
+        return cls.port_names
+
+    @classmethod
+    def set_port_updater(cls, port_updater):
+        cls.port_updater = port_updater
+
+    def __init__(self):
+        self.__class__.midiin = rtmidi.MidiIn()
+        port_name = Server.settings.get('CW', 'midi_input_device', 'None')
+        self.__class__.set_port_name(port_name)
+        self.warned = False
+        Poll.add(self.poll_interval, self.poll_new_device)
+
+        self.left_delta = 0
+        self.right_delta = 0
+        self.left_was_down = False
+        self.right_was_down = False
+        self.special_next_velocity = False
+
+    def poll_new_device(self):
+        # Do we need to close/reopen if the port_index changes?
+        cls = self.__class__
+
+        port_names = self.midiin.get_ports()
+        if port_names != self.port_names:
+            cls.port_names = port_names
+            if cls.port_updater != None:
+                cls.port_updater()
+
+        if self.port_name == 'None':
+            return
+
+        port_index = -1
+        try:
+            port_index = port_names.index(self.port_name)
+        except:
+            self.midiin.close_port()
+            cls.previous_port_serial_number = -1
+            if not self.warned:
+                self.warned = True
+                Popup.warning("Midi device {name} not found".format(name=self.port_name))
+
+        if port_index > 0 and cls.port_serial_number != cls.previous_port_serial_number:
+            self.warned = False
+            self.midiin.close_port()
+            self.midiin.open_port(port_index)
+            cls.previous_port_serial_number = cls.port_serial_number
+
+            self.left_delta = 0
+            self.right_delta = 0
+            self.left_was_down = False
+            self.right_was_down = False
+            self.special_next_velocity = False
+
+            self.midiin.set_callback(self.midi_callback)
+
+    def midi_callback(self, event, data=None):
+        message, deltatime = event
+        event, note, velocity = message
+
+#        dprint(f'{message=}')
+
+        if note != 20 and note != 21:           # Only left & right paddles
+            return
+
+        event = event & 0xf0                    # ignore channel
+        deltatime = int(round(deltatime * 1000))# to milliseconds
+
+        if event == 0xb0:                       # control change
+            if velocity == 0:
+                self.special_next_velocity = True
+            else:
+                self.left_delta += velocity << 7
+                self.right_delta += velocity << 7
+            return
+
+        if velocity == 0 or velocity == 127:    # Not MoMidi, use Midi delta time
+            self.left_delta += deltatime
+            self.right_delta += deltatime
+        else:
+            if self.special_next_velocity:
+                if velocity == 126:
+                    velocity = 127
+                elif velocity == 1:
+                    velocity = 128
+            self.left_delta += velocity
+            self.right_delta += velocity
+        self.special_next_velocity = False
+
+        if note == 20:                          # left paddle/straight key
+            if event == 0x90:                   # key down
+                up_duration = self.left_delta
+                if up_duration > 2500:
+                    up_duration = 0
+                Server.k4_server.send_str(f'KZD{up_duration:04d};')
+                self.left_was_down = True
+            elif event == 0x80:                 # key up
+                if self.left_was_down:
+                    down_duration = self.left_delta
+                    if down_duration > 2500:
+                        down_duration = 0
+                    Server.k4_server.send_str(f'KZU{down_duration:04d};')
+                    self.left_was_down = False
+            else:
+                dprint1("unexpected event 0x%2x" % event)
+            self.left_delta = 0
+
+        elif note == 21:                        # right paddle
+            if event == 0x90:                   # key down
+                up_duration = self.right_delta
+                self.right_was_down = True
+            elif event == 0x80:                 # key up
+                if self.right_was_down:
+                    down_duration = self.right_delta
+                    self.right_was_down = False
+            else:
+                dprint1("unexpected event 0x%2x" % event)
+            self.right_delta = 0
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure
