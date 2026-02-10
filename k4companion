@@ -731,8 +731,6 @@ class Server():
         self.connected = False
         if self.type == 'k4':
             self.send_queue.put('shutdown')
-            if self.output_audio_queue != None:
-                self.output_audio_queue.put([])
             if self.send_thread != None:
                 self.send_thread.join()
             if self.recv_thread != None:
@@ -4122,8 +4120,19 @@ class Audio():
         self.transmit_audio = False
         if self.input_thread != None:
             self.input_thread.join()
+
+        if self.output_tone_thread != None:
+            self.enable_tone_loop = False
+            self.tone_event.set()
+            self.output_tone_thread.join()
+
         if self.output_thread != None:
+            self.output_queue.put([])
             self.output_thread.join()
+
+        if self.output_device_thread != None:
+            self.output_device_queue.put([])
+            self.output_device_thread.join()
 
     @classmethod
     def set_input_device_name(cls, name):
@@ -4272,6 +4281,29 @@ class Audio():
         Audio.output_packet_qlen = latency / 40
         Audio.reset_output_packet_counter()
 
+    @classmethod
+    def start_tone(cls):
+        if cls.singleton == None:
+            return
+
+        self = cls.singleton
+        self.mute_k4_audio = True
+        try:
+            while self.output_queue.get_nowait():
+                pass
+        except queue.Empty:
+            pass
+        self.tone_event.set()
+
+    @classmethod
+    def stop_tone(cls):
+        if cls.singleton == None:
+            return
+
+        self = cls.singleton
+        self.mute_k4_audio = False
+        self.tone_event.clear()
+
     def pyaudio(self):
         fd = os.dup(2)
         os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
@@ -4303,12 +4335,23 @@ class Audio():
     def __init__(self):
         self.input_thread = None
         self.output_thread = None
+        self.output_device_thread = None
+        self.output_tone_thread = None
+        self.enable_tone_loop = True
+        self.output_device_queue = queue.Queue(2)
         self.input_device_index = -1
         self.output_device_index = -1
         self.input_device_infos = {}
         self.output_device_infos = {}
         self.sub_on = True
         self.transmit_audio = False
+        self.mute_k4_audio = False
+        self.pitch = 600
+        self.sidetone_volume = 30
+        self.tone_event = threading.Event()
+
+        Server.k4_server.subscribe_response('CW;', self.on_pitch_change)
+        Server.k4_server.subscribe_response('ML0;', self.on_sidetone_volume_change)
 
         a_volume = Server.settings.get('Audio', 'main_volume')
         if a_volume == None:
@@ -4416,12 +4459,19 @@ class Audio():
     def start_output_thread(self, queue):
         if self.output_device_index < 0:
             return
+
+        self.output_device_thread = threading.Thread(target=self.output_device_loop, name='audio_output_device_thread')
+        self.output_device_thread.start()
+
+        self.output_tone_thread = threading.Thread(target=self.output_tone_loop, name='audio_output_tone_thread')
+        self.output_tone_thread.start()
+
         self.output_queue = queue
         self.output_thread = threading.Thread(target=self.output_loop, name='audio_output_thread')
         self.output_thread.start()
 
     def output_loop(self):
-        output_stream = None
+        self.output_stream = None
         current_index = None
         warned = False
 
@@ -4434,6 +4484,9 @@ class Audio():
             packet = self.output_queue.get()
             if len(packet) == 0:
                 return
+
+            if self.mute_k4_audio:
+                continue
 
             if current_index != self.output_device_index:
                 current_index = self.output_device_index
@@ -4451,19 +4504,19 @@ class Audio():
 
                 pa = self.pyaudio()
 
-                if output_stream != None:
-                    output_stream.close()
-                    output_stream = None
+                if self.output_stream != None:
+                    self.output_stream.close()
+                    self.output_stream = None
 
                 resample_ratio = int(Audio.output_device_sample_rate() / Audio.k4_sample_rate)
 
                 retries = 2
                 for retry in range(retries+1):
                     try:
-                        output_stream = pa.open(format=pyaudio.paFloat32,
+                        self.output_stream = pa.open(format=pyaudio.paFloat32,
                                                 channels=Audio.output_channels,
                                                 rate=Audio.output_device_sample_rate(),
-                                                frames_per_buffer=frame_size,
+                                                frames_per_buffer=2,
                                                 output=True,
                                                 output_device_index=self.output_device_index,
                                                 )
@@ -4475,6 +4528,8 @@ class Audio():
                                 Popup.warning('Failed to open: ' + self.output_device_name())
                                 warned = True
                         continue
+
+                self.generate_tone_samples()
 
             pcm = opus.decode_float(bytes(packet[4:]), frame_size)
 
@@ -4524,7 +4579,23 @@ class Audio():
             stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
             stereo[1::2] = right
-            output_stream.write(stereo.tobytes())
+            mS_len = len(stereo)//40
+            for i in range(0, len(stereo), mS_len):
+                if not self.mute_k4_audio:
+                    mS_samples = stereo[i:i+mS_len]
+                    self.output_device_queue.put(mS_samples.tobytes())
+
+    def output_tone_loop(self):
+        while self.enable_tone_loop:
+            self.tone_event.wait()
+            self.output_device_queue.put(self.tone_samples)
+
+    def output_device_loop(self):
+        while True:
+            samples = self.output_device_queue.get()
+            if len(samples) == 0:
+                return
+            self.output_stream.write(samples)
 
     def on_transmit_changed(self, server, response):
         transmit = server.k4_parameters.get('TR') == 'T'
@@ -4648,6 +4719,27 @@ class Audio():
                 return
 
             server.send_audio_packet(audio_packet, self.input_encode_mode, frame_size)
+
+    def on_pitch_change(self, response):
+        self.pitch = int(response[2:].rstrip(';')) * 10
+        self.generate_tone_samples()
+
+    def on_sidetone_volume_change(self, response):
+        self.sidetone_volume = int(response[3:].rstrip(';'))
+        self.generate_tone_samples()
+
+    def generate_tone_samples(self):
+        sample_rate = Audio.output_device_sample_rate()
+        samples_per_cycle = int(round(sample_rate / self.pitch))
+        volume = self.sidetone_volume / 60
+        samples = []
+        for _ in range(2):
+            for i in range(samples_per_cycle):
+                sample = math.sin(2 * math.pi * i/samples_per_cycle)
+                samples.append(sample)
+        samples = numpy.array(samples, dtype=numpy.float32) * volume / 5
+        samples = samples.repeat(2)     # stereo
+        self.tone_samples = samples.tobytes()
 
 class Settings():
     max_servers = 25
@@ -7290,6 +7382,7 @@ class MidiInput():
                     up_duration = 0
                 Server.k4_server.send_str(f'KZD{up_duration:04d};')
                 self.left_was_down = True
+                Audio.start_tone()
             elif event == 0x80:                 # key up
                 if self.left_was_down:
                     down_duration = self.left_delta
@@ -7297,6 +7390,7 @@ class MidiInput():
                         down_duration = 0
                     Server.k4_server.send_str(f'KZU{down_duration:04d};')
                     self.left_was_down = False
+                    Audio.stop_tone()
             else:
                 dprint1("unexpected event 0x%2x" % event)
             self.left_delta = 0
