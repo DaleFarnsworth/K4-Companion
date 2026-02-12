@@ -4117,14 +4117,18 @@ class Audio():
             return
 
         self = cls.singleton
+
+        Server.k4_server.unsubscribe_response('CW;', self.on_pitch_change)
+        Server.k4_server.unsubscribe_response('ML0;', self.on_sidetone_volume_change)
+
         self.transmit_audio = False
         if self.input_thread != None:
             self.input_thread.join()
 
-        if self.output_tone_thread != None:
-            self.enable_tone_loop = False
-            self.tone_event.set()
-            self.output_tone_thread.join()
+        if self.sidetone_thread != None:
+            self.enable_sidetone_loop = False
+            self.sidetone_event.set()
+            self.sidetone_thread.join()
 
         if self.output_thread != None:
             self.output_queue.put([])
@@ -4282,7 +4286,7 @@ class Audio():
         Audio.reset_output_packet_counter()
 
     @classmethod
-    def start_tone(cls):
+    def start_sidetone(cls):
         if cls.singleton == None:
             return
 
@@ -4293,18 +4297,18 @@ class Audio():
                 pass
         except queue.Empty:
             pass
-        self.tone_event.set()
+        self.sidetone_event.set()
 
     @classmethod
-    def stop_tone(cls):
+    def stop_sidetone(cls):
         if cls.singleton == None:
             return
 
         self = cls.singleton
         self.mute_k4_audio = False
-        self.tone_event.clear()
+        self.sidetone_event.clear()
 
-    def pyaudio(self):
+    def pyaudio(cls):
         fd = os.dup(2)
         os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
         pa = pyaudio.PyAudio()
@@ -4312,7 +4316,7 @@ class Audio():
         os.close(fd)
         return pa
 
-    def pa_get_host_api_info_by_index(self, pa, index):
+    def pa_get_host_api_info_by_index(cls, pa, index):
         fd = os.dup(2)
         os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
         info = pa.get_host_api_info_by_index(index)
@@ -4320,7 +4324,7 @@ class Audio():
         os.close(fd)
         return info
 
-    def pa_is_format_supported(self, pa, sample_rate, **kwargs):
+    def pa_is_format_supported(cls, pa, sample_rate, **kwargs):
         supported = False
         fd = os.dup(2)
         os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
@@ -4336,8 +4340,6 @@ class Audio():
         self.input_thread = None
         self.output_thread = None
         self.output_device_thread = None
-        self.output_tone_thread = None
-        self.enable_tone_loop = True
         self.output_device_queue = queue.Queue(2)
         self.input_device_index = -1
         self.output_device_index = -1
@@ -4348,7 +4350,9 @@ class Audio():
         self.mute_k4_audio = False
         self.pitch = 600
         self.sidetone_volume = 30
-        self.tone_event = threading.Event()
+        self.sidetone_thread = None
+        self.enable_sidetone_loop = True
+        self.sidetone_event = threading.Event()
 
         Server.k4_server.subscribe_response('CW;', self.on_pitch_change)
         Server.k4_server.subscribe_response('ML0;', self.on_sidetone_volume_change)
@@ -4463,8 +4467,8 @@ class Audio():
         self.output_device_thread = threading.Thread(target=self.output_device_loop, name='audio_output_device_thread')
         self.output_device_thread.start()
 
-        self.output_tone_thread = threading.Thread(target=self.output_tone_loop, name='audio_output_tone_thread')
-        self.output_tone_thread.start()
+        self.sidetone_thread = threading.Thread(target=self.sidetone_loop, name='audio_sidetone_thread')
+        self.sidetone_thread.start()
 
         self.output_queue = queue
         self.output_thread = threading.Thread(target=self.output_loop, name='audio_output_thread')
@@ -4529,7 +4533,7 @@ class Audio():
                                 warned = True
                         continue
 
-                self.generate_tone_samples()
+                self.generate_sidetone_samples()
 
             pcm = opus.decode_float(bytes(packet[4:]), frame_size)
 
@@ -4585,10 +4589,10 @@ class Audio():
                     mS_samples = stereo[i:i+mS_len]
                     self.output_device_queue.put(mS_samples.tobytes())
 
-    def output_tone_loop(self):
-        while self.enable_tone_loop:
-            self.tone_event.wait()
-            self.output_device_queue.put(self.tone_samples)
+    def sidetone_loop(self):
+        while self.enable_sidetone_loop:
+            self.sidetone_event.wait()
+            self.output_device_queue.put(self.sidetone_samples)
 
     def output_device_loop(self):
         while True:
@@ -4722,13 +4726,13 @@ class Audio():
 
     def on_pitch_change(self, response):
         self.pitch = int(response[2:].rstrip(';')) * 10
-        self.generate_tone_samples()
+        self.generate_sidetone_samples()
 
     def on_sidetone_volume_change(self, response):
         self.sidetone_volume = int(response[3:].rstrip(';'))
-        self.generate_tone_samples()
+        self.generate_sidetone_samples()
 
-    def generate_tone_samples(self):
+    def generate_sidetone_samples(self):
         sample_rate = Audio.output_device_sample_rate()
         samples_per_cycle = int(round(sample_rate / self.pitch))
         volume = self.sidetone_volume / 60
@@ -4739,7 +4743,7 @@ class Audio():
                 samples.append(sample)
         samples = numpy.array(samples, dtype=numpy.float32) * volume / 5
         samples = samples.repeat(2)     # stereo
-        self.tone_samples = samples.tobytes()
+        self.sidetone_samples = samples.tobytes()
 
 class Settings():
     max_servers = 25
@@ -6120,6 +6124,7 @@ class CW(TextButtons):
 
         self.set_geometry()
         MidiInput.open()
+        Keyer.open()
 
     def focus_in(self, event=None):
         self.top_level.bind('<Key>', self.on_key_pressed)
@@ -6605,6 +6610,7 @@ and everything after the & is sent.'''
             return
 
         MidiInput.close()
+        Keyer.close()
 
         self.save_geometry()
 
@@ -7299,8 +7305,7 @@ class MidiInput():
         self.warned = False
         Poll.add(self.poll_interval, self.poll_new_device)
 
-        self.left_delta = 0
-        self.right_delta = 0
+        self.delta = 0
         self.left_was_down = False
         self.right_was_down = False
         self.special_next_velocity = False
@@ -7334,11 +7339,16 @@ class MidiInput():
             self.midiin.open_port(port_index)
             cls.previous_port_serial_number = cls.port_serial_number
 
-            self.left_delta = 0
-            self.right_delta = 0
+            self.delta = 0
             self.left_was_down = False
             self.right_was_down = False
             self.special_next_velocity = False
+
+            time.sleep(.1)      # wait for queued messages to be available
+            while True:         # clear queued messages
+                message = self.midiin.get_message()
+                if message == None:
+                    break
 
             self.midiin.set_callback(self.midi_callback)
 
@@ -7346,66 +7356,238 @@ class MidiInput():
         message, deltatime = event
         event, note, velocity = message
 
-#        dprint(f'{message=}')
-
         if note != 20 and note != 21:           # Only left & right paddles
             return
 
         event = event & 0xf0                    # ignore channel
-        deltatime = int(round(deltatime * 1000))# to milliseconds
 
         if event == 0xb0:                       # control change
             if velocity == 0:
                 self.special_next_velocity = True
             else:
-                self.left_delta += velocity << 7
-                self.right_delta += velocity << 7
+                self.delta = (velocity << 7) / 1000
             return
 
         if velocity == 0 or velocity == 127:    # Not MoMidi, use Midi delta time
-            self.left_delta += deltatime
-            self.right_delta += deltatime
+            self.delta = deltatime
         else:
             if self.special_next_velocity:
                 if velocity == 126:
                     velocity = 127
                 elif velocity == 1:
                     velocity = 128
-            self.left_delta += velocity
-            self.right_delta += velocity
+            self.delta += velocity / 1000
         self.special_next_velocity = False
 
         if note == 20:                          # left paddle/straight key
             if event == 0x90:                   # key down
-                up_duration = self.left_delta
-                if up_duration > 2500:
-                    up_duration = 0
-                Server.k4_server.send_str(f'KZD{up_duration:04d};')
                 self.left_was_down = True
-                Audio.start_tone()
+                Keyer.send_paddle_event(Keyer.LEFT_DOWN_EVENT, self.delta)
             elif event == 0x80:                 # key up
                 if self.left_was_down:
-                    down_duration = self.left_delta
-                    if down_duration > 2500:
-                        down_duration = 0
-                    Server.k4_server.send_str(f'KZU{down_duration:04d};')
                     self.left_was_down = False
-                    Audio.stop_tone()
+                    Keyer.send_paddle_event(Keyer.LEFT_UP_EVENT, self.delta)
             else:
                 dprint1("unexpected event 0x%2x" % event)
-            self.left_delta = 0
 
         elif note == 21:                        # right paddle
             if event == 0x90:                   # key down
-                up_duration = self.right_delta
                 self.right_was_down = True
+                Keyer.send_paddle_event(Keyer.RIGHT_DOWN_EVENT, self.delta)
             elif event == 0x80:                 # key up
                 if self.right_was_down:
-                    down_duration = self.right_delta
                     self.right_was_down = False
+                    Keyer.send_paddle_event(Keyer.RIGHT_UP_EVENT, self.delta)
             else:
                 dprint1("unexpected event 0x%2x" % event)
-            self.right_delta = 0
+        self.delta = 0
+
+class Keyer():
+    LEFT_DOWN_EVENT = 'left_down'
+    LEFT_UP_EVENT = 'left_up'
+    RIGHT_DOWN_EVENT = 'right_down'
+    RIGHT_UP_EVENT = 'right_up'
+    CLOSE_EVENT = 'close'
+
+    MODE_STRAIGHT = 'straight'
+    MODE_IAMBIC_BASIC = 'iambic_basic'
+    MODE_IAMBIC_A = 'iambic_a'
+    MODE_IAMBIC_B = 'iambic_b'
+    MODE_ULTIMATIC = 'ultimatic'
+
+    singleton = None
+
+    paddle_event = 0
+    paddle_timestamp = 0
+    paddle_threading_event = threading.Event()
+
+    left_down_timestamp = 0
+    left_up_timestamp = 0
+    right_down_timestamp = 0
+    right_up_timestamp = 0
+    keying_mode = MODE_IAMBIC_A
+    iambic_memory_delay = .1
+
+    @classmethod
+    def open(cls):
+        cls.singleton = Keyer()
+
+    @classmethod
+    def close(cls):
+        singleton = cls.singleton
+        Server.k4_server.unsubscribe_response('KS;', singleton.on_keyer_speed_change)
+
+        if singleton.keyer_thread != None:
+            cls.send_paddle_event(cls.CLOSE_EVENT, 0)
+            singleton.keyer_thread.join()
+
+    @classmethod
+    def set_keying_mode(cls, mode):
+        cls.keying_mode = mode
+
+    @classmethod
+    def set_iambic_memory_delay(cls, delay):
+        cls.iambic_memory_delay = delay
+
+    @classmethod
+    def send_paddle_event(cls, event, delta_time):
+        cls.paddle_event = event
+        if cls.keying_mode == cls.MODE_STRAIGHT:
+            cls.paddle_timestamp += delta_time
+        else:
+            timestamp = time.perf_counter()
+            if event == cls.LEFT_DOWN_EVENT:
+                cls.left_down_timestamp = timestamp
+            elif event == cls.LEFT_UP_EVENT:
+                cls.left_up_timestamp = timestamp
+            elif event == cls.RIGHT_DOWN_EVENT:
+                cls.right_down_timestamp = timestamp
+            elif event == cls.RIGHT_UP_EVENT:
+                cls.right_up_timestamp = timestamp
+        cls.paddle_threading_event.set()
+
+    @classmethod
+    def wait_for_event(cls):
+        cls.paddle_threading_event.clear()
+        cls.paddle_threading_event.wait()
+        return cls.paddle_event, cls.paddle_timestamp
+
+    def __init__(self):
+        # for straight_key handling
+        self.previous_key_down_timestamp = 0
+        self.previous_key_up_timestamp = 0
+
+        # for keyer handling
+
+        self.previous_elt_timestamp = None
+        self.previous_elt_was_dah = None
+        Server.k4_server.subscribe_response('KS;', self.on_keyer_speed_change)
+        self.keyer_thread = threading.Thread(target=self.keyer_loop, name='keyer_thread')
+        self.keyer_thread.start()
+
+    def keyer_loop(self):
+        while True:
+            event, timestamp = self.__class__.wait_for_event()
+            if event == self.CLOSE_EVENT:
+                return
+            if self.keying_mode == self.MODE_STRAIGHT:
+                self.straight_key_event(event, timestamp)
+            elif self.keying_mode == self.MODE_ULTIMATIC:
+                self.ultimatic_loop()
+            else:
+                self.iambic_loop()
+
+    def straight_key_event(self, event, timestamp):
+        if event == self.LEFT_DOWN_EVENT:
+            self.previous_key_down_timestamp = timestamp
+            up_duration = timestamp - self.previous_key_up_timestamp
+            milliseconds = round(up_duration * 1000)
+            if milliseconds > 2500:
+                milliseconds = 0
+            Server.k4_server.send_str(f'KZD{milliseconds:04d};')
+            Audio.start_sidetone()
+        elif event == self.LEFT_UP_EVENT:
+            self.previous_key_up_timestamp = timestamp
+            down_duration = timestamp - self.previous_key_down_timestamp
+            milliseconds = round(down_duration * 1000)
+            if milliseconds > 2500:
+                milliseconds = 0
+            Server.k4_server.send_str(f'KZU{milliseconds:04d};')
+            Audio.stop_sidetone()
+
+    def iambic_loop(self):
+        while True:
+            dit_mem = False
+            dah_mem = False
+            if (self.previous_elt_timestamp != None):
+                dit_mem = (self.previous_elt_was_dah and
+                           (self.left_up_timestamp - self.previous_elt_timestamp) >
+                           (self.dit_seconds * self.iambic_memory_delay))
+                dah_mem = (not self.previous_elt_was_dah and
+                           (self.right_up_timestamp - self.previous_elt_timestamp) >
+                           (self.dit_seconds * self.iambic_memory_delay))
+            if self.keying_mode == self.MODE_IAMBIC_A:
+                dah_mem = None
+            if self.keying_mode == self.MODE_IAMBIC_BASIC:
+                dit_mem = None
+                dah_mem = None
+            self.previous_elt_timestamp = time.perf_counter()
+
+            dit_now = self.left_down_timestamp > self.left_up_timestamp
+            dah_now =  self.right_down_timestamp > self.right_up_timestamp
+            dit = dit_now or dit_mem
+            dah = dah_now or dah_mem
+            if dit and dah:
+                send_dah = not self.previous_elt_was_dah
+            elif dit:
+                send_dah = False
+            elif dah:
+                send_dah = True
+            else:
+                self.previous_elt_timestamp = None
+                return
+
+            self.send_element(dah=send_dah)
+            self.previous_elt_was_dah = send_dah
+            self.end_element_timestamp = time.perf_counter()
+
+    def ultimatic_loop(self):
+        while True:
+            dit = self.left_down_timestamp > self.left_up_timestamp
+            dah =  self.right_down_timestamp > self.right_up_timestamp
+            if dit and dah:
+                right_down_last = self.right_down_timestamp > self.left_down_timestamp
+                send_dah = right_down_last
+            elif dit:
+                send_dah = False
+            elif dah:
+                send_dah = True
+            else:
+                return
+
+            self.send_element(dah=send_dah)
+            self.end_element_timestamp = time.perf_counter()
+
+    def send_element(self, dah):
+        elt = '.'
+        if dah:
+            elt = '-'
+        Server.k4_server.send_str(f'KZ{elt};')
+
+        elt_seconds = self.dah_seconds if dah else self.dit_seconds
+        Audio.start_sidetone()
+        time.sleep(elt_seconds)
+        Audio.stop_sidetone()
+        time.sleep(self.inter_element_seconds)
+
+    def on_keyer_speed_change(self, response=None):
+        # The length of a dit in seconds is 1.2 / wpm,
+        wpm = int(response[2:].strip(';'))
+        self.dit_seconds = 1.2/wpm
+        self.dah_seconds = self.dit_seconds * 3
+        self.inter_element_seconds = self.dit_seconds
+        self.inter_character_seconds = self.inter_element_seconds * 3
+        self.inter_word_seconds = self.inter_element_seconds * 7
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure
@@ -7875,7 +8057,7 @@ class Timer():
         self.timers[name] = self
 
     def add(self):
-        self.times[self.index] = time.time_ns()
+        self.times[self.index] = time.perf_counter()
 
         self.index += 1
         if self.index >= self.entries:
