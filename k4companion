@@ -7425,7 +7425,7 @@ class Keyer():
     left_up_timestamp = 0
     right_down_timestamp = 0
     right_up_timestamp = 0
-    keying_mode = MODE_IAMBIC_A
+    keying_mode = MODE_IAMBIC_B
     iambic_memory_delay = .1
 
     @classmethod
@@ -7528,8 +7528,11 @@ class Keyer():
                 dah_mem = False
             else:
                 dit_mem = (self.previous_elt_was_dah and
-                           (self.left_up_timestamp - self.previous_elt_timestamp) >
-                           (self.dit_seconds * self.iambic_memory_delay))
+                           ((self.left_down_timestamp - self.previous_elt_timestamp) >
+                           (self.dit_seconds * self.iambic_memory_delay)) or
+                           ((self.left_up_timestamp - self.previous_elt_timestamp) >
+                           (self.dit_seconds * self.iambic_memory_delay +
+                            self.dah_seconds/3)))
                 dah_mem = (not self.previous_elt_was_dah and
                            (self.right_up_timestamp - self.previous_elt_timestamp) >
                            (self.dit_seconds * self.iambic_memory_delay))
