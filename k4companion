@@ -7517,20 +7517,22 @@ class Keyer():
 
     def iambic_loop(self):
         while True:
-            dit_mem = False
-            dah_mem = False
-            if (self.previous_elt_timestamp != None):
+            if (self.previous_elt_timestamp == None or
+                self.keying_mode == self.MODE_IAMBIC_BASIC):
+                dit_mem = False
+                dah_mem = False
+            elif self.keying_mode == self.MODE_IAMBIC_A:
+                dit_mem = (self.previous_elt_was_dah and
+                           (self.left_down_timestamp - self.previous_elt_timestamp) >
+                           (self.dit_seconds * self.iambic_memory_delay))
+                dah_mem = False
+            else:
                 dit_mem = (self.previous_elt_was_dah and
                            (self.left_up_timestamp - self.previous_elt_timestamp) >
                            (self.dit_seconds * self.iambic_memory_delay))
                 dah_mem = (not self.previous_elt_was_dah and
                            (self.right_up_timestamp - self.previous_elt_timestamp) >
                            (self.dit_seconds * self.iambic_memory_delay))
-            if self.keying_mode == self.MODE_IAMBIC_A:
-                dah_mem = None
-            if self.keying_mode == self.MODE_IAMBIC_BASIC:
-                dit_mem = None
-                dah_mem = None
             self.previous_elt_timestamp = time.perf_counter()
 
             dit_now = self.left_down_timestamp > self.left_up_timestamp
