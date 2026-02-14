@@ -135,8 +135,7 @@
 
 #define app-settings-tab-group
 - item: group
-  tabname: Audio
-  label: ''
+  tabname: Devices
   contains: #{
     #include app-settings
   #}

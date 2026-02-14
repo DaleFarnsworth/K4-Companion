@@ -4282,7 +4282,7 @@ class Audio():
 
     @classmethod
     def set_receive_latency(cls, latency):
-        Audio.output_packet_qlen = latency / 40
+        Audio.output_packet_qlen = latency / 40 # 40 mS per audio packet
         Audio.reset_output_packet_counter()
 
     @classmethod
@@ -4533,7 +4533,7 @@ class Audio():
                                 warned = True
                         continue
 
-                self.generate_sidetone_samples()
+                current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
 
             pcm = opus.decode_float(bytes(packet[4:]), frame_size)
 
@@ -5286,8 +5286,14 @@ class AppSettings_widget(Widget):
         self.selectbg = config_info.get('selectbg', self.bg)
         self.selectfg = config_info.get('selectfg', self.fg)
 
-        self._frame = self.audio_settings()
-        self._frame.grid(row=0, column=0, sticky='w', pady=8)
+        self.device_type_straight_key = False
+
+        frame = self.audio_settings()
+        frame.grid(row=0, column=0, sticky='nw', pady=4)
+
+        frame = self.keyer_settings()
+        frame.grid(row=1, column=0, sticky='nw', pady=4)
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def input_device_name(self, name=None):
         if name != None:
@@ -5310,13 +5316,15 @@ class AppSettings_widget(Widget):
                               relief='raised')
 
         audio_input_frame = self.audio_input_settings(frame)
-        audio_input_frame.grid(row=0, column=0, sticky='w', pady=2)
+        audio_input_frame.grid(row=0, column=0, sticky='nw', pady=2)
         audio_output_frame = self.audio_output_settings(frame)
         audio_output_frame.grid(row=1, column=0, sticky='w', pady=2)
         audio_k4_control_frame = self.audio_k4_control_setting(frame)
         audio_k4_control_frame.grid(row=2, column=0, sticky='w', pady=2)
         audio_receive_latency_frame = self.audio_receive_latency_setting(frame)
         audio_receive_latency_frame.grid(row=3, column=0, sticky='w', pady=2)
+        audio_remote_audio_latency_frame = self.audio_remote_audio_latency_setting(frame)
+        audio_remote_audio_latency_frame.grid(row=4, column=0, sticky='w', pady=2)
 
         return frame
 
@@ -5512,7 +5520,7 @@ class AppSettings_widget(Widget):
                 height=len(values),
                 width=width,
                 state='readonly',
-                justify='left',
+                justify='right',
                 style=stylename,
                 )
         receive_latency_combobox.grid(row=0, column=0, sticky='w')
@@ -5528,6 +5536,241 @@ class AppSettings_widget(Widget):
 
         Server.settings.put_save('Audio', 'receive_latency', current_value)
         Audio.set_receive_latency(int(current_value))
+
+    def audio_remote_audio_latency_setting(self, frame):
+        current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=1000)
+
+        remote_audio_latency_frame = tk.LabelFrame(frame,
+                                     text='Remote Audio Latency',
+                                     font=self.label_font(),
+                                     labelanchor='nw',
+                                     bd=2,
+                                     padx=2,
+                                     pady=2,
+                                     relief='raised')
+
+        # Define the style for this combobox widget
+        stylename = str(self) + 'output.TCombobox'
+        style = ttk.Style()
+        style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg, padding=(2,2,2,2))
+
+        values = (0, 1, 2, 3, 4, 5, 6, 7)
+        width = 2
+
+        self.remote_audio_latency_val = tk.StringVar()
+        self.remote_audio_latency_val.set(current_value)
+
+        remote_audio_latency_combobox = ttk.Combobox(
+                remote_audio_latency_frame,
+                textvar=self.remote_audio_latency_val,
+                font=self.font(),
+                values=values,
+                height=len(values),
+                width=width,
+                state='readonly',
+                justify='right',
+                style=stylename,
+                )
+        remote_audio_latency_combobox.grid(row=0, column=0, sticky='w')
+
+        self.remote_audio_latency_val.trace('w', self.on_remote_audio_latency_combobox_changed)
+
+        return remote_audio_latency_frame
+
+    def on_remote_audio_latency_combobox_changed(self, var, index, mode):
+        current_value = self.remote_audio_latency_val.get()
+        if current_value == '':
+            return
+
+        Server.settings.put_save('Audio', 'remote_audio_latency', current_value)
+        if self.server.connected:
+            self.server.send_str(f'SL{current_value};')
+
+    def on_received_initial_parameters(self, response):
+        # I have no idea why this has to be delayed, but it does
+        # 3 seconds seemed enough, make it 6 to be sure
+        Poll.add(6000, self.send_delayed_audio_latency_setting, repeat=False)
+
+    def send_delayed_audio_latency_setting(self):
+        current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
+        self.server.send_str(f'SL{current_value};')
+
+    def keyer_device_type(self, typ=None):
+        if typ != None:
+            Settings.main().put_save('Keyer', 'device_type', typ)
+        typ = Settings.main().get('Keyer', 'device_type', 'MIDI Paddles')
+        self.device_type_straight_key = 'Straight Key' in typ
+        if self.device_type_straight_key:
+            self.left_paddle_note_frame.configure(text='Straight Key Note')
+            self.right_paddle_note_frame.grid_forget()
+        else:
+            self.left_paddle_note_frame.configure(text='Left Paddle Note')
+            self.right_paddle_note_frame.grid(row=0, column=1, sticky='w', pady=2)
+        Keyer.set_device_type(typ)
+        self.keyer_left_paddle_note()
+        return typ
+
+    def keyer_left_paddle_note(self, note=None):
+        setting_name = 'left_paddle_note'
+        if self.device_type_straight_key:
+            setting_name = 'straight_key_note'
+        if note != None:
+            Settings.main().put_save('Keyer', setting_name, note)
+        note = Settings.main().getint('Keyer', setting_name, 20)
+        self.left_paddle_note_dropdown.value(note)
+        Keyer.set_left_paddle_note(note)
+        return note
+
+    def keyer_right_paddle_note(self, note=None):
+        if note != None:
+            Settings.main().put_save('Keyer', 'right_paddle_note', note)
+        note = Settings.main().getint('Keyer', 'right_paddle_note', 21)
+        self.right_paddle_note_dropdown.value(note)
+        Keyer.set_right_paddle_note(note)
+        return note
+
+    def keyer_settings(self):
+        frame = tk.LabelFrame(self.frame,
+                              text='Keyer Settings',
+                              font=self.label_font(),
+                              labelanchor='nw',
+                              bd=2,
+                              padx=2,
+                              pady=2,
+                              relief='raised')
+
+        note_frame = tk.Frame(frame)
+        note_frame.grid(row=2, column=0, sticky='w', pady=2)
+        keyer_left_paddle_note_frame = self.keyer_left_paddle_note_settings(note_frame)
+        keyer_left_paddle_note_frame.grid(row=0, column=0, sticky='w', pady=2)
+        keyer_right_paddle_note_frame = self.keyer_right_paddle_note_settings(note_frame)
+        keyer_right_paddle_note_frame.grid(row=0, column=1, sticky='w', pady=2)
+
+        keyer_device_type_frame = self.keyer_device_type_settings(frame)
+        keyer_device_type_frame.grid(row=0, column=0, sticky='nw', pady=2)
+        keyer_device_frame = self.keyer_device_settings(frame)
+        keyer_device_frame.grid(row=1, column=0, sticky='w', pady=2)
+
+        return frame
+
+    def keyer_device_type_settings(self, frame):
+        keyer_device_type_frame = tk.LabelFrame(frame,
+                                    text='Keying Device Type',
+                                    font=self.label_font(),
+                                    labelanchor='nw',
+                                    bd=2,
+                                    padx=2,
+                                    pady=2,
+                                    relief='raised')
+        selectbg = self.bg
+        selectfg = self.fg
+        self.keyer_device_type_dropdown = Dropdown_Widget(keyer_device_type_frame, bd=2,
+            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
+            font=self.font(), justify='left', height=0)
+        self.keyer_device_type_dropdown.grid(row=0, column=0)
+
+        self.keyer_device_type_dropdown.select_callback(self.on_select_device_type)
+
+        device_types = ('MIDI Straight Key', 'MIDI Paddles')
+
+        self.keyer_device_type_dropdown.values(device_types)
+        device_type = self.keyer_device_type()
+        self.keyer_device_type_dropdown.value(device_type)
+        return keyer_device_type_frame
+
+    def on_select_device_type(self, event):
+        device_type = self.keyer_device_type_dropdown.value()
+        self.keyer_device_type(device_type)
+
+    def keyer_device_settings(self, frame):
+        self.midi_port_frame = tk.LabelFrame(frame, text='Keying Device',
+            font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+        MidiInput.set_port_updater(self.update_midi_ports)
+        self.update_midi_ports()
+        return self.midi_port_frame
+
+    def update_midi_ports(self):
+        selectbg = self.bg
+        selectfg = self.fg
+        self.midi_port_dropdown = Dropdown_Widget(self.midi_port_frame, bd=2,
+            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
+            font=self.font(), justify='left', height=0)
+        self.midi_port_dropdown.grid(row=0, column=0)
+
+        self.midi_port_dropdown.select_callback(self.on_select_midi_port)
+
+        MidiInput.open()
+        ports = MidiInput.available_ports()
+        selections = [ 'None' ]
+        if ports != None:
+            selections += ports
+
+        self.midi_port_dropdown.values(selections)
+        self.midi_port_dropdown.value(MidiInput.port_name)
+
+    def on_select_midi_port(self, event):
+        port_name = self.midi_port_dropdown.value()
+        MidiInput.set_port_name(port_name)
+
+    def keyer_left_paddle_note_settings(self, frame):
+        text = 'Left Paddle Note'
+        self.left_paddle_note_frame = tk.LabelFrame(frame, text=text,
+            font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+        self.update_left_paddle_note()
+        return self.left_paddle_note_frame
+
+    def update_left_paddle_note(self):
+        selectbg = self.bg
+        selectfg = self.fg
+        self.left_paddle_note_dropdown = Dropdown_Widget(self.left_paddle_note_frame,
+            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
+            selectfg=selectfg, font=self.font(), justify='right', height=0,
+            state='normal')
+        self.left_paddle_note_dropdown.grid(row=0, column=0)
+
+        self.left_paddle_note_dropdown.select_callback(self.on_select_left_paddle_note)
+
+        selections = [ '20', '21', '30', '31', '96', '97', '98', '99' ]
+
+        self.left_paddle_note_dropdown.values(selections)
+        self.keyer_left_paddle_note()
+
+    def on_select_left_paddle_note(self, event):
+        try:
+            note = int(self.left_paddle_note_dropdown.value())
+            self.keyer_left_paddle_note(note)
+        except:
+            self.keyer_left_paddle_note()
+
+    def keyer_right_paddle_note_settings(self, frame):
+        text = 'Right Paddle Note'
+        self.right_paddle_note_frame = tk.LabelFrame(frame, text=text,
+            font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+        self.update_right_paddle_note()
+        return self.right_paddle_note_frame
+
+    def update_right_paddle_note(self):
+        selectbg = self.bg
+        selectfg = self.fg
+        self.right_paddle_note_dropdown = Dropdown_Widget(self.right_paddle_note_frame,
+            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
+            selectfg=selectfg, font=self.font(), justify='right', height=0,
+            state='normal')
+        self.right_paddle_note_dropdown.grid(row=0, column=0)
+
+        self.right_paddle_note_dropdown.select_callback(self.on_select_right_paddle_note)
+
+        selections = [ '20', '21', '30', '31', '96', '97', '98', '99' ]
+
+        self.right_paddle_note_dropdown.values(selections)
+        self.keyer_right_paddle_note()
+
+    def on_select_right_paddle_note(self, event):
+        try:
+            note = int(self.right_paddle_note_dropdown.value())
+            self.keyer_right_paddle_note(note)
+        except:
+            self.keyer_right_paddle_note()
 
 class FWversions(Text):
     def __init__(self, config_info, container):
@@ -5633,7 +5876,7 @@ class Exit_cmds(Startup_cmds):
 class Dropdown_Widget():
     def __init__(self, parent_frame, height=10, bd=2, padx=0, justify='left',
         font=Default.label_font, fg=Default.fg, bg=Default.bg, abg=Default.abg,
-        afg=Default.afg, selectbg=None, selectfg=None):
+        afg=Default.afg, selectbg=None, selectfg=None, state='readonly'):
         if afg == None:
             afg = fg
         if selectbg == None:
@@ -5642,6 +5885,7 @@ class Dropdown_Widget():
             selectfg = fg
 
         self.justify = justify
+        self.state = state
 
         # Define the style for this dropdown widget
         self.stylename = str(self) + '.TCombobox'
@@ -5655,7 +5899,7 @@ class Dropdown_Widget():
                 font=font,
                 width=0,
                 height = height,
-                state='readonly',
+                state=state,
                 justify=justify,
                 style=self.stylename,
                 )
@@ -5677,6 +5921,9 @@ class Dropdown_Widget():
 
     def select_callback(self, callback):
         self.combobox.bind('<<ComboboxSelected>>', callback)
+        if self.state != 'readonly':
+            self.combobox.bind('<Return>', callback)
+            self.combobox.bind('<FocusOut>', callback)
 
     def grid(self, **opts):
         self.combobox.grid(**opts)
@@ -6123,7 +6370,6 @@ class CW(TextButtons):
         self.top_level.bind('<FocusOut>', self.focus_out)
 
         self.set_geometry()
-        MidiInput.open()
         Keyer.open()
 
     def focus_in(self, event=None):
@@ -6359,34 +6605,40 @@ class CW(TextButtons):
         }
         self.key_down_delay = SliderWidget(self, key_down_delay_frame, key_down_delay_options)
 
-        self.select_midi_port_frame = tk.LabelFrame(self.more_frame, text='Midi Key Device',
-            font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
-        self.select_midi_port_frame.grid(row=3, column=0, sticky='nw', padx=2, pady=5)
+        keying_mode_frame = tk.LabelFrame(self.more_frame,
+                                    text='Keying Mode',
+                                    font=self.label_font(),
+                                    labelanchor='nw',
+                                    bd=2,
+                                    padx=2,
+                                    pady=2,
+                                    relief='raised')
+        keying_mode_frame.grid(row=3, column=0, sticky='w', padx=2, pady=2)
 
-        MidiInput.set_port_updater(self.update_midi_ports)
-        self.update_midi_ports()
-
-    def update_midi_ports(self):
         selectbg = self.bg
         selectfg = self.fg
-        self.midi_port_dropdown = Dropdown_Widget(self.select_midi_port_frame, bd=2,
+        self.keying_mode_dropdown = Dropdown_Widget(keying_mode_frame, bd=2,
             bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
             font=self.font(), justify='left', height=0)
-        self.midi_port_dropdown.grid(row=0, column=0)
+        self.keying_mode_dropdown.grid(row=0, column=0)
 
-        self.midi_port_dropdown.select_callback(self.on_select_midi_port)
+        self.keying_mode_dropdown.select_callback(self.on_select_keying_mode)
 
-        selections = [ 'None' ]
-        ports = MidiInput.available_ports()
-        if ports != None:
-            selections += ports
+        keying_modes = (
+                Keyer.MODE_IAMBIC,
+                Keyer.MODE_IAMBIC_A,
+                Keyer.MODE_IAMBIC_B,
+                Keyer.MODE_ULTIMATIC,
+            )
 
-        self.midi_port_dropdown.values(selections)
-        self.midi_port_dropdown.value(MidiInput.port_name)
+        self.keying_mode_dropdown.values(keying_modes)
+        keying_mode = Keyer.get_keying_mode()
+        self.keying_mode_dropdown.value(keying_mode)
+        return keying_mode_frame
 
-    def on_select_midi_port(self, event):
-        port_name = self.midi_port_dropdown.value()
-        MidiInput.set_port_name(port_name)
+    def on_select_keying_mode(self, event):
+        keying_mode = self.keying_mode_dropdown.value()
+        Keyer.set_keying_mode(keying_mode)
 
     def add_config_tab(self):
         self.config_frame = tk.Frame(self.notebook)
@@ -7273,10 +7525,8 @@ class MidiInput():
 
     @classmethod
     def open(cls):
-        if cls.singleton != None:
-            raise Exception('Opening MidiInput when already open.')
-
-        cls.singleton = MidiInput()
+        if cls.singleton == None:
+            cls.singleton = MidiInput()
 
     @classmethod
     def close(cls):
@@ -7298,17 +7548,16 @@ class MidiInput():
     def set_port_updater(cls, port_updater):
         cls.port_updater = port_updater
 
+    @classmethod
+    def set_message_callback(cls, callback):
+        cls.singleton.midiin.set_callback(callback)
+
     def __init__(self):
         self.__class__.midiin = rtmidi.MidiIn()
         port_name = Server.settings.get('CW', 'midi_input_device', 'None')
         self.__class__.set_port_name(port_name)
         self.warned = False
         Poll.add(self.poll_interval, self.poll_new_device)
-
-        self.delta = 0
-        self.left_was_down = False
-        self.right_was_down = False
-        self.special_next_velocity = False
 
     def poll_new_device(self):
         # Do we need to close/reopen if the port_index changes?
@@ -7339,24 +7588,109 @@ class MidiInput():
             self.midiin.open_port(port_index)
             cls.previous_port_serial_number = cls.port_serial_number
 
-            self.delta = 0
-            self.left_was_down = False
-            self.right_was_down = False
-            self.special_next_velocity = False
-
             time.sleep(.1)      # wait for queued messages to be available
             while True:         # clear queued messages
                 message = self.midiin.get_message()
                 if message == None:
                     break
 
-            self.midiin.set_callback(self.midi_callback)
+class Keyer():
+    MODE_IAMBIC = 'Iambic'
+    MODE_IAMBIC_A = 'Iambic A'
+    MODE_IAMBIC_B = 'Iambic B'
+    MODE_ULTIMATIC = 'Ultimatic'
 
-    def midi_callback(self, event, data=None):
+    singleton = None
+
+    device_type = None
+    device_type_straight_key = False
+    type_MIDI = False
+    keying_mode = MODE_IAMBIC_B
+    left_paddle_note = None
+    right_paddle_note = None
+    iambic_memory_delay = .1
+
+    @classmethod
+    def open(cls):
+        cls.singleton = Keyer()
+
+    @classmethod
+    def close(cls):
+        singleton = cls.singleton
+        Server.k4_server.unsubscribe_response('KS;', singleton.on_keyer_speed_change)
+
+        if singleton.keyer_thread != None:
+            singleton.send_paddle_event(singleton.CLOSE_EVENT, 0)
+            singleton.keyer_thread.join()
+
+    @classmethod
+    def get_keying_mode(cls):
+        mode = Settings.main().get('Keyer', 'keying_mode', cls.MODE_IAMBIC_B)
+        cls.keying_mode = mode
+        return mode
+
+    @classmethod
+    def set_keying_mode(cls, mode):
+        cls.keying_mode = mode
+        Settings.main().put_save('Keyer', 'keying_mode', mode)
+
+    @classmethod
+    def set_device_type(cls, typ):
+        cls.device_type_straight_key = 'Straight Key' in typ
+        cls.type_Midi = 'MIDI' in typ
+        cls.device_type = typ
+
+    @classmethod
+    def set_left_paddle_note(cls, note):
+        cls.left_paddle_note = note
+
+    @classmethod
+    def set_right_paddle_note(cls, note):
+        cls.right_paddle_note = note
+
+    @classmethod
+    def set_iambic_memory_delay(cls, delay):
+        cls.iambic_memory_delay = delay
+
+    def __init__(self):
+        # for midi message callback
+        self.LEFT_DOWN_EVENT = 'left_down'
+        self.LEFT_UP_EVENT = 'left_up'
+        self.RIGHT_DOWN_EVENT = 'right_down'
+        self.RIGHT_UP_EVENT = 'right_up'
+        self.CLOSE_EVENT = 'close'
+
+        self.delta = 0
+        self.left_was_down = False
+        self.right_was_down = False
+        self.special_next_velocity = False
+
+        # for straight_key handling
+        self.paddle_event = 0
+        self.paddle_threading_event = threading.Event()
+        self.previous_key_down_timestamp = 0
+        self.previous_key_up_timestamp = 0
+
+        # for keyer handling
+
+        self.paddle_timestamp = 0
+        self.left_down_timestamp = 0
+        self.left_up_timestamp = 0
+        self.right_down_timestamp = 0
+        self.right_up_timestamp = 0
+        self.previous_elt_timestamp = None
+        self.previous_elt_was_dah = None
+
+        Server.k4_server.subscribe_response('KS;', self.on_keyer_speed_change)
+        self.keyer_thread = threading.Thread(target=self.keyer_loop, name='keyer_thread')
+        self.keyer_thread.start()
+        MidiInput.set_message_callback(self.midi_message_callback)
+
+    def midi_message_callback(self, event, data=None):
         message, deltatime = event
         event, note, velocity = message
 
-        if note != 20 and note != 21:           # Only left & right paddles
+        if note != self.left_paddle_note and note != self.right_paddle_note:
             return
 
         event = event & 0xf0                    # ignore channel
@@ -7379,118 +7713,56 @@ class MidiInput():
             self.delta += velocity / 1000
         self.special_next_velocity = False
 
-        if note == 20:                          # left paddle/straight key
+        if note == self.left_paddle_note:
             if event == 0x90:                   # key down
                 self.left_was_down = True
-                Keyer.send_paddle_event(Keyer.LEFT_DOWN_EVENT, self.delta)
+                self.send_paddle_event(self.LEFT_DOWN_EVENT, self.delta)
             elif event == 0x80:                 # key up
                 if self.left_was_down:
                     self.left_was_down = False
-                    Keyer.send_paddle_event(Keyer.LEFT_UP_EVENT, self.delta)
+                    self.send_paddle_event(self.LEFT_UP_EVENT, self.delta)
             else:
                 dprint1("unexpected event 0x%2x" % event)
 
-        elif note == 21:                        # right paddle
+        elif note == self.right_paddle_note:
             if event == 0x90:                   # key down
                 self.right_was_down = True
-                Keyer.send_paddle_event(Keyer.RIGHT_DOWN_EVENT, self.delta)
+                self.send_paddle_event(self.RIGHT_DOWN_EVENT, self.delta)
             elif event == 0x80:                 # key up
                 if self.right_was_down:
                     self.right_was_down = False
-                    Keyer.send_paddle_event(Keyer.RIGHT_UP_EVENT, self.delta)
+                    self.send_paddle_event(self.RIGHT_UP_EVENT, self.delta)
             else:
                 dprint1("unexpected event 0x%2x" % event)
         self.delta = 0
 
-class Keyer():
-    LEFT_DOWN_EVENT = 'left_down'
-    LEFT_UP_EVENT = 'left_up'
-    RIGHT_DOWN_EVENT = 'right_down'
-    RIGHT_UP_EVENT = 'right_up'
-    CLOSE_EVENT = 'close'
-
-    MODE_STRAIGHT = 'straight'
-    MODE_IAMBIC_BASIC = 'iambic_basic'
-    MODE_IAMBIC_A = 'iambic_a'
-    MODE_IAMBIC_B = 'iambic_b'
-    MODE_ULTIMATIC = 'ultimatic'
-
-    singleton = None
-
-    paddle_event = 0
-    paddle_timestamp = 0
-    paddle_threading_event = threading.Event()
-
-    left_down_timestamp = 0
-    left_up_timestamp = 0
-    right_down_timestamp = 0
-    right_up_timestamp = 0
-    keying_mode = MODE_IAMBIC_B
-    iambic_memory_delay = .1
-
-    @classmethod
-    def open(cls):
-        cls.singleton = Keyer()
-
-    @classmethod
-    def close(cls):
-        singleton = cls.singleton
-        Server.k4_server.unsubscribe_response('KS;', singleton.on_keyer_speed_change)
-
-        if singleton.keyer_thread != None:
-            cls.send_paddle_event(cls.CLOSE_EVENT, 0)
-            singleton.keyer_thread.join()
-
-    @classmethod
-    def set_keying_mode(cls, mode):
-        cls.keying_mode = mode
-
-    @classmethod
-    def set_iambic_memory_delay(cls, delay):
-        cls.iambic_memory_delay = delay
-
-    @classmethod
-    def send_paddle_event(cls, event, delta_time):
-        cls.paddle_event = event
-        if cls.keying_mode == cls.MODE_STRAIGHT:
-            cls.paddle_timestamp += delta_time
+    def send_paddle_event(self, event, delta_time):
+        self.paddle_event = event
+        if self.device_type_straight_key:
+            self.paddle_timestamp += delta_time
         else:
             timestamp = time.perf_counter()
-            if event == cls.LEFT_DOWN_EVENT:
-                cls.left_down_timestamp = timestamp
-            elif event == cls.LEFT_UP_EVENT:
-                cls.left_up_timestamp = timestamp
-            elif event == cls.RIGHT_DOWN_EVENT:
-                cls.right_down_timestamp = timestamp
-            elif event == cls.RIGHT_UP_EVENT:
-                cls.right_up_timestamp = timestamp
-        cls.paddle_threading_event.set()
+            if event == self.LEFT_DOWN_EVENT:
+                self.left_down_timestamp = timestamp
+            elif event == self.LEFT_UP_EVENT:
+                self.left_up_timestamp = timestamp
+            elif event == self.RIGHT_DOWN_EVENT:
+                self.right_down_timestamp = timestamp
+            elif event == self.RIGHT_UP_EVENT:
+                self.right_up_timestamp = timestamp
+        self.paddle_threading_event.set()
 
-    @classmethod
-    def wait_for_event(cls):
-        cls.paddle_threading_event.clear()
-        cls.paddle_threading_event.wait()
-        return cls.paddle_event, cls.paddle_timestamp
-
-    def __init__(self):
-        # for straight_key handling
-        self.previous_key_down_timestamp = 0
-        self.previous_key_up_timestamp = 0
-
-        # for keyer handling
-
-        self.previous_elt_timestamp = None
-        self.previous_elt_was_dah = None
-        Server.k4_server.subscribe_response('KS;', self.on_keyer_speed_change)
-        self.keyer_thread = threading.Thread(target=self.keyer_loop, name='keyer_thread')
-        self.keyer_thread.start()
+    def wait_for_event(self):
+        self.paddle_threading_event.clear()
+        self.paddle_threading_event.wait()
+        return self.paddle_event, self.paddle_timestamp
 
     def keyer_loop(self):
         while True:
-            event, timestamp = self.__class__.wait_for_event()
+            event, timestamp = self.wait_for_event()
             if event == self.CLOSE_EVENT:
                 return
-            if self.keying_mode == self.MODE_STRAIGHT:
+            if self.device_type_straight_key:
                 self.straight_key_event(event, timestamp)
             elif self.keying_mode == self.MODE_ULTIMATIC:
                 self.ultimatic_loop()
@@ -7518,7 +7790,7 @@ class Keyer():
     def iambic_loop(self):
         while True:
             if (self.previous_elt_timestamp == None or
-                self.keying_mode == self.MODE_IAMBIC_BASIC):
+                self.keying_mode == self.MODE_IAMBIC):
                 dit_mem = False
                 dah_mem = False
             elif self.keying_mode == self.MODE_IAMBIC_A:
@@ -8378,8 +8650,7 @@ config_data = '''
 
 #define app-settings-tab-group
 - item: group
-  tabname: Audio
-  label: ''
+  tabname: Devices
   contains: #{
     #include app-settings
   #}
