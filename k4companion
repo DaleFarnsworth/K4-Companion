@@ -5601,32 +5601,32 @@ class AppSettings_widget(Widget):
         typ = Settings.main().get('Keyer', 'device_type', 'MIDI Paddles')
         self.device_type_straight_key = 'Straight Key' in typ
         if self.device_type_straight_key:
-            self.left_paddle_note_frame.configure(text='Straight Key Note')
-            self.right_paddle_note_frame.grid_forget()
+            self.dit_paddle_note_frame.configure(text='Straight Key Note')
+            self.dah_paddle_note_frame.grid_forget()
         else:
-            self.left_paddle_note_frame.configure(text='Left Paddle Note')
-            self.right_paddle_note_frame.grid(row=0, column=1, sticky='w', pady=2)
+            self.dit_paddle_note_frame.configure(text='Dit Paddle Note')
+            self.dah_paddle_note_frame.grid(row=0, column=1, sticky='w', pady=2)
         Keyer.set_device_type(typ)
-        self.keyer_left_paddle_note()
+        self.keyer_dit_paddle_note()
         return typ
 
-    def keyer_left_paddle_note(self, note=None):
-        setting_name = 'left_paddle_note'
+    def keyer_dit_paddle_note(self, note=None):
+        setting_name = 'dit_paddle_note'
         if self.device_type_straight_key:
             setting_name = 'straight_key_note'
         if note != None:
             Settings.main().put_save('Keyer', setting_name, note)
         note = Settings.main().getint('Keyer', setting_name, 20)
-        self.left_paddle_note_dropdown.value(note)
-        Keyer.set_left_paddle_note(note)
+        self.dit_paddle_note_dropdown.value(note)
+        Keyer.set_dit_paddle_note(note)
         return note
 
-    def keyer_right_paddle_note(self, note=None):
+    def keyer_dah_paddle_note(self, note=None):
         if note != None:
-            Settings.main().put_save('Keyer', 'right_paddle_note', note)
-        note = Settings.main().getint('Keyer', 'right_paddle_note', 21)
-        self.right_paddle_note_dropdown.value(note)
-        Keyer.set_right_paddle_note(note)
+            Settings.main().put_save('Keyer', 'dah_paddle_note', note)
+        note = Settings.main().getint('Keyer', 'dah_paddle_note', 21)
+        self.dah_paddle_note_dropdown.value(note)
+        Keyer.set_dah_paddle_note(note)
         return note
 
     def keyer_settings(self):
@@ -5641,10 +5641,10 @@ class AppSettings_widget(Widget):
 
         note_frame = tk.Frame(frame)
         note_frame.grid(row=2, column=0, sticky='w', pady=2)
-        keyer_left_paddle_note_frame = self.keyer_left_paddle_note_settings(note_frame)
-        keyer_left_paddle_note_frame.grid(row=0, column=0, sticky='w', pady=2)
-        keyer_right_paddle_note_frame = self.keyer_right_paddle_note_settings(note_frame)
-        keyer_right_paddle_note_frame.grid(row=0, column=1, sticky='w', pady=2)
+        keyer_dit_paddle_note_frame = self.keyer_dit_paddle_note_settings(note_frame)
+        keyer_dit_paddle_note_frame.grid(row=0, column=0, sticky='w', pady=2)
+        keyer_dah_paddle_note_frame = self.keyer_dah_paddle_note_settings(note_frame)
+        keyer_dah_paddle_note_frame.grid(row=0, column=1, sticky='w', pady=2)
 
         keyer_device_type_frame = self.keyer_device_type_settings(frame)
         keyer_device_type_frame.grid(row=0, column=0, sticky='nw', pady=2)
@@ -5712,65 +5712,65 @@ class AppSettings_widget(Widget):
         port_name = self.midi_port_dropdown.value()
         MidiInput.set_port_name(port_name)
 
-    def keyer_left_paddle_note_settings(self, frame):
-        text = 'Left Paddle Note'
-        self.left_paddle_note_frame = tk.LabelFrame(frame, text=text,
+    def keyer_dit_paddle_note_settings(self, frame):
+        text = 'Dit Paddle Note'
+        self.dit_paddle_note_frame = tk.LabelFrame(frame, text=text,
             font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
-        self.update_left_paddle_note()
-        return self.left_paddle_note_frame
+        self.update_dit_paddle_note()
+        return self.dit_paddle_note_frame
 
-    def update_left_paddle_note(self):
+    def update_dit_paddle_note(self):
         selectbg = self.bg
         selectfg = self.fg
-        self.left_paddle_note_dropdown = Dropdown_Widget(self.left_paddle_note_frame,
+        self.dit_paddle_note_dropdown = Dropdown_Widget(self.dit_paddle_note_frame,
             bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
             selectfg=selectfg, font=self.font(), justify='right', height=0,
             state='normal')
-        self.left_paddle_note_dropdown.grid(row=0, column=0)
+        self.dit_paddle_note_dropdown.grid(row=0, column=0)
 
-        self.left_paddle_note_dropdown.select_callback(self.on_select_left_paddle_note)
+        self.dit_paddle_note_dropdown.select_callback(self.on_select_dit_paddle_note)
 
         selections = [ '20', '21', '30', '31', '96', '97', '98', '99' ]
 
-        self.left_paddle_note_dropdown.values(selections)
-        self.keyer_left_paddle_note()
+        self.dit_paddle_note_dropdown.values(selections)
+        self.keyer_dit_paddle_note()
 
-    def on_select_left_paddle_note(self, event):
+    def on_select_dit_paddle_note(self, event):
         try:
-            note = int(self.left_paddle_note_dropdown.value())
-            self.keyer_left_paddle_note(note)
+            note = int(self.dit_paddle_note_dropdown.value())
+            self.keyer_dit_paddle_note(note)
         except:
-            self.keyer_left_paddle_note()
+            self.keyer_dit_paddle_note()
 
-    def keyer_right_paddle_note_settings(self, frame):
-        text = 'Right Paddle Note'
-        self.right_paddle_note_frame = tk.LabelFrame(frame, text=text,
+    def keyer_dah_paddle_note_settings(self, frame):
+        text = 'Dah Paddle Note'
+        self.dah_paddle_note_frame = tk.LabelFrame(frame, text=text,
             font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
-        self.update_right_paddle_note()
-        return self.right_paddle_note_frame
+        self.update_dah_paddle_note()
+        return self.dah_paddle_note_frame
 
-    def update_right_paddle_note(self):
+    def update_dah_paddle_note(self):
         selectbg = self.bg
         selectfg = self.fg
-        self.right_paddle_note_dropdown = Dropdown_Widget(self.right_paddle_note_frame,
+        self.dah_paddle_note_dropdown = Dropdown_Widget(self.dah_paddle_note_frame,
             bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
             selectfg=selectfg, font=self.font(), justify='right', height=0,
             state='normal')
-        self.right_paddle_note_dropdown.grid(row=0, column=0)
+        self.dah_paddle_note_dropdown.grid(row=0, column=0)
 
-        self.right_paddle_note_dropdown.select_callback(self.on_select_right_paddle_note)
+        self.dah_paddle_note_dropdown.select_callback(self.on_select_dah_paddle_note)
 
         selections = [ '20', '21', '30', '31', '96', '97', '98', '99' ]
 
-        self.right_paddle_note_dropdown.values(selections)
-        self.keyer_right_paddle_note()
+        self.dah_paddle_note_dropdown.values(selections)
+        self.keyer_dah_paddle_note()
 
-    def on_select_right_paddle_note(self, event):
+    def on_select_dah_paddle_note(self, event):
         try:
-            note = int(self.right_paddle_note_dropdown.value())
-            self.keyer_right_paddle_note(note)
+            note = int(self.dah_paddle_note_dropdown.value())
+            self.keyer_dah_paddle_note(note)
         except:
-            self.keyer_right_paddle_note()
+            self.keyer_dah_paddle_note()
 
 class FWversions(Text):
     def __init__(self, config_info, container):
@@ -7606,8 +7606,8 @@ class Keyer():
     device_type_straight_key = False
     type_MIDI = False
     keying_mode = MODE_IAMBIC_B
-    left_paddle_note = None
-    right_paddle_note = None
+    dit_paddle_note = None
+    dah_paddle_note = None
     iambic_memory_delay = .1
 
     @classmethod
@@ -7641,12 +7641,12 @@ class Keyer():
         cls.device_type = typ
 
     @classmethod
-    def set_left_paddle_note(cls, note):
-        cls.left_paddle_note = note
+    def set_dit_paddle_note(cls, note):
+        cls.dit_paddle_note = note
 
     @classmethod
-    def set_right_paddle_note(cls, note):
-        cls.right_paddle_note = note
+    def set_dah_paddle_note(cls, note):
+        cls.dah_paddle_note = note
 
     @classmethod
     def set_iambic_memory_delay(cls, delay):
@@ -7654,15 +7654,15 @@ class Keyer():
 
     def __init__(self):
         # for midi message callback
-        self.LEFT_DOWN_EVENT = 'left_down'
-        self.LEFT_UP_EVENT = 'left_up'
-        self.RIGHT_DOWN_EVENT = 'right_down'
-        self.RIGHT_UP_EVENT = 'right_up'
+        self.DIT_DOWN_EVENT = 'dit_down'
+        self.DIT_UP_EVENT = 'dit_up'
+        self.DAH_DOWN_EVENT = 'dah_down'
+        self.DAH_UP_EVENT = 'dah_up'
         self.CLOSE_EVENT = 'close'
 
         self.delta = 0
-        self.left_was_down = False
-        self.right_was_down = False
+        self.dit_was_down = False
+        self.dah_was_down = False
         self.special_next_velocity = False
 
         # for straight_key handling
@@ -7674,10 +7674,10 @@ class Keyer():
         # for keyer handling
 
         self.paddle_timestamp = 0
-        self.left_down_timestamp = 0
-        self.left_up_timestamp = 0
-        self.right_down_timestamp = 0
-        self.right_up_timestamp = 0
+        self.dit_down_timestamp = 0
+        self.dit_up_timestamp = 0
+        self.dah_down_timestamp = 0
+        self.dah_up_timestamp = 0
         self.previous_elt_timestamp = None
         self.previous_elt_was_dah = None
 
@@ -7690,7 +7690,7 @@ class Keyer():
         message, deltatime = event
         event, note, velocity = message
 
-        if note != self.left_paddle_note and note != self.right_paddle_note:
+        if note != self.dit_paddle_note and note != self.dah_paddle_note:
             return
 
         event = event & 0xf0                    # ignore channel
@@ -7713,25 +7713,25 @@ class Keyer():
             self.delta += velocity / 1000
         self.special_next_velocity = False
 
-        if note == self.left_paddle_note:
+        if note == self.dit_paddle_note:
             if event == 0x90:                   # key down
-                self.left_was_down = True
-                self.send_paddle_event(self.LEFT_DOWN_EVENT, self.delta)
+                self.dit_was_down = True
+                self.send_paddle_event(self.DIT_DOWN_EVENT, self.delta)
             elif event == 0x80:                 # key up
-                if self.left_was_down:
-                    self.left_was_down = False
-                    self.send_paddle_event(self.LEFT_UP_EVENT, self.delta)
+                if self.dit_was_down:
+                    self.dit_was_down = False
+                    self.send_paddle_event(self.DIT_UP_EVENT, self.delta)
             else:
                 dprint1("unexpected event 0x%2x" % event)
 
-        elif note == self.right_paddle_note:
+        elif note == self.dah_paddle_note:
             if event == 0x90:                   # key down
-                self.right_was_down = True
-                self.send_paddle_event(self.RIGHT_DOWN_EVENT, self.delta)
+                self.dah_was_down = True
+                self.send_paddle_event(self.DAH_DOWN_EVENT, self.delta)
             elif event == 0x80:                 # key up
-                if self.right_was_down:
-                    self.right_was_down = False
-                    self.send_paddle_event(self.RIGHT_UP_EVENT, self.delta)
+                if self.dah_was_down:
+                    self.dah_was_down = False
+                    self.send_paddle_event(self.DAH_UP_EVENT, self.delta)
             else:
                 dprint1("unexpected event 0x%2x" % event)
         self.delta = 0
@@ -7742,14 +7742,14 @@ class Keyer():
             self.paddle_timestamp += delta_time
         else:
             timestamp = time.perf_counter()
-            if event == self.LEFT_DOWN_EVENT:
-                self.left_down_timestamp = timestamp
-            elif event == self.LEFT_UP_EVENT:
-                self.left_up_timestamp = timestamp
-            elif event == self.RIGHT_DOWN_EVENT:
-                self.right_down_timestamp = timestamp
-            elif event == self.RIGHT_UP_EVENT:
-                self.right_up_timestamp = timestamp
+            if event == self.DIT_DOWN_EVENT:
+                self.dit_down_timestamp = timestamp
+            elif event == self.DIT_UP_EVENT:
+                self.dit_up_timestamp = timestamp
+            elif event == self.DAH_DOWN_EVENT:
+                self.dah_down_timestamp = timestamp
+            elif event == self.DAH_UP_EVENT:
+                self.dah_up_timestamp = timestamp
         self.paddle_threading_event.set()
 
     def wait_for_event(self):
@@ -7770,7 +7770,7 @@ class Keyer():
                 self.iambic_loop()
 
     def straight_key_event(self, event, timestamp):
-        if event == self.LEFT_DOWN_EVENT:
+        if event == self.DIT_DOWN_EVENT:
             self.previous_key_down_timestamp = timestamp
             up_duration = timestamp - self.previous_key_up_timestamp
             milliseconds = round(up_duration * 1000)
@@ -7778,7 +7778,7 @@ class Keyer():
                 milliseconds = 0
             Server.k4_server.send_str(f'KZD{milliseconds:04d};')
             Audio.start_sidetone()
-        elif event == self.LEFT_UP_EVENT:
+        elif event == self.DIT_UP_EVENT:
             self.previous_key_up_timestamp = timestamp
             down_duration = timestamp - self.previous_key_down_timestamp
             milliseconds = round(down_duration * 1000)
@@ -7795,23 +7795,23 @@ class Keyer():
                 dah_mem = False
             elif self.keying_mode == self.MODE_IAMBIC_A:
                 dit_mem = (self.previous_elt_was_dah and
-                           (self.left_down_timestamp - self.previous_elt_timestamp) >
+                           (self.dit_down_timestamp - self.previous_elt_timestamp) >
                            (self.dit_seconds * self.iambic_memory_delay))
                 dah_mem = False
             else:
                 dit_mem = (self.previous_elt_was_dah and
-                           ((self.left_down_timestamp - self.previous_elt_timestamp) >
+                           ((self.dit_down_timestamp - self.previous_elt_timestamp) >
                            (self.dit_seconds * self.iambic_memory_delay)) or
-                           ((self.left_up_timestamp - self.previous_elt_timestamp) >
+                           ((self.dit_up_timestamp - self.previous_elt_timestamp) >
                            (self.dit_seconds * self.iambic_memory_delay +
                             self.dah_seconds/3)))
                 dah_mem = (not self.previous_elt_was_dah and
-                           (self.right_up_timestamp - self.previous_elt_timestamp) >
+                           (self.dah_up_timestamp - self.previous_elt_timestamp) >
                            (self.dit_seconds * self.iambic_memory_delay))
             self.previous_elt_timestamp = time.perf_counter()
 
-            dit_now = self.left_down_timestamp > self.left_up_timestamp
-            dah_now =  self.right_down_timestamp > self.right_up_timestamp
+            dit_now = self.dit_down_timestamp > self.dit_up_timestamp
+            dah_now =  self.dah_down_timestamp > self.dah_up_timestamp
             dit = dit_now or dit_mem
             dah = dah_now or dah_mem
             if dit and dah:
@@ -7830,11 +7830,11 @@ class Keyer():
 
     def ultimatic_loop(self):
         while True:
-            dit = self.left_down_timestamp > self.left_up_timestamp
-            dah =  self.right_down_timestamp > self.right_up_timestamp
+            dit = self.dit_down_timestamp > self.dit_up_timestamp
+            dah =  self.dah_down_timestamp > self.dah_up_timestamp
             if dit and dah:
-                right_down_last = self.right_down_timestamp > self.left_down_timestamp
-                send_dah = right_down_last
+                dah_down_last = self.dah_down_timestamp > self.dit_down_timestamp
+                send_dah = dah_down_last
             elif dit:
                 send_dah = False
             elif dah:
