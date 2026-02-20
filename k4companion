@@ -4086,10 +4086,12 @@ class Menu(Widget):
 class Audio():
     singleton = None
     input_channels = 1
-    k4_input_channels = 2               # The K4 requires stereo, even though it transmits mono
+    k4_input_channels = 2       # The K4 requires stereo, even though it transmits mono
     input_frame_size = 240
+    maximum_output_frame_size = 1440
     output_channels = 2
     k4_sample_rate = 12000
+    k4_frames_per_millisecond = k4_sample_rate // 1000
     k4_sample_rate_code = 0
     max_input_sample_rate = 48000
     max_output_sample_rate = 48000
@@ -4103,6 +4105,9 @@ class Audio():
     output_packet_counter = 0
     output_packet_qlen = 0
     output_dequeueing_packets = False
+
+    receive_latency = None
+    milliseconds_per_packet = 40        # default
 
     @classmethod
     def get_singleton(cls):
@@ -4273,17 +4278,25 @@ class Audio():
     @classmethod
     def on_received_initial_parameters(cls, server):
         self = cls.get_singleton()
+        latency = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
+        cls.set_remote_audio_latency(latency)
         self.start_output_thread(cls.server.output_audio_queue)
 
     @classmethod
+    def set_remote_audio_latency(cls, latency):
+        self = cls.get_singleton()
+        if self.server and self.server.connected:
+            self.server.send_str(f'SL{latency};')
+
+    @classmethod
     def reset_output_packet_counter(cls):
-        Audio.output_dequeueing_packets = False
-        Audio.output_packet_counter = 1
+        cls.output_dequeueing_packets = False
+        cls.output_packet_counter = 1
 
     @classmethod
     def set_receive_latency(cls, latency):
-        Audio.output_packet_qlen = latency / 40 # 40 mS per audio packet
-        Audio.reset_output_packet_counter()
+        cls.receive_latency = latency
+        cls.reset_output_packet_counter()
 
     @classmethod
     def start_sidetone(cls):
@@ -4352,6 +4365,7 @@ class Audio():
         self.sidetone_volume = 30
         self.sidetone_thread = None
         self.enable_sidetone_loop = True
+        self.sidetone_samples = None
         self.sidetone_event = threading.Event()
 
         Server.k4_server.subscribe_response('CW;', self.on_pitch_change)
@@ -4475,19 +4489,24 @@ class Audio():
         self.output_thread.start()
 
     def output_loop(self):
+        cls = self.__class__
         self.output_stream = None
         current_index = None
         warned = False
 
         while True:
-            if not Audio.output_dequeueing_packets and Audio.output_packet_counter < Audio.output_packet_qlen:
+            if not cls.output_dequeueing_packets and cls.output_packet_counter < cls.output_packet_qlen:
                 time.sleep(.01)
                 continue
 
-            Audio.output_dequeueing_packets = True
+            cls.output_dequeueing_packets = True
             packet = self.output_queue.get()
             if len(packet) == 0:
                 return
+
+            frame_size = packet[2] << 8 | packet[1]
+            cls.milliseconds_per_packet = frame_size // self.k4_frames_per_millisecond
+            cls.output_packet_qlen = cls.receive_latency // cls.milliseconds_per_packet
 
             if self.mute_k4_audio:
                 continue
@@ -4495,16 +4514,14 @@ class Audio():
             if current_index != self.output_device_index:
                 current_index = self.output_device_index
                 encode_mode = packet[0]
-                if encode_mode != Audio.encode_mode_opus_float:
+                if encode_mode != cls.encode_mode_opus_float:
                     raise Exception('Unsupported audio encode mode:', encode_mode)
-
-                frame_size = packet[2] << 8 | packet[1]
 
                 sample_rate = packet[3]
                 if sample_rate != 0:
                     raise Exception('Unsupported audio sample rate:', sample_rate)
 
-                opus = opuslib.Decoder(Audio.k4_sample_rate, Audio.output_channels)
+                opus = opuslib.Decoder(cls.k4_sample_rate, cls.output_channels)
 
                 pa = self.pyaudio()
 
@@ -4512,14 +4529,14 @@ class Audio():
                     self.output_stream.close()
                     self.output_stream = None
 
-                resample_ratio = int(Audio.output_device_sample_rate() / Audio.k4_sample_rate)
+                resample_ratio = int(cls.output_device_sample_rate() / cls.k4_sample_rate)
 
                 retries = 2
                 for retry in range(retries+1):
                     try:
                         self.output_stream = pa.open(format=pyaudio.paFloat32,
-                                                channels=Audio.output_channels,
-                                                rate=Audio.output_device_sample_rate(),
+                                                channels=cls.output_channels,
+                                                rate=cls.output_device_sample_rate(),
                                                 frames_per_buffer=2,
                                                 output=True,
                                                 output_device_index=self.output_device_index,
@@ -4535,7 +4552,7 @@ class Audio():
 
                 current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
 
-            pcm = opus.decode_float(bytes(packet[4:]), frame_size)
+            pcm = opus.decode_float(bytes(packet[4:]), self.maximum_output_frame_size)
 
             stereo = numpy.frombuffer(pcm, dtype=numpy.float32)
             a = stereo[0::2]                    # even samples are from the main receiver
@@ -4583,16 +4600,18 @@ class Audio():
             stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
             stereo[1::2] = right
-            mS_len = len(stereo)//40
-            for i in range(0, len(stereo), mS_len):
+            # send 1 mS at a time to permit timely sidetone generation
+            millisecond_len = len(stereo) // self.milliseconds_per_packet
+            for i in range(0, len(stereo), millisecond_len):
                 if not self.mute_k4_audio:
-                    mS_samples = stereo[i:i+mS_len]
+                    mS_samples = stereo[i:i+millisecond_len]
                     self.output_device_queue.put(mS_samples.tobytes())
 
     def sidetone_loop(self):
         while self.enable_sidetone_loop:
             self.sidetone_event.wait()
-            self.output_device_queue.put(self.sidetone_samples)
+            if self.sidetone_samples:
+                self.output_device_queue.put(self.sidetone_samples)
 
     def output_device_loop(self):
         while True:
@@ -5293,7 +5312,6 @@ class AppSettings_widget(Widget):
 
         frame = self.keyer_settings()
         frame.grid(row=1, column=0, sticky='nw', pady=4)
-        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def input_device_name(self, name=None):
         if name != None:
@@ -5579,21 +5597,8 @@ class AppSettings_widget(Widget):
 
     def on_remote_audio_latency_combobox_changed(self, var, index, mode):
         current_value = self.remote_audio_latency_val.get()
-        if current_value == '':
-            return
-
         Server.settings.put_save('Audio', 'remote_audio_latency', current_value)
-        if self.server.connected:
-            self.server.send_str(f'SL{current_value};')
-
-    def on_received_initial_parameters(self, response):
-        # I have no idea why this has to be delayed, but it does
-        # 3 seconds seemed enough, make it 6 to be sure
-        Poll.add(6000, self.send_delayed_audio_latency_setting, repeat=False)
-
-    def send_delayed_audio_latency_setting(self):
-        current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
-        self.server.send_str(f'SL{current_value};')
+        Audio.set_remote_audio_latency(current_value)
 
     def keyer_device_type(self, typ=None):
         if typ != None:
