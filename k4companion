@@ -52,6 +52,8 @@ import queue
 import re
 import rtmidi.midiutil
 import select
+import serial
+import serial.tools.list_ports
 import socket
 import socks
 import ssl
@@ -728,6 +730,8 @@ class Server():
             Popup.modal(msg, timeout=timeout, color='yellow')
 
     def close(self):
+        MidiInput.close()
+        SerialInput.close()
         self.connected = False
         if self.type == 'k4':
             self.send_queue.put('shutdown')
@@ -4614,8 +4618,11 @@ class Audio():
                 self.output_device_queue.put(self.sidetone_samples)
 
     def output_device_loop(self):
+#        counter=0
         while True:
             samples = self.output_device_queue.get()
+#            tprint(f'{len(samples)=} {counter=}')
+#            counter += 1
             if len(samples) == 0:
                 return
             self.output_stream.write(samples)
@@ -5305,8 +5312,6 @@ class AppSettings_widget(Widget):
         self.selectbg = config_info.get('selectbg', self.bg)
         self.selectfg = config_info.get('selectfg', self.fg)
 
-        self.device_type_straight_key = False
-
         frame = self.audio_settings()
         frame.grid(row=0, column=0, sticky='nw', pady=4)
 
@@ -5603,22 +5608,27 @@ class AppSettings_widget(Widget):
     def keyer_device_type(self, typ=None):
         if typ != None:
             Settings.main().put_save('Keyer', 'device_type', typ)
-        typ = Settings.main().get('Keyer', 'device_type', 'MIDI Paddles')
-        self.device_type_straight_key = 'Straight Key' in typ
-        if self.device_type_straight_key:
-            self.dit_paddle_note_frame.configure(text='Straight Key Note')
-            self.dah_paddle_note_frame.grid_forget()
-        else:
-            self.dit_paddle_note_frame.configure(text='Dit Paddle Note')
-            self.dah_paddle_note_frame.grid(row=0, column=1, sticky='w', pady=2)
+        typ = Settings.main().get('Keyer', 'device_type', None)
+
         Keyer.set_device_type(typ)
-        self.keyer_dit_paddle_note()
+        if typ == 'None':
+            typ = None
+        if not typ:
+            self.disable_midi_device_frame()
+            self.disable_serial_device_frame()
+        if Keyer.device_type_MIDI:
+            self.enable_midi_device_frame()
+            self.keyer_dit_paddle_note()
+        if Keyer.device_type_serial:
+            self.enable_serial_device_frame()
+            self.keyer_dit_paddle_signal()
+
         return typ
 
     def keyer_dit_paddle_note(self, note=None):
-        setting_name = 'dit_paddle_note'
-        if self.device_type_straight_key:
-            setting_name = 'straight_key_note'
+        setting_name = 'dit_paddle_midi_note'
+        if Keyer.device_type_straight_key:
+            setting_name = 'straight_key_midi_note'
         if note != None:
             Settings.main().put_save('Keyer', setting_name, note)
         note = Settings.main().getint('Keyer', setting_name, 20)
@@ -5634,6 +5644,25 @@ class AppSettings_widget(Widget):
         Keyer.set_dah_paddle_note(note)
         return note
 
+    def keyer_dit_paddle_signal(self, signal=None):
+        setting_name = 'dit_paddle_serial_signal'
+        if Keyer.device_type_straight_key:
+            setting_name = 'straight_key_serial_signal'
+        if signal != None:
+            Settings.main().put_save('Keyer', setting_name, signal)
+        signal = Settings.main().get('Keyer', setting_name, 'DSR')
+        self.dit_paddle_signal_dropdown.value(signal)
+        Keyer.set_dit_paddle_signal(signal)
+        return signal
+
+    def keyer_dah_paddle_signal(self, signal=None):
+        if signal != None:
+            Settings.main().put_save('Keyer', 'dah_paddle_serial_signal', signal)
+        signal = Settings.main().get('Keyer', 'dah_paddle_serial_signal', 'DCD')
+        self.dah_paddle_signal_dropdown.value(signal)
+        Keyer.set_dah_paddle_signal(signal)
+        return signal
+
     def keyer_settings(self):
         frame = tk.LabelFrame(self.frame,
                               text='Keyer Settings',
@@ -5646,15 +5675,14 @@ class AppSettings_widget(Widget):
 
         note_frame = tk.Frame(frame)
         note_frame.grid(row=2, column=0, sticky='w', pady=2)
-        keyer_dit_paddle_note_frame = self.keyer_dit_paddle_note_settings(note_frame)
-        keyer_dit_paddle_note_frame.grid(row=0, column=0, sticky='w', pady=2)
-        keyer_dah_paddle_note_frame = self.keyer_dah_paddle_note_settings(note_frame)
-        keyer_dah_paddle_note_frame.grid(row=0, column=1, sticky='w', pady=2)
+        self.keyer_dit_paddle_note_frame = self.keyer_dit_paddle_note_settings(note_frame)
+        self.keyer_dah_paddle_note_frame = self.keyer_dah_paddle_note_settings(note_frame)
+
+        self.keyer_midi_device_settings(frame)
+        self.keyer_serial_device_settings(frame)
 
         keyer_device_type_frame = self.keyer_device_type_settings(frame)
         keyer_device_type_frame.grid(row=0, column=0, sticky='nw', pady=2)
-        keyer_device_frame = self.keyer_device_settings(frame)
-        keyer_device_frame.grid(row=1, column=0, sticky='w', pady=2)
 
         return frame
 
@@ -5676,10 +5704,18 @@ class AppSettings_widget(Widget):
 
         self.keyer_device_type_dropdown.select_callback(self.on_select_device_type)
 
-        device_types = ('MIDI Straight Key', 'MIDI Paddles')
+        device_types = (
+            'None',
+            'MIDI Straight Key',
+            'MIDI Paddles',
+            'Serial Straight Key',
+            'Serial Paddles'
+        )
 
         self.keyer_device_type_dropdown.values(device_types)
         device_type = self.keyer_device_type()
+        if not device_type:
+            device_type = 'None'
         self.keyer_device_type_dropdown.value(device_type)
         return keyer_device_type_frame
 
@@ -5687,19 +5723,64 @@ class AppSettings_widget(Widget):
         device_type = self.keyer_device_type_dropdown.value()
         self.keyer_device_type(device_type)
 
-    def keyer_device_settings(self, frame):
-        self.midi_port_frame = tk.LabelFrame(frame, text='Keying Device',
+    def enable_midi_device_frame(self):
+        self.serial_device_frame.grid_forget()
+        self.serial_signal_frame.grid_forget()
+
+        self.midi_device_frame.grid(row=1, column=0, sticky='w', pady=2)
+        self.midi_note_frame.grid(row=2, column=0, sticky='w', pady=2)
+        self.keyer_dit_paddle_note_frame.grid(row=0, column=0, sticky='w', pady=2)
+        if Keyer.device_type_straight_key:
+            self.dit_paddle_note_frame.configure(text='Straight Key Note')
+            self.keyer_dah_paddle_note_frame.grid_forget()
+        else:
+            self.dit_paddle_note_frame.configure(text='Dit Paddle Note')
+            self.keyer_dah_paddle_note_frame.grid(row=0, column=1, sticky='w', pady=2)
+
+    def disable_midi_device_frame(self):
+        self.midi_device_frame.grid_forget()
+        self.midi_note_frame.grid_forget()
+        self.keyer_dit_paddle_signal_frame.grid_forget()
+        self.keyer_dah_paddle_signal_frame.grid_forget()
+
+    def enable_serial_device_frame(self):
+        self.midi_device_frame.grid_forget()
+        self.midi_note_frame.grid_forget()
+
+        self.serial_device_frame.grid(row=1, column=0, sticky='w', pady=2)
+        self.serial_signal_frame.grid(row=2, column=0, sticky='w', pady=2)
+        self.keyer_dit_paddle_signal_frame.grid(row=0, column=0, sticky='w', pady=2)
+        if Keyer.device_type_straight_key:
+            self.dit_paddle_signal_frame.configure(text='Straight Key Signal')
+            self.keyer_dah_paddle_signal_frame.grid_forget()
+        else:
+            self.dit_paddle_signal_frame.configure(text='Dit Paddle Signal')
+            self.keyer_dah_paddle_signal_frame.grid(row=0, column=1, sticky='w', pady=2)
+
+    def disable_serial_device_frame(self):
+        self.serial_device_frame.grid_forget()
+        self.serial_signal_frame.grid_forget()
+        self.keyer_dit_paddle_signal_frame.grid_forget()
+        self.keyer_dah_paddle_signal_frame.grid_forget()
+
+    def keyer_midi_device_settings(self, frame):
+        self.midi_device_frame = tk.LabelFrame(frame, text='Keying Device',
             font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+
+        self.midi_note_frame = tk.Frame(frame)
+        self.keyer_dit_paddle_note_frame = self.keyer_dit_paddle_note_settings(self.midi_note_frame)
+        self.keyer_dah_paddle_note_frame = self.keyer_dah_paddle_note_settings(self.midi_note_frame)
+
         MidiInput.set_port_updater(self.update_midi_ports)
         self.update_midi_ports()
-        return self.midi_port_frame
+        return self.midi_device_frame
 
     def update_midi_ports(self):
         selectbg = self.bg
         selectfg = self.fg
-        self.midi_port_dropdown = Dropdown_Widget(self.midi_port_frame, bd=2,
+        self.midi_port_dropdown = Dropdown_Widget(self.midi_device_frame, bd=2,
             bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
-            font=self.font(), justify='left', height=0)
+            font=self.font(), justify='left', height=20)
         self.midi_port_dropdown.grid(row=0, column=0)
 
         self.midi_port_dropdown.select_callback(self.on_select_midi_port)
@@ -5738,7 +5819,6 @@ class AppSettings_widget(Widget):
         selections = [ '20', '21', '30', '31', '96', '97', '98', '99' ]
 
         self.dit_paddle_note_dropdown.values(selections)
-        self.keyer_dit_paddle_note()
 
     def on_select_dit_paddle_note(self, event):
         try:
@@ -5765,7 +5845,7 @@ class AppSettings_widget(Widget):
 
         self.dah_paddle_note_dropdown.select_callback(self.on_select_dah_paddle_note)
 
-        selections = [ '20', '21', '30', '31', '96', '97', '98', '99' ]
+        selections = [ '21', '20', '31', '30', '97', '96', '99', '98' ]
 
         self.dah_paddle_note_dropdown.values(selections)
         self.keyer_dah_paddle_note()
@@ -5776,6 +5856,99 @@ class AppSettings_widget(Widget):
             self.keyer_dah_paddle_note(note)
         except:
             self.keyer_dah_paddle_note()
+
+    def keyer_serial_device_settings(self, frame):
+        self.serial_device_frame = tk.LabelFrame(frame, text='Keying Device',
+            font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+
+        self.serial_signal_frame = tk.Frame(frame)
+        self.keyer_dit_paddle_signal_frame = self.keyer_dit_paddle_signal_settings(self.serial_signal_frame)
+        self.keyer_dah_paddle_signal_frame = self.keyer_dah_paddle_signal_settings(self.serial_signal_frame)
+
+        SerialInput.set_port_updater(self.update_serial_ports)
+        self.update_serial_ports()
+        return self.serial_device_frame
+
+    def update_serial_ports(self):
+        selectbg = self.bg
+        selectfg = self.fg
+        self.serial_port_dropdown = Dropdown_Widget(self.serial_device_frame, bd=2,
+            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
+            font=self.font(), justify='left', height=20)
+        self.serial_port_dropdown.grid(row=0, column=0)
+
+        self.serial_port_dropdown.select_callback(self.on_select_serial_port)
+
+        SerialInput.open()
+        ports = SerialInput.available_ports()
+        selections = [ 'None' ]
+        if ports != None:
+            selections += ports
+
+        self.serial_port_dropdown.values(selections)
+        self.serial_port_dropdown.value(SerialInput.port_name)
+
+    def on_select_serial_port(self, event):
+        port_name = self.serial_port_dropdown.value()
+        SerialInput.set_port_name(port_name)
+
+    def keyer_dit_paddle_signal_settings(self, frame):
+        self.dit_paddle_signal_frame = tk.LabelFrame(frame, text='Dit Paddle Signal',
+            font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+        self.update_dit_paddle_signal()
+        return self.dit_paddle_signal_frame
+
+    def update_dit_paddle_signal(self):
+        selectbg = self.bg
+        selectfg = self.fg
+        self.dit_paddle_signal_dropdown = Dropdown_Widget(self.dit_paddle_signal_frame,
+            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
+            selectfg=selectfg, font=self.font(), justify='right', height=0,
+            state='normal')
+        self.dit_paddle_signal_dropdown.grid(row=0, column=0)
+
+        self.dit_paddle_signal_dropdown.select_callback(self.on_select_dit_paddle_signal)
+
+        selections = [ 'DSR', 'DCD', 'CTS', 'RI' ]
+
+        self.dit_paddle_signal_dropdown.values(selections)
+
+    def on_select_dit_paddle_signal(self, event):
+        try:
+            signal = self.dit_paddle_signal_dropdown.value()
+            self.keyer_dit_paddle_signal(signal)
+        except:
+            self.keyer_dit_paddle_signal()
+
+    def keyer_dah_paddle_signal_settings(self, frame):
+        text = 'Dah Paddle Signal'
+        self.dah_paddle_signal_frame = tk.LabelFrame(frame, text=text,
+            font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+        self.update_dah_paddle_signal()
+        return self.dah_paddle_signal_frame
+
+    def update_dah_paddle_signal(self):
+        selectbg = self.bg
+        selectfg = self.fg
+        self.dah_paddle_signal_dropdown = Dropdown_Widget(self.dah_paddle_signal_frame,
+            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
+            selectfg=selectfg, font=self.font(), justify='right', height=0,
+            state='normal')
+        self.dah_paddle_signal_dropdown.grid(row=0, column=0)
+
+        self.dah_paddle_signal_dropdown.select_callback(self.on_select_dah_paddle_signal)
+
+        selections = [ 'DCD', 'DSR', 'CTS', 'RI' ]
+
+        self.dah_paddle_signal_dropdown.values(selections)
+        self.keyer_dah_paddle_signal()
+
+    def on_select_dah_paddle_signal(self, event):
+        try:
+            signal = self.dah_paddle_signal_dropdown.value()
+            self.keyer_dah_paddle_signal(signal)
+        except:
+            self.keyer_dah_paddle_signal()
 
 class FWversions(Text):
     def __init__(self, config_info, container):
@@ -6867,6 +7040,7 @@ and everything after the & is sent.'''
             return
 
         MidiInput.close()
+        SerialInput.close()
         Keyer.close()
 
         self.save_geometry()
@@ -7529,12 +7703,20 @@ class MidiInput():
     previous_port_serial_number = -1
 
     @classmethod
-    def open(cls):
+    def get_singleton(cls):
         if cls.singleton == None:
             cls.singleton = MidiInput()
 
+        return cls.singleton
+
+    @classmethod
+    def open(cls):
+        cls.get_singleton()
+
     @classmethod
     def close(cls):
+        if not cls.singleton:
+            return
         Poll.remove(cls.singleton.poll_new_device)
         cls.midiin.close_port()
         cls.singleton = None
@@ -7543,7 +7725,7 @@ class MidiInput():
     def set_port_name(cls, name):
         cls.port_name = name
         cls.port_serial_number += 1
-        Server.settings.put_save('CW', 'midi_input_device', name)
+        Settings.main().put_save('Keyer', 'midi_input_device', name)
 
     @classmethod
     def available_ports(cls):
@@ -7555,16 +7737,26 @@ class MidiInput():
 
     @classmethod
     def set_message_callback(cls, callback):
-        cls.singleton.midiin.set_callback(callback)
+        self = cls.get_singleton()
+        self.midiin.set_callback(callback)
+
+    @classmethod
+    def cancel_message_callback(cls):
+        self = cls.get_singleton()
+        if self:
+            self.midiin.cancel_callback()
 
     def __init__(self):
         self.__class__.midiin = rtmidi.MidiIn()
-        port_name = Server.settings.get('CW', 'midi_input_device', 'None')
+        port_name = Settings.main().get('Keyer', 'midi_input_device', 'None')
         self.__class__.set_port_name(port_name)
         self.warned = False
         Poll.add(self.poll_interval, self.poll_new_device)
 
     def poll_new_device(self):
+        if not Keyer.device_type_MIDI:
+            return
+
         # Do we need to close/reopen if the port_index changes?
         cls = self.__class__
 
@@ -7599,6 +7791,226 @@ class MidiInput():
                 if message == None:
                     break
 
+class SerialInput():
+    singleton = None
+    poll_interval = 1000        # check for new devices every 1 seconds
+    port_infos = None
+    port_names = None
+    bad_port_name_dict = {}
+    port_name = 'None'
+    port = None
+    port_updater = None
+    port_serial_number = 0
+    previous_port_serial_number = -1
+    message_callback = None
+    dit_state = False
+    dah_state = False
+    dit_time = None
+    dah_time = None
+    previous_dit_time = None
+    previous_dah_time = None
+
+    @classmethod
+    def get_singleton(cls):
+        if cls.singleton == None:
+            cls.singleton = SerialInput()
+
+        return cls.singleton
+
+    @classmethod
+    def open(cls):
+        cls.get_singleton()
+
+    @classmethod
+    def close(cls):
+        self = cls.singleton
+        if not self:
+            return
+        cls.singleton = None
+        Poll.remove(self.poll_new_device)
+        self.close_port()
+
+    @classmethod
+    def set_port_name(cls, name):
+        cls.port_name = name
+        cls.port_serial_number += 1
+        Settings.main().put_save('Keyer', 'serial_input_device', name)
+
+    @classmethod
+    def available_ports(cls):
+        if not cls.port_names:
+            return None
+        names = []
+        for name in cls.port_names:
+            if name not in cls.bad_port_name_dict:
+                names.append(name)
+
+        return names
+
+    @classmethod
+    def set_port_updater(cls, port_updater):
+        cls.port_updater = port_updater
+
+    @classmethod
+    def set_message_callback(cls, callback):
+        cls.message_callback = callback
+
+    @classmethod
+    def cancel_message_callback(cls):
+        cls.message_callback = None
+
+    def __init__(self):
+        port_name = Settings.main().get('Keyer', 'serial_input_device', 'None')
+        self.__class__.set_port_name(port_name)
+        self.warned = False
+        self.mark_bad_devices()
+        Poll.add(self.poll_interval, self.poll_new_device)
+
+    def mark_bad_devices(self):
+        port_infos = serial.tools.list_ports.comports()
+        port_names = [info.device for info in sorted(port_infos)]
+        for port_name in port_names:
+            try:
+                port = serial.Serial(port_name, rtscts=False, dsrdtr=False)
+                port.close()
+            except serial.SerialException:
+                self.__class__.bad_port_name_dict[port_name] = True
+
+    def open_port(self, name):
+        try:
+            self.port = serial.Serial(self.port_name, rtscts=False, dsrdtr=False)
+        except serial.SerialException:
+            if not self.warned:
+                self.warned = True
+                Popup.warning("Serial device {name} open failed".format(name=self.port_name))
+                return
+
+        self.warned = False
+        self.signal_thread = threading.Thread(target=self.signal_loop, name='serial_signal_thread')
+        self.signal_thread.start()
+
+    def poll_new_device(self):
+        if not Keyer.device_type_serial:
+            return
+        # Do we need to close/reopen if the port_index changes?
+        cls = self.__class__
+
+        port_infos = serial.tools.list_ports.comports()
+        if port_infos != self.port_infos:
+            cls.port_infos = port_infos
+            cls.port_names = [info.device for info in sorted(port_infos)]
+            if cls.port_updater != None:
+                cls.port_updater()
+
+        if self.port_name == 'None':
+            return
+
+        port_index = -1
+        try:
+            port_index = cls.port_names.index(self.port_name)
+        except:
+            cls.previous_port_serial_number = -1
+            if not self.warned:
+                self.warned = True
+                Popup.warning("Serial device {name} not found".format(name=self.port_name))
+
+        if port_index >= 0 and cls.port_serial_number != cls.previous_port_serial_number:
+            self.warned = False
+            self.close_port()
+            self.open_port(self.port_name)
+            cls.previous_port_serial_number = cls.port_serial_number
+
+    def close_port(self):
+        if self.port != None:
+            self.port.close()
+            self.port = None
+            self.signal_thread.join()
+
+    def rts(self):
+        return self.port.rts
+
+    def cts(self):
+        return self.port.cts
+
+    def dtr(self):
+        return self.port.dtr
+
+    def dsr(self):
+        return self.port.dsr
+
+    def ri(self):
+        return self.port.ri
+
+    def cd(self):
+        return self.port.cd
+
+    def signal_loop(self):
+        signal_funcs = {
+            'RTS': self.rts,
+            'CTS': self.cts,
+            'DTR': self.dtr,
+            'DSR': self.dsr,
+            'RI': self.ri,
+            'DCD': self.cd,
+        }
+
+        port_name = self.port_name
+
+        debounce_time = .000
+
+        while port_name == self.port_name and self.port:
+            try:
+                dit_state = signal_funcs[Keyer.dit_paddle_signal]()
+                dah_state = signal_funcs[Keyer.dah_paddle_signal]()
+            except OSError:
+                return              # port was closed just before reading the signal
+
+#            tprint(f'1 {time.perf_counter()=} {dit_state=}')
+            if dit_state != self.dit_state:
+                self.dit_time = time.perf_counter()
+                self.dit_state = dit_state
+#                counter = 0
+            if dah_state != self.dah_state:
+                self.dah_time = time.perf_counter()
+                self.dah_state = dah_state
+            if self.dit_time:
+#                tprint(f'xyzzy 4 {self.dit_time=} {self.dit_state=}')
+                now = time.perf_counter()
+                if now - self.dit_time >= debounce_time:
+#                    tprint(f'counter was {counter} {self.dit_state=}')
+                    if self.previous_dit_time:
+                        delta_time = self.dit_time - self.previous_dit_time
+                    else:
+                        delta_time = 0
+                    if self.message_callback:
+                        message = (Keyer.dit_paddle_signal, dit_state)
+#                        tprint(f'{(message, delta_time)=}')
+
+                        self.message_callback((message, delta_time))
+                    self.previous_dit_state = dit_state
+                    self.previous_dit_time = self.dit_time
+                    self.dit_time = None
+#                    tprint(f'xyzzy 5 {time.perf_counter()=}')
+#                else:
+#                    tprint(f'dbouncing {counter=} {self.dit_state=}')
+#                    counter += 1
+            if self.dah_time:
+                now = time.perf_counter()
+                if now - self.dah_time >= debounce_time:
+                    if self.previous_dah_time:
+                        delta_time = self.dah_time - self.previous_dah_time
+                    else:
+                        delta_time = 0
+                    if self.message_callback:
+                        message = (Keyer.dah_paddle_signal, dah_state)
+                        self.message_callback((message, delta_time))
+                    self.previous_dah_state = dah_state
+                    self.previous_dah_time = self.dah_time
+                    self.dah_time = None
+#            tprint(f'9 {time.perf_counter()=}')
+
+            time.sleep(.001)
+
 class Keyer():
     MODE_IAMBIC = 'Iambic'
     MODE_IAMBIC_A = 'Iambic A'
@@ -7607,26 +8019,41 @@ class Keyer():
 
     singleton = None
 
+    keyer_thread = None
     device_type = None
     device_type_straight_key = False
-    type_MIDI = False
+    device_type_MIDI = False
+    device_type_serial = False
     keying_mode = MODE_IAMBIC_B
     dit_paddle_note = None
     dah_paddle_note = None
+    dit_paddle_signal = None
+    dah_paddle_signal = None
     iambic_memory_delay = .1
 
     @classmethod
+    def get_singleton(cls):
+        if cls.singleton == None:
+            cls.singleton = Keyer()
+            cls.set_message_callback()
+            cls.set_device_type()
+
+        return cls.singleton
+
+    @classmethod
     def open(cls):
-        cls.singleton = Keyer()
+        cls.get_singleton()
 
     @classmethod
     def close(cls):
-        singleton = cls.singleton
-        Server.k4_server.unsubscribe_response('KS;', singleton.on_keyer_speed_change)
+        self = cls.singleton
+        if not self:
+            return
+        Server.k4_server.unsubscribe_response('KS;', self.on_keyer_speed_change)
 
-        if singleton.keyer_thread != None:
-            singleton.send_paddle_event(singleton.CLOSE_EVENT, 0)
-            singleton.keyer_thread.join()
+        if self.keyer_thread:
+            self.send_paddle_event(self.CLOSE_EVENT, 0)
+            self.keyer_thread.join()
 
     @classmethod
     def get_keying_mode(cls):
@@ -7640,10 +8067,40 @@ class Keyer():
         Settings.main().put_save('Keyer', 'keying_mode', mode)
 
     @classmethod
-    def set_device_type(cls, typ):
-        cls.device_type_straight_key = 'Straight Key' in typ
-        cls.type_Midi = 'MIDI' in typ
-        cls.device_type = typ
+    def set_message_callback(cls):
+        self = cls.singleton
+        if not self:
+            return
+
+        cls.cancel_message_callback()
+        if cls.device_type_MIDI:
+            MidiInput.set_message_callback(self.midi_message_callback)
+        if cls.device_type_serial:
+            SerialInput.set_message_callback(self.serial_message_callback)
+
+    @classmethod
+    def cancel_message_callback(cls):
+        MidiInput.cancel_message_callback()
+        SerialInput.cancel_message_callback()
+
+    @classmethod
+    def set_device_type(cls, typ = None):
+        if not typ:
+            typ = cls.device_type
+        else:
+            if typ == 'None':
+                typ = None
+            cls.device_type = typ
+
+        if typ:
+            cls.device_type_straight_key = 'Straight Key' in typ
+            cls.device_type_MIDI = 'MIDI' in typ
+            cls.device_type_serial = 'Serial' in typ
+            cls.set_message_callback()
+        else:
+            cls.device_type_straight_key = False
+            cls.device_type_MIDI = False
+            cls.device_type_serial = False
 
     @classmethod
     def set_dit_paddle_note(cls, note):
@@ -7654,15 +8111,24 @@ class Keyer():
         cls.dah_paddle_note = note
 
     @classmethod
+    def set_dit_paddle_signal(cls, note):
+        cls.dit_paddle_signal = note
+
+    @classmethod
+    def set_dah_paddle_signal(cls, note):
+        cls.dah_paddle_signal = note
+
+    @classmethod
     def set_iambic_memory_delay(cls, delay):
         cls.iambic_memory_delay = delay
 
     def __init__(self):
-        # for midi message callback
         self.DIT_DOWN_EVENT = 'dit_down'
         self.DIT_UP_EVENT = 'dit_up'
         self.DAH_DOWN_EVENT = 'dah_down'
         self.DAH_UP_EVENT = 'dah_up'
+        self.STRAIGHT_KEY_DOWN_EVENT = self.DIT_DOWN_EVENT
+        self.STRAIGHT_KEY_UP_EVENT = self.DIT_UP_EVENT
         self.CLOSE_EVENT = 'close'
 
         self.delta = 0
@@ -7677,7 +8143,6 @@ class Keyer():
         self.previous_key_up_timestamp = 0
 
         # for keyer handling
-
         self.paddle_timestamp = 0
         self.dit_down_timestamp = 0
         self.dit_up_timestamp = 0
@@ -7687,9 +8152,11 @@ class Keyer():
         self.previous_elt_was_dah = None
 
         Server.k4_server.subscribe_response('KS;', self.on_keyer_speed_change)
+        if self.keyer_thread:
+            self.keyer_thread.join()
+
         self.keyer_thread = threading.Thread(target=self.keyer_loop, name='keyer_thread')
         self.keyer_thread.start()
-        MidiInput.set_message_callback(self.midi_message_callback)
 
     def midi_message_callback(self, event, data=None):
         message, deltatime = event
@@ -7741,6 +8208,22 @@ class Keyer():
                 dprint1("unexpected event 0x%2x" % event)
         self.delta = 0
 
+    def serial_message_callback(self, event):
+        message, deltatime = event
+        signal, asserted = message
+
+        if signal == self.dit_paddle_signal:
+            if asserted:
+                self.send_paddle_event(self.DIT_DOWN_EVENT, deltatime)
+            else:
+                self.send_paddle_event(self.DIT_UP_EVENT, deltatime)
+
+        elif signal == self.dah_paddle_signal:
+            if asserted:
+                self.send_paddle_event(self.DAH_DOWN_EVENT, deltatime)
+            else:
+                self.send_paddle_event(self.DAH_UP_EVENT, deltatime)
+
     def send_paddle_event(self, event, delta_time):
         self.paddle_event = event
         if self.device_type_straight_key:
@@ -7775,7 +8258,7 @@ class Keyer():
                 self.iambic_loop()
 
     def straight_key_event(self, event, timestamp):
-        if event == self.DIT_DOWN_EVENT:
+        if event == self.STRAIGHT_KEY_DOWN_EVENT:
             self.previous_key_down_timestamp = timestamp
             up_duration = timestamp - self.previous_key_up_timestamp
             milliseconds = round(up_duration * 1000)
@@ -7783,7 +8266,7 @@ class Keyer():
                 milliseconds = 0
             Server.k4_server.send_str(f'KZD{milliseconds:04d};')
             Audio.start_sidetone()
-        elif event == self.DIT_UP_EVENT:
+        elif event == self.STRAIGHT_KEY_UP_EVENT:
             self.previous_key_up_timestamp = timestamp
             down_duration = timestamp - self.previous_key_down_timestamp
             milliseconds = round(down_duration * 1000)
