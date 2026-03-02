@@ -1129,10 +1129,13 @@ class Server():
 
     def received_audio_packet(self, payload):
         Audio.output_packet_counter += 1
-        queued_count = self.output_audio_queue.qsize()
-        queue_full = queued_count > Audio.output_packet_qlen + 5
-        if queue_full:
-            return
+        while True:
+            queued_count = self.output_audio_queue.qsize()
+            queue_full = queued_count > Audio.output_packet_qlen + 1
+            if queue_full:
+                self.output_audio_queue.get_nowait()
+            else:
+                break
 
         if queued_count == 0:
             Audio.reset_output_packet_counter()
@@ -4309,11 +4312,6 @@ class Audio():
 
         self = cls.singleton
         self.mute_k4_audio = True
-        try:
-            while self.output_queue.get_nowait():
-                pass
-        except queue.Empty:
-            pass
         self.sidetone_event.set()
 
     @classmethod
