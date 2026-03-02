@@ -7954,7 +7954,7 @@ class SerialInput():
 
         port_name = self.port_name
 
-        debounce_time = .000
+        debounce_time = .020
 
         while port_name == self.port_name and self.port:
             try:
@@ -8262,6 +8262,8 @@ class Keyer():
             milliseconds = round(up_duration * 1000)
             if milliseconds > 2500:
                 milliseconds = 0
+            elif milliseconds < 35:
+                milliseconds = 35;
             Server.k4_server.send_str(f'KZD{milliseconds:04d};')
             Audio.start_sidetone()
         elif event == self.STRAIGHT_KEY_UP_EVENT:
@@ -8270,6 +8272,11 @@ class Keyer():
             milliseconds = round(down_duration * 1000)
             if milliseconds > 2500:
                 milliseconds = 0
+            elif milliseconds < 35:
+# Very short key down times cause ADC overload
+# I've seen it (rarely) at 40 mS, which is 30 WPM
+# 35 milliseconds is approximately 34-35 WPM
+                milliseconds = 35;
             Server.k4_server.send_str(f'KZU{milliseconds:04d};')
             Audio.stop_sidetone()
 
