@@ -2453,7 +2453,7 @@ class SliderWidget():
                          variable=self.value_var)
         self.scale.grid(row=0, column=0, sticky='nw')
 
-        self.value_var.trace('w', self.value_changed)
+        self.value_var.trace_add('write', self.value_changed)
 
         if sys.platform in ('win32', 'darwin'):
             mouse_buttons = ('<MouseWheel>',)
@@ -3034,7 +3034,7 @@ class Equalizers(Widget):
         self.enabled_checkbutton = tk.Checkbutton(active_row0_frame, text='Disabled', var=self.enabled_var, onvalue=1, offvalue=0,
             indicatoron=False, font=self.font(), fg=self.fg, bg='yellow', selectcolor=self.bg, width=len('Disabled'))
         self.enabled_checkbutton.grid(row=0, column=0, sticky='w', pady=5)
-        self.enabled_var.trace('w', self.on_enabled_changed)
+        self.enabled_var.trace_add('write', self.on_enabled_changed)
 
         select_label = tk.Label(active_row0_frame,
                     text='Select: ',
@@ -3231,7 +3231,7 @@ class Equalizers(Widget):
                              fg=self.fg,
                              variable=value)
             scale.grid(row=0, column=i+1, pady=0)
-            value.trace('w', lambda var, index, mode, i=i: self.on_value_changed(var, index, mode, i))
+            value.trace_add('write', lambda var, index, mode, i=i: self.on_value_changed(var, index, mode, i))
             self.scales.append(scale)
 
             label = tk.Label(self.equalizer_frame,
@@ -3243,10 +3243,10 @@ class Equalizers(Widget):
                              bg=self.bg)
             label.grid(row=1, column=i+1, pady=0)
 
-        self.vfo_var.trace('w', self.on_vfo_changed)
-        self.alt_var.trace('w', self.on_alt_changed)
-        self.tr_mode_var.trace('w', self.on_tr_mode_changed)
-        self.active_alt_var.trace('w', self.on_active_alt_changed)
+        self.vfo_var.trace_add('write', self.on_vfo_changed)
+        self.alt_var.trace_add('write', self.on_alt_changed)
+        self.tr_mode_var.trace_add('write', self.on_tr_mode_changed)
+        self.active_alt_var.trace_add('write', self.on_active_alt_changed)
 
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
@@ -5390,7 +5390,7 @@ class AppSettings_widget(Widget):
                 )
         input_combobox.grid(row=1, column=0, sticky='w')
 
-        self.input_val.trace('w', self.on_input_combobox_changed)
+        self.input_val.trace_add('write', self.on_input_combobox_changed)
 
         return input_frame
 
@@ -5443,7 +5443,7 @@ class AppSettings_widget(Widget):
                 )
         output_combobox.grid(row=0, column=0, sticky='w')
 
-        self.output_val.trace('w', self.on_output_combobox_changed)
+        self.output_val.trace_add('write', self.on_output_combobox_changed)
 
         return output_frame
 
@@ -5495,7 +5495,7 @@ class AppSettings_widget(Widget):
                 )
         control_combobox.grid(row=0, column=0, sticky='w')
 
-        self.k4_control_audio_val.trace('w', self.on_k4_control_audio_combobox_changed)
+        self.k4_control_audio_val.trace_add('write', self.on_k4_control_audio_combobox_changed)
 
         return control_frame
 
@@ -5546,7 +5546,7 @@ class AppSettings_widget(Widget):
                 )
         receive_latency_combobox.grid(row=0, column=0, sticky='w')
 
-        self.receive_latency_val.trace('w', self.on_receive_latency_combobox_changed)
+        self.receive_latency_val.trace_add('write', self.on_receive_latency_combobox_changed)
 
         return receive_latency_frame
 
@@ -5594,7 +5594,7 @@ class AppSettings_widget(Widget):
                 )
         remote_audio_latency_combobox.grid(row=0, column=0, sticky='w')
 
-        self.remote_audio_latency_val.trace('w', self.on_remote_audio_latency_combobox_changed)
+        self.remote_audio_latency_val.trace_add('write', self.on_remote_audio_latency_combobox_changed)
 
         return remote_audio_latency_frame
 
