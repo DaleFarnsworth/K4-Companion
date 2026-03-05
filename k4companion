@@ -42,7 +42,6 @@ import hashlib
 import io
 import math
 import numpy
-import opuslib
 import optparse
 import os
 import pathlib
@@ -68,6 +67,12 @@ import tkinter.ttk as ttk
 import tkinter.font as tkFont
 import traceback
 import yaml
+
+# Modify the PATH on Windows to look for opus.dll in the current directory
+if sys.platform == 'win32':
+    os.environ['PATH'] = os.environ.get('PATH', '') + '.' + os.pathsep
+
+import opuslib
 
 appname = 'k4companion'
 version = "1.6.2"
