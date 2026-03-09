@@ -7705,6 +7705,7 @@ class MidiInput():
     port_updater = None
     port_serial_number = 0
     previous_port_serial_number = -1
+    message_callback = None
 
     @classmethod
     def get_singleton(cls):
@@ -7741,8 +7742,9 @@ class MidiInput():
 
     @classmethod
     def set_message_callback(cls, callback):
+        cls.message_callback = callback
         self = cls.get_singleton()
-        self.midiin.set_callback(callback)
+        self.midiin.set_callback(cls.message_callback)
 
     @classmethod
     def cancel_message_callback(cls):
@@ -7771,11 +7773,13 @@ class MidiInput():
                 cls.port_updater()
 
         if self.port_name == 'None':
+            cls.previous_port_serial_number = -1
+            self.midiin.close_port()
             return
 
         port_index = -1
         try:
-            port_index = port_names.index(self.port_name)
+            port_index = self.port_names.index(self.port_name)
         except:
             self.midiin.close_port()
             cls.previous_port_serial_number = -1
@@ -7783,17 +7787,18 @@ class MidiInput():
                 self.warned = True
                 Popup.warning("Midi device {name} not found".format(name=self.port_name))
 
-        if port_index > 0 and cls.port_serial_number != cls.previous_port_serial_number:
+        if port_index >= 0 and cls.port_serial_number != cls.previous_port_serial_number:
             self.warned = False
             self.midiin.close_port()
             self.midiin.open_port(port_index)
             cls.previous_port_serial_number = cls.port_serial_number
 
-            time.sleep(.1)      # wait for queued messages to be available
+            time.sleep(.1)      # wait for queued messages to become available
             while True:         # clear queued messages
                 message = self.midiin.get_message()
                 if message == None:
                     break
+            self.midiin.set_callback(self.message_callback)
 
 class SerialInput():
     singleton = None
