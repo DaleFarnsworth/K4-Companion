@@ -1134,6 +1134,9 @@ class Server():
                 rb = rb[end_offset:]
 
     def received_audio_packet(self, payload):
+        if Audio.mute_k4_audio:
+            return
+
         Audio.output_packet_counter += 1
         while True:
             queued_count = self.output_audio_queue.qsize()
@@ -1146,8 +1149,7 @@ class Server():
         if queued_count == 0:
             Audio.reset_output_packet_counter()
 
-        if queued_count < Audio.output_packet_qlen + 2:
-            self.output_audio_queue.put(payload)
+        self.output_audio_queue.put(payload)
 
     def subscribe_response(self, cmd, callback, send=True):
         base = cmd_base(cmd)
@@ -4113,6 +4115,7 @@ class Audio():
     encode_mode_opus = 2
     encode_mode_opus_float = 3
     input_encode_mode = encode_mode_opus_float
+    mute_k4_audio = False
     server = None
 
     output_packet_counter = 0
@@ -4317,7 +4320,7 @@ class Audio():
             return
 
         self = cls.singleton
-        self.mute_k4_audio = True
+        cls.mute_k4_audio = True
         self.sidetone_event.set()
 
     @classmethod
@@ -4326,7 +4329,7 @@ class Audio():
             return
 
         self = cls.singleton
-        self.mute_k4_audio = False
+        cls.mute_k4_audio = False
         self.sidetone_event.clear()
 
     def pyaudio(cls):
@@ -4358,6 +4361,8 @@ class Audio():
         return supported
 
     def __init__(self):
+        self.input_stream = None
+        self.output_stream = None
         self.input_thread = None
         self.output_thread = None
         self.output_device_thread = None
@@ -4368,7 +4373,6 @@ class Audio():
         self.output_device_infos = {}
         self.sub_on = True
         self.transmit_audio = False
-        self.mute_k4_audio = False
         self.pitch = 600
         self.sidetone_volume = 30
         self.sidetone_thread = None
@@ -4611,7 +4615,9 @@ class Audio():
             # send 1 mS at a time to permit timely sidetone generation
             millisecond_len = len(stereo) // self.milliseconds_per_packet
             for i in range(0, len(stereo), millisecond_len):
-                if not self.mute_k4_audio:
+                if self.mute_k4_audio:
+                    break
+                else:
                     mS_samples = stereo[i:i+millisecond_len]
                     self.output_device_queue.put(mS_samples.tobytes())
 
@@ -4622,14 +4628,12 @@ class Audio():
                 self.output_device_queue.put(self.sidetone_samples)
 
     def output_device_loop(self):
-#        counter=0
         while True:
             samples = self.output_device_queue.get()
-#            tprint(f'{len(samples)=} {counter=}')
-#            counter += 1
             if len(samples) == 0:
                 return
-            self.output_stream.write(samples)
+            if self.output_stream:
+                self.output_stream.write(samples)
 
     def on_transmit_changed(self, server, response):
         transmit = server.k4_parameters.get('TR') == 'T'
@@ -5728,8 +5732,7 @@ class AppSettings_widget(Widget):
         self.keyer_device_type(device_type)
 
     def enable_midi_device_frame(self):
-        self.serial_device_frame.grid_forget()
-        self.serial_signal_frame.grid_forget()
+        self.disable_serial_device_frame()
 
         self.midi_device_frame.grid(row=1, column=0, sticky='w', pady=2)
         self.midi_note_frame.grid(row=2, column=0, sticky='w', pady=2)
@@ -5748,8 +5751,7 @@ class AppSettings_widget(Widget):
         self.keyer_dah_paddle_signal_frame.grid_forget()
 
     def enable_serial_device_frame(self):
-        self.midi_device_frame.grid_forget()
-        self.midi_note_frame.grid_forget()
+        self.disable_midi_device_frame()
 
         self.serial_device_frame.grid(row=1, column=0, sticky='w', pady=2)
         self.serial_signal_frame.grid(row=2, column=0, sticky='w', pady=2)
@@ -7955,12 +7957,10 @@ class SerialInput():
 
     def signal_loop(self):
         signal_funcs = {
-            'RTS': self.rts,
             'CTS': self.cts,
-            'DTR': self.dtr,
+            'DCD': self.cd,
             'DSR': self.dsr,
             'RI': self.ri,
-            'DCD': self.cd,
         }
 
         port_name = self.port_name
@@ -7970,39 +7970,29 @@ class SerialInput():
         while port_name == self.port_name and self.port:
             try:
                 dit_state = signal_funcs[Keyer.dit_paddle_signal]()
-                dah_state = signal_funcs[Keyer.dah_paddle_signal]()
-            except OSError:
+                dah_state = signal_funcs[Keyer.dah_paddle_signal]() and not Keyer.device_type_straight_key
+            except (OSError, AttributeError):
                 return              # port was closed just before reading the signal
 
-#            tprint(f'1 {time.perf_counter()=} {dit_state=}')
             if dit_state != self.dit_state:
                 self.dit_time = time.perf_counter()
                 self.dit_state = dit_state
-#                counter = 0
             if dah_state != self.dah_state:
                 self.dah_time = time.perf_counter()
                 self.dah_state = dah_state
             if self.dit_time:
-#                tprint(f'xyzzy 4 {self.dit_time=} {self.dit_state=}')
                 now = time.perf_counter()
                 if now - self.dit_time >= debounce_time:
-#                    tprint(f'counter was {counter} {self.dit_state=}')
                     if self.previous_dit_time:
                         delta_time = self.dit_time - self.previous_dit_time
                     else:
                         delta_time = 0
                     if self.message_callback:
                         message = (Keyer.dit_paddle_signal, dit_state)
-#                        tprint(f'{(message, delta_time)=}')
-
                         self.message_callback((message, delta_time))
                     self.previous_dit_state = dit_state
                     self.previous_dit_time = self.dit_time
                     self.dit_time = None
-#                    tprint(f'xyzzy 5 {time.perf_counter()=}')
-#                else:
-#                    tprint(f'dbouncing {counter=} {self.dit_state=}')
-#                    counter += 1
             if self.dah_time:
                 now = time.perf_counter()
                 if now - self.dah_time >= debounce_time:
@@ -8016,7 +8006,6 @@ class SerialInput():
                     self.previous_dah_state = dah_state
                     self.previous_dah_time = self.dah_time
                     self.dah_time = None
-#            tprint(f'9 {time.perf_counter()=}')
 
             time.sleep(.001)
 
@@ -8227,7 +8216,7 @@ class Keyer():
             else:
                 self.send_paddle_event(self.DIT_UP_EVENT, deltatime)
 
-        elif signal == self.dah_paddle_signal:
+        if signal == self.dah_paddle_signal and not self.device_type_straight_key:
             if asserted:
                 self.send_paddle_event(self.DAH_DOWN_EVENT, deltatime)
             else:
