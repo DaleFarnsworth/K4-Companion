@@ -497,7 +497,7 @@ class Server():
         self.subscribe_connect(self.on_server_connect)
 
     def on_server_connect(self):
-        self.subscribe_response('OV;OV$;', self.on_ov_received, send=False)
+        self.subscribe_responses('OV;OV$;', self.on_ov_received, send=False)
         self.request_initial_parameters()
         self.update_local_audio_parameters()
         if self.type == 'k4' and not self.cat_only:
@@ -708,6 +708,7 @@ class Server():
             self.update_k4_parameter(cmd_base(cmd), cmd_parameter(cmd))
             if orig_param != None:
                 self.update_k4_parameter(cmd_base(cmd), orig_param)
+        Keyer.subscribe_enabled()
 
     def on_ov_received(self, response):
         param = cmd_parameter(response)
@@ -738,7 +739,7 @@ class Server():
     def close(self):
         MidiInput.close()
         SerialInput.close()
-        Keyer.close()
+        Keyer.unsubscribe_enabled()
         self.connected = False
         if self.type == 'k4':
             self.send_queue.put('shutdown')
@@ -1274,23 +1275,30 @@ class Server():
 
     def tx_mode(self):
         base = 'MD'
-        split = self.k4parameter('FT') == '1'
+        split = self.k4_parameter('FT') == '1'
         if split:
             base += '$'
-        mode_index = int(self.k4parameter(base))
+        mode_index = int(self.k4_parameter(base))
         modes = ('', 'LSB', 'USB', 'CW', 'FM', 'AM', 'DATA', 'CW-R', '', 'DATA-R')
         mode = modes[mode_index]
         return mode
 
     def tx_cw(self):
         tx_mode = self.tx_mode()
-        if tx_mode == 'CW' or 'CW-R':
+        if tx_mode in ('CW', 'CW-R'):
             return True
-        if tx_mode == 'LSB' or mode == 'USB':
-            cw_in_ssb = Menu.entry(104).current == 1
-            if cw_in_ssb:
-                return True
+# Commented out because K4 stays in TX.  K4 bug?
+#        if tx_mode in ('LSB', 'USB'):
+#            cw_in_ssb = Menu.entry(104).current == 1
+#            if cw_in_ssb:
+#                return True
         return False
+
+    def subscribe_tx_cw_changed(self, callback):
+        self.subscribe_responses('MD;MD$;FT;MEDF;', callback)
+
+    def unsubscribe_tx_cw_changed(self, callback):
+        self.unsubscribe_responses('MD;MD$;FT;MEDF;', callback)
 
 class Widget():
     blink_mS = 500
@@ -6578,7 +6586,6 @@ class CW(TextButtons):
         self.top_level.bind('<FocusOut>', self.focus_out)
 
         self.set_geometry()
-        Keyer.open()
 
     def focus_in(self, event=None):
         self.top_level.bind('<Key>', self.on_key_pressed)
@@ -6628,7 +6635,7 @@ class CW(TextButtons):
         self.server.subscribe_response('TB;', self.on_main_text_buffer)
         self.server.subscribe_response('TB$;', self.on_sub_text_buffer)
         self.server.subscribe_response('ACN1;', self.on_transmit_ack)
-        self.server.subscribe_response('KS;', self.on_speed_change)
+        self.server.subscribe_response('KS;', self.on_keyer_speed_change)
 
     def add_more_tab(self):
         self.more_frame = tk.Frame(self.notebook)
@@ -7051,7 +7058,7 @@ and everything after the & is sent.'''
         entry.grid(row=0, column=1, sticky='w')
 
     def on_received_initial_parameters(self, response):
-        self.server.subscribe_responses('MD;MD$;FT;', self.on_mode_response)
+        self.server.subscribe_tx_cw_changed(self.on_tx_cw_changed)
 
     def hide(self):
         if self.is_open:
@@ -7104,7 +7111,7 @@ and everything after the & is sent.'''
         super().store_button_value(buttons, index)
         self.save_settings()
 
-    def on_mode_response(self, response=None):
+    def on_tx_cw_changed(self, response=None):
         if self.server.tx_cw():
             self.show()
         else:
@@ -8037,18 +8044,30 @@ class Keyer():
     def get_singleton(cls):
         if cls.singleton == None:
             cls.singleton = Keyer()
-            cls.set_message_callback()
             cls.set_device_type()
-            self = cls.singleton
-            server = Server.k4_server
-            server.subscribe_response('KS;', self.on_speed_change)
-            server.subscribe_response('MEDF', self.on_check_enabled)
+            Server.k4_server.subscribe_response('KS;', cls.singleton.on_speed_change)
 
         return cls.singleton
 
     @classmethod
     def open(cls):
         cls.get_singleton()
+
+    @classmethod
+    def subscribe_enabled(cls):
+        Server.k4_server.subscribe_tx_cw_changed(cls.on_tx_cw_changed)
+
+    @classmethod
+    def unsubscribe_enabled(cls):
+        cls.close()
+        Server.k4_server.unsubscribe_tx_cw_changed(cls.on_tx_cw_changed)
+
+    @classmethod
+    def on_tx_cw_changed(cls, response=None):
+        if Server.k4_server.tx_cw():
+            cls.open()
+        else:
+            cls.close()
 
     @classmethod
     def close(cls):
@@ -8060,6 +8079,7 @@ class Keyer():
         if self.keyer_thread:
             self.send_paddle_event(self.CLOSE_EVENT, 0)
             self.keyer_thread.join()
+        cls.singleton = None
 
     @classmethod
     def get_keying_mode(cls):
@@ -8107,6 +8127,7 @@ class Keyer():
             cls.device_type_straight_key = False
             cls.device_type_MIDI = False
             cls.device_type_serial = False
+            cls.cancel_message_callback()
 
     @classmethod
     def set_dit_paddle_note(cls, note):
