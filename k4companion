@@ -5383,11 +5383,11 @@ class AppSettings_widget(Widget):
         audio_output_frame = self.audio_output_settings(frame)
         audio_output_frame.grid(row=1, column=0, sticky='w', pady=2)
         audio_k4_control_frame = self.audio_k4_control_setting(frame)
-        audio_k4_control_frame.grid(row=2, column=0, sticky='w', pady=2)
+        audio_k4_control_frame.grid(row=0, column=1, sticky='w', pady=2)
         audio_receive_latency_frame = self.audio_receive_latency_setting(frame)
-        audio_receive_latency_frame.grid(row=3, column=0, sticky='w', pady=2)
+        audio_receive_latency_frame.grid(row=1, column=1, sticky='w', pady=2)
         audio_remote_audio_latency_frame = self.audio_remote_audio_latency_setting(frame)
-        audio_remote_audio_latency_frame.grid(row=4, column=0, sticky='w', pady=2)
+        audio_remote_audio_latency_frame.grid(row=2, column=1, sticky='w', pady=2)
 
         return frame
 
@@ -5720,6 +5720,7 @@ class AppSettings_widget(Widget):
 
         self.keyer_midi_device_settings(frame)
         self.keyer_serial_device_settings(frame)
+        self.keyer_mode_settings(frame)
 
         keyer_device_type_frame = self.keyer_device_type_settings(frame)
         keyer_device_type_frame.grid(row=0, column=0, sticky='nw', pady=2)
@@ -5728,7 +5729,7 @@ class AppSettings_widget(Widget):
 
     def keyer_device_type_settings(self, frame):
         keyer_device_type_frame = tk.LabelFrame(frame,
-                                    text='Keying Device Type',
+                                    text='Device Type',
                                     font=self.label_font(),
                                     labelanchor='nw',
                                     bd=2,
@@ -5772,15 +5773,18 @@ class AppSettings_widget(Widget):
         if Keyer.device_type_straight_key:
             self.dit_paddle_note_frame.configure(text='Straight Key Note')
             self.keyer_dah_paddle_note_frame.grid_forget()
+            self.keyer_mode_frame.grid_forget()
         else:
             self.dit_paddle_note_frame.configure(text='Dit Paddle Note')
             self.keyer_dah_paddle_note_frame.grid(row=0, column=1, sticky='w', pady=2)
+            self.keyer_mode_frame.grid(row=3, column=0, sticky='w', padx=2, pady=2)
 
     def disable_midi_device_frame(self):
         self.midi_device_frame.grid_forget()
         self.midi_note_frame.grid_forget()
         self.keyer_dit_paddle_signal_frame.grid_forget()
         self.keyer_dah_paddle_signal_frame.grid_forget()
+        self.keyer_mode_frame.grid_forget()
 
     def enable_serial_device_frame(self):
         self.disable_midi_device_frame()
@@ -5794,6 +5798,7 @@ class AppSettings_widget(Widget):
         else:
             self.dit_paddle_signal_frame.configure(text='Dit Paddle Signal')
             self.keyer_dah_paddle_signal_frame.grid(row=0, column=1, sticky='w', pady=2)
+            self.keyer_mode_frame.grid(row=3, column=0, sticky='w', padx=2, pady=2)
 
     def disable_serial_device_frame(self):
         self.serial_device_frame.grid_forget()
@@ -5802,7 +5807,7 @@ class AppSettings_widget(Widget):
         self.keyer_dah_paddle_signal_frame.grid_forget()
 
     def keyer_midi_device_settings(self, frame):
-        self.midi_device_frame = tk.LabelFrame(frame, text='Keying Device',
+        self.midi_device_frame = tk.LabelFrame(frame, text='Device',
             font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
 
         self.midi_note_frame = tk.Frame(frame)
@@ -5896,7 +5901,7 @@ class AppSettings_widget(Widget):
             self.keyer_dah_paddle_note()
 
     def keyer_serial_device_settings(self, frame):
-        self.serial_device_frame = tk.LabelFrame(frame, text='Keying Device',
+        self.serial_device_frame = tk.LabelFrame(frame, text='Device',
             font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
 
         self.serial_signal_frame = tk.Frame(frame)
@@ -5987,6 +5992,41 @@ class AppSettings_widget(Widget):
             self.keyer_dah_paddle_signal(signal)
         except:
             self.keyer_dah_paddle_signal()
+
+    def keyer_mode_settings(self, frame):
+        self.keyer_mode_frame = tk.LabelFrame(frame,
+                                    text='Mode',
+                                    font=self.label_font(),
+                                    labelanchor='nw',
+                                    bd=2,
+                                    padx=2,
+                                    pady=2,
+                                    relief='raised')
+
+        selectbg = self.bg
+        selectfg = self.fg
+        self.keyer_mode_dropdown = Dropdown_Widget(self.keyer_mode_frame, bd=2,
+            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
+            font=self.font(), justify='left', height=0)
+        self.keyer_mode_dropdown.grid(row=0, column=0)
+
+        self.keyer_mode_dropdown.select_callback(self.on_select_keyer_mode)
+
+        keyer_modes = (
+                Keyer.MODE_IAMBIC,
+                Keyer.MODE_IAMBIC_A,
+                Keyer.MODE_IAMBIC_B,
+                Keyer.MODE_ULTIMATIC,
+            )
+
+        self.keyer_mode_dropdown.values(keyer_modes)
+        keyer_mode = Keyer.get_keyer_mode()
+        self.keyer_mode_dropdown.value(keyer_mode)
+        return self.keyer_mode_frame
+
+    def on_select_keyer_mode(self, event):
+        keyer_mode = self.keyer_mode_dropdown.value()
+        Keyer.set_keyer_mode(keyer_mode)
 
 class FWversions(Text):
     def __init__(self, config_info, container):
@@ -6695,7 +6735,7 @@ class CW(TextButtons):
 
         cw_pitch_frame = tk.LabelFrame(self.more_frame, text='CW Pitch',
             font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=5, relief='raised')
-        cw_pitch_frame.grid(row=0, column=1, sticky='w', padx=2, pady=2)
+        cw_pitch_frame.grid(row=1, column=0, sticky='w', padx=2, pady=2)
 
         cw_pitch_options = {
             'orient': 'horizontal', 'from': 300, 'to': 900,
@@ -6710,7 +6750,7 @@ class CW(TextButtons):
         self.cw_pitch.scale.config(length=apf_width-8)
 
         decode_frame = tk.Frame(self.more_frame)
-        decode_frame.grid(row=1, column=0, sticky='nw', padx=2, pady=5)
+        decode_frame.grid(row=2, column=0, sticky='nw', padx=2, pady=5)
 
         main_decode_frame = tk.LabelFrame(decode_frame, text='Main Decode',
             font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
@@ -6810,7 +6850,7 @@ class CW(TextButtons):
 
         key_down_delay_frame = tk.LabelFrame(self.more_frame, text='Key Down Initial Delay',
             font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=5, relief='raised')
-        key_down_delay_frame.grid(row=2, column=0, sticky='w', padx=2, pady=2)
+        key_down_delay_frame.grid(row=3, column=0, sticky='w', padx=2, pady=2)
 
         key_down_delay_options = {
             'orient': 'horizontal', 'from': 0, 'to': 1000,
@@ -6819,41 +6859,6 @@ class CW(TextButtons):
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
         }
         self.key_down_delay = SliderWidget(self, key_down_delay_frame, key_down_delay_options)
-
-        keying_mode_frame = tk.LabelFrame(self.more_frame,
-                                    text='Keying Mode',
-                                    font=self.label_font(),
-                                    labelanchor='nw',
-                                    bd=2,
-                                    padx=2,
-                                    pady=2,
-                                    relief='raised')
-        keying_mode_frame.grid(row=3, column=0, sticky='w', padx=2, pady=2)
-
-        selectbg = self.bg
-        selectfg = self.fg
-        self.keying_mode_dropdown = Dropdown_Widget(keying_mode_frame, bd=2,
-            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
-            font=self.font(), justify='left', height=0)
-        self.keying_mode_dropdown.grid(row=0, column=0)
-
-        self.keying_mode_dropdown.select_callback(self.on_select_keying_mode)
-
-        keying_modes = (
-                Keyer.MODE_IAMBIC,
-                Keyer.MODE_IAMBIC_A,
-                Keyer.MODE_IAMBIC_B,
-                Keyer.MODE_ULTIMATIC,
-            )
-
-        self.keying_mode_dropdown.values(keying_modes)
-        keying_mode = Keyer.get_keying_mode()
-        self.keying_mode_dropdown.value(keying_mode)
-        return keying_mode_frame
-
-    def on_select_keying_mode(self, event):
-        keying_mode = self.keying_mode_dropdown.value()
-        Keyer.set_keying_mode(keying_mode)
 
     def add_config_tab(self):
         self.config_frame = tk.Frame(self.notebook)
@@ -8033,7 +8038,7 @@ class Keyer():
     device_type_straight_key = False
     device_type_MIDI = False
     device_type_serial = False
-    keying_mode = MODE_IAMBIC_B
+    keyer_mode = MODE_IAMBIC_B
     dit_paddle_note = None
     dah_paddle_note = None
     dit_paddle_signal = None
@@ -8082,15 +8087,15 @@ class Keyer():
         cls.singleton = None
 
     @classmethod
-    def get_keying_mode(cls):
-        mode = Settings.main().get('Keyer', 'keying_mode', cls.MODE_IAMBIC_B)
-        cls.keying_mode = mode
+    def get_keyer_mode(cls):
+        mode = Settings.main().get('Keyer', 'keyer_mode', cls.MODE_IAMBIC_B)
+        cls.keyer_mode = mode
         return mode
 
     @classmethod
-    def set_keying_mode(cls, mode):
-        cls.keying_mode = mode
-        Settings.main().put_save('Keyer', 'keying_mode', mode)
+    def set_keyer_mode(cls, mode):
+        cls.keyer_mode = mode
+        Settings.main().put_save('Keyer', 'keyer_mode', mode)
 
     @classmethod
     def set_message_callback(cls):
@@ -8278,7 +8283,7 @@ class Keyer():
                 return
             if self.device_type_straight_key:
                 self.straight_key_event(event, timestamp)
-            elif self.keying_mode == self.MODE_ULTIMATIC:
+            elif self.keyer_mode == self.MODE_ULTIMATIC:
                 self.ultimatic_loop()
             else:
                 self.iambic_loop()
@@ -8311,10 +8316,10 @@ class Keyer():
     def iambic_loop(self):
         while True:
             if (self.previous_elt_timestamp == None or
-                self.keying_mode == self.MODE_IAMBIC):
+                self.keyer_mode == self.MODE_IAMBIC):
                 dit_mem = False
                 dah_mem = False
-            elif self.keying_mode == self.MODE_IAMBIC_A:
+            elif self.keyer_mode == self.MODE_IAMBIC_A:
                 dit_mem = (self.previous_elt_was_dah and
                            (self.dit_down_timestamp - self.previous_elt_timestamp) >
                            (self.dit_seconds * self.iambic_memory_delay))
