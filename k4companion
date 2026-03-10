@@ -738,6 +738,7 @@ class Server():
     def close(self):
         MidiInput.close()
         SerialInput.close()
+        Keyer.close()
         self.connected = False
         if self.type == 'k4':
             self.send_queue.put('shutdown')
@@ -1270,6 +1271,26 @@ class Server():
         if Settings.server_count() == 1:
             return True
         return Settings.restarting()
+
+    def tx_mode(self):
+        base = 'MD'
+        split = self.k4parameter('FT') == '1'
+        if split:
+            base += '$'
+        mode_index = int(self.k4parameter(base))
+        modes = ('', 'LSB', 'USB', 'CW', 'FM', 'AM', 'DATA', 'CW-R', '', 'DATA-R')
+        mode = modes[mode_index]
+        return mode
+
+    def tx_cw(self):
+        tx_mode = self.tx_mode()
+        if tx_mode == 'CW' or 'CW-R':
+            return True
+        if tx_mode == 'LSB' or mode == 'USB':
+            cw_in_ssb = Menu.entry(104).current == 1
+            if cw_in_ssb:
+                return True
+        return False
 
 class Widget():
     blink_mS = 500
@@ -6607,7 +6628,7 @@ class CW(TextButtons):
         self.server.subscribe_response('TB;', self.on_main_text_buffer)
         self.server.subscribe_response('TB$;', self.on_sub_text_buffer)
         self.server.subscribe_response('ACN1;', self.on_transmit_ack)
-        self.server.subscribe_response('KS;', self.on_keyer_speed_change)
+        self.server.subscribe_response('KS;', self.on_speed_change)
 
     def add_more_tab(self):
         self.more_frame = tk.Frame(self.notebook)
@@ -7048,10 +7069,6 @@ and everything after the & is sent.'''
         if not self.is_open:
             return
 
-        MidiInput.close()
-        SerialInput.close()
-        Keyer.close()
-
         self.save_geometry()
 
         self.focus_out()
@@ -7088,35 +7105,19 @@ and everything after the & is sent.'''
         self.save_settings()
 
     def on_mode_response(self, response=None):
-        if self.tx_mode() in ('CW', 'CW-R'):
+        if self.server.tx_cw():
             self.show()
         else:
             self.hide()
 
-    def tx_mode(self):
-        base = 'MD'
-        split = self.k4param('FT') == '1'
-        if split:
-            base += '$'
-        mode_index = int(self.k4param(base))
-        modes = ('', 'LSB', 'USB', 'CW', 'FM', 'AM', 'DATA', 'CW-R', '', 'DATA-R')
-        mode = modes[mode_index]
-# The following lines are commented out because we don't support sending CW in SSB yet.
-#        if mode == 'LSB' or mode == 'USB':
-#            if self.k4param('TR') == 'R':
-#                cw_in_ssb = Menu.entry(104).current == 1
-#                if cw_in_ssb:
-#                    mode = 'CW'
-#            else:
-#                mode = f'{mode} Transmit'
-        return mode
-
     def append_tx_text(self, s):
-        tx_mode = self.tx_mode()
-        if tx_mode in ('CW', 'CW-R'):
+        if self.server.tx_cw():
             self.tx_text.append(s)
+            return True
         else:
+            tx_mode = self.server.tx_mode()
             Popup.warning(f'Cannot transmit CW in {tx_mode} mode.')
+            return False
 
     def send_button(self, index):
         value = self.button_values[index]
@@ -7126,8 +7127,8 @@ and everything after the & is sent.'''
         if self.tx_text.text() == '':
             self.tx_offset = 0
             self.tx_remaining_count = 0
-        self.append_tx_text(value)
-        self.send_cw()
+        if self.append_tx_text(value):
+            self.send_cw()
 
     def send_cw(self):
         if not self.is_open:
@@ -7263,8 +7264,8 @@ and everything after the & is sent.'''
                 if self.tx_text.text() == '':
                     self.tx_offset = 0
                     self.tx_remaining_count = 0
-                self.append_tx_text(text)
-                self.send_cw()
+                if self.append_tx_text(text):
+                    self.send_cw()
             elif event.keysym == 'Escape':
                 self.stop_sending()
             elif event.keysym == 'Delete':
@@ -7296,8 +7297,8 @@ and everything after the & is sent.'''
             Popup.warning(f'Character "{c}" not supported for CW')
             return 'break'
 
-        self.append_tx_text(c)
-        self.send_cw()
+        if self.append_tx_text(c):
+            self.send_cw()
         return 'break'
 
     def stop_sending(self, event=None):
@@ -8038,6 +8039,10 @@ class Keyer():
             cls.singleton = Keyer()
             cls.set_message_callback()
             cls.set_device_type()
+            self = cls.singleton
+            server = Server.k4_server
+            server.subscribe_response('KS;', self.on_speed_change)
+            server.subscribe_response('MEDF', self.on_check_enabled)
 
         return cls.singleton
 
@@ -8050,7 +8055,7 @@ class Keyer():
         self = cls.singleton
         if not self:
             return
-        Server.k4_server.unsubscribe_response('KS;', self.on_keyer_speed_change)
+        Server.k4_server.unsubscribe_response('KS;', self.on_speed_change)
 
         if self.keyer_thread:
             self.send_paddle_event(self.CLOSE_EVENT, 0)
@@ -8152,7 +8157,6 @@ class Keyer():
         self.previous_elt_timestamp = None
         self.previous_elt_was_dah = None
 
-        Server.k4_server.subscribe_response('KS;', self.on_keyer_speed_change)
         if self.keyer_thread:
             self.keyer_thread.join()
 
@@ -8353,7 +8357,7 @@ class Keyer():
         Audio.stop_sidetone()
         time.sleep(self.inter_element_seconds)
 
-    def on_keyer_speed_change(self, response=None):
+    def on_speed_change(self, response=None):
         # The length of a dit in seconds is 1.2 / wpm,
         wpm = int(response[2:].strip(';'))
         self.dit_seconds = 1.2/wpm
