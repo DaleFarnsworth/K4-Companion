@@ -733,7 +733,7 @@ class Server():
         if len(msg) > 0:
             timeout = 2000
             if ov_bits != 0:
-                timeout = 0
+                timeout = 3000
             Popup.modal(msg, timeout=timeout, color='yellow')
 
     def close(self):
