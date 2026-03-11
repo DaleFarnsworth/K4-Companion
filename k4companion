@@ -6690,21 +6690,6 @@ class CW(TextButtons):
 
         qsk_options = {
             'selections': [
-                { 'text': 'On',  'cmd': 'VXC1;' },
-                { 'text': 'Off', 'cmd': 'VXC0;' },
-            ],
-            'width': 3, 'bg': self.bg, 'fg': self.fg, 'font': self.font(),
-        }
-        ToggleWidget(self, qsk_onoff_frame, qsk_options)
-
-        delay_frame = tk.LabelFrame(qsk_frame, text='Delay',
-            font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
-        delay_frame.grid(row=0, column=1, sticky='w', padx=2, pady=2)
-
-        delay_button_frame = tk.Frame(delay_frame)
-        delay_button_frame.grid(row=0, column=0, sticky='nw')
-        delay_button_options = {
-            'selections': [
                 {
                     'text': 'On',
                     'cmd': 'SDC1;',
@@ -6720,7 +6705,11 @@ class CW(TextButtons):
             ],
             'width': 3, 'bg': self.bg, 'fg': self.fg, 'font': self.font(),
         }
-        ToggleWidget(self, delay_button_frame, delay_button_options)
+        ToggleWidget(self, qsk_onoff_frame, qsk_options)
+
+        delay_frame = tk.LabelFrame(qsk_frame, text='Delay',
+            font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
+        delay_frame.grid(row=0, column=1, sticky='w', padx=2, pady=2)
 
         delay_slider_frame = tk.Frame(delay_frame)
         delay_slider_frame.grid(row=0, column=1, sticky='w')
