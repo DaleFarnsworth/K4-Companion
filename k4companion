@@ -6603,7 +6603,11 @@ class CW(TextButtons):
         CW.singleton = self
         self.is_open = False
 
-        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+        self.delay_frame = None
+        server = self.server
+        server.subscribe_response('SDC;', self.on_qsk_changed)
+
+        server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def open(self):
         if self.is_open:
@@ -6677,6 +6681,15 @@ class CW(TextButtons):
         self.server.subscribe_response('ACN1;', self.on_transmit_ack)
         self.server.subscribe_response('KS;', self.on_keyer_speed_change)
 
+    def on_qsk_changed(self, response):
+        if not self.delay_frame:
+            return
+        qsk_enabled = response[3] == '1'
+        if qsk_enabled:
+            self.delay_frame.grid_forget()
+        else:
+            self.delay_frame.grid(row=0, column=1, sticky='w', padx=2, pady=2)
+
     def add_more_tab(self):
         self.more_frame = tk.Frame(self.notebook)
         self.more_frame.grid(row=0, column=0)
@@ -6707,11 +6720,13 @@ class CW(TextButtons):
         }
         ToggleWidget(self, qsk_onoff_frame, qsk_options)
 
-        delay_frame = tk.LabelFrame(qsk_frame, text='Delay',
+        self.delay_frame = tk.LabelFrame(qsk_frame, text='Delay',
             font=self.label_font(), labelanchor='nw', bd=2, padx=1, pady=1, relief='raised')
-        delay_frame.grid(row=0, column=1, sticky='w', padx=2, pady=2)
+        qsk_enabled = self.k4param('SDC')[0] == '1'
+        if not qsk_enabled:
+            self.delay_frame.grid(row=0, column=1, sticky='w', padx=2, pady=2)
 
-        delay_slider_frame = tk.Frame(delay_frame)
+        delay_slider_frame = tk.Frame(self.delay_frame)
         delay_slider_frame.grid(row=0, column=1, sticky='w')
         delay_slider_options = {
             'orient': 'horizontal', 'from': 0, 'to': 2.55, 'length': 150,
