@@ -9709,7 +9709,7 @@ config_data = '''
 #end
 
 #define vfo-b
-- { item: vfo, AorB: B, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: LightBlue, transmitcolor: Blue }
+- { item: vfo, AorB: B, width: 9, font: { family: Helvetica, size: 31, weight: normal }, activecolor: LightBlue, transmitcolor: DodgerBlue }
 #end
 
 #define s-meter-b-bargraph
