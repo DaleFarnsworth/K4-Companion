@@ -131,7 +131,7 @@ class Server():
     payload_type_minipan = 3
     cat_version_number = 0
     cat_sequence_number = 0
-    control_k4_audio_cmd_bases = ( 'AG', 'AG$', 'MG' )
+    control_k4_audio_cmd_bases = ( 'AG', 'AG$', 'MG', 'ML0', 'CW' )
     audio_version_number = 1
 
     k4_get_cmd_bases = [         # For future use
@@ -4171,9 +4171,6 @@ class Audio():
 
         self = cls.singleton
 
-        Server.k4_server.unsubscribe_response('CW;', self.on_pitch_change)
-        Server.k4_server.unsubscribe_response('ML0;', self.on_sidetone_volume_change)
-
         self.transmit_audio = False
         if self.input_thread != None:
             self.input_thread.join()
@@ -4293,6 +4290,15 @@ class Audio():
         elif base == 'MG':
             Server.settings.put_save('Audio', 'mic_gain', cmd)
             self.mic_gain = float(cmd) / 80.0
+        elif base == 'ML0':
+            Server.settings.put_save('Audio', 'sidetone_volume', cmd)
+            self.sidetone_volume = int(cmd)
+            self.generate_sidetone_samples()
+        elif base == 'CW':
+            cw_pitch = int(cmd) * 10
+            Server.settings.put_save('Audio', 'cw_pitch', cw_pitch)
+            self.cw_pitch = cw_pitch
+            self.generate_sidetone_samples()
         elif base == 'SB':
             self.sub_on = cmd != '0'
 
@@ -4312,6 +4318,16 @@ class Audio():
         if mic_gain == None:
             mic_gain = '020'
         responses += 'MG' + mic_gain + ';'
+
+        sidetone_volume = Server.settings.get('Audio', 'sidetone_volume')
+        if sidetone_volume == None:
+            sidetone_volume = '030'
+        responses += 'ML0' + sidetone_volume + ';'
+
+        cw_pitch = Server.settings.get('Audio', 'cw_pitch')
+        if cw_pitch == None:
+            cw_pitch = '600'
+        responses += 'CW' + cw_pitch[0:2]+ ';'
 
         return responses
 
@@ -4398,22 +4414,19 @@ class Audio():
         self.input_thread = None
         self.output_thread = None
         self.output_device_thread = None
-        self.output_device_queue = queue.Queue(2)
+        self.output_device_queue = queue.Queue(1)
         self.input_device_index = -1
         self.output_device_index = -1
         self.input_device_infos = {}
         self.output_device_infos = {}
         self.sub_on = True
         self.transmit_audio = False
-        self.pitch = 600
+        self.cw_pitch = 600
         self.sidetone_volume = 30
         self.sidetone_thread = None
         self.enable_sidetone_loop = True
         self.sidetone_samples = None
         self.sidetone_event = threading.Event()
-
-        Server.k4_server.subscribe_response('CW;', self.on_pitch_change)
-        Server.k4_server.subscribe_response('ML0;', self.on_sidetone_volume_change)
 
         a_volume = Server.settings.get('Audio', 'main_volume')
         if a_volume == None:
@@ -4429,6 +4442,16 @@ class Audio():
         if mic_gain == None:
             mic_gain = '040'
         self.mic_gain = float(mic_gain) / 80.0
+
+        sidetone_volume = Server.settings.get('Audio', 'sidetone_volume')
+        if sidetone_volume == None:
+            sidetone_volume = '030'
+        self.sidetone_volume = int(sidetone_volume)
+
+        cw_pitch = Server.settings.get('Audio', 'cw_pitch')
+        if cw_pitch == None:
+            cw_pitch = '600'
+        self.cw_pitch = int(cw_pitch)
 
         pa = self.pyaudio()
         info = self.pa_get_host_api_info_by_index(pa, 0)
@@ -4790,17 +4813,9 @@ class Audio():
 
             server.send_audio_packet(audio_packet, self.input_encode_mode, frame_size)
 
-    def on_pitch_change(self, response):
-        self.pitch = int(response[2:].rstrip(';')) * 10
-        self.generate_sidetone_samples()
-
-    def on_sidetone_volume_change(self, response):
-        self.sidetone_volume = int(response[3:].rstrip(';'))
-        self.generate_sidetone_samples()
-
     def generate_sidetone_samples(self):
         sample_rate = Audio.output_device_sample_rate()
-        samples_per_cycle = int(round(sample_rate / self.pitch))
+        samples_per_cycle = int(round(sample_rate / self.cw_pitch))
         volume = self.sidetone_volume / 60
         samples = []
         for _ in range(2):
