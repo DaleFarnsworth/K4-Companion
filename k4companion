@@ -4157,6 +4157,9 @@ class Audio():
     receive_latency = None
     milliseconds_per_packet = 40        # default
 
+    sidetone_min_packet_time = .003
+    sidetone_rise_time = .003   # 10% of dit length at 40 WPM
+
     @classmethod
     def get_singleton(cls):
         if cls.singleton == None:
@@ -4293,12 +4296,12 @@ class Audio():
         elif base == 'ML0':
             Server.settings.put_save('Audio', 'sidetone_volume', cmd)
             self.sidetone_volume = int(cmd)
-            self.generate_sidetone_samples()
+            self.generate_sidetone_packet()
         elif base == 'CW':
             cw_pitch = int(cmd) * 10
             Server.settings.put_save('Audio', 'cw_pitch', cw_pitch)
             self.cw_pitch = cw_pitch
-            self.generate_sidetone_samples()
+            self.generate_sidetone_packet()
         elif base == 'SB':
             self.sub_on = cmd != '0'
 
@@ -4369,6 +4372,7 @@ class Audio():
 
         self = cls.singleton
         cls.mute_k4_audio = True
+        self.starting_sidetone = True
         self.sidetone_event.set()
 
     @classmethod
@@ -4378,6 +4382,7 @@ class Audio():
 
         self = cls.singleton
         cls.mute_k4_audio = False
+        self.ending_sidetone = True
         self.sidetone_event.clear()
 
     def pyaudio(cls):
@@ -4425,8 +4430,10 @@ class Audio():
         self.sidetone_volume = 30
         self.sidetone_thread = None
         self.enable_sidetone_loop = True
-        self.sidetone_samples = None
+        self.sidetone_packet = None
         self.sidetone_event = threading.Event()
+        self.starting_sidetone = False
+        self.ending_sidetone = False
 
         a_volume = Server.settings.get('Audio', 'main_volume')
         if a_volume == None:
@@ -4678,9 +4685,18 @@ class Audio():
 
     def sidetone_loop(self):
         while self.enable_sidetone_loop:
-            self.sidetone_event.wait()
-            if self.sidetone_samples:
-                self.output_device_queue.put(self.sidetone_samples)
+            if not self.sidetone_event.is_set():
+                if self.ending_sidetone:
+                    self.output_device_queue.put(self.sidetone_fall_packet)
+                    self.ending_sidetone = False
+                self.sidetone_event.wait()
+            if self.starting_sidetone:
+                packet = self.sidetone_rise_packet
+                self.starting_sidetone = False
+            else:
+                packet = self.sidetone_packet
+            if packet != None:
+                self.output_device_queue.put(packet)
 
     def output_device_loop(self):
         while True:
@@ -4813,18 +4829,43 @@ class Audio():
 
             server.send_audio_packet(audio_packet, self.input_encode_mode, frame_size)
 
-    def generate_sidetone_samples(self):
+    def generate_sidetone_packet(self):
         sample_rate = Audio.output_device_sample_rate()
-        samples_per_cycle = int(round(sample_rate / self.cw_pitch))
+        samples_per_cycle = round(sample_rate / self.cw_pitch)
+        min_samples_per_packet = round(sample_rate * self.sidetone_min_packet_time)
+        cycles_per_packet = math.ceil(min_samples_per_packet / samples_per_cycle)
+        samples_per_rise_time = round(sample_rate * self.sidetone_rise_time)
+        cycles_per_rise_packet = math.ceil(samples_per_rise_time / samples_per_cycle)
+        if cycles_per_rise_packet < cycles_per_packet:
+            cycles_per_rise_packet = cycles_per_packet
         volume = self.sidetone_volume / 60
+
         samples = []
-        for _ in range(2):
+        for _ in range(cycles_per_packet):
             for i in range(samples_per_cycle):
-                sample = math.sin(2 * math.pi * i/samples_per_cycle)
+                sample = math.sin(2 * math.pi * (i+1)/samples_per_cycle)
                 samples.append(sample)
-        samples = numpy.array(samples, dtype=numpy.float32) * volume / 5
-        samples = samples.repeat(2)     # stereo
-        self.sidetone_samples = samples.tobytes()
+        sidetone_samples = numpy.array(samples, dtype=numpy.float32) * volume / 5
+        sidetone_samples = sidetone_samples.repeat(2)
+        self.sidetone_packet = sidetone_samples.tobytes()
+
+        samples = []
+        sample_counter = 0
+        for _ in range(cycles_per_rise_packet):
+            for i in range(samples_per_cycle):
+                sample = math.sin(2 * math.pi * (i+1)/samples_per_cycle)
+                if sample_counter < samples_per_rise_time:
+                    mult = (sample_counter + 1) / samples_per_rise_time
+                    sample_counter += 1
+                    sample *= mult
+                samples.append(sample)
+        rise_samples = numpy.array(samples, dtype=numpy.float32) * volume / 5
+        rise_samples = rise_samples.repeat(2)
+        self.sidetone_rise_packet = rise_samples.tobytes()
+
+        # reverse the rise samples to get fall_samples
+        fall_samples = rise_samples[::-1]
+        self.sidetone_fall_packet = fall_samples.tobytes()
 
 class Settings():
     max_servers = 25
