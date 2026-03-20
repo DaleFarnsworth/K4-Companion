@@ -4158,7 +4158,7 @@ class Audio():
     milliseconds_per_packet = 40        # default
 
     sidetone_min_packet_time = .003
-    sidetone_rise_time = .003   # 10% of dit length at 40 WPM
+    sidetone_rise_time = .005           # 5 mS rise and fall
 
     @classmethod
     def get_singleton(cls):
