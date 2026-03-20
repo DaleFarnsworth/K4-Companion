@@ -8240,8 +8240,6 @@ class Keyer():
         self.dit_up_timestamp = 0
         self.dah_down_timestamp = 0
         self.dah_up_timestamp = 0
-        self.previous_elt_timestamp = None
-        self.previous_elt_was_dah = None
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -8344,9 +8342,9 @@ class Keyer():
             if self.device_type_straight_key:
                 self.straight_key_event(event, timestamp)
             elif self.keyer_mode == self.MODE_ULTIMATIC:
-                self.ultimatic_loop()
+                self.send_ultimatic()
             else:
-                self.iambic_loop()
+                self.send_iambic()
 
     def straight_key_event(self, event, timestamp):
         if event == self.STRAIGHT_KEY_DOWN_EVENT:
@@ -8373,75 +8371,91 @@ class Keyer():
             Server.k4_server.send_str(f'KZU{milliseconds:04d};')
             Audio.stop_sidetone()
 
-    def iambic_loop(self):
+    def send_iambic(self):
+        previous_elt = None
+
         while True:
-            if (self.previous_elt_timestamp == None or
+            if (previous_elt == None or
                 self.keyer_mode == self.MODE_IAMBIC):
                 dit_mem = False
                 dah_mem = False
             elif self.keyer_mode == self.MODE_IAMBIC_A:
-                dit_mem = (self.previous_elt_was_dah and
-                           (self.dit_down_timestamp - self.previous_elt_timestamp) >
+                dit_mem = (previous_elt == '-' and
+                           (self.dit_down_timestamp - previous_elt_timestamp) >
                            (self.dit_seconds * self.iambic_memory_delay))
                 dah_mem = False
             else:
-                dit_mem = (self.previous_elt_was_dah and
-                           ((self.dit_down_timestamp - self.previous_elt_timestamp) >
+                dit_mem = (previous_elt == '-' and
+                           (((self.dit_down_timestamp - previous_elt_timestamp) >
                            (self.dit_seconds * self.iambic_memory_delay)) or
-                           ((self.dit_up_timestamp - self.previous_elt_timestamp) >
+                           (self.dit_up_timestamp - previous_elt_timestamp) >
                            (self.dit_seconds * self.iambic_memory_delay +
                             self.dah_seconds/3)))
-                dah_mem = (not self.previous_elt_was_dah and
-                           (self.dah_up_timestamp - self.previous_elt_timestamp) >
-                           (self.dit_seconds * self.iambic_memory_delay))
-            self.previous_elt_timestamp = time.perf_counter()
+                dah_mem = (previous_elt == '.' and
+                           ((self.dah_up_timestamp - previous_elt_timestamp) >
+                           (self.dit_seconds * self.iambic_memory_delay)))
+            previous_elt_timestamp = time.perf_counter()
 
             dit_now = self.dit_down_timestamp > self.dit_up_timestamp
             dah_now =  self.dah_down_timestamp > self.dah_up_timestamp
             dit = dit_now or dit_mem
             dah = dah_now or dah_mem
+
+            if not dit and not dah:
+                if previous_elt != None:
+                    self.send_element(' ')
+                    dit = self.dit_down_timestamp > self.dit_up_timestamp
+                    dah =  self.dah_down_timestamp > self.dah_up_timestamp
+                if not dit and not dah:
+                    return
+
             if dit and dah:
-                send_dah = not self.previous_elt_was_dah
+                elt = '-' if previous_elt == '.' else '.'
             elif dit:
-                send_dah = False
+                elt = '.'
             elif dah:
-                send_dah = True
-            else:
-                self.previous_elt_timestamp = None
-                return
+                elt = '-'
 
-            self.send_element(dah=send_dah)
-            self.previous_elt_was_dah = send_dah
-            self.end_element_timestamp = time.perf_counter()
+            self.send_element(elt)
 
-    def ultimatic_loop(self):
+            previous_elt = elt
+
+    def send_ultimatic(self):
+        sent_element = False
         while True:
             dit = self.dit_down_timestamp > self.dit_up_timestamp
             dah =  self.dah_down_timestamp > self.dah_up_timestamp
+            if not dit and not dah:
+                if sent_element:
+                    self.send_element(' ')
+                    dit = self.dit_down_timestamp > self.dit_up_timestamp
+                    dah =  self.dah_down_timestamp > self.dah_up_timestamp
+                if not dit and not dah:
+                    return
+
             if dit and dah:
                 dah_down_last = self.dah_down_timestamp > self.dit_down_timestamp
-                send_dah = dah_down_last
+                elt = '-' if dah_down_last else '.'
             elif dit:
-                send_dah = False
+                elt = '.'
             elif dah:
-                send_dah = True
-            else:
-                return
+                elt = '-'
 
-            self.send_element(dah=send_dah)
-            self.end_element_timestamp = time.perf_counter()
+            self.send_element(elt)
+            sent_element = True
 
-    def send_element(self, dah):
-        elt = '.'
-        if dah:
-            elt = '-'
-        Server.k4_server.send_str(f'KZ{elt};')
+    def send_element(self, elt):
+        if elt[0] != ' ':
+            Server.k4_server.send_str(f'KZ{elt};')
 
-        elt_seconds = self.dah_seconds if dah else self.dit_seconds
-        Audio.start_sidetone()
-        time.sleep(elt_seconds)
-        Audio.stop_sidetone()
-        time.sleep(self.inter_element_seconds)
+            elt_seconds = self.dah_seconds if elt == '-'  else self.dit_seconds
+            Audio.start_sidetone()
+            time.sleep(elt_seconds)
+            Audio.stop_sidetone()
+            time.sleep(self.inter_element_seconds)
+        elif elt == ' ':
+            delay = self.inter_character_seconds - self.inter_element_seconds
+            time.sleep(delay)
 
     def on_speed_change(self, response=None):
         # The length of a dit in seconds is 1.2 / wpm,
