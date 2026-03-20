@@ -4845,7 +4845,7 @@ class Audio():
             for i in range(samples_per_cycle):
                 sample = math.sin(2 * math.pi * (i+1)/samples_per_cycle)
                 samples.append(sample)
-        sidetone_samples = numpy.array(samples, dtype=numpy.float32) * volume / 5
+        sidetone_samples = numpy.array(samples, dtype=numpy.float32) * volume / 25
         sidetone_samples = sidetone_samples.repeat(2)
         self.sidetone_packet = sidetone_samples.tobytes()
 
