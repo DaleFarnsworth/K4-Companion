@@ -4385,6 +4385,28 @@ class Audio():
         self.ending_sidetone = True
         self.sidetone_event.clear()
 
+    @classmethod
+    def send_sidetone(cls, elt_seconds, space_seconds):
+        self = cls.singleton
+
+        if elt_seconds > 0:
+            elt_samples = elt_seconds * cls.output_device_sample_rate()
+            self.output_device_queue.put(self.sidetone_rise_packet)
+            elt_samples -= 2 * self.sidetone_samples_per_rise_packet
+            n_packets = round(elt_samples / self.sidetone_samples_per_packet)
+            for i in range(n_packets):
+                self.output_device_queue.put(self.sidetone_packet)
+            self.output_device_queue.put(self.sidetone_fall_packet)
+
+        if space_seconds > 0:
+            space_samples = space_seconds * cls.output_device_sample_rate()
+            n_packets = round(space_samples / self.sidetone_samples_per_packet)
+            for i in range(n_packets):
+                self.output_device_queue.put(self.sidetone_space_packet)
+
+#        while self.output_device_queue.qsize() > 0:
+#            time.sleep(.001)
+
     def pyaudio(cls):
         fd = os.dup(2)
         os.close(2)              # Close stderr because pyaudio outputs a lot of disquieting messages
@@ -4848,6 +4870,8 @@ class Audio():
         sidetone_samples = numpy.array(samples, dtype=numpy.float32) * volume / 25
         sidetone_samples = sidetone_samples.repeat(2)
         self.sidetone_packet = sidetone_samples.tobytes()
+        space_samples = sidetone_samples * 0
+        self.sidetone_space_packet = space_samples.tobytes()
 
         samples = []
         sample_counter = 0
@@ -4866,6 +4890,9 @@ class Audio():
         # reverse the rise samples to get fall_samples
         fall_samples = rise_samples[::-1]
         self.sidetone_fall_packet = fall_samples.tobytes()
+
+        self.sidetone_samples_per_packet = samples_per_cycle * cycles_per_packet
+        self.sidetone_samples_per_rise_packet = samples_per_cycle * cycles_per_rise_packet
 
 class Settings():
     max_servers = 25
@@ -8372,6 +8399,7 @@ class Keyer():
             Audio.stop_sidetone()
 
     def send_iambic(self):
+        Audio.mute_k4_audio = True
         previous_elt = None
 
         while True:
@@ -8407,6 +8435,7 @@ class Keyer():
                     dit = self.dit_down_timestamp > self.dit_up_timestamp
                     dah =  self.dah_down_timestamp > self.dah_up_timestamp
                 if not dit and not dah:
+                    Audio.mute_k4_audio = False
                     return
 
             if dit and dah:
@@ -8421,6 +8450,7 @@ class Keyer():
             previous_elt = elt
 
     def send_ultimatic(self):
+        Audio.mute_k4_audio = True
         sent_element = False
         while True:
             dit = self.dit_down_timestamp > self.dit_up_timestamp
@@ -8431,6 +8461,7 @@ class Keyer():
                     dit = self.dit_down_timestamp > self.dit_up_timestamp
                     dah =  self.dah_down_timestamp > self.dah_up_timestamp
                 if not dit and not dah:
+                    Audio.mute_k4_audio = False
                     return
 
             if dit and dah:
@@ -8445,17 +8476,14 @@ class Keyer():
             sent_element = True
 
     def send_element(self, elt):
-        if elt[0] != ' ':
+        if elt == ' ':
+            space_seconds = self.inter_character_seconds - self.inter_element_seconds
+            Audio.send_sidetone(0, space_seconds)
+        else:
             Server.k4_server.send_str(f'KZ{elt};')
 
             elt_seconds = self.dah_seconds if elt == '-'  else self.dit_seconds
-            Audio.start_sidetone()
-            time.sleep(elt_seconds)
-            Audio.stop_sidetone()
-            time.sleep(self.inter_element_seconds)
-        elif elt == ' ':
-            delay = self.inter_character_seconds - self.inter_element_seconds
-            time.sleep(delay)
+            Audio.send_sidetone(elt_seconds, self.inter_element_seconds)
 
     def on_speed_change(self, response=None):
         # The length of a dit in seconds is 1.2 / wpm,
