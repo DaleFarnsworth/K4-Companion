@@ -4391,12 +4391,12 @@ class Audio():
 
         if elt_seconds > 0:
             elt_samples = elt_seconds * cls.output_device_sample_rate()
-            self.output_device_queue.put(self.sidetone_rise_packet)
-            elt_samples -= 2 * self.sidetone_samples_per_rise_packet
+#            self.output_device_queue.put(self.sidetone_rise_packet)
+#            elt_samples -= 2 * self.sidetone_samples_per_rise_packet
             n_packets = round(elt_samples / self.sidetone_samples_per_packet)
             for i in range(n_packets):
                 self.output_device_queue.put(self.sidetone_packet)
-            self.output_device_queue.put(self.sidetone_fall_packet)
+#            self.output_device_queue.put(self.sidetone_fall_packet)
 
         if space_seconds > 0:
             space_samples = space_seconds * cls.output_device_sample_rate()
@@ -4708,15 +4708,15 @@ class Audio():
     def sidetone_loop(self):
         while self.enable_sidetone_loop:
             if not self.sidetone_event.is_set():
-                if self.ending_sidetone:
-                    self.output_device_queue.put(self.sidetone_fall_packet)
-                    self.ending_sidetone = False
+#                if self.ending_sidetone:
+#                    self.output_device_queue.put(self.sidetone_fall_packet)
+#                    self.ending_sidetone = False
                 self.sidetone_event.wait()
-            if self.starting_sidetone:
-                packet = self.sidetone_rise_packet
-                self.starting_sidetone = False
-            else:
-                packet = self.sidetone_packet
+#            if self.starting_sidetone:
+#                packet = self.sidetone_rise_packet
+#                self.starting_sidetone = False
+#            else:
+            packet = self.sidetone_packet
             if packet != None:
                 self.output_device_queue.put(packet)
 
@@ -4856,34 +4856,35 @@ class Audio():
         samples_per_cycle = round(sample_rate / self.cw_pitch)
         min_samples_per_packet = round(sample_rate * self.sidetone_min_packet_time)
         cycles_per_packet = math.ceil(min_samples_per_packet / samples_per_cycle)
-        samples_per_rise_time = round(sample_rate * self.sidetone_rise_time)
-        cycles_per_rise_packet = math.ceil(samples_per_rise_time / samples_per_cycle)
-        if cycles_per_rise_packet < cycles_per_packet:
-            cycles_per_rise_packet = cycles_per_packet
-        volume = self.sidetone_volume / 60
+        volume = self.sidetone_volume / 60 / 25
 
         samples = []
         for _ in range(cycles_per_packet):
             for i in range(samples_per_cycle):
-                sample = math.sin(2 * math.pi * (i+1)/samples_per_cycle)
+                sample = math.sin(2 * math.pi * (i+1)/samples_per_cycle) * volume
                 samples.append(sample)
-        sidetone_samples = numpy.array(samples, dtype=numpy.float32) * volume / 25
+        sidetone_samples = numpy.array(samples, dtype=numpy.float32)
         sidetone_samples = sidetone_samples.repeat(2)
         self.sidetone_packet = sidetone_samples.tobytes()
         space_samples = sidetone_samples * 0
         self.sidetone_space_packet = space_samples.tobytes()
 
+        samples_per_rise_time = round(sample_rate * self.sidetone_rise_time)
+        cycles_per_rise_packet = math.ceil(samples_per_rise_time / samples_per_cycle)
+        if cycles_per_rise_packet < cycles_per_packet:
+            cycles_per_rise_packet = cycles_per_packet
+
         samples = []
         sample_counter = 0
         for _ in range(cycles_per_rise_packet):
             for i in range(samples_per_cycle):
-                sample = math.sin(2 * math.pi * (i+1)/samples_per_cycle)
+                sample = math.sin(2 * math.pi * (i+1)/samples_per_cycle) * volume
                 if sample_counter < samples_per_rise_time:
                     mult = (sample_counter + 1) / samples_per_rise_time
                     sample_counter += 1
                     sample *= mult
                 samples.append(sample)
-        rise_samples = numpy.array(samples, dtype=numpy.float32) * volume / 5
+        rise_samples = numpy.array(samples, dtype=numpy.float32)
         rise_samples = rise_samples.repeat(2)
         self.sidetone_rise_packet = rise_samples.tobytes()
 
