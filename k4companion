@@ -4157,8 +4157,8 @@ class Audio():
     receive_latency = None
     milliseconds_per_packet = 40        # default
 
-    sidetone_min_packet_time = .003
-    sidetone_rise_time = .005           # 5 mS rise and fall
+    sidetone_min_packet_time = .003     # minimum packet time sending with straight key
+    sidetone_rise_time = .004           # 4 mS rise and fall time
 
     @classmethod
     def get_singleton(cls):
@@ -4296,12 +4296,12 @@ class Audio():
         elif base == 'ML0':
             Server.settings.put_save('Audio', 'sidetone_volume', cmd)
             self.sidetone_volume = int(cmd)
-            self.generate_sidetone_packet()
+            self.generate_sidetone_packets()
         elif base == 'CW':
             cw_pitch = int(cmd) * 10
             Server.settings.put_save('Audio', 'cw_pitch', cw_pitch)
             self.cw_pitch = cw_pitch
-            self.generate_sidetone_packet()
+            self.generate_sidetone_packets()
         elif base == 'SB':
             self.sub_on = cmd != '0'
 
@@ -4385,27 +4385,41 @@ class Audio():
         self.ending_sidetone = True
         self.sidetone_event.clear()
 
+# Note that we lengthen the element by a rise time, so that the element seconds is
+# measured from the mid-point of the rise and fall packets.
+# We then compensate by shortening the following space by an equivalent amount
     @classmethod
     def send_sidetone(cls, elt_seconds, space_seconds):
         self = cls.singleton
 
         if elt_seconds > 0:
-            elt_samples = elt_seconds * cls.output_device_sample_rate()
-#            self.output_device_queue.put(self.sidetone_rise_packet)
-#            elt_samples -= 2 * self.sidetone_samples_per_rise_packet
-            n_packets = round(elt_samples / self.sidetone_samples_per_packet)
-            for i in range(n_packets):
-                self.output_device_queue.put(self.sidetone_packet)
-#            self.output_device_queue.put(self.sidetone_fall_packet)
+            self.output_device_queue.put(self.sidetone_rise_packet)
+#            log_packet('sidetone', self.sidetone_rise_packet)
+#            print_packet('rise', self.sidetone_rise_packet)
+            elt_seconds -= self.sidetone_seconds_per_rise_packet
+            elt_cycle_count = round(elt_seconds / self.sidetone_seconds_per_cycle)
+            elt_packet = self.sidetone_cycle_packet * elt_cycle_count
+            self.output_device_queue.put(elt_packet)
+#            log_packet('sidetone', elt_packet)
+#            print_packet('elt', elt_packet)
+            self.output_device_queue.put(self.sidetone_fall_packet)
+#            log_packet('sidetone', self.sidetone_fall_packet)
+#            print_packet('fall', self.sidetone_fall_packet)
+            self.output_device_queue.put(self.sidetone_fall2_packet)
+#            log_packet('sidetone', self.sidetone_fall2_packet)
+#            print_packet('fall2', self.sidetone_fall2_packet)
+
+            space_seconds -= 2 * self.sidetone_seconds_per_rise_packet
 
         if space_seconds > 0:
-            space_samples = space_seconds * cls.output_device_sample_rate()
-            n_packets = round(space_samples / self.sidetone_samples_per_packet)
-            for i in range(n_packets):
-                self.output_device_queue.put(self.sidetone_space_packet)
+            space_cycle_count = round(space_seconds / self.sidetone_seconds_per_cycle)
+            space_packet = self.sidetone_space_cycle * space_cycle_count
+            self.output_device_queue.put(space_packet)
+#            log_packet('sidetone', space_packet)
+#            print_packet('space', space_packet)
 
-#        while self.output_device_queue.qsize() > 0:
-#            time.sleep(.001)
+        while self.output_device_queue.qsize() > 0:
+            time.sleep(.001)
 
     def pyaudio(cls):
         fd = os.dup(2)
@@ -4452,7 +4466,6 @@ class Audio():
         self.sidetone_volume = 30
         self.sidetone_thread = None
         self.enable_sidetone_loop = True
-        self.sidetone_packet = None
         self.sidetone_event = threading.Event()
         self.starting_sidetone = False
         self.ending_sidetone = False
@@ -4696,6 +4709,9 @@ class Audio():
             stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
             stereo[1::2] = right
+#            if Server.k4_server.k4_parameter('TR') == 'T':
+#                log_packet('tx_output_left', left)
+#                print_packet('received monitor', stereo)
             # send 1 mS at a time to permit timely sidetone generation
             millisecond_len = len(stereo) // self.milliseconds_per_packet
             for i in range(0, len(stereo), millisecond_len):
@@ -4706,19 +4722,29 @@ class Audio():
                     self.output_device_queue.put(mS_samples.tobytes())
 
     def sidetone_loop(self):
+        elt_cycles = math.ceil(self.sidetone_min_packet_time / self.sidetone_seconds_per_cycle)
+
         while self.enable_sidetone_loop:
             if not self.sidetone_event.is_set():
-#                if self.ending_sidetone:
-#                    self.output_device_queue.put(self.sidetone_fall_packet)
-#                    self.ending_sidetone = False
+                if self.ending_sidetone:
+                    self.output_device_queue.put(self.sidetone_fall_packet)
+#                    log_packet('sidetone', self.sidetone_fall_packet)
+#                    print_packet('fall', self.sidetone_fall_packet)
+                    self.output_device_queue.put(self.sidetone_fall2_packet)
+#                    log_packet('sidetone', self.sidetone_fall2_packet)
+#                    print_packet('fall2', self.sidetone_fall2_packet)
+                    self.ending_sidetone = False
                 self.sidetone_event.wait()
-#            if self.starting_sidetone:
-#                packet = self.sidetone_rise_packet
-#                self.starting_sidetone = False
-#            else:
-            packet = self.sidetone_packet
-            if packet != None:
-                self.output_device_queue.put(packet)
+            if self.starting_sidetone:
+                self.output_device_queue.put(self.sidetone_rise_packet)
+#                log_packet('sidetone', self.sidetone_rise_packet)
+#                print_packet('rise', self.sidetone_rise_packet)
+                self.starting_sidetone = False
+            else:
+                elt_packet = self.sidetone_cycle_packet * elt_cycles
+                self.output_device_queue.put(elt_packet)
+#                log_packet('sidetone', elt_packet)
+#                print_packet('elt', elt_packet)
 
     def output_device_loop(self):
         while True:
@@ -4851,49 +4877,39 @@ class Audio():
 
             server.send_audio_packet(audio_packet, self.input_encode_mode, frame_size)
 
-    def generate_sidetone_packet(self):
+    def generate_sidetone_packets(self):
         sample_rate = Audio.output_device_sample_rate()
         samples_per_cycle = round(sample_rate / self.cw_pitch)
-        min_samples_per_packet = round(sample_rate * self.sidetone_min_packet_time)
-        cycles_per_packet = math.ceil(min_samples_per_packet / samples_per_cycle)
-        volume = self.sidetone_volume / 60 / 25
-
-        samples = []
-        for _ in range(cycles_per_packet):
-            for i in range(samples_per_cycle):
-                sample = math.sin(2 * math.pi * (i+1)/samples_per_cycle) * volume
-                samples.append(sample)
-        sidetone_samples = numpy.array(samples, dtype=numpy.float32)
-        sidetone_samples = sidetone_samples.repeat(2)
-        self.sidetone_packet = sidetone_samples.tobytes()
-        space_samples = sidetone_samples * 0
-        self.sidetone_space_packet = space_samples.tobytes()
-
+        seconds_per_cycle = samples_per_cycle / sample_rate
         samples_per_rise_time = round(sample_rate * self.sidetone_rise_time)
         cycles_per_rise_packet = math.ceil(samples_per_rise_time / samples_per_cycle)
-        if cycles_per_rise_packet < cycles_per_packet:
-            cycles_per_rise_packet = cycles_per_packet
+        samples_per_rise_packet = cycles_per_rise_packet * samples_per_cycle
+        samples_per_fall_packet = samples_per_rise_packet
+        volume = self.sidetone_volume / 60 / 6
 
-        samples = []
-        sample_counter = 0
-        for _ in range(cycles_per_rise_packet):
-            for i in range(samples_per_cycle):
-                sample = math.sin(2 * math.pi * (i+1)/samples_per_cycle) * volume
-                if sample_counter < samples_per_rise_time:
-                    mult = (sample_counter + 1) / samples_per_rise_time
-                    sample_counter += 1
-                    sample *= mult
-                samples.append(sample)
-        rise_samples = numpy.array(samples, dtype=numpy.float32)
-        rise_samples = rise_samples.repeat(2)
+        steps = numpy.linspace(0, 1, samples_per_cycle, endpoint=False, dtype=numpy.float32)
+        cycle = numpy.sin(2 * numpy.pi * steps) * volume
+        self.sidetone_cycle_packet = cycle.repeat(2).tobytes()
+
+        rise_steps = numpy.linspace(0, 1, samples_per_rise_packet, endpoint=False, dtype=numpy.float32)
+        rise_sin_samples = numpy.tile(cycle, cycles_per_rise_packet)
+        rise_envelope = 1 - numpy.cos(.5 * numpy.pi * rise_steps)
+        rise_samples = (rise_sin_samples * rise_envelope).repeat(2)
+        rise_samples = numpy.roll(rise_samples, -2)
         self.sidetone_rise_packet = rise_samples.tobytes()
 
-        # reverse the rise samples to get fall_samples
-        fall_samples = rise_samples[::-1]
+        fall_samples = -rise_samples[::-1]
         self.sidetone_fall_packet = fall_samples.tobytes()
 
-        self.sidetone_samples_per_packet = samples_per_cycle * cycles_per_packet
-        self.sidetone_samples_per_rise_packet = samples_per_cycle * cycles_per_rise_packet
+        fall2_steps = numpy.linspace(0, 1, samples_per_fall_packet, endpoint=False, dtype=numpy.float32)
+        fall2_samples = fall_samples[-1] * (1 - numpy.cos(.5 * numpy.pi * fall2_steps))
+        fall2_samples = fall2_samples[::-1]
+        self.sidetone_fall2_packet = fall2_samples.repeat(2).tobytes()
+
+        self.sidetone_space_cycle = numpy.zeros(samples_per_cycle * 2, dtype=numpy.float32).tobytes()
+
+        self.sidetone_seconds_per_cycle = seconds_per_cycle
+        self.sidetone_seconds_per_rise_packet = seconds_per_cycle * cycles_per_rise_packet
 
 class Settings():
     max_servers = 25
@@ -9061,6 +9077,34 @@ def tprint(*args, **kwargs):
 
 def trace_stack():
     traceback.print_stack()
+
+def logt(filename, *args):
+    logtb('t', filename, *args)
+
+def logb(filename, *args):
+    logtb('b', filename, *args)
+
+# The resultant file can be displayed in gnuplot with the command:
+# plot "filename" binary format='%float32' array= with lines
+def log_packet(filename, packet):
+    logb(filename, numpy.frombuffer(packet, dtype=numpy.float32)[::2].copy())
+
+def print_packet(name, packet):
+    packet = numpy.frombuffer(packet, dtype=numpy.float32)[::2].copy()
+    tprint(f'{name} {packet=}')
+
+logfiles = {}
+def logtb(torb, filename, *args):
+    file = logfiles.get(filename)
+    if file == None:
+        if torb == 't':
+            logfiles[filename] = open(filename, "w", encoding="utf-8")
+        elif torb == 'b':
+            logfiles[filename] = open(filename, "wb")
+        file = logfiles[filename]
+
+    file.write(*args)
+    file.flush()
     
 def start():
     Poll.set_top(Page.top)
