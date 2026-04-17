@@ -9043,7 +9043,7 @@ def scale_font(font, scale):
 def dprint(*args, **kwargs):
     try:
         # fails in a pyinstaller bundle while stderr is closed
-        print(*args, file=stderr, **kwargs)
+        print(*args, file=stderr, flush=True, **kwargs)
     except:
         # ignore that failure
         pass
