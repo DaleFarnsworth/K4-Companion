@@ -218,16 +218,17 @@
     #include agc-group
     #include auto-notch-group
     #include audio-effects-group
+    #include af-limiter-slider
+    #include af-center-pitch-group
   #}
 #end
 
 #define receive-tab-row2-group
 - item: group
   contains: #{
-    #include af-limiter-slider
-    #include af-center-pitch-group
     #include noise-blanker-group
-    #include noise-reduction-group
+    #include noise-reduction-group-lms
+    #include noise-reduction-group-ssnr
   #}
 #end
 
@@ -1290,58 +1291,58 @@
   evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
 #end
 
-#define noise-reduction-group
+#define noise-reduction-group-lms
 - item: group
-  label: NR
+  label: NR (LMS)
   contains: #{
-    #include main-noise-reduction-group
-    #include sub-noise-reduction-group
+    #include main-noise-reduction-group-lms
+    #include sub-noise-reduction-group-lms
   #}
 #end
 
-#define main-noise-reduction-group
+#define main-noise-reduction-group-lms
 - item: group
   label: Main
   leading: 0
   columns: 1
   contains: #{
-    #include main-noise-reduction-togglebutton
-    #include main-noise-reduction-slider
+    #include main-noise-reduction-lms-togglebutton
+    #include main-noise-reduction-lms-slider
   #}
 #end
 
-#define sub-noise-reduction-group
+#define sub-noise-reduction-group-lms
 - item: group
   label: Sub
   leading: 0
   columns: 1
   contains: #{
-    #include sub-noise-reduction-togglebutton
-    #include sub-noise-reduction-slider
+    #include sub-noise-reduction-lms-togglebutton
+    #include sub-noise-reduction-lms-slider
   #}
 #end
 
-#define main-noise-reduction-togglebutton
+#define main-noise-reduction-lms-togglebutton
 - item: togglebutton
   selections: #{
     - { text: "On",  cmd: NR1;, evalcmd: '"NR{v}1;".format(v=self.k4param("NR")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' } 
-    - { text: "Off", cmd: NR0;, evalcmd: '"NR{v}0;".format(v=self.k4param("NR")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' }
+    - { text: "Off", cmd: NR0;, evalcmd: '"NR{v}0;".format(v=self.k4param("NR")[0:2])', evalresponse: 'value[0:2]+"0" if value[4] != "1" else "1"+";"' }
   #}
 #end
 
-#define sub-noise-reduction-togglebutton
+#define sub-noise-reduction-lms-togglebutton
 - item: togglebutton
   selections: #{
     - { text: "On",  cmd: NR$1;, evalcmd: '"NR${v}1;".format(v=self.k4param("NR$")[0:2])', evalresponse: 'value[0:3]+value[5]+";"' } 
-    - { text: "Off", cmd: NR$0;, evalcmd: '"NR${v}0;".format(v=self.k4param("NR$")[0:2])', evalresponse: 'value[0:3]+value[5]+";"' }
+    - { text: "Off", cmd: NR$0;, evalcmd: '"NR${v}0;".format(v=self.k4param("NR$")[0:2])', evalresponse: 'value[0:3]+"0" if value[5] != "1" else "1"+";"' }
   #}
 #end
 
-#define main-noise-reduction-slider
+#define main-noise-reduction-lms-slider
 - item: slider
   orient: vertical
   from: 10
-  to: 0
+  to: 1
   length: 150
   evalincrement: '1'
   showvalue: True
@@ -1349,16 +1350,87 @@
   evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
 #end
 
-#define sub-noise-reduction-slider
+#define sub-noise-reduction-lms-slider
 - item: slider
   orient: vertical
   from: 10
-  to: 0
+  to: 1
   length: 150
   evalincrement: '1'
   showvalue: True
   evalcmd: '"NR${v:02d}{on};".format(v=int(round(value)), on=self.k4param("NR$")[0] if self.len_k4param("NR$") < 3 else self.k4param("NR$")[2])'
   evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
+#end
+
+#define noise-reduction-group-ssnr
+- item: group
+  label: NR (SSNR)
+  contains: #{
+    #include main-noise-reduction-group-ssnr
+    #include sub-noise-reduction-group-ssnr
+  #}
+#end
+
+#define main-noise-reduction-group-ssnr
+- item: group
+  label: Main
+  leading: 0
+  columns: 1
+  contains: #{
+    #include main-noise-reduction-ssnr-togglebutton
+    #include main-noise-reduction-ssnr-slider
+  #}
+#end
+
+#define sub-noise-reduction-group-ssnr
+- item: group
+  label: Sub
+  leading: 0
+  columns: 1
+  contains: #{
+    #include sub-noise-reduction-ssnr-togglebutton
+    #include sub-noise-reduction-ssnr-slider
+  #}
+#end
+
+#define main-noise-reduction-ssnr-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: NRS1;, evalcmd: '"NRS{v}1;".format(v=self.k4param("NRS")[0:2])', evalresponse: 'value[0:3]+value[5]+";"' } 
+    - { text: "Off", cmd: NRS0;, evalcmd: '"NRS{v}0;".format(v=self.k4param("NRS")[0:2])', evalresponse: 'value[0:3]+"0" if value[5] != "1" else "1"+";"' }
+  #}
+#end
+
+#define sub-noise-reduction-ssnr-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: NRS$1;, evalcmd: '"NRS${v}1;".format(v=self.k4param("NRS$")[0:2])', evalresponse: 'value[0:4]+value[6]+";"' } 
+    - { text: "Off", cmd: NRS$0;, evalcmd: '"NRS${v}0;".format(v=self.k4param("NRS$")[0:2])', evalresponse: 'value[0:4]+"0" if value[6] != "1" else "1"+";"' }
+  #}
+#end
+
+#define main-noise-reduction-ssnr-slider
+- item: slider
+  orient: vertical
+  from: 20
+  to: 1
+  length: 150
+  evalincrement: '1'
+  showvalue: True
+  evalcmd: '"NRS{v:02d}{on};".format(v=int(round(value)), on=self.k4param("NRS")[0] if self.len_k4param("NRS") < 3 else self.k4param("NRS")[2])'
+  evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
+#end
+
+#define sub-noise-reduction-ssnr-slider
+- item: slider
+  orient: vertical
+  from: 20
+  to: 1
+  length: 150
+  evalincrement: '1'
+  showvalue: True
+  evalcmd: '"NRS${v:02d}{on};".format(v=int(round(value)), on=self.k4param("NRS$")[0] if self.len_k4param("NRS$") < 3 else self.k4param("NRS$")[2])'
+  evalresponse: '-1 if len(value) < 7 else int(value[4:6])'
 #end
 
 #define ctcss-group
