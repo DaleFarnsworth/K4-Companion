@@ -1,4 +1,9 @@
+v1.6.2:
+    Add support for setting SSNR noise reduction
+
 v1.6:
+    Update changelog for v1.6
+
     Update K4 Companion documentation and Windows executables to version 1.6
 
 v1.5.8:
