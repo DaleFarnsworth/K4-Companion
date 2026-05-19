@@ -4722,6 +4722,7 @@ class Audio():
                     self.output_device_queue.put(mS_samples.tobytes())
 
     def sidetone_loop(self):
+        self.generate_sidetone_packets()
         elt_cycles = math.ceil(self.sidetone_min_packet_time / self.sidetone_seconds_per_cycle)
 
         while self.enable_sidetone_loop:
