@@ -4886,7 +4886,7 @@ class Audio():
         cycles_per_rise_packet = math.ceil(samples_per_rise_time / samples_per_cycle)
         samples_per_rise_packet = cycles_per_rise_packet * samples_per_cycle
         samples_per_fall_packet = samples_per_rise_packet
-        volume = self.sidetone_volume / 60 / 6
+        volume = self.sidetone_volume / 60 / 2.5
 
         steps = numpy.linspace(0, 1, samples_per_cycle, endpoint=False, dtype=numpy.float32)
         cycle = numpy.sin(2 * numpy.pi * steps) * volume
