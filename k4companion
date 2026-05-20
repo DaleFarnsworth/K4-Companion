@@ -4159,6 +4159,7 @@ class Audio():
 
     sidetone_min_packet_time = .003     # minimum packet time sending with straight key
     sidetone_rise_time = .004           # 4 mS rise and fall time
+    sidetone_enabled = True
 
     @classmethod
     def get_singleton(cls):
@@ -4356,6 +4357,9 @@ class Audio():
         if cls.singleton == None:
             return
 
+        if not cls.sidetone_enabled:
+            return
+
         self = cls.singleton
         cls.mute_k4_audio = True
         self.starting_sidetone = True
@@ -4364,6 +4368,9 @@ class Audio():
     @classmethod
     def stop_sidetone(cls):
         if cls.singleton == None:
+            return
+
+        if not cls.sidetone_enabled:
             return
 
         self = cls.singleton
@@ -4379,23 +4386,28 @@ class Audio():
         self = cls.singleton
 
         if elt_seconds > 0:
-            self.output_device_queue.put(self.sidetone_rise_packet)
-#            log_packet('sidetone', self.sidetone_rise_packet)
-#            print_packet('rise', self.sidetone_rise_packet)
-            elt_seconds -= self.sidetone_seconds_per_rise_packet
-            elt_cycle_count = round(elt_seconds / self.sidetone_seconds_per_cycle)
-            elt_packet = self.sidetone_cycle_packet * elt_cycle_count
-            self.output_device_queue.put(elt_packet)
-#            log_packet('sidetone', elt_packet)
-#            print_packet('elt', elt_packet)
-            self.output_device_queue.put(self.sidetone_fall_packet)
-#            log_packet('sidetone', self.sidetone_fall_packet)
-#            print_packet('fall', self.sidetone_fall_packet)
-            self.output_device_queue.put(self.sidetone_fall2_packet)
-#            log_packet('sidetone', self.sidetone_fall2_packet)
-#            print_packet('fall2', self.sidetone_fall2_packet)
+            if cls.sidetone_enabled:
+                self.output_device_queue.put(self.sidetone_rise_packet)
+#                log_packet('sidetone', self.sidetone_rise_packet)
+#                print_packet('rise', self.sidetone_rise_packet)
+                elt_seconds -= self.sidetone_seconds_per_rise_packet
+                elt_cycle_count = round(elt_seconds / self.sidetone_seconds_per_cycle)
+                elt_packet = self.sidetone_cycle_packet * elt_cycle_count
+                self.output_device_queue.put(elt_packet)
+#                log_packet('sidetone', elt_packet)
+#                print_packet('elt', elt_packet)
+                self.output_device_queue.put(self.sidetone_fall_packet)
+#                log_packet('sidetone', self.sidetone_fall_packet)
+#                print_packet('fall', self.sidetone_fall_packet)
+                self.output_device_queue.put(self.sidetone_fall2_packet)
+#                log_packet('sidetone', self.sidetone_fall2_packet)
+#                print_packet('fall2', self.sidetone_fall2_packet)
 
-            space_seconds -= 2 * self.sidetone_seconds_per_rise_packet
+                space_seconds -= 2 * self.sidetone_seconds_per_rise_packet
+            else:
+                elt_cycle_count = round(elt_seconds / self.sidetone_seconds_per_cycle)
+                elt_packet = self.sidetone_space_cycle * elt_cycle_count
+                self.output_device_queue.put(elt_packet)
 
         if space_seconds > 0:
             space_cycle_count = round(space_seconds / self.sidetone_seconds_per_cycle)
@@ -4406,6 +4418,10 @@ class Audio():
 
         while self.output_device_queue.qsize() > 0:
             time.sleep(.001)
+
+    @classmethod
+    def enable_sidetone(cls, enable):
+        cls.sidetone_enabled = enable
 
     def pyaudio(cls):
         fd = os.dup(2)
@@ -5642,7 +5658,7 @@ class AppSettings_widget(Widget):
                                      relief='raised')
 
         # Define the style for this combobox widget
-        stylename = str(self) + 'output.TCombobox'
+        stylename = str(self) + 'k4_control.TCombobox'
         style = ttk.Style()
         style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg, padding=(2,2,2,2))
 
@@ -5694,7 +5710,7 @@ class AppSettings_widget(Widget):
                                      relief='raised')
 
         # Define the style for this combobox widget
-        stylename = str(self) + 'output.TCombobox'
+        stylename = str(self) + 'audio_receive_latency.TCombobox'
         style = ttk.Style()
         style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg, padding=(2,2,2,2))
 
@@ -5742,7 +5758,7 @@ class AppSettings_widget(Widget):
                                      relief='raised')
 
         # Define the style for this combobox widget
-        stylename = str(self) + 'output.TCombobox'
+        stylename = str(self) + 'audio_remote_latency.TCombobox'
         style = ttk.Style()
         style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg, padding=(2,2,2,2))
 
@@ -5785,6 +5801,9 @@ class AppSettings_widget(Widget):
         if not typ:
             self.disable_midi_device_frame()
             self.disable_serial_device_frame()
+            self.keyer_enable_sidetone_frame.grid_forget()
+        else:
+            self.keyer_enable_sidetone_frame.grid(row=4, column=0, sticky='w', pady=2)
         if Keyer.device_type_MIDI:
             self.enable_midi_device_frame()
             self.keyer_dit_paddle_note()
@@ -5847,6 +5866,9 @@ class AppSettings_widget(Widget):
         self.keyer_dit_paddle_note_frame = self.keyer_dit_paddle_note_settings(note_frame)
         self.keyer_dah_paddle_note_frame = self.keyer_dah_paddle_note_settings(note_frame)
 
+        self.keyer_enable_sidetone_frame = self.keyer_enable_sidetone_setting(frame)
+        self.keyer_enable_sidetone_frame.grid(row=4, column=0, sticky='w', pady=2)
+
         self.keyer_midi_device_settings(frame)
         self.keyer_serial_device_settings(frame)
         self.keyer_mode_settings(frame)
@@ -5855,6 +5877,58 @@ class AppSettings_widget(Widget):
         keyer_device_type_frame.grid(row=0, column=0, sticky='nw', pady=2)
 
         return frame
+
+    def keyer_enable_sidetone_setting(self, frame):
+        setting = Server.settings.getbool('Audio', 'keyer_enable_sidetone', True)
+        Audio.enable_sidetone(setting)
+
+        sidetone_frame = tk.LabelFrame(frame,
+                                     text='Generate Sidetone?',
+                                     font=self.label_font(),
+                                     labelanchor='nw',
+                                     bd=2,
+                                     padx=2,
+                                     pady=2,
+                                     relief='raised')
+
+        # Define the style for this combobox widget
+        stylename = str(self) + 'keyer_sidetone.TCombobox'
+        style = ttk.Style()
+        style.configure(stylename, background=self.bg, foreground=self.fg, selectbackground=self.selectbg, selectforeground=self.selectfg, padding=(2,2,2,2))
+
+        values = ('Yes', 'No')
+        width = 3
+        current_value = 'Yes' if setting else 'No'
+
+        self.enable_sidetone_val = tk.StringVar()
+        self.enable_sidetone_val.set(current_value)
+
+        sidetone_combobox = ttk.Combobox(
+                sidetone_frame,
+                textvar=self.enable_sidetone_val,
+                font=self.font(),
+                values=values,
+                height=len(values),
+                width=width,
+                state='readonly',
+                justify='left',
+                style=stylename,
+                )
+        sidetone_combobox.grid(row=0, column=0, sticky='w')
+
+        self.enable_sidetone_val.trace_add('write', self.on_enable_sidetone_combobox_changed)
+
+        return sidetone_frame
+
+    def on_enable_sidetone_combobox_changed(self, var, index, mode):
+        current_value = self.enable_sidetone_val.get()
+        if current_value == '':
+            return
+
+        setting = current_value == 'Yes'
+
+        Server.settings.put_save('Audio', 'keyer_enable_sidetone', setting)
+        Audio.enable_sidetone(setting)
 
     def keyer_device_type_settings(self, frame):
         keyer_device_type_frame = tk.LabelFrame(frame,
