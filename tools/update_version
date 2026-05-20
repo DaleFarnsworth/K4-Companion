@@ -217,7 +217,7 @@ def main():
     Options.Parse()
 
     branch = current_branch()
-    if branch != 'main' and branch != 'dev':
+    if branch != 'main' and branch != 'dev' and branch != 'tmp':
         print('On branch "{b}", do: git checkout main'.format(b=branch))
         return
 
