@@ -4299,6 +4299,8 @@ class Audio():
         elif base == 'SB':
             self.sub_on = cmd != '0'
 
+        self.generate_sidetone_packets()
+
     @classmethod
     def local_audio_responses(cls):
         a_volume = Server.settings.get('Audio', 'main_volume')
@@ -4445,6 +4447,7 @@ class Audio():
         self.input_device_infos = {}
         self.output_device_infos = {}
         self.sub_on = True
+        self.ab = 'a.b'
         self.transmit_audio = False
         self.cw_pitch = 600
         self.sidetone_volume = 30
@@ -4646,6 +4649,10 @@ class Audio():
 
             a = a * self.a_volume * 32          # apply some amplification
             b = b * self.b_volume * 32
+
+            if not self.sub_on:
+                b = a                           # take all audio from main
+
                                                 # Possible self.ab settings
                                                 # a.b
                                                 # ab.ab
@@ -4657,10 +4664,6 @@ class Audio():
                                                 # b.b
                                                 # b.a
                                                 # a.a
-
-            if not self.sub_on:
-                b = a                      # take all audio from main
-
             leftsel, rightsel = self.ab.split('.')
 
             if leftsel == 'a':
@@ -4697,6 +4700,45 @@ class Audio():
                 else:
                     mS_samples = stereo[i:i+millisecond_len]
                     self.output_device_queue.put(mS_samples.tobytes())
+
+    def averaged_left_right_volume(self):
+            a = self.a_volume
+            b = self.b_volume
+
+            if not self.sub_on:
+                b = a                           # take all audio from main
+
+                                                # Possible self.ab settings
+                                                # a.b
+                                                # ab.ab
+                                                # a.-a
+                                                # a.ab
+                                                # ab.b
+                                                # ab.a
+                                                # b.ab
+                                                # b.b
+                                                # b.a
+                                                # a.a
+            leftsel, rightsel = self.ab.split('.')
+
+            if leftsel == 'a':
+                left = a
+            elif leftsel == 'b':
+                left = b
+            elif leftsel == 'ab':
+                left = (a + b) / 2
+
+            if rightsel == 'b':
+                right = b
+            elif rightsel == 'a':
+                right = a
+            elif rightsel == 'ab':
+                right = (a + b) / 2
+            elif rightsel == '-a':
+                right = a
+
+            averaged_left_right_volume = (left + right) / 2
+            return averaged_left_right_volume
 
     def sidetone_loop(self):
         self.generate_sidetone_packets()
@@ -4760,6 +4802,7 @@ class Audio():
 
     def on_mx_changed(self, server, response):
         self.ab = response[2:].lower().rstrip(';')
+        self.generate_sidetone_packets()
 
     def start_input_thread(self, server):
         if self.input_device_index < 0:
@@ -4863,7 +4906,7 @@ class Audio():
         cycles_per_rise_packet = math.ceil(samples_per_rise_time / samples_per_cycle)
         samples_per_rise_packet = cycles_per_rise_packet * samples_per_cycle
         samples_per_fall_packet = samples_per_rise_packet
-        volume = self.sidetone_volume / 60 / 2.5
+        volume = self.sidetone_volume / 60 * self.averaged_left_right_volume() / 2.5
 
         steps = numpy.linspace(0, 1, samples_per_cycle, endpoint=False, dtype=numpy.float32)
         cycle = numpy.sin(2 * numpy.pi * steps) * volume
