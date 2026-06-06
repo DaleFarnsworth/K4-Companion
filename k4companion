@@ -4951,6 +4951,7 @@ class Audio():
     def on_cw_pitch_change(self, response):
         self.cw_pitch = int(response[2:].rstrip(';')) * 10
         self.generate_sidetone_packets()
+        VailAdapter.send_pitch()
 
     def on_sidetone_volume_change(self, response):
         self.sidetone_volume = int(response[3:].rstrip(';'))
@@ -5804,9 +5805,10 @@ class AppSettings_widget(Widget):
             self.keyer_enable_sidetone_frame.grid_forget()
         else:
             self.keyer_enable_sidetone_frame.grid(row=4, column=0, sticky='w', pady=2)
-        if Keyer.device_type_MIDI:
+        if Keyer.device_type_MoMIDI:
             self.enable_midi_device_frame()
             self.keyer_dit_paddle_note()
+            self.midi_note_frame.grid(row=2, column=0, sticky='w', padx=2, pady=2)
         if Keyer.device_type_serial:
             self.enable_serial_device_frame()
             self.keyer_dit_paddle_signal()
@@ -5814,6 +5816,10 @@ class AppSettings_widget(Widget):
         return typ
 
     def keyer_dit_paddle_note(self, note=None):
+        if Keyer.device_type_vail_adapter:
+            Keyer.set_dit_paddle_notes([0, 1, 2])
+            return
+
         setting_name = 'dit_paddle_midi_note'
         if Keyer.device_type_straight_key:
             setting_name = 'straight_key_midi_note'
@@ -5821,16 +5827,14 @@ class AppSettings_widget(Widget):
             Settings.main().put_save('Keyer', setting_name, note)
         note = Settings.main().getint('Keyer', setting_name, 20)
         self.dit_paddle_note_dropdown.value(note)
-        Keyer.set_dit_paddle_note(note)
-        return note
+        Keyer.set_dit_paddle_notes([note])
 
     def keyer_dah_paddle_note(self, note=None):
         if note != None:
             Settings.main().put_save('Keyer', 'dah_paddle_note', note)
         note = Settings.main().getint('Keyer', 'dah_paddle_note', 21)
         self.dah_paddle_note_dropdown.value(note)
-        Keyer.set_dah_paddle_note(note)
-        return note
+        Keyer.set_dah_paddle_notes([note])
 
     def keyer_dit_paddle_signal(self, signal=None):
         setting_name = 'dit_paddle_serial_signal'
@@ -5950,10 +5954,11 @@ class AppSettings_widget(Widget):
 
         device_types = (
             'None',
-            'MIDI Straight Key',
-            'MIDI Paddles',
+            'MoMIDI Straight Key',
+            'MoMIDI Paddles',
             'Serial Straight Key',
-            'Serial Paddles'
+            'Serial Paddles',
+            'Vail Adapter',
         )
 
         self.keyer_device_type_dropdown.values(device_types)
@@ -5975,11 +5980,17 @@ class AppSettings_widget(Widget):
         self.keyer_dit_paddle_note_frame.grid(row=0, column=0, sticky='w', pady=2)
         if Keyer.device_type_straight_key:
             self.dit_paddle_note_frame.configure(text='Straight Key Note')
-            self.keyer_dah_paddle_note_frame.grid_forget()
             self.keyer_mode_frame.grid_forget()
+            self.keyer_dah_paddle_note_frame.grid_forget()
+        elif Keyer.device_type_vail_adapter:
+            self.keyer_dit_paddle_note_frame.grid_forget()
+            self.fill_keyer_modes()
+            self.keyer_mode_frame.grid(row=2, column=0, sticky='w', padx=2, pady=2)
+            self.keyer_dah_paddle_note_frame.grid_forget()
         else:
             self.dit_paddle_note_frame.configure(text='Dit Paddle Note')
             self.keyer_dah_paddle_note_frame.grid(row=0, column=1, sticky='w', pady=2)
+            self.fill_keyer_modes()
             self.keyer_mode_frame.grid(row=3, column=0, sticky='w', padx=2, pady=2)
 
     def disable_midi_device_frame(self):
@@ -6001,6 +6012,7 @@ class AppSettings_widget(Widget):
         else:
             self.dit_paddle_signal_frame.configure(text='Dit Paddle Signal')
             self.keyer_dah_paddle_signal_frame.grid(row=0, column=1, sticky='w', pady=2)
+            self.fill_keyer_modes()
             self.keyer_mode_frame.grid(row=3, column=0, sticky='w', padx=2, pady=2)
 
     def disable_serial_device_frame(self):
@@ -6215,7 +6227,17 @@ class AppSettings_widget(Widget):
 
         self.keyer_mode_dropdown.select_callback(self.on_select_keyer_mode)
 
-        keyer_modes = (
+        self.fill_keyer_modes()
+
+        keyer_mode = Keyer.get_keyer_mode()
+        self.keyer_mode_dropdown.value(keyer_mode)
+        return self.keyer_mode_frame
+
+    def fill_keyer_modes(self):
+        if Keyer.device_type_vail_adapter:
+            keyer_modes = VailAdapter.keyer_modes
+        else:
+            keyer_modes = (
                 Keyer.MODE_IAMBIC,
                 Keyer.MODE_IAMBIC_A,
                 Keyer.MODE_IAMBIC_B,
@@ -6223,9 +6245,6 @@ class AppSettings_widget(Widget):
             )
 
         self.keyer_mode_dropdown.values(keyer_modes)
-        keyer_mode = Keyer.get_keyer_mode()
-        self.keyer_mode_dropdown.value(keyer_mode)
-        return self.keyer_mode_frame
 
     def on_select_keyer_mode(self, event):
         keyer_mode = self.keyer_mode_dropdown.value()
@@ -7550,6 +7569,7 @@ and everything after the & is sent.'''
         wpm = int(self.k4param('KS'))
         self.tx_poll_interval = int(1000 * 2.4 / float(wpm))
         self.keyer_speed_frame.config(text=f'Keyer: {wpm} WPM')
+        VailAdapter.send_keyer_speed()
 
     def on_save_button(self):
         super().on_save_button()
@@ -7977,6 +7997,10 @@ class MidiInput():
         if self:
             self.midiin.cancel_callback()
 
+    @classmethod
+    def get_message(cls):
+        return cls.midiin.get_message()
+
     def __init__(self):
         self.__class__.midiin = rtmidi.MidiIn()
         port_name = Settings.main().get('Keyer', 'midi_input_device', 'None')
@@ -7985,7 +8009,7 @@ class MidiInput():
         Poll.add(self.poll_interval, self.poll_new_device)
 
     def poll_new_device(self):
-        if not Keyer.device_type_MIDI:
+        if not Keyer.device_type_MoMIDI:
             return
 
         # Do we need to close/reopen if the port_index changes?
@@ -8018,12 +8042,105 @@ class MidiInput():
             self.midiin.open_port(port_index)
             cls.previous_port_serial_number = cls.port_serial_number
 
-            time.sleep(.1)      # wait for queued messages to become available
-            while True:         # clear queued messages
-                message = self.midiin.get_message()
-                if message == None:
-                    break
+            if Keyer.device_type_vail_adapter:
+                VailAdapter.open_output(self.port_name)
+            else:
+                VailAdapter.close_output()
+
             self.midiin.set_callback(self.message_callback)
+
+class VailAdapter():
+    midiout = None
+
+    keyer_modes = (
+        'Passthrough',
+        'Straight Key (cootie)',
+        'Bug (semi-automatic)',
+        'Electric Bug',
+        'Single Dot',
+        'Ultimatic',
+        'Plain Iambic',
+        'Iambic A',
+        'Iambic B',
+        'Keyahead',
+    )
+
+    @classmethod
+    def open_output(cls, devname):
+        if cls.midiout:
+            cls.close_output()
+
+        cls.midiout = rtmidi.MidiOut()
+        ports = cls.midiout.get_ports()
+        for port, name in enumerate(ports):
+            if name == devname:
+                cls.midiout.open_port(port)
+                while True:
+                    cls.send_initial_state()
+                    time.sleep(.1)
+                    if MidiInput.get_message():
+                        break
+                return
+        Popup.warning(f'Vail Adapter {devname} not found')
+        del cls.midiout
+        cls.midiout = None
+
+    @classmethod
+    def close_output(cls):
+        if cls.midiout:
+            del cls.midiout
+        cls.midiout = None
+
+    @classmethod
+    def send_message(cls, msg):
+        if cls.midiout:
+            cls.midiout.send_message(msg)
+
+    @classmethod
+    def send_set_midi_mode(cls):
+        cls.send_message([0xB0, 0, 0])
+
+    @classmethod
+    def send_pitch(cls):
+        pitch = Server.k4_server.k4_parameter('CW')
+        if not pitch:
+            return
+        pitch = int(pitch) * 10
+        note = round(69 + 12 * math.log2(pitch/440))
+        cls.send_message([0xB0, 2, note])
+
+    @classmethod
+    def send_keyer_speed(cls):
+        wpm = Server.k4_server.k4_parameter('KS')
+        if not wpm:
+            return
+        wpm = int(wpm)
+        dit_len = 1200/wpm
+        val = round(dit_len/2)
+        cls.send_message([0xB0, 1, val])
+
+    @classmethod
+    def send_keyer_mode(cls):
+        for i, mode in enumerate(cls.keyer_modes):
+            if mode == Keyer.keyer_mode:
+                keyer_mode = i
+                break
+        else:
+            keyer_mode = 0
+
+        cls.send_message([0xC0, keyer_mode])
+
+    @classmethod
+    def send_request_midi_timing(cls):
+        cls.send_message([0xB0, 3, 0x7f])
+
+    @classmethod
+    def send_initial_state(cls):
+        cls.send_set_midi_mode()
+        cls.send_pitch()
+        cls.send_keyer_speed()
+        cls.send_keyer_mode()
+        cls.send_request_midi_timing()
 
 class SerialInput():
     singleton = None
@@ -8193,7 +8310,7 @@ class SerialInput():
         while port_name == self.port_name and self.port:
             try:
                 dit_state = signal_funcs[Keyer.dit_paddle_signal]()
-                dah_state = signal_funcs[Keyer.dah_paddle_signal]() and not Keyer.device_type_straight_key
+                dah_state = signal_funcs[Keyer.dah_paddle_signal]() and not Keyer.straight_keying
             except (OSError, AttributeError):
                 return              # port was closed just before reading the signal
 
@@ -8233,7 +8350,7 @@ class SerialInput():
             time.sleep(.001)
 
 class Keyer():
-    MODE_IAMBIC = 'Iambic'
+    MODE_IAMBIC = 'Plain Iambic'
     MODE_IAMBIC_A = 'Iambic A'
     MODE_IAMBIC_B = 'Iambic B'
     MODE_ULTIMATIC = 'Ultimatic'
@@ -8243,11 +8360,13 @@ class Keyer():
     keyer_thread = None
     device_type = None
     device_type_straight_key = False
-    device_type_MIDI = False
+    device_type_MoMIDI = False
     device_type_serial = False
+    device_type_vail_adapter = False
+    straight_keying = False
     keyer_mode = MODE_IAMBIC_B
-    dit_paddle_note = None
-    dah_paddle_note = None
+    dit_paddle_notes = None
+    dah_paddle_notes = None
     dit_paddle_signal = None
     dah_paddle_signal = None
     iambic_memory_delay = .1
@@ -8295,14 +8414,23 @@ class Keyer():
 
     @classmethod
     def get_keyer_mode(cls):
-        mode = Settings.main().get('Keyer', 'keyer_mode', cls.MODE_IAMBIC_B)
+        if cls.device_type_vail_adapter:
+            key = 'vail_adapter_keyer_mode'
+        else:
+            key =  'keyer_mode'
+        mode = Settings.main().get('Keyer', key, cls.MODE_IAMBIC_B)
         cls.keyer_mode = mode
         return mode
 
     @classmethod
     def set_keyer_mode(cls, mode):
         cls.keyer_mode = mode
-        Settings.main().put_save('Keyer', 'keyer_mode', mode)
+        if cls.device_type_vail_adapter:
+            key = 'vail_adapter_keyer_mode'
+            VailAdapter.send_keyer_mode()
+        else:
+            key = 'keyer_mode'
+        Settings.main().put_save('Keyer', key, mode)
 
     @classmethod
     def set_message_callback(cls):
@@ -8311,7 +8439,7 @@ class Keyer():
             return
 
         cls.cancel_message_callback()
-        if cls.device_type_MIDI:
+        if cls.device_type_MoMIDI:
             MidiInput.set_message_callback(self.midi_message_callback)
         if cls.device_type_serial:
             SerialInput.set_message_callback(self.serial_message_callback)
@@ -8331,31 +8459,44 @@ class Keyer():
             cls.device_type = typ
 
         if typ:
-            cls.device_type_straight_key = 'Straight Key' in typ
-            cls.device_type_MIDI = 'MIDI' in typ
-            cls.device_type_serial = 'Serial' in typ
+            if 'Vail Adapter' in typ:
+                cls.device_type_vail_adapter = True
+                cls.straight_keying = True
+                cls.device_type_MoMIDI = True
+                cls.device_type_serial = False
+            else:
+                cls.device_type_vail_adapter = False
+                if 'Straight Key' in typ:
+                    cls.device_type_straight_key = True
+                    cls.straight_keying = True
+                else:
+                    cls.straight_keying = False
+                cls.device_type_MoMIDI = 'MoMIDI' in typ
+                cls.device_type_serial = 'Serial' in typ
             cls.set_message_callback()
         else:
             cls.device_type_straight_key = False
-            cls.device_type_MIDI = False
+            cls.straight_keying = False
+            cls.device_type_MoMIDI = False
             cls.device_type_serial = False
+            cls.device_type_vail_adapter = False
             cls.cancel_message_callback()
 
     @classmethod
-    def set_dit_paddle_note(cls, note):
-        cls.dit_paddle_note = note
+    def set_dit_paddle_notes(cls, notes):
+        cls.dit_paddle_notes = notes
 
     @classmethod
-    def set_dah_paddle_note(cls, note):
-        cls.dah_paddle_note = note
+    def set_dah_paddle_notes(cls, notes):
+        cls.dah_paddle_notes = notes
 
     @classmethod
-    def set_dit_paddle_signal(cls, note):
-        cls.dit_paddle_signal = note
+    def set_dit_paddle_signal(cls, signal):
+        cls.dit_paddle_signal = signal
 
     @classmethod
-    def set_dah_paddle_signal(cls, note):
-        cls.dah_paddle_signal = note
+    def set_dah_paddle_signal(cls, signal):
+        cls.dah_paddle_signal = signal
 
     @classmethod
     def set_iambic_memory_delay(cls, delay):
@@ -8373,7 +8514,6 @@ class Keyer():
         self.delta = 0
         self.dit_was_down = False
         self.dah_was_down = False
-        self.special_next_velocity = False
 
         # for straight_key handling
         self.paddle_event = 0
@@ -8396,52 +8536,37 @@ class Keyer():
 
     def midi_message_callback(self, event, data=None):
         message, midi_delta_time = event
-        event, note, velocity = message
-
-        if note != self.dit_paddle_note and note != self.dah_paddle_note:
-            return
-
-        event = event & 0xf0                    # ignore channel
+        event, status_byte, velocity = message
+        dprint1(f'MIDI {event=:02x} status_byte={status_byte} {velocity=}')
 
         if event == 0xb0:                       # control change
-            if velocity == 0:
-                self.special_next_velocity = True
-            else:
-                self.delta = (velocity << 7) / 1000
+            self.delta = (velocity * 126) / 1000
             return
 
-        if velocity == 0 or velocity == 127:    # Not MoMidi, use Midi delta time
+        if velocity == 0 or velocity == 127:    # No embedded time, use Midi delta time
             self.delta = midi_delta_time
         else:
-            if self.special_next_velocity:
-                if velocity == 126:
-                    velocity = 127
-                elif velocity == 1:
-                    velocity = 128
             self.delta += velocity / 1000
-        self.special_next_velocity = False
 
-        if note == self.dit_paddle_note:
-            if event == 0x90:                   # key down
+        if event == 0x90:                       # key down
+            if status_byte in self.dit_paddle_notes:
                 self.dit_was_down = True
                 self.send_paddle_event(self.DIT_DOWN_EVENT, self.delta)
-            elif event == 0x80:                 # key up
+            elif status_byte in self.dah_paddle_notes:
+                self.dah_was_down = True
+                self.send_paddle_event(self.DAH_DOWN_EVENT, self.delta)
+        elif event == 0x80:                     # key up
+            if status_byte in self.dit_paddle_notes:
                 if self.dit_was_down:
                     self.dit_was_down = False
                     self.send_paddle_event(self.DIT_UP_EVENT, self.delta)
-            else:
-                dprint1("unexpected event 0x%2x" % event)
-
-        elif note == self.dah_paddle_note:
-            if event == 0x90:                   # key down
-                self.dah_was_down = True
-                self.send_paddle_event(self.DAH_DOWN_EVENT, self.delta)
-            elif event == 0x80:                 # key up
+            elif status_byte in self.dah_paddle_notes:
                 if self.dah_was_down:
                     self.dah_was_down = False
                     self.send_paddle_event(self.DAH_UP_EVENT, self.delta)
-            else:
-                dprint1("unexpected event 0x%2x" % event)
+        else:
+            dprint1("unexpected event 0x%2x" % event)
+
         self.delta = 0
 
     def serial_message_callback(self, event):
@@ -8454,7 +8579,7 @@ class Keyer():
             else:
                 self.send_paddle_event(self.DIT_UP_EVENT, delta_time)
 
-        if signal == self.dah_paddle_signal and not self.device_type_straight_key:
+        if signal == self.dah_paddle_signal and not self.straight_keying:
             if asserted:
                 self.send_paddle_event(self.DAH_DOWN_EVENT, delta_time)
             else:
@@ -8462,7 +8587,7 @@ class Keyer():
 
     def send_paddle_event(self, event, delta_time):
         self.paddle_event = event
-        if self.device_type_straight_key:
+        if self.straight_keying:
             self.paddle_timestamp += delta_time
         else:
             timestamp = time.perf_counter()
@@ -8486,7 +8611,7 @@ class Keyer():
             event, timestamp = self.wait_for_event()
             if event == self.CLOSE_EVENT:
                 return
-            if self.device_type_straight_key:
+            if self.straight_keying:
                 self.straight_key_event(event, timestamp)
             elif self.keyer_mode == self.MODE_ULTIMATIC:
                 self.send_ultimatic()
