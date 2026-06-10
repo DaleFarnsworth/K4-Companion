@@ -8395,7 +8395,7 @@ class Keyer():
         self.keyer_thread.start()
 
     def midi_message_callback(self, event, data=None):
-        message, deltatime = event
+        message, midi_delta_time = event
         event, note, velocity = message
 
         if note != self.dit_paddle_note and note != self.dah_paddle_note:
@@ -8411,7 +8411,7 @@ class Keyer():
             return
 
         if velocity == 0 or velocity == 127:    # Not MoMidi, use Midi delta time
-            self.delta = deltatime
+            self.delta = midi_delta_time
         else:
             if self.special_next_velocity:
                 if velocity == 126:
@@ -8445,20 +8445,20 @@ class Keyer():
         self.delta = 0
 
     def serial_message_callback(self, event):
-        message, deltatime = event
+        message, delta_time = event
         signal, asserted = message
 
         if signal == self.dit_paddle_signal:
             if asserted:
-                self.send_paddle_event(self.DIT_DOWN_EVENT, deltatime)
+                self.send_paddle_event(self.DIT_DOWN_EVENT, delta_time)
             else:
-                self.send_paddle_event(self.DIT_UP_EVENT, deltatime)
+                self.send_paddle_event(self.DIT_UP_EVENT, delta_time)
 
         if signal == self.dah_paddle_signal and not self.device_type_straight_key:
             if asserted:
-                self.send_paddle_event(self.DAH_DOWN_EVENT, deltatime)
+                self.send_paddle_event(self.DAH_DOWN_EVENT, delta_time)
             else:
-                self.send_paddle_event(self.DAH_UP_EVENT, deltatime)
+                self.send_paddle_event(self.DAH_UP_EVENT, delta_time)
 
     def send_paddle_event(self, event, delta_time):
         self.paddle_event = event
@@ -8500,8 +8500,6 @@ class Keyer():
             milliseconds = round(up_duration * 1000)
             if milliseconds > 2500:
                 milliseconds = 0
-            elif milliseconds < 35:
-                milliseconds = 35;
             Server.k4_server.send_str(f'KZD{milliseconds:04d};')
             Audio.start_sidetone()
         elif event == self.STRAIGHT_KEY_UP_EVENT:
@@ -8510,11 +8508,11 @@ class Keyer():
             milliseconds = round(down_duration * 1000)
             if milliseconds > 2500:
                 milliseconds = 0
-            elif milliseconds < 35:
+            elif milliseconds < 20:
 # Very short key down times cause ADC overload
 # I've seen it (rarely) at 40 mS, which is 30 WPM
-# 35 milliseconds is approximately 34-35 WPM
-                milliseconds = 35;
+# 20 milliseconds is approximately 60 WPM
+                milliseconds = 20;
             Server.k4_server.send_str(f'KZU{milliseconds:04d};')
             Audio.stop_sidetone()
 
