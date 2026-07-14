@@ -288,7 +288,7 @@
   columns: 1
   contains: #{
     #include server-settings
-    #include sw-release-group
+    #include sw-udate-group
   #}
 #end
 
@@ -1532,18 +1532,18 @@
   length: 150
 #end
 
-#define sw-release-group
+#define sw-udate-group
 - item: group
-  label: "Software Release"
+  label: "Software Update"
   padx: 2
   columns: 1
   contains: #{
-    #include sw-release-dropdown-button
-    #include sw-release-apply-button
+    #include sw-udate-dropdown-button
+    #include sw-udate-apply-button
   #}
 #end
 
-#define sw-release-dropdown-button
+#define sw-udate-dropdown-button
 - item: dropdownbutton
   width: 13
   justify: left
@@ -1554,7 +1554,7 @@
   #}
 #end
 
-#define sw-release-apply-button
+#define sw-udate-apply-button
 - item: button
   text: "Apply and\nReboot"
   cmd: PS88;
