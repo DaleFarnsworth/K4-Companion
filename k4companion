@@ -8369,7 +8369,7 @@ class Keyer():
     dah_paddle_notes = None
     dit_paddle_signal = None
     dah_paddle_signal = None
-    iambic_memory_delay = .1
+    iambic_memory_delay = .01   # 10 ms
 
     @classmethod
     def get_singleton(cls):
@@ -8499,8 +8499,8 @@ class Keyer():
         cls.dah_paddle_signal = signal
 
     @classmethod
-    def set_iambic_memory_delay(cls, delay):
-        cls.iambic_memory_delay = delay
+    def set_iambic_memory_delay(cls, seconds):
+        cls.iambic_memory_delay = seconds
 
     def __init__(self):
         self.DIT_DOWN_EVENT = 'dit_down'
@@ -8652,17 +8652,17 @@ class Keyer():
             else:
                 dit_mem = (previous_elt == '-' and
                            (self.dit_down_timestamp - previous_elt_timestamp) >
-                           (self.dit_seconds * self.iambic_memory_delay))
+                           self.iambic_memory_delay)
                 dah_mem = (previous_elt == '.' and
                            (self.dah_down_timestamp - previous_elt_timestamp) >
-                           (self.dit_seconds + self.iambic_memory_delay))
+                           self.iambic_memory_delay)
                 if self.keyer_mode == self.MODE_IAMBIC_B:
                     dit_mem = dit_mem or ((previous_elt == '-' and
                                (self.dit_up_timestamp - previous_elt_timestamp) >
-                               self.dah_seconds / 3))
+                               self.iambic_memory_delay))
                     dah_mem = dah_mem or ((previous_elt == '.' and
-                               ((self.dah_up_timestamp - previous_elt_timestamp) >
-                               (self.dit_seconds * self.iambic_memory_delay))))
+                               (self.dah_up_timestamp - previous_elt_timestamp) >
+                               self.iambic_memory_delay))
             previous_elt_timestamp = time.perf_counter()
 
             dit_now = self.dit_down_timestamp > self.dit_up_timestamp
