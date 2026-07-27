@@ -8646,25 +8646,23 @@ class Keyer():
         previous_elt = None
 
         while True:
-            if (previous_elt == None or
-                self.keyer_mode == self.MODE_IAMBIC):
+            if (previous_elt == None or self.keyer_mode == self.MODE_IAMBIC):
                 dit_mem = False
-                dah_mem = False
-            elif self.keyer_mode == self.MODE_IAMBIC_A:
-                dit_mem = (previous_elt == '-' and
-                           (self.dit_down_timestamp - previous_elt_timestamp) >
-                           (self.dit_seconds * self.iambic_memory_delay))
                 dah_mem = False
             else:
                 dit_mem = (previous_elt == '-' and
-                           (((self.dit_down_timestamp - previous_elt_timestamp) >
-                           (self.dit_seconds * self.iambic_memory_delay)) or
-                           (self.dit_up_timestamp - previous_elt_timestamp) >
-                           (self.dit_seconds * self.iambic_memory_delay +
-                            self.dah_seconds/3)))
+                           (self.dit_down_timestamp - previous_elt_timestamp) >
+                           (self.dit_seconds * self.iambic_memory_delay))
                 dah_mem = (previous_elt == '.' and
-                           ((self.dah_up_timestamp - previous_elt_timestamp) >
-                           (self.dit_seconds * self.iambic_memory_delay)))
+                           (self.dah_down_timestamp - previous_elt_timestamp) >
+                           (self.dit_seconds + self.iambic_memory_delay))
+                if self.keyer_mode == self.MODE_IAMBIC_B:
+                    dit_mem = dit_mem or ((previous_elt == '-' and
+                               (self.dit_up_timestamp - previous_elt_timestamp) >
+                               self.dah_seconds / 3))
+                    dah_mem = dah_mem or ((previous_elt == '.' and
+                               ((self.dah_up_timestamp - previous_elt_timestamp) >
+                               (self.dit_seconds * self.iambic_memory_delay))))
             previous_elt_timestamp = time.perf_counter()
 
             dit_now = self.dit_down_timestamp > self.dit_up_timestamp
