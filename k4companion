@@ -8369,7 +8369,7 @@ class Keyer():
     dah_paddle_notes = None
     dit_paddle_signal = None
     dah_paddle_signal = None
-    iambic_memory_delay = .01   # 10 ms
+    iambic_memory_delay = 0.00   # 0 ms
 
     @classmethod
     def get_singleton(cls):
