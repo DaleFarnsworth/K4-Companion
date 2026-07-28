@@ -8537,9 +8537,12 @@ class Keyer():
     def midi_message_callback(self, event, data=None):
         message, midi_delta_time = event
         event, status_byte, velocity = message
-        dprint1(f'MIDI {event=:02x} status_byte={status_byte} {velocity=}')
+        midi_delta = round(midi_delta_time, 3)
+        dprint1(f'MIDI {event=:02x} status_byte={status_byte} {velocity=} {midi_delta=}')
 
-        if event == 0xb0:                       # control change
+        # 0xb0 is for the older MoMIDI spec, control change
+        # 0xa0 is for the MoMIDI spec v0.1, polyphonic aftertouch
+        if event == 0xb0 or event == 0xa0:
             self.delta = (velocity * 126) / 1000
             return
 
