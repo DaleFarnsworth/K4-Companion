@@ -261,19 +261,19 @@
 #define antenna-label-tx
 - item: text
   bg: None
-  text: '    Tx'
+  text: ' Tx:'
 #end
 
 #define antenna-label-main
 - item: text
   bg: None
-  text: 'Main Rx'
+  text: 'Main Rx:'
 #end
 
 #define antenna-label-sub
 - item: text
   bg: None
-  text: '    Sub Rx'
+  text: ' Sub Rx:'
 #end
 
 #define menu
