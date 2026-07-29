@@ -923,7 +923,7 @@ class Server():
                 if cmds != None:
                     cmds = cmds.decode()
                     if cmds in ('PING;', 'ACN1;'):
-                        dprint3('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
+                        dprint4('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
                     else:
                         dprint1('{name}: sent: {cmds}'.format(name=self.name, cmds=cmds))
 
@@ -1045,7 +1045,7 @@ class Server():
                 Audio.control_k4_cmd(base, response)
             if Options.debug >= 1:
                 if base in ('SM', 'SM$', 'SMH', 'SMH$', 'TM', 'PONG', 'DA', 'ACN1', 'TB', 'TB$'):
-                    dprint3('{name}: received: {response};'.format(name=self.name, response=response))
+                    dprint4('{name}: received: {response};'.format(name=self.name, response=response))
                 else:
                     dprint1('{name}: received: {response};'.format(name=self.name, response=response))
             if not self.control_k4_audio and base in self.control_k4_audio_cmd_bases:
@@ -1885,11 +1885,11 @@ class ToggleWidget():
             k4_parameter = self.caller.k4param(base)
             if selection['evalresponse'] != None and k4_parameter != None:
                 k4_parameter = self.caller.eval_value(selection['evalresponse'], base + k4_parameter + ';')[len(base):].rstrip(';')
-            dprint2('compare :{text} s: {s}, b: {b}'.format(text=text, s=k4_parameter, b=parameters[base]))
+            dprint3('compare :{text} s: {s}, b: {b}'.format(text=text, s=k4_parameter, b=parameters[base]))
             if parameters[base] != k4_parameter:
-                dprint2(text, 'No match')
+                dprint3(text, 'No match')
                 return False
-        dprint2(text, 'Match')
+        dprint3(text, 'Match')
         return True
 
     def on_response_received(self, response):
@@ -1997,11 +1997,11 @@ class Radiobutton(Widget):
     def compare_parameters(self, group, text):
         parameters = self.parameters
         for base in parameters.keys():
-            dprint2('compare {group}:{text} s: {s}, b: {b}'.format(group=group, text=text, s=self.k4param(base), b=parameters[base]))
+            dprint3('compare {group}:{text} s: {s}, b: {b}'.format(group=group, text=text, s=self.k4param(base), b=parameters[base]))
             if parameters[base] != self.k4param(base):
-                dprint2(text, 'No match')
+                dprint3(text, 'No match')
                 return False
-        dprint2(text, 'Match')
+        dprint3(text, 'Match')
         return True
 
     def on_response_received(self, response):
@@ -2974,11 +2974,11 @@ class DropdownWidget():
                 k4_parameter = self.server.k4_parameter(base)
             if selection['evalresponse'] != None and k4_parameter != None:
                 k4_parameter = self.caller.eval_value(selection['evalresponse'], base + k4_parameter + ';')[len(base):].rstrip(';')
-            dprint2('compare :{text} s: {s}, b: {b}'.format(text=text, s=k4_parameter, b=parameters[base]))
+            dprint3('compare :{text} s: {s}, b: {b}'.format(text=text, s=k4_parameter, b=parameters[base]))
             if parameters[base] != k4_parameter:
-                dprint2(text, 'No match')
+                dprint3(text, 'No match')
                 return False
-        dprint2(text, 'Match')
+        dprint3(text, 'Match')
         return True
 
     def on_response_received(self, response):
@@ -8537,8 +8537,10 @@ class Keyer():
     def midi_message_callback(self, event, data=None):
         message, midi_delta_time = event
         event, status_byte, velocity = message
-        midi_delta = round(midi_delta_time, 3)
-        dprint1(f'MIDI {event=:02x} status_byte={status_byte} {velocity=} {midi_delta=}')
+        dprint1(f'MIDI {event=:02x} status_byte={status_byte} {velocity=}')
+
+        if midi_delta_time >= 0.001:
+            self.midi_delta_time = midi_delta_time
 
         # 0xb0 is for the older MoMIDI spec, control change
         # 0xa0 is for the MoMIDI spec v0.1, polyphonic aftertouch
@@ -8548,8 +8550,10 @@ class Keyer():
 
         if velocity == 0 or velocity == 127:    # No embedded time, use Midi delta time
             self.delta = midi_delta_time
+            dprint1(f'midi delta={round(self.delta, 3)}')
         else:
             self.delta += velocity / 1000
+            dprint1(f'event delta={round(self.delta, 3)}, midi delta={round(self.midi_delta_time, 3)}')
 
         if event == 0x90:                       # key down
             if status_byte in self.dit_paddle_notes:
