@@ -8471,6 +8471,7 @@ class Keyer():
                     cls.straight_keying = True
                 else:
                     cls.straight_keying = False
+                    cls.device_type_straight_key = False
                 cls.device_type_MoMIDI = 'MoMIDI' in typ
                 cls.device_type_serial = 'Serial' in typ
             cls.set_message_callback()
