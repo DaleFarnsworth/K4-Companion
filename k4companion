@@ -8349,6 +8349,11 @@ class SerialInput():
 
             time.sleep(.001)
 
+class PaddleEvent():
+    def __init__(self, event, timestamp):
+        self.event = event
+        self.timestamp = timestamp
+
 class Keyer():
     MODE_IAMBIC = 'Plain Iambic'
     MODE_IAMBIC_A = 'Iambic A'
@@ -8517,8 +8522,7 @@ class Keyer():
         self.dah_was_down = False
 
         # for straight_key handling
-        self.paddle_event = 0
-        self.paddle_threading_event = threading.Event()
+        self.paddle_event_queue = queue.Queue()
         self.previous_key_down_timestamp = 0
         self.previous_key_up_timestamp = 0
 
@@ -8594,9 +8598,9 @@ class Keyer():
                 self.send_paddle_event(self.DAH_UP_EVENT, delta_time)
 
     def send_paddle_event(self, event, delta_time):
-        self.paddle_event = event
         if self.straight_keying:
             self.paddle_timestamp += delta_time
+            timestamp = self.paddle_timestamp
         else:
             timestamp = time.perf_counter()
             if event == self.DIT_DOWN_EVENT:
@@ -8607,26 +8611,27 @@ class Keyer():
                 self.dah_down_timestamp = timestamp
             elif event == self.DAH_UP_EVENT:
                 self.dah_up_timestamp = timestamp
-        self.paddle_threading_event.set()
-
-    def wait_for_event(self):
-        self.paddle_threading_event.clear()
-        self.paddle_threading_event.wait()
-        return self.paddle_event, self.paddle_timestamp
+        paddle_event = PaddleEvent(event, timestamp)
+        self.paddle_event_queue.put(paddle_event)
 
     def keyer_loop(self):
-        while True:
-            event, timestamp = self.wait_for_event()
-            if event == self.CLOSE_EVENT:
-                return
+        event = None
+        while event != self.CLOSE_EVENT:
             if self.straight_keying:
-                self.straight_key_event(event, timestamp)
+                event = self.send_straight_key()
             elif self.keyer_mode == self.MODE_ULTIMATIC:
-                self.send_ultimatic()
+                event = self.send_ultimatic()
             else:
-                self.send_iambic()
+                event = self.send_iambic()
 
-    def straight_key_event(self, event, timestamp):
+    def send_straight_key(self):
+        paddle_event = self.paddle_event_queue.get()
+        event = paddle_event.event
+        if not self.straight_keying or event == self.CLOSE_EVENT:
+            return event
+
+        timestamp = paddle_event.timestamp
+
         if event == self.STRAIGHT_KEY_DOWN_EVENT:
             self.previous_key_down_timestamp = timestamp
             up_duration = timestamp - self.previous_key_up_timestamp
@@ -8649,7 +8654,16 @@ class Keyer():
             Server.k4_server.send_str(f'KZU{milliseconds:04d};')
             Audio.stop_sidetone()
 
+        return event
+
     def send_iambic(self):
+        paddle_event = self.paddle_event_queue.get()
+        event = paddle_event.event
+        if (self.keyer_mode != self.MODE_IAMBIC and
+            self.keyer_mode != self.MODE_IAMBIC_A and
+            self.keyer_mode != self.MODE_IAMBIC_B) or event == self.CLOSE_EVENT:
+            return event
+
         Audio.mute_k4_audio = True
         previous_elt = None
 
@@ -8681,11 +8695,8 @@ class Keyer():
             if not dit and not dah:
                 if previous_elt != None:
                     self.send_element(' ')
-                    dit = self.dit_down_timestamp > self.dit_up_timestamp
-                    dah =  self.dah_down_timestamp > self.dah_up_timestamp
-                if not dit and not dah:
-                    Audio.mute_k4_audio = False
-                    return
+                Audio.mute_k4_audio = False
+                return paddle_event.event
 
             if dit and dah:
                 elt = '-' if previous_elt == '.' else '.'
@@ -8699,6 +8710,11 @@ class Keyer():
             previous_elt = elt
 
     def send_ultimatic(self):
+        paddle_event = self.paddle_event_queue.get()
+        event = paddle_event.event
+        if self.keyer_mode != self.MODE_ULTIMATIC or event == self.CLOSE_EVENT:
+            return event
+
         Audio.mute_k4_audio = True
         sent_element = False
         while True:
@@ -8707,11 +8723,8 @@ class Keyer():
             if not dit and not dah:
                 if sent_element:
                     self.send_element(' ')
-                    dit = self.dit_down_timestamp > self.dit_up_timestamp
-                    dah =  self.dah_down_timestamp > self.dah_up_timestamp
-                if not dit and not dah:
-                    Audio.mute_k4_audio = False
-                    return
+                Audio.mute_k4_audio = False
+                return paddle_event.event
 
             if dit and dah:
                 dah_down_last = self.dah_down_timestamp > self.dit_down_timestamp
