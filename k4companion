@@ -4378,47 +4378,6 @@ class Audio():
         self.ending_sidetone = True
         self.sidetone_event.clear()
 
-# Note that we lengthen the element by a rise time, so that the element seconds is
-# measured from the mid-point of the rise and fall packets.
-# We then compensate by shortening the following space by an equivalent amount
-    @classmethod
-    def send_sidetone(cls, elt_seconds, space_seconds):
-        self = cls.singleton
-
-        if elt_seconds > 0:
-            if cls.sidetone_enabled:
-                self.output_device_queue.put(self.sidetone_rise_packet)
-#                log_packet('sidetone', self.sidetone_rise_packet)
-#                print_packet('rise', self.sidetone_rise_packet)
-                elt_seconds -= self.sidetone_seconds_per_rise_packet
-                elt_cycle_count = round(elt_seconds / self.sidetone_seconds_per_cycle)
-                elt_packet = self.sidetone_cycle_packet * elt_cycle_count
-                self.output_device_queue.put(elt_packet)
-#                log_packet('sidetone', elt_packet)
-#                print_packet('elt', elt_packet)
-                self.output_device_queue.put(self.sidetone_fall_packet)
-#                log_packet('sidetone', self.sidetone_fall_packet)
-#                print_packet('fall', self.sidetone_fall_packet)
-                self.output_device_queue.put(self.sidetone_fall2_packet)
-#                log_packet('sidetone', self.sidetone_fall2_packet)
-#                print_packet('fall2', self.sidetone_fall2_packet)
-
-                space_seconds -= 2 * self.sidetone_seconds_per_rise_packet
-            else:
-                elt_cycle_count = round(elt_seconds / self.sidetone_seconds_per_cycle)
-                elt_packet = self.sidetone_space_cycle * elt_cycle_count
-                self.output_device_queue.put(elt_packet)
-
-        if space_seconds > 0:
-            space_cycle_count = round(space_seconds / self.sidetone_seconds_per_cycle)
-            space_packet = self.sidetone_space_cycle * space_cycle_count
-            self.output_device_queue.put(space_packet)
-#            log_packet('sidetone', space_packet)
-#            print_packet('space', space_packet)
-
-        while self.output_device_queue.qsize() > 0:
-            time.sleep(.001)
-
     @classmethod
     def enable_sidetone(cls, enable):
         cls.sidetone_enabled = enable
@@ -8532,6 +8491,7 @@ class Keyer():
         self.dit_up_timestamp = 0
         self.dah_down_timestamp = 0
         self.dah_up_timestamp = 0
+        self.element_timestamp = 0
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -8664,7 +8624,6 @@ class Keyer():
             self.keyer_mode != self.MODE_IAMBIC_B) or event == self.CLOSE_EVENT:
             return event
 
-        Audio.mute_k4_audio = True
         previous_elt = None
 
         while True:
@@ -8692,10 +8651,10 @@ class Keyer():
             dit = dit_now or dit_mem
             dah = dah_now or dah_mem
 
+            first_element = previous_elt == None
             if not dit and not dah:
                 if previous_elt != None:
-                    self.send_element(' ')
-                Audio.mute_k4_audio = False
+                    self.send_element(' ', first_element)
                 return paddle_event.event
 
             if dit and dah:
@@ -8705,7 +8664,7 @@ class Keyer():
             elif dah:
                 elt = '-'
 
-            self.send_element(elt)
+            self.send_element(elt, first_element)
 
             previous_elt = elt
 
@@ -8715,15 +8674,14 @@ class Keyer():
         if self.keyer_mode != self.MODE_ULTIMATIC or event == self.CLOSE_EVENT:
             return event
 
-        Audio.mute_k4_audio = True
         sent_element = False
         while True:
             dit = self.dit_down_timestamp > self.dit_up_timestamp
             dah =  self.dah_down_timestamp > self.dah_up_timestamp
+            first_element = not sent_element
             if not dit and not dah:
                 if sent_element:
-                    self.send_element(' ')
-                Audio.mute_k4_audio = False
+                    self.send_element(' ', first_element)
                 return paddle_event.event
 
             if dit and dah:
@@ -8734,18 +8692,31 @@ class Keyer():
             elif dah:
                 elt = '-'
 
-            self.send_element(elt)
+            self.send_element(elt, first_element)
             sent_element = True
 
-    def send_element(self, elt):
+    def send_element(self, elt, first_element):
         if elt == ' ':
-            space_seconds = self.inter_character_seconds - self.inter_element_seconds
-            Audio.send_sidetone(0, space_seconds)
-        else:
-            Server.k4_server.send_str(f'KZ{elt};')
+            # wait inter-character interval
+            silent_seconds =  self.inter_character_seconds - self.inter_element_seconds
+            self.element_timestamp += silent_seconds
+            time.sleep(self.element_timestamp - time.perf_counter())
+            return
 
-            elt_seconds = self.dah_seconds if elt == '-'  else self.dit_seconds
-            Audio.send_sidetone(elt_seconds, self.inter_element_seconds)
+        Audio.start_sidetone()
+        if first_element:
+            self.element_timestamp = time.perf_counter()
+            time.sleep(.005)
+        Server.k4_server.send_str(f'KZ{elt};')
+
+        # wait element interval
+        self.element_timestamp += self.dah_seconds if elt == '-'  else self.dit_seconds
+        time.sleep(self.element_timestamp - time.perf_counter())
+        Audio.stop_sidetone()
+
+        # wait inter-element interval
+        self.element_timestamp += self.inter_element_seconds
+        time.sleep(self.element_timestamp - time.perf_counter())
 
     def on_speed_change(self, response=None):
         # The length of a dit in seconds is 1.2 / wpm,
