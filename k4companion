@@ -5814,6 +5814,22 @@ class AppSettings_widget(Widget):
         Keyer.set_dah_paddle_signal(signal)
         return signal
 
+    def keyer_dit_memory_delay_percent(self, percent=None):
+        if percent != None:
+            Settings.main().put_save('Keyer', 'dit_up_memory_delay_percent', percent)
+        percent = Settings.main().getint('Keyer', 'dit_up_memory_delay_percent', 33)
+        self.dit_memory_delay_percent.set(percent)
+        Keyer.set_dit_up_memory_delay_percent(percent)
+        return percent
+
+    def keyer_dah_memory_delay_percent(self, percent=None):
+        if percent != None:
+            Settings.main().put_save('Keyer', 'dah_up_memory_delay_percent', percent)
+        percent = Settings.main().getint('Keyer', 'dah_up_memory_delay_percent', 0)
+        self.dah_memory_delay_percent.set(percent)
+        Keyer.set_dah_up_memory_delay_percent(percent)
+        return percent
+
     def keyer_settings(self):
         frame = tk.LabelFrame(self.frame,
                               text='Keyer Settings',
@@ -5951,6 +5967,12 @@ class AppSettings_widget(Widget):
             self.keyer_dah_paddle_note_frame.grid(row=0, column=1, sticky='w', pady=2)
             self.fill_keyer_modes()
             self.keyer_mode_frame.grid(row=3, column=0, sticky='w', padx=2, pady=2)
+        if not Keyer.device_type_vail_adapter and Keyer.keyer_mode == Keyer.MODE_IAMBIC_B:
+            self.keyer_dit_memory_delay_percent_frame.grid(row=0, column=1, sticky='w', padx=2, pady=2)
+            self.keyer_dah_memory_delay_percent_frame.grid(row=0, column=2, sticky='w', padx=2, pady=2)
+        else:
+            self.keyer_dit_memory_delay_percent_frame.grid_forget()
+            self.keyer_dah_memory_delay_percent_frame.grid_forget()
 
     def disable_midi_device_frame(self):
         self.midi_device_frame.grid_forget()
@@ -5958,6 +5980,8 @@ class AppSettings_widget(Widget):
         self.keyer_dit_paddle_signal_frame.grid_forget()
         self.keyer_dah_paddle_signal_frame.grid_forget()
         self.keyer_mode_frame.grid_forget()
+        self.keyer_dit_memory_delay_percent_frame.grid_forget()
+        self.keyer_dah_memory_delay_percent_frame.grid_forget()
 
     def enable_serial_device_frame(self):
         self.disable_midi_device_frame()
@@ -6168,7 +6192,8 @@ class AppSettings_widget(Widget):
             self.keyer_dah_paddle_signal()
 
     def keyer_mode_settings(self, frame):
-        self.keyer_mode_frame = tk.LabelFrame(frame,
+        self.keyer_mode_frame = tk.Frame(frame)
+        frame = tk.LabelFrame(self.keyer_mode_frame,
                                     text='Mode',
                                     font=self.label_font(),
                                     labelanchor='nw',
@@ -6176,10 +6201,11 @@ class AppSettings_widget(Widget):
                                     padx=2,
                                     pady=2,
                                     relief='raised')
+        frame.grid(row=0, column=0, sticky='w', padx=0, pady=0)
 
         selectbg = self.bg
         selectfg = self.fg
-        self.keyer_mode_dropdown = Dropdown_Widget(self.keyer_mode_frame, bd=2,
+        self.keyer_mode_dropdown = Dropdown_Widget(frame, bd=2,
             bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
             font=self.font(), justify='left', height=0)
         self.keyer_mode_dropdown.grid(row=0, column=0)
@@ -6190,6 +6216,8 @@ class AppSettings_widget(Widget):
 
         keyer_mode = Keyer.get_keyer_mode()
         self.keyer_mode_dropdown.value(keyer_mode)
+        self.keyer_dit_memory_delay_percent_settings(self.keyer_mode_frame)
+        self.keyer_dah_memory_delay_percent_settings(self.keyer_mode_frame)
         return self.keyer_mode_frame
 
     def fill_keyer_modes(self):
@@ -6208,6 +6236,91 @@ class AppSettings_widget(Widget):
     def on_select_keyer_mode(self, event):
         keyer_mode = self.keyer_mode_dropdown.value()
         Keyer.set_keyer_mode(keyer_mode)
+        self.enable_midi_device_frame()
+
+    def keyer_dit_memory_delay_percent_settings(self, frame):
+        text = 'Dit Mem %'
+        self.keyer_dit_memory_delay_percent_frame = tk.LabelFrame(frame, text=text,
+            font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+        self.update_keyer_dit_memory_delay_percent()
+        return self.keyer_dit_memory_delay_percent_frame
+
+    def update_keyer_dit_memory_delay_percent(self):
+        selectbg = self.bg
+        selectfg = self.fg
+
+        self.dit_memory_delay_percent = tk.StringVar()
+        self.keyer_dit_memory_delay_percent()
+
+        self.dit_memory_delay_percent_entry = tk.Entry(self.keyer_dit_memory_delay_percent_frame,
+            textvariable=self.dit_memory_delay_percent,
+            width=4, bd=2, bg=self.bg, fg=self.fg,
+            font=self.font(), justify='right', state='normal')
+        self.dit_memory_delay_percent_entry.grid(row=0, column=0)
+        self.dit_memory_delay_percent.trace_add('write', self.on_dit_memory_delay_percent_changed)
+        self.keyer_dit_memory_delay_percent()
+
+    def on_dit_memory_delay_percent_changed(self, var, index, mode):
+        percent = 0
+        try:
+            percent = self.dit_memory_delay_percent.get()
+            if percent == "":
+                Poll.call(5000, self.delayed_set_dit_memory_delay_percent)
+                return
+            percent = int(percent)
+            if percent >= 0 and percent <= 100:
+                self.keyer_dit_memory_delay_percent(int(percent))
+            else:
+                self.dit_memory_delay_percent.set(self.keyer_dit_memory_delay_percent())
+        except (tk.TclError, ValueError):
+            self.dit_memory_delay_percent.set(self.keyer_dit_memory_delay_percent())
+
+    def delayed_set_dit_memory_delay_percent(self):
+        percent = self.dit_memory_delay_percent.get()
+        if percent == "":
+            self.dit_memory_delay_percent.set(self.keyer_dit_memory_delay_percent())
+
+    def keyer_dah_memory_delay_percent_settings(self, frame):
+        text = 'Dah Mem %'
+        self.keyer_dah_memory_delay_percent_frame = tk.LabelFrame(frame, text=text,
+            font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+        self.update_keyer_dah_memory_delay_percent()
+        return self.keyer_dah_memory_delay_percent_frame
+
+    def update_keyer_dah_memory_delay_percent(self):
+        selectbg = self.bg
+        selectfg = self.fg
+
+        self.dah_memory_delay_percent = tk.StringVar()
+        self.keyer_dah_memory_delay_percent()
+
+        self.dah_memory_delay_percent_entry = tk.Entry(self.keyer_dah_memory_delay_percent_frame,
+            textvariable=self.dah_memory_delay_percent,
+            width=4, bd=2, bg=self.bg, fg=self.fg,
+            font=self.font(), justify='right', state='normal')
+        self.dah_memory_delay_percent_entry.grid(row=0, column=0)
+        self.dah_memory_delay_percent.trace_add('write', self.on_dah_memory_delay_percent_changed)
+        self.keyer_dah_memory_delay_percent()
+
+    def on_dah_memory_delay_percent_changed(self, var, index, mode):
+        percent = 0
+        try:
+            percent = self.dah_memory_delay_percent.get()
+            if percent == "":
+                Poll.call(5000, self.delayed_set_dah_memory_delay_percent)
+                return
+            percent = int(percent)
+            if percent >= 0 and percent <= 100:
+                self.keyer_dah_memory_delay_percent(int(percent))
+            else:
+                self.dah_memory_delay_percent.set(self.keyer_dah_memory_delay_percent())
+        except (tk.TclError, ValueError):
+            self.dah_memory_delay_percent.set(self.keyer_dah_memory_delay_percent())
+
+    def delayed_set_dah_memory_delay_percent(self):
+        percent = self.dah_memory_delay_percent.get()
+        if percent == "":
+            self.dah_memory_delay_percent.set(self.keyer_dah_memory_delay_percent())
 
 class FWversions(Text):
     def __init__(self, config_info, container):
@@ -8335,9 +8448,9 @@ class Keyer():
     dah_paddle_notes = None
     dit_paddle_signal = None
     dah_paddle_signal = None
-    dit_down_memory_delay = 0.05        #  5 ms
-    dit_up_memory_delay_percent = 33    # 33 %
-    dah_up_memory_delay_percent = 0     #  0 %
+    dit_down_memory_delay = 0.05  #  5 ms
+    dit_up_memory_delay_percent = 0
+    dah_up_memory_delay_percent = 0
 
     @classmethod
     def get_singleton(cls):
@@ -8636,8 +8749,10 @@ class Keyer():
             self.keyer_mode != self.MODE_IAMBIC_B) or event == self.CLOSE_EVENT:
             return event
 
-        dit_up_memory_delay = self.dit_up_memory_delay_percent / 100 * self.dah_seconds
-        dah_up_memory_delay = self.dah_up_memory_delay_percent / 100 * self.dit_seconds
+        dit_up_memory_delay = (self.dit_up_memory_delay_percent / 100 *
+                               (self.dah_seconds + self.inter_element_seconds))
+        dah_up_memory_delay = (self.dah_up_memory_delay_percent / 100 *
+                               (self.dit_seconds + self.inter_element_seconds))
 
         previous_elt = None
 
@@ -8653,10 +8768,10 @@ class Keyer():
                 if self.keyer_mode == self.MODE_IAMBIC_B:
                     dit_mem = dit_mem or ((previous_elt == '-' and
                                (self.dit_up_timestamp - previous_elt_timestamp) >
-                               self.iambic_memory_delay))
+                               dit_up_memory_delay))
                     dah_mem = dah_mem or ((previous_elt == '.' and
                                (self.dah_up_timestamp - previous_elt_timestamp) >
-                               self.iambic_memory_delay))
+                               dah_up_memory_delay))
             previous_elt_timestamp = time.perf_counter()
 
             dit_now = self.dit_down_timestamp > self.dit_up_timestamp
@@ -8710,7 +8825,7 @@ class Keyer():
 
     def send_element(self, elt, first_element):
         if elt == ' ':
-            # wait inter-character interval
+            # wait an inter-character interval
             silent_seconds =  self.inter_character_seconds - self.inter_element_seconds
             self.element_timestamp += silent_seconds
             time.sleep(self.element_timestamp - time.perf_counter())
@@ -8718,16 +8833,20 @@ class Keyer():
 
         Audio.start_sidetone()
         if first_element:
+            # Establish a baseline for timing later elements
             self.element_timestamp = time.perf_counter()
+
+            # The first element sent to the K4 is delayed so that each successive
+            # element will be queued at the K4 before the previous element finishes
             time.sleep(.005)
         Server.k4_server.send_str(f'KZ{elt};')
 
-        # wait element interval
+        # wait an element interval
         self.element_timestamp += self.dah_seconds if elt == '-'  else self.dit_seconds
         time.sleep(self.element_timestamp - time.perf_counter())
         Audio.stop_sidetone()
 
-        # wait inter-element interval
+        # wait an inter-element interval
         self.element_timestamp += self.inter_element_seconds
         time.sleep(self.element_timestamp - time.perf_counter())
 
