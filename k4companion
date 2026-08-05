@@ -8634,9 +8634,7 @@ class Keyer():
                 dit_mem = (previous_elt == '-' and
                            (self.dit_down_timestamp - previous_elt_timestamp) >
                            self.iambic_memory_delay)
-                dah_mem = (previous_elt == '.' and
-                           (self.dah_down_timestamp - previous_elt_timestamp) >
-                           self.iambic_memory_delay)
+                dah_mem = False
                 if self.keyer_mode == self.MODE_IAMBIC_B:
                     dit_mem = dit_mem or ((previous_elt == '-' and
                                (self.dit_up_timestamp - previous_elt_timestamp) >
