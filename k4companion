@@ -8264,7 +8264,9 @@ class SerialInput():
 
         port_name = self.port_name
 
-        debounce_time = .020
+        debounce_time = 0
+        if Keyer.straight_keying:
+            debounce_time = .020
 
         while port_name == self.port_name and self.port:
             try:
