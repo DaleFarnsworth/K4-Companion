@@ -6241,7 +6241,7 @@ class AppSettings_widget(Widget):
     def keyer_dit_memory_delay_percent_settings(self, frame):
         text = 'Dit Mem %'
         self.keyer_dit_memory_delay_percent_frame = tk.LabelFrame(frame, text=text,
-            font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+            font=self.label_font(), labelanchor='nw', bd=2, padx=2, pady=2, relief='raised')
         self.update_keyer_dit_memory_delay_percent()
         return self.keyer_dit_memory_delay_percent_frame
 
@@ -6283,7 +6283,7 @@ class AppSettings_widget(Widget):
     def keyer_dah_memory_delay_percent_settings(self, frame):
         text = 'Dah Mem %'
         self.keyer_dah_memory_delay_percent_frame = tk.LabelFrame(frame, text=text,
-            font=self.label_font(), labelanchor='nw', bd=1, padx=1, pady=1, relief='raised')
+            font=self.label_font(), labelanchor='nw', bd=2, padx=2, pady=2, relief='raised')
         self.update_keyer_dah_memory_delay_percent()
         return self.keyer_dah_memory_delay_percent_frame
 
