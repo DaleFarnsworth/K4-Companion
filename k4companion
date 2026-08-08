@@ -2263,13 +2263,17 @@ class DigitEntry(QLineEdit):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            # Selecting a tuning step and placing the text cursor are
+            # independent effects of the same click (matching the tkinter
+            # version, where a tag_bind on the step ran alongside the Text
+            # widget's own click handling) -- so fall through to super()
+            # below to also position the cursor for editing.
             column = self._column_at(event.position().x())
             for step, columns in self.step_columns.items():
                 if column in columns:
                     if self.on_step_click != None:
                         self.on_step_click(step)
-                    event.accept()
-                    return
+                    break
         elif event.button() == Qt.MouseButton.MiddleButton:
             if self.on_validate != None:
                 self.on_validate(False)
