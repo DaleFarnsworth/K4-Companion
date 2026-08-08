@@ -6462,7 +6462,16 @@ class Dropdown_Widget():
             self.combobox.blockSignals(True)
             self.combobox.clear()
             self.combobox.addItems(values)
-            if current in values:
+            # ttk.Combobox's displayed text is independent of its 'values'
+            # option -- repopulating values never touched it in the
+            # tkinter version. Restore it here too rather than only when
+            # it happens to match a new item: a display_only combobox
+            # (e.g. Antenna's "=TX ANT" substitution) shows text that's
+            # never a real item by design, and would otherwise get
+            # silently reset to whatever item addItems() auto-selects
+            # every time its config is re-read (e.g. on 'ACM'/'ACS'
+            # arriving right after 'AR'/'AR$' during startup).
+            if current != '':
                 self.combobox.setCurrentText(current)
             self.combobox.blockSignals(False)
 
