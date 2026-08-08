@@ -6372,10 +6372,36 @@ class Exit_cmds(Startup_cmds):
     def got_cmds(self):
         self.server.exit_cmds = self.cmds
 
+class _DisplayOnlyLineEdit(QLineEdit):
+    # A readonly QComboBox always ties its displayed text to an item in
+    # its list -- but the Antenna widget needs to display strings (e.g.
+    # its "=TX ANT" substitution) that aren't necessarily one of the
+    # selectable options, the way ttk.Combobox.set() let the tkinter
+    # version do. Making the combobox editable with this widget as its
+    # line edit decouples the two: setCurrentText() (with insertPolicy
+    # NoInsert) can show arbitrary text without adding a selectable item,
+    # while read-only blocks typing. The one thing that costs is Qt's
+    # normal readonly-combobox behavior of opening the popup on a click
+    # anywhere in the box, rather than just on the arrow -- restored here
+    # by forwarding a click to showPopup().
+    def __init__(self, combobox):
+        super().__init__(combobox)
+        self.combobox = combobox
+        self.setReadOnly(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.combobox.showPopup()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
 class Dropdown_Widget():
     def __init__(self, parent_frame, height=10, bd=2, padx=0, justify='left',
         font=None, fg=Default.fg, bg=Default.bg, abg=Default.abg,
-        afg=Default.afg, selectbg=None, selectfg=None, state='readonly'):
+        afg=Default.afg, selectbg=None, selectfg=None, state='readonly',
+        display_only=False):
         if afg == None:
             afg = fg
         if selectbg == None:
@@ -6392,7 +6418,12 @@ class Dropdown_Widget():
         self.combobox = QComboBox()
         self.combobox.setFont(font)
         self.combobox.view().setFont(font)
-        self.combobox.setEditable(state != 'readonly')
+        if display_only:
+            self.combobox.setEditable(True)
+            self.combobox.setLineEdit(_DisplayOnlyLineEdit(self.combobox))
+            self.combobox.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        else:
+            self.combobox.setEditable(state != 'readonly')
         self.combobox.setMaxVisibleItems(max(height, 1))
         self.combobox.setStyleSheet(
             f'QComboBox {{ background-color: {bg}; color: {fg}; }}'
@@ -6457,9 +6488,13 @@ class Antenna(Widget):
         self.kind = config_info['type']
 
         if self.kind in ('main', 'sub', 'tx'):
+            # 'main'/'sub' can display a value (the "=TX ANT" substitution
+            # in on_k4_select_rx) that isn't one of their own selectable
+            # items -- see _DisplayOnlyLineEdit.
             self.dropdown = Dropdown_Widget(self.frame, bd=bd, bg=self.bg,
                 fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
-                font=self.font(), justify=justify, height=height)
+                font=self.font(), justify=justify, height=height,
+                display_only=self.kind in ('main', 'sub'))
             self.dropdown.grid(row=0, column=0)
         else:
             raise Exception(f'unknown type: {self.kind} in item antenna.')
