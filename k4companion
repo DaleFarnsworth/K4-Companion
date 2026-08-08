@@ -1818,6 +1818,20 @@ def qt_justify(justify):
         'center': Qt.AlignmentFlag.AlignCenter,
     }.get(justify, Qt.AlignmentFlag.AlignCenter)
 
+def format_slider_value(value, resolution):
+    # tk.Scale's built-in showvalue readout derives its decimal precision
+    # from the slider's resolution; QSlider has no such readout, so this
+    # reproduces the same formatting for the value labels added next to
+    # ported sliders.
+    try:
+        resolution = abs(float(resolution))
+    except (TypeError, ValueError):
+        resolution = 1
+    if resolution == 0 or resolution >= 1:
+        return f'{value:.0f}'
+    decimals = max(0, -int(math.floor(math.log10(resolution))))
+    return f'{value:.{decimals}f}'
+
 def qt_button_stylesheet(bg, fg, abg, afg):
     return (
         f'QPushButton {{ background-color: {bg}; color: {fg}; border: 2px outset #888; padding: 2px; }}'
@@ -2631,6 +2645,7 @@ class SliderWidget():
         length = options.get('length', 100)
         self.eval_length = options.get('evallength', None)
         self.label = options.get('label', None)
+        self.showvalue = true_values(options.get('showvalue', True))
 
         self.value = 0.0
         self.previous_value = 0.0
@@ -2655,6 +2670,18 @@ class SliderWidget():
 
         frame.layout().addWidget(self.scale, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
+        self.value_label = None
+        if self.showvalue:
+            self.value_label = QLabel(format_slider_value(self.value, self.resolution))
+            self.value_label.setFont(font)
+            self.value_label.setStyleSheet(f'QLabel {{ color: {self.fg}; background-color: {self.bg}; }}')
+            if orient == Qt.Orientation.Horizontal:
+                self.value_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+                frame.layout().addWidget(self.value_label, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            else:
+                self.value_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+                frame.layout().addWidget(self.value_label, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
         self.scale.wheelEvent = self.on_mouse_wheel
 
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
@@ -2664,13 +2691,25 @@ class SliderWidget():
         if cmd != "":
             self.server.subscribe_response(cmd, self.on_response_received)
         if self.eval_length != None:
-            length = self.caller.eval_value(self.eval_length)
-            if self.label != None:
-                length -= 8             # account for width of the LabelFrame
-            if self.scale.orientation() == Qt.Orientation.Horizontal:
-                self.scale.setFixedWidth(round(length))
-            else:
-                self.scale.setFixedHeight(round(length))
+            # This typically evaluates something like another widget's
+            # .frame.width(), but on_received_initial_parameters() fires
+            # synchronously during start(), which runs before top.show()
+            # -- unlike tk's winfo_width() (which forces an immediate
+            # layout pass on demand, even pre-mainloop), Qt's width() just
+            # returns whatever's cached, which is 0 for anything never
+            # shown/laid out yet. Defer to the next event loop iteration
+            # (once app.exec() is running and the window has actually
+            # been shown) so the referenced widget has a real size.
+            QTimer.singleShot(0, self._apply_eval_length)
+
+    def _apply_eval_length(self):
+        length = self.caller.eval_value(self.eval_length)
+        if self.label != None:
+            length -= 8             # account for width of the LabelFrame
+        if self.scale.orientation() == Qt.Orientation.Horizontal:
+            self.scale.setFixedWidth(round(length))
+        else:
+            self.scale.setFixedHeight(round(length))
 
     def on_mouse_wheel(self, event):
         incr = self.resolution * mouse_wheel_mult(event)
@@ -2692,6 +2731,8 @@ class SliderWidget():
             next_value = value + self.caller.eval_value(self.evalincrement, value)
         self.resolution = self.caller.eval_value(self.evalincrement, next_value)
         self.value = value
+        if self.value_label != None:
+            self.value_label.setText(format_slider_value(value, self.resolution))
         if not self.received_value:
             cmd = self.caller.eval_value(self.evalcmd, value)
             self.previous_value = value
@@ -3316,25 +3357,34 @@ class Equalizers(Widget):
         column0_grid.addWidget(self.remove_button, 5, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         self.scales = []
+        self.value_labels = []
         self.freqs = (100, 200, 400, 800, 1200, 1600, 2400, 3200)
 
         for i in range(len(self.freqs)):
+            value_label = QLabel(format_slider_value(0, 1))
+            value_label.setFont(self.font())
+            value_label.setStyleSheet(f'QLabel {{ color: {self.fg}; background-color: {self.bg}; }}')
+            equalizer_grid.addWidget(value_label, 0, i+1, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+            self.value_labels.append(value_label)
+
             scale = QSlider(Qt.Orientation.Vertical)
-            scale.setInvertedAppearance(True)
-            scale.setInvertedControls(True)
+            # A vertical QSlider already puts its maximum at the top and
+            # minimum at the bottom by default -- matching tk.Scale's
+            # from_=16 (top)/to=-16 (bottom) EQ fader convention (push up
+            # to boost) directly. No setInverted*() needed here.
             scale.setMinimum(-16)
             scale.setMaximum(16)
             scale.setValue(0)
             scale.setFixedHeight(length)
             scale.setStyleSheet(f'QSlider {{ background-color: {self.bg}; }}')
-            equalizer_grid.addWidget(scale, 0, i+1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            equalizer_grid.addWidget(scale, 1, i+1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
             scale.valueChanged.connect(lambda value, i=i: self.on_value_changed(value, i))
             self.scales.append(scale)
 
             label = QLabel(str(self.freqs[i]))
             label.setFont(self.font())
             label.setStyleSheet(f'QLabel {{ color: {self.fg}; background-color: {self.bg}; }}')
-            equalizer_grid.addWidget(label, 1, i+1, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+            equalizer_grid.addWidget(label, 2, i+1, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
 
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
@@ -3449,6 +3499,7 @@ class Equalizers(Widget):
     def on_value_changed(self, value, i):
         alt, tr, mode = self.alt_tr_mode()
         self.values[alt][tr][mode][i] = value
+        self.value_labels[i].setText(format_slider_value(value, 1))
         self.set_k4_equalizer()
         self.save_settings()
 
@@ -3944,15 +3995,21 @@ class Menu_definition():
         # to give the widget the numbers it needs, without mutating them.
         self.widget.setMinimum(round(float(self.low) / self.slider_resolution))
         self.widget.setMaximum(round(float(self.high) / self.slider_resolution))
-        # tk used from_=high, to=low (dragging up increases value)
-        self.widget.setInvertedAppearance(True)
-        self.widget.setInvertedControls(True)
+        # tk's from_=high (top)/to=low (bottom) is what a vertical QSlider
+        # already does by default with setMinimum(low)/setMaximum(high) --
+        # no setInverted*() needed (see the matching fix in Equalizers).
         self.widget.setFixedHeight(font_height(self.menu.font()) * 9)
         self.widget.setStyleSheet(f'QSlider {{ background-color: {self.menu.bg}; }}')
         self.widget.setValue(round(float(self.current) / self.slider_resolution))
         self.widget.valueChanged.connect(self.slider_value_changed)
 
         self.frame_grid.addWidget(self.widget, 0, 0)
+
+        self.slider_value_label = QLabel(format_slider_value(float(self.current), self.slider_resolution))
+        self.slider_value_label.setFont(self.menu.font())
+        self.slider_value_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        self.slider_value_label.setStyleSheet(f'QLabel {{ color: {self.menu.fg}; background-color: {self.menu.bg}; }}')
+        self.frame_grid.addWidget(self.slider_value_label, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
     def slider_value_changed(self, position):
         if self.changeable != 'Unlocked':
@@ -3965,6 +4022,7 @@ class Menu_definition():
         if isinstance(self.low, int) and isinstance(self.high, int):
             value = int(value)
         self.current = value
+        self.slider_value_label.setText(format_slider_value(value, self.slider_resolution))
         self.send_command()
 
     def slider_update(self, current=None):
@@ -3975,6 +4033,7 @@ class Menu_definition():
         self.widget.blockSignals(True)
         self.widget.setValue(round(float(self.current) / self.slider_resolution))
         self.widget.blockSignals(False)
+        self.slider_value_label.setText(format_slider_value(float(self.current), self.slider_resolution))
 
     def fixed_text(self):
         self.update_widget = self.fixed_text_update
