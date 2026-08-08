@@ -851,7 +851,7 @@
   orient: horizontal
   from: 0
   to: 60
-  evallength: 'Widget.by_id["rfout"].frame.winfo_width()'
+  evallength: 'Widget.by_id["rfout"].frame.width()'
   showvalue: False
   evalincrement: '1'
   evalcmd: '"AG{:03d};".format(int(round(value)))'
@@ -864,7 +864,7 @@
   orient: horizontal
   from: 0
   to: 60
-  evallength: 'Widget.by_id["rfout"].frame.winfo_width()'
+  evallength: 'Widget.by_id["rfout"].frame.width()'
   showvalue: False
   evalincrement: '1'
   evalcmd: '"AG${:03d};".format(int(round(value)))'
