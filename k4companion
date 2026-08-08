@@ -69,19 +69,19 @@ import time
 # called now that the dispatch table routes their item types to
 # Placeholder. Once every widget class is ported, these three imports
 # should be removed.
-import tkinter as tk
-import tkinter.ttk as ttk
-import tkinter.font as tkFont
-import traceback
+#import tkinter as tk
+#import tkinter.ttk as ttk
+#import tkinter.font as tkFont
+#import traceback
 import yaml
 
-from PyQt6.QtCore import Qt, QTimer, QObject, QEvent
+from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize
 from PyQt6.QtGui import QFont, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
     QGridLayout, QVBoxLayout, QPushButton, QRadioButton, QButtonGroup,
     QSlider, QProgressBar, QTabWidget, QDialog, QLineEdit, QComboBox,
-    QListWidget, QLayout, QPlainTextEdit,
+    QListWidget, QLayout, QPlainTextEdit, QProxyStyle, QStyle,
 )
 
 # Modify the path to find .\opus.dll on Windows
@@ -114,13 +114,66 @@ def qt_font(family, size, weight='normal'):
     font.setWeight(weight)
     return font
 
+class CompactStyle(QProxyStyle):
+    # Every QGridLayout/QVBoxLayout/QHBoxLayout created without explicit
+    # setContentsMargins()/setSpacing() falls back to these pixelMetric()
+    # values from the current style. The stock margins/spacing (~11px and
+    # ~6px) add up fast across the dozens of nested frames this app uses
+    # (every qt_group_box(), every Container/Group/Page), producing far
+    # more whitespace than tk's tightly-packed originals had. Tightening
+    # the metrics here affects every layout in the app at once, instead
+    # of hunting down each construction site individually.
+    _compact_metrics = {
+        QStyle.PixelMetric.PM_LayoutLeftMargin: 2,
+        QStyle.PixelMetric.PM_LayoutRightMargin: 2,
+        QStyle.PixelMetric.PM_LayoutTopMargin: 2,
+        QStyle.PixelMetric.PM_LayoutBottomMargin: 2,
+        QStyle.PixelMetric.PM_LayoutHorizontalSpacing: 2,
+        QStyle.PixelMetric.PM_LayoutVerticalSpacing: 2,
+    }
+
+    def pixelMetric(self, metric, option=None, widget=None):
+        compact = self._compact_metrics.get(metric)
+        if compact is not None:
+            return compact
+        return super().pixelMetric(metric, option, widget)
+
+def qt_tight_groupbox_stylesheet(title, font):
+    # QGroupBox's native title area reserves far more vertical space than
+    # the title text needs (independent of the layout's own
+    # contentsMargins -- it comes from the style's own subControlRect
+    # computation for CC_GroupBox). Qt only exposes control over that via
+    # a stylesheet, which switches the box to the CSS box model -- so the
+    # border/radius have to be spelled out here too, to keep the same
+    # look. margin-top reserves the room *above* the border that QSS
+    # paints the title into (subcontrol-origin: margin); too little clips
+    # it against the widget's own top edge. Multi-line titles (e.g.
+    # "K4-Companion\nVersion") measure and clip unpredictably under the
+    # CSS box model, so those are left with Qt's native (more generous,
+    # but reliably uncropped) title rendering instead.
+    if '\n' in title:
+        return ''
+    title_height = QFontMetrics(font).height()
+    margin_top = max(2, title_height - 2)
+    return (
+        'QGroupBox { border: 1px solid palette(mid); border-radius: 3px; '
+        f'margin-top: {margin_top}px; padding-top: 0px; }}'
+        'QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; '
+        'left: 4px; top: 0px; padding: 0 2px; }'
+    )
+
 def qt_group_box(title, font):
     # Factors out the "tk.LabelFrame(text=, font=, labelanchor='nw', ...)"
     # pattern repeated dozens of times in ServerSettings_widget /
     # AppSettings_widget.
     frame = QGroupBox(title)
     frame.setFont(font)
+    style = qt_tight_groupbox_stylesheet(title, font)
+    if style:
+        frame.setStyleSheet(style)
     grid = QGridLayout(frame)
+    grid.setContentsMargins(0, 0, 0, 0)
+    grid.setSpacing(0)
     return frame, grid
 
 def qt_labeled_readonly_combobox(title, font, box_font, values, current_value, bg, fg, selectbg, selectfg, on_changed, justify='left'):
@@ -1375,7 +1428,7 @@ class Widget():
         self.container = container
         self.bg = config_info.get('bg', Default.bg)
         if self.bg == 'None':
-            self.bg = Page.top_bg
+            self.bg = Default.bg
         self.fg = config_info.get('fg', Default.fg)
         self.abg = config_info.get('abg', Default.abg)
         self.afg = config_info.get('afg', Default.afg)
@@ -1507,8 +1560,11 @@ class Widget():
         else:
             inner_frame = QGroupBox(label)
             inner_frame.setFont(self.label_font())
+            style = qt_tight_groupbox_stylesheet(label, self.label_font())
+            if style:
+                inner_frame.setStyleSheet(style)
         inner_grid = QGridLayout(inner_frame)
-        inner_grid.setContentsMargins(4, 4, 4, 4)
+        inner_grid.setContentsMargins(0, 0, 0, 0)
         inner_grid.setSpacing(0)
         outer_grid.addWidget(inner_frame, row, 0, self.sticky)
 
@@ -1673,7 +1729,6 @@ class Page(Container):
     pages = {}
     name_stack = []
     top = None            # MainWindow instance, set in main()
-    top_bg = None          # fallback color for bg: 'None' in config
     stack = None           # QStackedWidget holding all pages, set in main()
     space_shortcut = None  # QShortcut toggling T/R, set in main()
 
@@ -2164,6 +2219,17 @@ class DigitEntry(QLineEdit):
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setTextMargins(self.LEFT_MARGIN, 0, self.RIGHT_MARGIN, 0)
+
+    def sizeHint(self):
+        # Plain QLineEdit's sizeHint() assumes ~17 generic characters --
+        # far more than this widget ever displays (digit_width, e.g. 9 for
+        # "14100.000"). At VFO's large point size that mismatch is huge,
+        # so size to what's actually shown instead.
+        fm = self.fontMetrics()
+        text_width = fm.horizontalAdvance('0' * self.digit_width)
+        frame = 2 * self.style().pixelMetric(QStyle.PixelMetric.PM_DefaultFrameWidth)
+        width = text_width + self.LEFT_MARGIN + self.RIGHT_MARGIN + frame + 8
+        return QSize(width, super().sizeHint().height())
 
     def set_step_columns(self, step_columns):
         self.step_columns = step_columns
@@ -3088,7 +3154,7 @@ class DropdownWidget():
         self.combobox.view().setFont(font)
         self.combobox.setEditable(editable)
         self.combobox.setMaxVisibleItems(max(height, 1))
-        self.combobox.setMinimumWidth(width * QFontMetrics(font).averageCharWidth() + 24)
+        self.combobox.setMinimumWidth(width * QFontMetrics(font).averageCharWidth() + 8)
         self.set_bg(self.bg)
 
         if editable:
@@ -3104,8 +3170,15 @@ class DropdownWidget():
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def set_bg(self, bg):
+        # The native style's default QComboBox padding + drop-down arrow
+        # width add a lot of blank horizontal space beyond what the text
+        # itself needs (this is on top of setMinimumWidth() above, which
+        # only sets a floor -- the box's actual width is whichever is
+        # larger, and the native chrome alone was already bigger than
+        # that floor). Tightening both here shrinks the visible padding.
         self.combobox.setStyleSheet(
-            f'QComboBox {{ background-color: {bg}; color: {self.fg}; }}'
+            f'QComboBox {{ background-color: {bg}; color: {self.fg}; padding: 0px 1px 0px 2px; }}'
+            'QComboBox::drop-down { width: 12px; }'
             f'QComboBox QAbstractItemView {{ background-color: {self.bg}; color: {self.fg}; }}')
 
     def on_received_initial_parameters(self, response):
@@ -9455,10 +9528,10 @@ def main():
     Options.Parse()
 
     app = QApplication(sys.argv)
+    app.setStyle(CompactStyle(app.style()))
 
     top = MainWindow()
     Page.top = top
-    Page.top_bg = Default.bg
     Page.stack = top.stack
 
     Page.space_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), top)
@@ -9762,7 +9835,7 @@ config_data = '''
 #define menu
 - item: menu
   label: Menu
-  entries_displayed: 24
+  entries_displayed: 21
   selectbg: pink
 #end
 
