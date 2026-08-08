@@ -2659,8 +2659,8 @@ class SliderWidget():
         # units of "resolution" internally and value()/setValue() convert
         # to/from the real (float) value at the resolution's granularity.
         self.scale = QSlider(orient)
-        self.scale.setMinimum(round(from_ / self.resolution))
-        self.scale.setMaximum(round(to / self.resolution))
+        self.orient = orient
+        self._set_range(orient, from_, to)
         if orient == Qt.Orientation.Horizontal:
             self.scale.setFixedWidth(length)
         else:
@@ -2685,6 +2685,33 @@ class SliderWidget():
         self.scale.wheelEvent = self.on_mouse_wheel
 
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
+    def _set_range(self, orient, from_, to):
+        # tk.Scale lets from_/to be given in either order and always
+        # displays from_ at the left (horizontal) or top (vertical),
+        # regardless of which is numerically larger -- e.g. AF Limiter
+        # uses from: 30, to: 1. QSlider instead requires minimum <=
+        # maximum; calling setMinimum()/setMaximum() with the raw
+        # from_/to values in that case (minimum=30, maximum=1) is an
+        # invalid range that Qt silently collapses, leaving the slider
+        # stuck. Feed Qt the numeric lo/hi instead, and only flip
+        # setInvertedAppearance/setInvertedControls when Qt's own default
+        # placement (min at left/bottom, max at right/top) wouldn't
+        # already put from_ where tk expects it.
+        lo, hi = min(from_, to), max(from_, to)
+        if orient == Qt.Orientation.Horizontal:
+            inverted = from_ > to
+        else:
+            inverted = from_ < to
+        self.scale.setInvertedAppearance(inverted)
+        self.scale.setInvertedControls(inverted)
+        self.scale.setMinimum(round(lo / self.resolution))
+        self.scale.setMaximum(round(hi / self.resolution))
+        # QSlider defaults to a pageStep of 10 (the jump a click on the
+        # groove, rather than the handle, produces) -- tk.Scale's trough
+        # click instead moves by exactly one resolution unit, same as a
+        # single step. Match that so groove clicks behave consistently.
+        self.scale.setPageStep(1)
 
     def on_received_initial_parameters(self, response):
         cmd = self.caller.eval_value(self.evalcmd, self.value)
@@ -2751,8 +2778,9 @@ class SliderWidget():
         # so the original code didn't need this) stops that from echoing
         # a just-received value straight back to the K4 as a send_cmds().
         self.scale.blockSignals(True)
-        self.scale.setMinimum(round(self.caller.eval_value(self.from_, value) / self.resolution))
-        self.scale.setMaximum(round(self.caller.eval_value(self.to, value) / self.resolution))
+        self._set_range(self.orient,
+                         self.caller.eval_value(self.from_, value),
+                         self.caller.eval_value(self.to, value))
         self.scale.blockSignals(False)
         self.set_value(value)
         self.previous_value = value
@@ -3374,6 +3402,7 @@ class Equalizers(Widget):
             # to boost) directly. No setInverted*() needed here.
             scale.setMinimum(-16)
             scale.setMaximum(16)
+            scale.setPageStep(1)
             scale.setValue(0)
             scale.setFixedHeight(length)
             scale.setStyleSheet(f'QSlider {{ background-color: {self.bg}; }}')
@@ -3998,6 +4027,9 @@ class Menu_definition():
         # tk's from_=high (top)/to=low (bottom) is what a vertical QSlider
         # already does by default with setMinimum(low)/setMaximum(high) --
         # no setInverted*() needed (see the matching fix in Equalizers).
+        # QSlider's default pageStep of 10 makes a groove click jump 10
+        # resolution units instead of tk.Scale's one-unit trough click.
+        self.widget.setPageStep(1)
         self.widget.setFixedHeight(font_height(self.menu.font()) * 9)
         self.widget.setStyleSheet(f'QSlider {{ background-color: {self.menu.bg}; }}')
         self.widget.setValue(round(float(self.current) / self.slider_resolution))
@@ -7667,7 +7699,13 @@ class Macros(TextButtons):
         self.add_config_tab()
 
         self.set_geometry()
-        self.top_level.show()
+        # Deliberately not shown here: on_received_initial_parameters()
+        # calls open() unconditionally, then immediately calls
+        # show_or_hide() to apply the persisted enabled/disabled state.
+        # Showing here and then possibly hiding right after (with no
+        # event-loop turn in between) races Qt's layout/paint pipeline
+        # and can leave a still-empty window visible. Let show()/hide()
+        # be the only things that actually call top_level.show()/hide().
 
     def add_macros_tab(self):
         self.macros_frame = QWidget()
@@ -7767,12 +7805,11 @@ and everything after the & is sent.'''
     def show(self):
         if not self.is_open:
             self.open()
-        else:
-            if self.k4param('!MACROS') != 'ENABLE':
-                self.server.update_k4_parameter('!MACROS', 'ENABLE')
-            self.top_level.show()
-            self.top_level.raise_()
-            self.top_level.activateWindow()
+        if self.k4param('!MACROS') != 'ENABLE':
+            self.server.update_k4_parameter('!MACROS', 'ENABLE')
+        self.top_level.show()
+        self.top_level.raise_()
+        self.top_level.activateWindow()
 
     def close(self):
         if self.k4param('!MACROS') != 'DISABLE':
