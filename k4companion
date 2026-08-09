@@ -9748,7 +9748,6 @@ config_data = '''
   contains: #{
     #include server-column1
     #include server-column2
-    #include server-column3
   #}
 #end
 
@@ -9906,6 +9905,7 @@ config_data = '''
 - item: group
   columns: 1
   contains: #{
+    #include app-version
     #include server-settings
     #include sw-udate-group
   #}
@@ -9919,14 +9919,6 @@ config_data = '''
     #include exit-cmds
     #include connect-power-off-exit-group
     #include fwversions
-  #}
-#end
-
-#define server-column3
-- item: group
-  columns: 1
-  contains: #{
-    #include app-version
   #}
 #end
 
