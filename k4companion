@@ -561,7 +561,7 @@ class Server():
         self.startup_cmds = ''
         self.exit_cmds = ''
         self.address = ''
-        self.port = 9205
+        self.port = 9204
         self.proxy_address = ''
         self.proxy_port = ''
         self.socket = None
