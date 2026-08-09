@@ -3988,6 +3988,13 @@ class Menu_definition():
 
         row_height = QFontMetrics(self.menu.font()).height() + 2
         self.widget.setFixedHeight(len(self.values) * row_height + 4)
+
+        fm = QFontMetrics(self.menu.font())
+        text_width = max((fm.horizontalAdvance(str(value)) for value in self.values), default=0)
+        frame = 2 * self.widget.frameWidth()
+        scrollbar_width = self.widget.verticalScrollBar().sizeHint().width()
+        self.widget.setFixedWidth(text_width + frame + scrollbar_width + 12)
+
         self.widget.setCurrentRow(self.current)
 
         self.frame_grid.addWidget(self.widget, 0, 0)
@@ -4277,6 +4284,16 @@ class Menu(Widget):
         for i, md in enumerate(self.definitions):
             md.position = i
             self.listbox.addItem(md.desc)
+
+        # Size to the widest item (mirrors the tkinter version's
+        # listbox.configure(width=...) based on the longest description)
+        # instead of the QListWidget default, which stretches to fill
+        # whatever space the layout offers.
+        fm = QFontMetrics(self.font())
+        text_width = max((fm.horizontalAdvance(md.desc) for md in self.definitions), default=0)
+        frame = 2 * self.listbox.frameWidth()
+        scrollbar_width = self.listbox.verticalScrollBar().sizeHint().width()
+        self.listbox.setFixedWidth(text_width + frame + scrollbar_width + 12)
 
     def received_all_definitions(self):
         self.server.subscribe_response('ME;', self.on_received_current, send=False)
