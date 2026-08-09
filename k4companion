@@ -63,16 +63,7 @@ import tempfile
 import textwrap
 import threading
 import time
-# NOTE: tkinter is retained during the ongoing PyQt6 port. Widget classes
-# that have not yet been converted (see Placeholder in Container.show_widgets)
-# still reference tk/ttk/tkFont in method bodies that are simply never
-# called now that the dispatch table routes their item types to
-# Placeholder. Once every widget class is ported, these three imports
-# should be removed.
-#import tkinter as tk
-#import tkinter.ttk as ttk
-#import tkinter.font as tkFont
-#import traceback
+import traceback
 import yaml
 
 from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize
@@ -1630,15 +1621,6 @@ class Widget():
         self.tabids[tabname] = tabid
         self.tabnames[tabid] = tabname
         self.notebook.addTab(frame, tabname)
-
-class Placeholder(Widget):
-    # Stands in for an item type that hasn't been ported from tkinter to
-    # Qt yet, so the rest of the UI can still be built and shown.
-    def __init__(self, config_info, container):
-        super().__init__(config_info, container)
-        label = QLabel(f"[{config_info['item']} – not yet ported to Qt]")
-        label.setWordWrap(True)
-        self.frame.layout().addWidget(label, 0, 0)
 
 class Container(Widget):
     depth = -1
