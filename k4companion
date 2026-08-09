@@ -651,6 +651,28 @@ class Server():
     def k4_parameter(self, base):
         return self.k4_parameters.get(base, None)
 
+    # Cipher suites for the port-9204 TLS/PSK connection, per the
+    # K4-Remote protocol draft.
+    tls_psk_ciphers = (
+        'ECDHE-PSK-AES256-CBC-SHA384:'
+        'ECDHE-PSK-CHACHA20-POLY1305:'
+        'DHE-PSK-AES256-GCM-SHA384:'
+        'DHE-PSK-CHACHA20-POLY1305:'
+        'RSA-PSK-AES256-GCM-SHA384:'
+        'RSA-PSK-CHACHA20-POLY1305:'
+        'PSK-AES256-CBC-SHA384:'
+        'PSK-AES256-CBC-SHA')
+
+    def ensure_password(self):
+        if self.password == None:
+            self.password = Popup.password(title="Connect to K4",
+                msg="Enter your k4 remote password:")
+            if self.password == '':
+                Page.main().select_tab('Server')
+                Page.show_page(Page.main().name)
+                return False
+        return True
+
     def connect(self):
         if self.connected and self.received_cat_cmd:
             return True
@@ -660,18 +682,32 @@ class Server():
             return False
 
         self.cat_only = self.port == 9200
+        use_tls = self.port == 9204
 
         vprint1('Connecting to {name}, address {addr}, port {port}'.format(
               name=self.name, addr=self.address, port=self.port))
 
-        if python_major >= 3 and python_minor >= 13:
+        if use_tls:
+            if not (python_major >= 3 and python_minor >= 13):
+                Popup.error("TLS (port 9204) requires Python 3.13 or later. "
+                    "Use port 9205 instead, or upgrade Python.", timeout=None)
+                return False
+
+            if not self.ensure_password():
+                return False
+
+            # The TLS/PSK handshake below *is* the authentication for this
+            # port -- the shared secret is the K4 password itself, unlike
+            # port 9205 where a separate SHA-384 digest is sent after
+            # connecting (see the "else" branch below).
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
             context.maximum_version = ssl.TLSVersion.TLSv1_2
-            context.set_ciphers('PSK')
-            psk = '1234567890'.encode()
-            context.set_psk_client_callback(lambda hint: (None, psk))
+            context.set_ciphers(Server.tls_psk_ciphers)
+            psk = self.password.encode()
+            context.set_psk_client_callback(lambda hint: (b'k4companion', psk))
 
         if self.proxy_address == '':
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -684,7 +720,7 @@ class Server():
 
         try:
             sock.settimeout(5)
-            if python_major >= 3 and python_minor >= 13 and self.port == 9204:
+            if use_tls:
                 sock = context.wrap_socket(sock)
             sock.connect((self.address, self.port))
             self.connected = True
@@ -708,16 +744,12 @@ class Server():
                 else:
                     self.output_audio_queue = queue.Queue()
 
-                    if self.password == None:
-                        self.password = Popup.password(title="Connect to K4",
-                            msg="Enter your k4 remote password:")
-                        if self.password == '':
-                            Page.main().select_tab('Server')
-                            Page.show_page(Page.main().name)
+                    if not use_tls:
+                        if not self.ensure_password():
                             return False
 
-                    h = hashlib.sha384(self.password.encode()).hexdigest()
-                    self.send_str(h, force_as_string=True)
+                        h = hashlib.sha384(self.password.encode()).hexdigest()
+                        self.send_str(h, force_as_string=True)
 
                     self.wait_for_k4_received_data()
                     self.receive_non_audio_packets()
@@ -733,15 +765,16 @@ class Server():
 
         except socket.gaierror:
             error = 'Address not found: {addr}'.format(addr=self.address)
-        except:
+        except Exception as e:
             error = "Failed to connect to {name}, address {addr}, port {port}\n".format(
                 name=self.name, addr=self.address, port=self.port)
             if self.proxy_address != '':
                 port = self.proxy_port
                 if port == '':
                     port = 'default'
-                error += '  via proxy address {addr}, port {port}'.format(
+                error += '  via proxy address {addr}, port {port}\n'.format(
                       name=self.name, addr=self.proxy_address, port=port)
+            error += '  {err}'.format(err=e)
 
         if error != None:
             Page.main().select_tab('Server')
