@@ -9941,18 +9941,23 @@ config_data = '''
 - item: text
   bg: None
   text: ' Tx:'
+  sticky: fill
+  padleft: 10
 #end
 
 #define antenna-label-main
 - item: text
   bg: None
   text: 'Main Rx:'
+  sticky: fill
 #end
 
 #define antenna-label-sub
 - item: text
   bg: None
   text: ' Sub Rx:'
+  sticky: fill
+  padleft: 10
 #end
 
 #define menu
