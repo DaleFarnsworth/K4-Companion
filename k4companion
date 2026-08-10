@@ -3033,7 +3033,7 @@ class Text(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         optional = ['text', 'evaltext', 'label', 'leading', 'fg', 'bg',
-            'justify', 'font', 'padx', 'pady', 'sticky']
+            'justify', 'font', 'padx', 'pady', 'sticky', 'padleft']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -3041,6 +3041,10 @@ class Text(Widget):
         text = config_info.get('text', '')
         evaltext = config_info.get('evaltext', None)
         justify = config_info.get('justify', 'center')
+        # Extra left-side inset beyond the standard 2px padding, without
+        # affecting the right side (unlike the symmetric padx option) --
+        # e.g. to visually separate a label from the widget before it.
+        padleft = config_info.get('padleft', 0)
 
         if evaltext != None:
             text = self.eval_value(evaltext)
@@ -3048,7 +3052,9 @@ class Text(Widget):
         self.label = QLabel(text)
         self.label.setFont(self.font())
         self.label.setAlignment(qt_justify(justify))
-        self.label.setStyleSheet(f'QLabel {{ color: {self.fg}; background-color: {self.bg}; padding: 2px; }}')
+        self.label.setStyleSheet(
+            f'QLabel {{ color: {self.fg}; background-color: {self.bg}; '
+            f'padding: 2px; padding-left: {2 + padleft}px; }}')
 
         self.frame.layout().addWidget(self.label, 0, 0, self.sticky)
 
