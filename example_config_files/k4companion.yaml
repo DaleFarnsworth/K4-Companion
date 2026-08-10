@@ -320,7 +320,7 @@
 
 #define app-version
 - item: text
-  label: "K4-Companion\nVersion"
+  label: "K4-Companion Version"
   evaltext: version
 #end
 
