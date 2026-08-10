@@ -262,6 +262,7 @@
   bg: None
   text: ' Tx:'
   sticky: fill
+  padleft: 10
 #end
 
 #define antenna-label-main
@@ -276,6 +277,7 @@
   bg: None
   text: ' Sub Rx:'
   sticky: fill
+  padleft: 10
 #end
 
 #define menu
