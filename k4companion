@@ -10524,7 +10524,7 @@ config_data = '''
 - item: togglebutton
   selections: #{
     - { text: "Test On",  cmd: TS1;, bg: yellow,    abg: yellow }
-    - { text: "Test Off", cmd: TS0;, bg: '#00FF00', abg: '#00FF00' }
+    - { text: "Test Off", cmd: TS0; }
   #}
 #end
 
