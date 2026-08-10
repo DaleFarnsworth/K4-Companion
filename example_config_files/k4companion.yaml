@@ -360,6 +360,7 @@
   contains: #{
     #include rx-a-controls-row1
     #include rx-a-controls-row2
+    #include rx-a-controls-row3
   #}
 #end
 
@@ -410,6 +411,13 @@
     #include preamp-a-dropdown-button
     #include rfgain-a-dropdown-button
     #include xit-togglebutton
+  #}
+#end
+
+#define rx-a-controls-row3
+- item: group
+  contains: #{
+    #include main-pan-enable
   #}
 #end
 
@@ -605,6 +613,7 @@
   contains: #{
     #include rx-b-controls-row1
     #include rx-b-controls-row2
+    #include rx-b-controls-row3
   #}
 #end
 
@@ -654,6 +663,13 @@
     #include atten-b-dropdown-button
     #include preamp-b-dropdown-button
     #include rfgain-b-dropdown-button
+  #}
+#end
+
+#define rx-b-controls-row3
+- item: group
+  contains: #{
+    #include sub-pan-enable
   #}
 #end
 
@@ -1561,6 +1577,18 @@
 - item: button
   text: "Apply and\nReboot"
   cmd: PS88;
+#end
+
+#define main-pan-enable
+- item: button
+  text: 'Pan'
+  cmd: WPAN!1;
+#end
+
+#define sub-pan-enable
+- item: button
+  text: 'Pan'
+  cmd: WPAN$!1;
 #end
 
 #define rit-xit-group
