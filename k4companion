@@ -3041,10 +3041,6 @@ class Text(Widget):
         text = config_info.get('text', '')
         evaltext = config_info.get('evaltext', None)
         justify = config_info.get('justify', 'center')
-        # Extra left-side inset beyond the standard 2px padding, without
-        # affecting the right side (unlike the symmetric padx option) --
-        # e.g. to visually separate a label from the widget before it.
-        padleft = config_info.get('padleft', 0)
 
         if evaltext != None:
             text = self.eval_value(evaltext)
@@ -3052,9 +3048,19 @@ class Text(Widget):
         self.label = QLabel(text)
         self.label.setFont(self.font())
         self.label.setAlignment(qt_justify(justify))
-        self.label.setStyleSheet(
-            f'QLabel {{ color: {self.fg}; background-color: {self.bg}; '
-            f'padding: 2px; padding-left: {2 + padleft}px; }}')
+        self.label.setStyleSheet(f'QLabel {{ color: {self.fg}; background-color: {self.bg}; padding: 2px; }}')
+
+        # Extra blank space to the left of the label itself (outside its
+        # colored background), without affecting the right side (unlike
+        # the symmetric padx option) -- e.g. to visually separate a
+        # label from the widget before it. Added to the outer frame's
+        # own margin rather than the label's padding, so it stays
+        # background-free.
+        padleft = config_info.get('padleft', 0)
+        if padleft > 0:
+            margins = self.frame.layout().contentsMargins()
+            self.frame.layout().setContentsMargins(
+                margins.left() + padleft, margins.top(), margins.right(), margins.bottom())
 
         self.frame.layout().addWidget(self.label, 0, 0, self.sticky)
 
