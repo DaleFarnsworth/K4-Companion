@@ -6964,7 +6964,11 @@ class CW(TextButtons):
         if self.is_open:
             return
         self.is_open = True
-        self.top_level = QDialog(Page.top)
+        # Qt.WindowType.Window overrides QDialog's default Dialog type,
+        # which most window managers treat as transient-for-parent and
+        # force to stay above Page.top -- this lets the main window come
+        # to the front instead.
+        self.top_level = QDialog(Page.top, Qt.WindowType.Window)
         self.top_level.setWindowTitle(Page.top.windowTitle() + ' CW')
 
         def _close_event(event):
@@ -7834,7 +7838,9 @@ class Macros(TextButtons):
         if self.is_open:
             return
         self.is_open = True
-        self.top_level = QDialog(Page.top)
+        # See the matching comment in CW.open(): Qt.WindowType.Window
+        # keeps this from being forced to stay above Page.top.
+        self.top_level = QDialog(Page.top, Qt.WindowType.Window)
         self.top_level.setWindowTitle(Page.top.windowTitle() + ' Macros')
 
         def _close_event(event):
