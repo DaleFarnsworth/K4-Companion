@@ -2948,9 +2948,9 @@ class Bargraph(Widget):
     def __init__(self, config_info, container):
         required = ['item']
         optional = ['cmd', 'response', 'evalresponse', 'orient', 'maximum',
-            'evalmaximum', 'length', 'lengthpercent', 'lefttext', 'bottomtext',
-            'evalbottomtext', 'label', 'leading', 'bg', 'abg', 'fg', 'afg',
-            'font', 'id', 'padx', 'pady']
+            'evalmaximum', 'length', 'lengthpercent', 'thicknesspercent',
+            'lefttext', 'bottomtext', 'evalbottomtext', 'label', 'leading',
+            'bg', 'abg', 'fg', 'afg', 'font', 'id', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -2963,6 +2963,12 @@ class Bargraph(Widget):
         self.evalmaximum = config_info.get('evalmaximum', None)
         self.length = config_info.get('length', 100)
         self.length_percent = config_info.get('lengthpercent', None)
+        # Scales the bar's thickness (the dimension perpendicular to its
+        # length -- height for horizontal, width for vertical) relative
+        # to Qt's natural style-driven size, the same way lengthpercent
+        # scales its length relative to the bottomtext width. None
+        # (the default) leaves the natural thickness untouched.
+        self.thickness_percent = config_info.get('thicknesspercent', None)
 
         self.left_text = config_info.get('lefttext', '')
         self.bottomtext = config_info.get('bottomtext', '')
@@ -2987,6 +2993,13 @@ class Bargraph(Widget):
         self.progressbar.setOrientation(orientation)
         self.progressbar.setTextVisible(False)
         self.progressbar.setMaximum(round((self.maximum + .001) * 1000))
+        if self.thickness_percent != None:
+            if orientation == Qt.Orientation.Horizontal:
+                natural = self.progressbar.sizeHint().height()
+                self.progressbar.setFixedHeight(max(1, round(natural * self.thickness_percent / 100.0)))
+            else:
+                natural = self.progressbar.sizeHint().width()
+                self.progressbar.setFixedWidth(max(1, round(natural * self.thickness_percent / 100.0)))
         if orientation == Qt.Orientation.Horizontal:
             self.progressbar.setFixedWidth(self.length)
         else:
@@ -10116,6 +10129,7 @@ config_data = '''
   leading: 1
   maximum: 42
   lengthpercent: 98
+  thicknesspercent: 50
   cmd: SM1;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ' '
@@ -10130,6 +10144,7 @@ config_data = '''
   label: Power out
   evalmaximum: "0 if self.len_k4param('PC') < 4 else 11.7 if self.k4param('PC')[3] == 'L' else 117"
   lengthpercent: 100
+  thicknesspercent: 50
   cmd: TM1;PC;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ''
@@ -10142,6 +10157,7 @@ config_data = '''
   label: ALC
   maximum: 7
   lengthpercent: 93
+  thicknesspercent: 50
   cmd: TM1;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ''
@@ -10155,6 +10171,7 @@ config_data = '''
   leading: 2
   maximum: 32
   lengthpercent: 96
+  thicknesspercent: 50
   cmd: TM1;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ''
@@ -10167,6 +10184,7 @@ config_data = '''
   label: SWR
   maximum: 35
   lengthpercent: 100
+  thicknesspercent: 50
   cmd: TM1;TQ;TU;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ' '
@@ -10363,6 +10381,7 @@ config_data = '''
   leading: 1
   maximum: 42
   lengthpercent: 98
+  thicknesspercent: 50
   cmd: SM1;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ' '
