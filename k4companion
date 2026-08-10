@@ -67,7 +67,7 @@ import traceback
 import yaml
 
 from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize
-from PyQt6.QtGui import QFont, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat
+from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
     QGridLayout, QVBoxLayout, QPushButton, QRadioButton, QButtonGroup,
@@ -6661,7 +6661,11 @@ class TextButtons(Widget):
         super().__init__(config_info, container)
 
         self.bd = config_info.get('bd', 2)
-        self.monospaced_font = qt_font('DejaVu Sans Mono', self.font().pointSize())
+        # The OS's own default monospace font, rather than a specific
+        # family name (e.g. "DejaVu Sans Mono") that may not be
+        # installed on every platform.
+        monospace_family = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont).family()
+        self.monospaced_font = qt_font(monospace_family, self.font().pointSize())
 
         self.buttons = []
         self.config_buttons = []
