@@ -9467,8 +9467,21 @@ def mouse_wheel_mult(event):
     # QWheelEvent normalizes wheel steps to +-120 "eighths of a degree"
     # per notch on every platform, so no per-platform branching is needed
     # here (unlike the old tkinter Button-4/5 vs MouseWheel.delta split).
+    # Rapid or trackpad-driven scrolling can also deliver events with
+    # angleDelta() == 0 (a documented Qt corner case -- e.g. the tail end
+    # of a kinetic scroll, or leftover sub-notch remainder from
+    # high-resolution wheels spun quickly); treating that as a step in
+    # the negative direction (as a plain `1 if delta > 0 else -1` would)
+    # is what made fast scrolling look like it was randomly reversing.
     delta = event.angleDelta().y()
-    mult = 1 if delta > 0 else -1
+
+    if delta == 0:
+        mult = 0
+    elif delta > 0:
+        mult = 1
+    else:
+        mult = -1
+
     if Settings.reverse_mouse_wheel():
         mult = -mult
     return mult
