@@ -48,6 +48,7 @@ import os
 import pathlib
 import platform
 import pyaudio
+import pyqtgraph
 import queue
 import re
 import rtmidi.midiutil
@@ -450,11 +451,12 @@ class Server():
 # Directives:
         'CO': ['CONNECT!'],
         'EX': ['EXIT!'],
+        'IN': ['INJECT!'],
         'QU': ['QUIT!'],
         'RE': ['RESTART!'],
-        'TU': ['TUNE!'],
         'SH': ['SHOW!'],
-        'IN': ['INJECT!'],
+        'TU': ['TUNE!'],
+        'WP': ['WPAN'],
     }
 
     # commands that end in +, -, /, \, ^, > are also pseudo set-only commands
@@ -609,6 +611,7 @@ class Server():
         if self.type == 'k4' and not self.cat_only:
             Audio.server_connected(self)
         Page.main().select_tab('Main')
+        Panadapter.restore_open_windows()
 
     def on_error_code(self, response):
         response = response.rstrip(';')
@@ -955,6 +958,13 @@ class Server():
                 Page.show_previous()
             else:
                 Page.show_page(page)
+        elif lbase.startswith('wpan'):
+            receiver = 'sub' if '$!' in lbase else 'main'
+            enable = lcmd[len(base):].strip()
+            if enable.startswith('1'):
+                Panadapter.open_window(receiver)
+            else:
+                Panadapter.close_window(receiver)
         else:
            raise Exception('Unknown directive: ', self.directive)
 
@@ -1153,12 +1163,23 @@ class Server():
                 self.received_minipan(payload)
 
     def received_pan(self, data):
-        #dprint('pan: len:', len(data))
-        pass
+        parsed = parse_pan_frame(data)
+        if parsed == None:
+            return
+        receiver, center_hz, sample_rate, noise_floor, bins = parsed
+        try:
+            Panadapter.received_pan(receiver, center_hz, sample_rate, bins)
+        except Exception:
+            # See the matching comment in receive_non_audio_packets(): a
+            # bug in the panadapter display must not be allowed to kill
+            # this self-rescheduling loop.
+            traceback.print_exc(file=stderr)
 
     def received_minipan(self, data):
-        #dprint('minipan: len:', len(data))
-        pass
+        try:
+            Panadapter.received_minipan(parse_minipan_bins(data))
+        except Exception:
+            traceback.print_exc(file=stderr)
 
     def dequeue_k4_cat(self):
         while True:
@@ -3838,11 +3859,15 @@ def cmd_base(cmd):
             if ucmd.startswith(long_base):
                 base = long_base
                 break
+
     if len(cmd) > len(base):
         if cmd[len(base)] == '$':
             base += '$'
-        elif cmd[len(base)] == '!':
+
+    if len(cmd) > len(base):
+        if cmd[len(base)] == '!':
             base += '!'
+
     return base
 
 def cmd_parameter(response):
@@ -4390,6 +4415,339 @@ class Menu(Widget):
 
         self.lookup_definitions[md.index] = md
         self.definitions.append(md)
+
+def le_int(data, signed=False):
+    value = 0
+    for byte in reversed(data):
+        value = (value << 8) | byte
+    if signed:
+        bits = len(data) * 8
+        if value >= (1 << (bits - 1)):
+            value -= (1 << bits)
+    return value
+
+def parse_pan_frame(data):
+    # PAN payload (multi-byte fields little-endian -- unlike the outer
+    # packet's length field, which is explicitly big-endian per the
+    # K4-Remote protocol draft; only these PAN sub-header fields are
+    # little-endian), per the draft:
+    #   offset 0        subtype (unused here)
+    #   offset 1        RX (0=main, 1=sub)
+    #   offset 2-3      pan data length, uint16
+    #   offset 4-7      reserved
+    #   offset 8-15     center frequency, signed int64
+    #   offset 16-19    sample rate, signed int32
+    #   offset 20-23    noise floor, signed int32 (deci-dB -- divide by
+    #                    10 to get dB, confirmed against real hardware)
+    #   offset 24+      compressed spectrum samples, 1 byte each
+    # Decompression: decoded = byte - 160 (dB). The draft's formula
+    # multiplies by 10 as well, but that's confirmed too large by 10x
+    # against real hardware, matching the noise floor field's own
+    # deci-dB scaling.
+    if len(data) < 24:
+        return None
+    rx = data[1]
+    pan_len = le_int(data[2:4])
+    center_hz = le_int(data[8:16], signed=True)
+    sample_rate = le_int(data[16:20], signed=True)
+    noise_floor = le_int(data[20:24], signed=True) / 10
+    samples = data[24:24 + pan_len]
+    if len(samples) != pan_len:
+        return None
+    bins = [b - 160 for b in samples]
+    receiver = 'sub' if rx == 1 else 'main'
+    return receiver, center_hz, sample_rate, noise_floor, bins
+
+def parse_minipan_bins(data):
+    # Same compressed sample array as PAN, but no sub-header and no RX
+    # field -- decompressed with min = 0 instead of -160.
+    return list(data)
+
+def format_freq_tick(hz, round_to=100, drop_digits=2):
+    # Round to the nearest round_to Hz, zero-pad to always include a
+    # megahertz digit even when it's 0, group digits in 3s with '.',
+    # then drop the trailing drop_digits digits (always zero after that
+    # rounding). E.g. defaults (round_to=100, drop_digits=2):
+    # 1234567 -> "1.234.6", 550000 -> "0.550.0". round_to=1000,
+    # drop_digits=3 (used for the non-center ticks): 1234567 -> "1.235".
+    rounded = round(hz / round_to) * round_to
+    digits = f'{rounded:07d}'
+    groups = []
+    while digits:
+        groups.insert(0, digits[-3:])
+        digits = digits[:-3]
+    # rstrip('.'): when drop_digits lands exactly on a group boundary
+    # (e.g. drop_digits=3), the slice below leaves a trailing separator
+    # from the now-fully-removed last group.
+    return '.'.join(groups)[:-drop_digits].rstrip('.')
+
+class Panadapter(QDialog):
+    # Driven by PAN frames only; MINI-PAN is ignored (see push_minipan).
+    windows = {}                 # receiver ('main'/'sub') -> Panadapter
+    waterfall_seconds = 10       # Depth of scroll history, in seconds.
+                                  # One PAN frame is one row, so the row
+                                  # count below is derived from the K4's
+                                  # reported frame rate (#FPS) to keep
+                                  # that depth constant regardless of
+                                  # how fast frames arrive.
+    frames_per_second = 12       # updated from #FPS
+    waterfall_rows = 120         # = waterfall_seconds * frames_per_second
+    display_span_hz = {'main': 100000, 'sub': 100000}
+                                  # K4 sends more spectrum than this is
+                                  # useful to show; crop to the center
+                                  # of it (see push_frame). Kept in sync,
+                                  # independently per receiver, with the
+                                  # K4's own span via #SPN;/#SPN$.
+    colormap = None               # built once, shared by every window
+    span_subscribed = False
+
+    @classmethod
+    def open_window(cls, receiver):
+        # Named open_window/close_window rather than open/close: this
+        # class subclasses QDialog, and naming these plain open/close
+        # would shadow QDialog's own instance methods of those names.
+        if not cls.span_subscribed:
+            cls.span_subscribed = True
+            Server.k4_server.subscribe_response('#SPN;', cls.on_span_changed)
+            Server.k4_server.subscribe_response('#SPN$;', cls.on_span_changed)
+            Server.k4_server.subscribe_response('#FPS;', cls.on_fps_changed)
+
+        window = cls.windows.get(receiver)
+        if window != None:
+            window.raise_()
+            window.activateWindow()
+            return
+        window = Panadapter(receiver)
+        cls.windows[receiver] = window
+        window.show()
+        Server.settings.put_save('Window', f'Panadapter.{receiver}.open', True)
+
+    @classmethod
+    def restore_open_windows(cls):
+        # Called once per connection, from Server.on_server_connect:
+        for receiver in ('main', 'sub'):
+            if Server.settings.getbool('Window', f'Panadapter.{receiver}.open', False):
+                cls.open_window(receiver)
+
+    @classmethod
+    def on_span_changed(cls, response):
+        # #SPN reports the span as a plain Hz value.
+        receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
+        try:
+            cls.display_span_hz[receiver] = float(cmd_parameter(response))
+        except ValueError:
+            pass
+
+    @classmethod
+    def on_fps_changed(cls, response):
+        # #FPS reports PAN frames per second, as a plain number.
+        try:
+            fps = float(cmd_parameter(response))
+        except ValueError:
+            return
+        if fps <= 0:
+            return
+        cls.frames_per_second = fps
+        rows = max(2, round(fps * cls.waterfall_seconds))
+        if rows == cls.waterfall_rows:
+            return
+        cls.waterfall_rows = rows
+        for window in cls.windows.values():
+            window.resize_waterfall()
+
+    @classmethod
+    def close_window(cls, receiver):
+        window = cls.windows.pop(receiver, None)
+        if window != None:
+            window.closing_via_directive = True
+            window.close()
+
+    @classmethod
+    def received_pan(cls, receiver, center_hz, sample_rate, bins):
+        window = cls.windows.get(receiver)
+        if window != None:
+            window.push_frame(center_hz, sample_rate, bins)
+
+    @classmethod
+    def received_minipan(cls, bins):
+        for window in cls.windows.values():
+            window.push_minipan(bins)
+
+    def __init__(self, receiver):
+        super().__init__(Page.top, Qt.WindowType.Window)
+        self.receiver = receiver
+        self.bin_count = 0
+        self.waterfall_buf = None
+        # Set by close_window() just before it calls close() -- lets
+        # closeEvent() tell a directive-driven close (e.g. a WPAN!0;
+        # sent from exit_cmds during app shutdown) apart from the user
+        # actually closing the window, so app shutdown doesn't clear
+        # the persisted "was open" flag restore_open_windows() relies on.
+        self.closing_via_directive = False
+
+        label = 'Sub' if receiver == 'sub' else 'Main'
+        self.setWindowTitle(f'{Page.top.windowTitle()} {label} Panadapter')
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+
+        self.trace_plot = pyqtgraph.PlotWidget()
+        self.trace_plot.setBackground('k')
+        self.trace_plot.showGrid(x=True, y=True, alpha=0.25)
+        self.trace_plot.setLabel('left', 'dB')
+        self.trace_plot.setMouseEnabled(x=False, y=False)
+        self.trace_curve = self.trace_plot.plot(pen=pyqtgraph.mkPen(color=(80, 220, 120), width=1))
+        layout.addWidget(self.trace_plot, 2)
+
+        self.waterfall_plot = pyqtgraph.PlotWidget()
+        self.waterfall_plot.setBackground('k')
+        self.waterfall_plot.getPlotItem().hideAxis('left')
+        self.waterfall_plot.setMouseEnabled(x=False, y=False)
+        self.waterfall_img = pyqtgraph.ImageItem()
+        self.waterfall_plot.addItem(self.waterfall_img)
+        if Panadapter.colormap is None:
+            Panadapter.colormap = pyqtgraph.colormap.get('inferno').getLookupTable(0.0, 1.0, 256)
+        self.waterfall_img.setLookupTable(Panadapter.colormap)
+        self.waterfall_plot.setXLink(self.trace_plot)
+        layout.addWidget(self.waterfall_plot, 3)
+
+        self.resize(700, 500)
+        self.set_geometry()
+
+    def set_geometry(self):
+        Server.settings.load()
+        geometry = Server.settings.get('Window', f'Panadapter.{self.receiver}.geometry')
+        if geometry == None:
+            return
+        w, h, x, y = split_geometry(geometry)
+        screen = QApplication.primaryScreen().availableGeometry()
+        screen_width, screen_height = screen.width(), screen.height()
+        x_offset = screen_width - (x + w)
+        y_offset = screen_height - (y + h)
+        if x_offset < 0:
+            x += x_offset
+        if y_offset < 0:
+            y += y_offset
+        if x < 0:
+            x = 0
+        if y < 0:
+            y = 0
+        self.resize(w, h)
+        self.move(x, y)
+
+    def save_geometry(self):
+        geometry = f'{self.width()}x{self.height()}{self.x():+}{self.y():+}'
+        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.geometry', geometry)
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self.save_geometry()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.save_geometry()
+
+    def closeEvent(self, event):
+        Panadapter.windows.pop(self.receiver, None)
+        # Only clear the persisted "was open" flag for a direct close
+        # (the window's own close button) -- not one routed through
+        # close_window(), e.g. a WPAN!0; directive or clean_up() closing
+        # every open Panadapter before QApplication.instance().quit()
+        # (which otherwise closes any still-open top-level windows
+        # itself, hitting this same closeEvent). Either way that must
+        # leave the flag alone so restore_open_windows() reopens the
+        # window next launch.
+        if not self.closing_via_directive:
+            Server.settings.put_save('Window', f'Panadapter.{self.receiver}.open', False)
+        super().closeEvent(event)
+
+    def push_frame(self, center_hz, sample_rate, bins):
+        # sample_rate is Hz per bin (frequency resolution), not the
+        # total span -- confirmed against real hardware (bin_count=1024,
+        # sample_rate=192 produced a ~192 Hz span using sample_rate
+        # alone, when the real span is sample_rate * bin_count, ~197kHz,
+        # a realistic panadapter width). The K4 oversamples beyond what's
+        # useful to display, so crop to the center display_span_hz of
+        # that full span rather than showing all of it.
+        full_bin_count = len(bins)
+        display_span_hz = Panadapter.display_span_hz[self.receiver]
+        crop_count = min(full_bin_count, max(1, round(display_span_hz / sample_rate)))
+        start = (full_bin_count - crop_count) // 2
+        bins = bins[start:start + crop_count]
+
+        self._ensure_bin_count(len(bins))
+        data = numpy.array(bins, dtype=numpy.float32)
+        span_hz = sample_rate * self.bin_count
+        xs = numpy.linspace(center_hz - span_hz / 2, center_hz + span_hz / 2, self.bin_count)
+        self.trace_curve.setData(xs, data)
+        self.trace_plot.setXRange(xs[0], xs[-1], padding=0)
+        self._update_frequency_ticks(center_hz, span_hz)
+        self._push_waterfall_row(data)
+        # Without this, the image sits at its own pixel-index coordinates
+        # (0..bin_count) while waterfall_plot's X view (XLink'd to
+        # trace_plot) shows real Hz values -- entirely off-screen, so
+        # nothing appeared to display at all.
+        self.waterfall_img.setRect(xs[0], 0, xs[-1] - xs[0], Panadapter.waterfall_rows)
+
+    def _update_frequency_ticks(self, center_hz, span_hz):
+        # A tick at the center frequency, plus two more evenly spaced
+        # below it and two above, rather than relying on pyqtgraph's
+        # auto-placed ticks (which don't necessarily land on center_hz).
+        step = span_hz / 4
+        ticks = []
+        for i in range(-2, 3):
+            freq = center_hz + i * step
+            if i == 0:
+                label = format_freq_tick(freq)
+            else:
+                label = format_freq_tick(freq, round_to=1000, drop_digits=3)
+            ticks.append((freq, label))
+        self.trace_plot.getAxis('bottom').setTicks([ticks])
+        self.waterfall_plot.getAxis('bottom').setTicks([ticks])
+
+    def push_minipan(self, bins):
+        # Deliberately not fed into the waterfall: MINI-PAN is a
+        # separate, coarser spectrum with its own bin count and its own
+        # decode scale (min 0 rather than -160), and carries no RX field
+        # to say which receiver it belongs to. Mixing it into a PAN
+        # window's buffer just forces a reallocation -- wiping the
+        # scroll history -- every time one arrives.
+        pass
+
+    def _ensure_bin_count(self, count):
+        if count != self.bin_count:
+            self.bin_count = count
+            # NaN, not 0: rows that haven't received data yet must not
+            # take part in the level scaling below (0 is far above the
+            # real dB range, so it would both wash out the color scale
+            # and paint the not-yet-filled area the brightest color).
+            # ImageItem renders NaN pixels transparent.
+            self.waterfall_buf = numpy.full((Panadapter.waterfall_rows, count),
+                numpy.nan, dtype=numpy.float32)
+
+    def resize_waterfall(self):
+        # Called when #FPS changes the derived row count. Keep the most
+        # recent rows (the newest data is at the end) rather than
+        # discarding the history built up so far.
+        # "is None", not the "== None" used elsewhere in this file: on a
+        # numpy array "== None" is an elementwise compare whose truth
+        # value is ambiguous, and raises.
+        if self.waterfall_buf is None:
+            return
+        rows = Panadapter.waterfall_rows
+        resized = numpy.full((rows, self.bin_count), numpy.nan, dtype=numpy.float32)
+        keep = min(rows, self.waterfall_buf.shape[0])
+        resized[-keep:] = self.waterfall_buf[-keep:]
+        self.waterfall_buf = resized
+
+    def _push_waterfall_row(self, data):
+        self.waterfall_buf = numpy.roll(self.waterfall_buf, -1, axis=0)
+        self.waterfall_buf[-1, :] = data
+        low = float(numpy.nanmin(self.waterfall_buf))
+        high = float(numpy.nanmax(self.waterfall_buf))
+        if high <= low:
+            high = low + 1
+        self.waterfall_img.setImage(self.waterfall_buf.T, autoLevels=False, levels=(low, high))
 
 class Audio():
     singleton = None
@@ -9272,6 +9630,14 @@ def clean_up(exit=False):
 
     CW.close_window()
     Macros.close_window()
+    # Explicitly, via close_window() (which marks the close as
+    # directive-driven) rather than leaving these for
+    # QApplication.instance().quit() below to close on its own --
+    # that closes any still-open top-level windows itself, which would
+    # hit Panadapter.closeEvent's *direct*-close path and clear the
+    # persisted "was open" flag right as the app exits.
+    for receiver in list(Panadapter.windows):
+        Panadapter.close_window(receiver)
     Audio.close()
     Poll.remove_all()
 
@@ -10067,6 +10433,7 @@ config_data = '''
   contains: #{
     #include rx-a-controls-row1
     #include rx-a-controls-row2
+    #include rx-a-controls-row3
   #}
 #end
 
@@ -10117,6 +10484,13 @@ config_data = '''
     #include preamp-a-dropdown-button
     #include rfgain-a-dropdown-button
     #include xit-togglebutton
+  #}
+#end
+
+#define rx-a-controls-row3
+- item: group
+  contains: #{
+    #include main-pan-enable
   #}
 #end
 
@@ -10312,6 +10686,7 @@ config_data = '''
   contains: #{
     #include rx-b-controls-row1
     #include rx-b-controls-row2
+    #include rx-b-controls-row3
   #}
 #end
 
@@ -10361,6 +10736,13 @@ config_data = '''
     #include atten-b-dropdown-button
     #include preamp-b-dropdown-button
     #include rfgain-b-dropdown-button
+  #}
+#end
+
+#define rx-b-controls-row3
+- item: group
+  contains: #{
+    #include sub-pan-enable
   #}
 #end
 
@@ -11268,6 +11650,18 @@ config_data = '''
 - item: button
   text: "Apply and\nReboot"
   cmd: PS88;
+#end
+
+#define main-pan-enable
+- item: button
+  text: 'Pan'
+  cmd: WPAN!1;
+#end
+
+#define sub-pan-enable
+- item: button
+  text: 'Pan'
+  cmd: WPAN$!1;
 #end
 
 #define rit-xit-group
