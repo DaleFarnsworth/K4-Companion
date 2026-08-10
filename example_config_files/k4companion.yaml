@@ -422,6 +422,7 @@
   leading: 1
   maximum: 42
   lengthpercent: 98
+  thicknesspercent: 50
   cmd: SM1;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ' '
@@ -436,6 +437,7 @@
   label: Power out
   evalmaximum: "0 if self.len_k4param('PC') < 4 else 11.7 if self.k4param('PC')[3] == 'L' else 117"
   lengthpercent: 100
+  thicknesspercent: 50
   cmd: TM1;PC;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ''
@@ -448,6 +450,7 @@
   label: ALC
   maximum: 7
   lengthpercent: 93
+  thicknesspercent: 50
   cmd: TM1;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ''
@@ -461,6 +464,7 @@
   leading: 2
   maximum: 32
   lengthpercent: 96
+  thicknesspercent: 50
   cmd: TM1;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ''
@@ -473,6 +477,7 @@
   label: SWR
   maximum: 35
   lengthpercent: 100
+  thicknesspercent: 50
   cmd: TM1;TQ;TU;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ' '
@@ -669,6 +674,7 @@
   leading: 1
   maximum: 42
   lengthpercent: 98
+  thicknesspercent: 50
   cmd: SM1;
   font: { family: TkFixedFont, size: 8, weight: normal }
   lefttext: ' '
