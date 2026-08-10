@@ -153,6 +153,18 @@ def qt_tight_groupbox_stylesheet(title, font):
         'left: 4px; top: 0px; padding: 0 2px; }'
     )
 
+def qt_size_tight_groupbox_title(frame, title, font):
+    # Once qt_tight_groupbox_stylesheet() switches a QGroupBox to the CSS
+    # box model, its sizeHint() no longer widens to fit the title the way
+    # native title rendering did -- a box whose content is narrower than
+    # its title (e.g. "QSK" wrapping a small toggle, or a long label:
+    # like "K4-Companion Version") then clips the title on its right
+    # edge. Force a minimum width covering the title text plus the
+    # stylesheet's own "left: 4px" title offset, "padding: 0 2px" on the
+    # title, and 1px border on each side.
+    fm = QFontMetrics(font)
+    frame.setMinimumWidth(fm.horizontalAdvance(title) + 12)
+
 def qt_group_box(title, font):
     # Factors out the "tk.LabelFrame(text=, font=, labelanchor='nw', ...)"
     # pattern repeated dozens of times in ServerSettings_widget /
@@ -162,6 +174,7 @@ def qt_group_box(title, font):
     style = qt_tight_groupbox_stylesheet(title, font)
     if style:
         frame.setStyleSheet(style)
+        qt_size_tight_groupbox_title(frame, title, font)
     grid = QGridLayout(frame)
     grid.setContentsMargins(0, 0, 0, 0)
     grid.setSpacing(0)
@@ -1596,6 +1609,7 @@ class Widget():
             style = qt_tight_groupbox_stylesheet(label, self.label_font())
             if style:
                 inner_frame.setStyleSheet(style)
+                qt_size_tight_groupbox_title(inner_frame, label, self.label_font())
         inner_grid = QGridLayout(inner_frame)
         inner_grid.setContentsMargins(0, 0, 0, 0)
         inner_grid.setSpacing(0)
