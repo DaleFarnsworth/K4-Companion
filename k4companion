@@ -4578,6 +4578,8 @@ class Panadapter(QDialog):
         self.receiver = receiver
         self.bin_count = 0
         self.waterfall_buf = None
+        self.axis_key = None    # forces the axis setup in push_frame to
+        self.xs = None          # run on the first frame
         # Set by close_window() just before it calls close() -- lets
         # closeEvent() tell a directive-driven close (e.g. a WPAN!0;
         # sent from exit_cmds during app shutdown) apart from the user
@@ -4678,16 +4680,33 @@ class Panadapter(QDialog):
         self._ensure_bin_count(len(bins))
         data = numpy.array(bins, dtype=numpy.float32)
         span_hz = sample_rate * self.bin_count
-        xs = numpy.linspace(center_hz - span_hz / 2, center_hz + span_hz / 2, self.bin_count)
-        self.trace_curve.setData(xs, data)
-        self.trace_plot.setXRange(xs[0], xs[-1], padding=0)
-        self._update_frequency_ticks(center_hz, span_hz)
+
+        # Everything below that depends only on the X axis (and not on
+        # this frame's samples) is recomputed only when the axis
+        # actually changes -- normally never, since the radio sits on
+        # one frequency. It is not just redundant work: setXRange
+        # cascades through the waterfall's XLink into both axes'
+        # updateAutoSIPrefix/_updateLabel, re-rendering the axis label
+        # HTML every frame. Skipping it when nothing moved cuts the
+        # main-thread time per frame by about a third, which matters
+        # because that time is held with the GIL and starves the audio
+        # output thread (see Audio.output_loop) into dropouts.
+        axis_key = (center_hz, span_hz, self.bin_count, Panadapter.waterfall_rows)
+        if axis_key != self.axis_key:
+            self.axis_key = axis_key
+            self.xs = numpy.linspace(center_hz - span_hz / 2,
+                center_hz + span_hz / 2, self.bin_count)
+            xs = self.xs
+            self.trace_plot.setXRange(xs[0], xs[-1], padding=0)
+            self._update_frequency_ticks(center_hz, span_hz)
+            # Without this, the image sits at its own pixel-index
+            # coordinates (0..bin_count) while waterfall_plot's X view
+            # (XLink'd to trace_plot) shows real Hz values -- entirely
+            # off-screen, so nothing appeared to display at all.
+            self.waterfall_img.setRect(xs[0], 0, xs[-1] - xs[0], Panadapter.waterfall_rows)
+
+        self.trace_curve.setData(self.xs, data)
         self._push_waterfall_row(data)
-        # Without this, the image sits at its own pixel-index coordinates
-        # (0..bin_count) while waterfall_plot's X view (XLink'd to
-        # trace_plot) shows real Hz values -- entirely off-screen, so
-        # nothing appeared to display at all.
-        self.waterfall_img.setRect(xs[0], 0, xs[-1] - xs[0], Panadapter.waterfall_rows)
 
     def _update_frequency_ticks(self, center_hz, span_hz):
         # A tick at the center frequency, plus two more evenly spaced
