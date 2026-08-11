@@ -2785,7 +2785,7 @@ class SliderWidget():
 
         from_ = self.caller.eval_value(self.from_, self.value)
         to = self.caller.eval_value(self.to, self.value)
-        self.resolution = self.caller.eval_value(self.evalincrement, self.value)
+        self.resolution = abs(self.caller.eval_value(self.evalincrement, self.value))
 
         # QSlider only understands integer steps, so the slider works in
         # units of "resolution" internally and value()/setValue() convert
@@ -2888,7 +2888,7 @@ class SliderWidget():
             return
         if self.previous_value < value:
             next_value = value + self.caller.eval_value(self.evalincrement, value)
-        self.resolution = self.caller.eval_value(self.evalincrement, next_value)
+        self.resolution = abs(self.caller.eval_value(self.evalincrement, next_value))
         self.value = value
         if self.value_label != None:
             self.value_label.setText(format_slider_value(value, self.resolution))
@@ -2901,7 +2901,7 @@ class SliderWidget():
         value = float(self.caller.eval_value(self.evalresponse, response))
         if value < 0:
             return
-        self.resolution = self.caller.eval_value(self.evalincrement, value)
+        self.resolution = abs(self.caller.eval_value(self.evalincrement, value))
         self.received_value = True
         # setMinimum()/setMaximum() can clamp the slider's *current*
         # position if it now falls outside the new range, which fires
