@@ -9583,11 +9583,14 @@ class Keyer():
     def send_element(self, elt, first_element):
         if first_element:
             time_since_last_char = time.perf_counter() - self.end_element_timestamp
-            if time_since_last_char > 2/3 * self.inter_character_seconds:
+            time_remaining = 0
+            if time_since_last_char > 5.5/7 * self.inter_word_seconds:
+                time_remaining = self.inter_word_seconds - time_since_last_char
+            elif time_since_last_char > 2/3 * self.inter_character_seconds:
                 time_remaining = self.inter_character_seconds - time_since_last_char
-                if time_remaining > 0:
-                    # wait an inter-character interval
-                    time.sleep(time_remaining)
+            if time_remaining > 0:
+                # wait an inter-character interval
+                time.sleep(time_remaining)
 
         Audio.start_sidetone()
         if first_element:
