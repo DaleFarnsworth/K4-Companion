@@ -552,7 +552,6 @@
 #define preamp-a-dropdown-button
 - item: dropdownbutton
   label: Pre
-  width: 3
   selections: #{
     - { text: "0", cmd: PA00; }
     - { text: "1", cmd: PA11; }
@@ -758,7 +757,6 @@
 #define preamp-b-dropdown-button
 - item: dropdownbutton
   label: Pre
-  width: 3
   selections: #{
     - { text: "0", cmd: PA$00; }
     - { text: "1", cmd: PA$11; }
@@ -840,7 +838,6 @@
 #define power-dropdown-button
 - item: dropdownbutton
   label: Power
-  width: 6
   from: 0
   to: 110
   evalincrement: '.0001 if value > 0.0 and value <= .01 else .1 if value <= 10.0 else 1.0'
@@ -917,7 +914,6 @@
 
 #define atu-dropdownbutton
 - item: dropdownbutton
-  width: 6
   selections: #{
     - { text: "ATU",    cmd: AT2;, evalresponse: '"AT2;" if self.k4param("AT") == "2" and self.k4param("TU") not in ("3", "4") else ""' }
     - { text: "Bypass", cmd: AT1;, bg: yellow }
@@ -936,7 +932,6 @@
 
 #define tune-dropdownbutton
 - item: dropdownbutton
-  width: 8
   padx: 4
   selections: #{
     - { text: "Tune Off", cmd: TU0;, evalresponse: 'value if value == "TU1;" or value == "TU2;" else "TU0;"' }
@@ -1481,8 +1476,6 @@
 
 #define ctcss-dropdown-button
 - item: dropdownbutton
-  width: 6
-  height: 10
   selections: #{
     - { text: " 67.0", cmd: PL01;, evalcmd: '"PL01{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' } 
     - { text: " 69.3", cmd: PL02;, evalcmd: '"PL02{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
@@ -1564,7 +1557,6 @@
 
 #define sw-udate-dropdown-button
 - item: dropdownbutton
-  width: 13
   justify: left
   selections: #{
     - { text: Production, cmd: RLP; }
