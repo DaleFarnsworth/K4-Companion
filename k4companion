@@ -1179,8 +1179,14 @@ class Server():
             traceback.print_exc(file=stderr)
 
     def received_minipan(self, data):
+        # MINI-PAN carries the identical 24-byte PAN sub-header
+        # (confirmed against real hardware, see parse_minipan_frame),
+        # including its own RX byte -- route it exactly like PAN.
+        if len(data) < 2:
+            return
+        receiver = 'sub' if data[1] == 1 else 'main'
         try:
-            PanadapterProcess.received_minipan(data)
+            PanadapterProcess.received_minipan(receiver, data)
         except Exception:
             traceback.print_exc(file=stderr)
 
@@ -4428,7 +4434,7 @@ def le_int(data, signed=False):
             value -= (1 << bits)
     return value
 
-def parse_pan_frame(data):
+def parse_pan_frame(data, decode_offset=160):
     # PAN payload (multi-byte fields little-endian -- unlike the outer
     # packet's length field, which is explicitly big-endian per the
     # K4-Remote protocol draft; only these PAN sub-header fields are
@@ -4442,10 +4448,18 @@ def parse_pan_frame(data):
     #   offset 20-23    noise floor, signed int32 (deci-dB -- divide by
     #                    10 to get dB, confirmed against real hardware)
     #   offset 24+      compressed spectrum samples, 1 byte each
-    # Decompression: decoded = byte - 160 (dB). The draft's formula
-    # multiplies by 10 as well, but that's confirmed too large by 10x
-    # against real hardware, matching the noise floor field's own
-    # deci-dB scaling.
+    # Decompression: decoded = byte - decode_offset (dB). The draft's
+    # formula multiplies by 10 as well, but that's confirmed too large
+    # by 10x against real hardware, matching the noise floor field's
+    # own deci-dB scaling.
+    #
+    # MINI-PAN (see parse_minipan_frame) uses this identical sub-header
+    # -- confirmed against real hardware: a MINI-PAN payload initially
+    # assumed to be a headerless raw byte array decoded, byte for byte,
+    # into exactly this layout (pan_len=1024 at offset 2-3, all-zero
+    # reserved bytes at offset 4-7, RX at offset 1 alternating 0/1 in
+    # sync with center_hz's low byte between interleaved main/sub
+    # frames) -- just with decode_offset=0 rather than PAN's 160.
     if len(data) < 24:
         return None
     rx = data[1]
@@ -4456,14 +4470,12 @@ def parse_pan_frame(data):
     samples = data[24:24 + pan_len]
     if len(samples) != pan_len:
         return None
-    bins = [b - 160 for b in samples]
+    bins = [b - decode_offset for b in samples]
     receiver = 'sub' if rx == 1 else 'main'
     return receiver, center_hz, sample_rate, noise_floor, bins
 
-def parse_minipan_bins(data):
-    # Same compressed sample array as PAN, but no sub-header and no RX
-    # field -- decompressed with min = 0 instead of -160.
-    return list(data)
+def parse_minipan_frame(data):
+    return parse_pan_frame(data, decode_offset=0)
 
 def format_freq_tick(hz, round_to=100, drop_digits=2):
     # Round to the nearest round_to Hz, zero-pad to always include a
@@ -4503,6 +4515,28 @@ class Panadapter(QDialog):
     colormap = None               # built once, shared by every window
     child_mode = False            # True in the panadapter subprocess
     child_geometry = None         # see save_geometry()
+    mode = {'main': None, 'sub': None}
+                                  # K4 mode digit ('3'=CW, '7'=CW-R, etc,
+                                  # see the MD/MD$ selections in the
+                                  # yaml), kept in sync via MD;/MD$;.
+                                  # Used only for the mini-pan's
+                                  # bandwidth (see is_cw_mode).
+    bandwidth_hz = {'main': None, 'sub': None}
+                                  # Receiver bandwidth in Hz, from
+                                  # BW;/BW$; (format BWnnnn, nnnn =
+                                  # bandwidth in kHz * 100). Used to
+                                  # shade the trace around the
+                                  # receiver's current frequency.
+    rx_freq_hz = {'main': None, 'sub': None}
+                                  # The receiver's actual tuned
+                                  # frequency, from FA;/FB;. This is
+                                  # NOT always the same as a given PAN
+                                  # frame's center_hz (the display
+                                  # center of that frame's spectrum) --
+                                  # used for the frequency line, the
+                                  # bandwidth shading, and the mini-pan's
+                                  # centering, all of which must track
+                                  # where the receiver is actually tuned.
 
     # This class now only ever runs in the panadapter subprocess; the
     # main process talks to it through PanadapterProcess, which owns
@@ -4514,6 +4548,43 @@ class Panadapter(QDialog):
         receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
         try:
             cls.display_span_hz[receiver] = float(cmd_parameter(response))
+        except ValueError:
+            pass
+
+    @classmethod
+    def on_mode_changed(cls, response):
+        receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
+        cls.mode[receiver] = cmd_parameter(response)
+
+    @classmethod
+    def is_cw_mode(cls, receiver):
+        # '3' = CW, '7' = CW-R (see the yaml's mode dropdown selections).
+        return cls.mode[receiver] in ('3', '7')
+
+    @classmethod
+    def is_am_mode(cls, receiver):
+        # '5' = AM (see the yaml's mode dropdown selections).
+        return cls.mode[receiver] == '5'
+
+    @classmethod
+    def on_bandwidth_changed(cls, response):
+        # BW/BW$ report bandwidth as a 4-digit string, kHz * 100 (e.g.
+        # "0500" = 5.00 kHz -- see the yaml's bandwidth dropdown
+        # buttons, which build/parse the same command).
+        receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
+        try:
+            cls.bandwidth_hz[receiver] = int(cmd_parameter(response)) * 10
+        except ValueError:
+            pass
+
+    @classmethod
+    def on_frequency_changed(cls, response):
+        # FA = VFO A = main receiver, FB = VFO B = sub receiver (the
+        # same A/B split the yaml's own vfo/rit widgets use). Reported
+        # as a plain Hz value, same as VFO.on_frequency_received.
+        receiver = 'main' if cmd_base(response) == 'FA' else 'sub'
+        try:
+            cls.rx_freq_hz[receiver] = float(cmd_parameter(response))
         except ValueError:
             pass
 
@@ -4545,6 +4616,32 @@ class Panadapter(QDialog):
         self.axis_key = None    # forces the axis setup in push_frame to
         self.xs = None          # run on the first frame
 
+        # Vertical (dB) scale of the trace plot: averaged over a rolling
+        # window rather than auto-ranged to the current frame's min/max
+        # every frame (pyqtgraph's default), which made the scale jitter
+        # continuously as the noise floor fluctuated. See push_frame.
+        self.vscale_low_sum = 0.0
+        self.vscale_high_sum = 0.0
+        self.vscale_count = 0
+        self.vscale_last_update = time.perf_counter()
+
+        # Mini-pan: driven by the K4's actual MINI-PAN messages (see
+        # push_minipan), which carry the identical PAN sub-header --
+        # including their own RX field, confirmed against real
+        # hardware -- so it's routed exactly like PAN data (see
+        # Server.received_minipan). Cropped to a span picked from the
+        # receiver's current mode.
+        self.minipan_axis_key = None
+        self.minipan_xs = None
+        self.last_center_hz = None
+
+        # Receiver bandwidth (BW;/BW$;), for shading the trace -- see
+        # the bw_region setup below and push_frame.
+        self.bw_key = None
+
+        # Frequency line position -- see _update_freq_line/_rx_freq_hz.
+        self.freq_line_hz = None
+
         label = 'Sub' if receiver == 'sub' else 'Main'
         if Page.top != None:
             prefix = Page.top.windowTitle()
@@ -4555,12 +4652,42 @@ class Panadapter(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
+        self.minipan_plot = pyqtgraph.PlotWidget()
+        self.minipan_plot.setBackground('k')
+        self.minipan_plot.showGrid(x=True, y=True, alpha=0.25)
+        self.minipan_plot.setLabel('left', 'dB')
+        self.minipan_plot.setMouseEnabled(x=False, y=False)
+        self.minipan_curve = self.minipan_plot.plot(pen=pyqtgraph.mkPen(color=(220, 180, 80), width=1))
+        # 1/3 the window width, left justified: setFixedWidth (kept
+        # current in resizeEvent) pins both min and max width, which is
+        # what makes AlignLeft actually leave the remaining 2/3 blank
+        # rather than pyqtgraph's default expanding size policy
+        # stretching it to fill the row.
+        layout.addWidget(self.minipan_plot, 1, Qt.AlignmentFlag.AlignLeft)
+
         self.trace_plot = pyqtgraph.PlotWidget()
         self.trace_plot.setBackground('k')
         self.trace_plot.showGrid(x=True, y=True, alpha=0.25)
         self.trace_plot.setLabel('left', 'dB')
         self.trace_plot.setMouseEnabled(x=False, y=False)
+        # Added before the curve, so the (translucent) shading renders
+        # behind it rather than over it.
+        self.bw_region = pyqtgraph.LinearRegionItem(values=(0, 0),
+            movable=False, brush=pyqtgraph.mkBrush(60, 140, 255, 20),
+            pen=pyqtgraph.mkPen(color=(60, 140, 255, 50), width=1))
+        self.bw_region.setVisible(False)
+        self.trace_plot.addItem(self.bw_region)
         self.trace_curve = self.trace_plot.plot(pen=pyqtgraph.mkPen(color=(80, 220, 120), width=1))
+        # Y range is set explicitly (averaged every 5 seconds in
+        # push_frame) rather than left to pyqtgraph's default per-frame
+        # auto-range -- disable that, and seed a plausible starting
+        # range so the plot isn't empty before the first average lands.
+        self.trace_plot.enableAutoRange(axis='y', enable=False)
+        self.trace_plot.setYRange(-160, 0, padding=0)
+        # Frequency marker: trace only, not the waterfall.
+        self.freq_line_trace = pyqtgraph.InfiniteLine(angle=90,
+            pen=pyqtgraph.mkPen(color=(60, 140, 255), width=1))
+        self.trace_plot.addItem(self.freq_line_trace)
         layout.addWidget(self.trace_plot, 2)
 
         self.waterfall_plot = pyqtgraph.PlotWidget()
@@ -4577,6 +4704,10 @@ class Panadapter(QDialog):
 
         self.resize(700, 500)
         self.set_geometry()
+        self._update_minipan_width()
+
+    def _update_minipan_width(self):
+        self.minipan_plot.setFixedWidth(max(1, self.width() // 3))
 
     def set_geometry(self):
         Server.settings.load()
@@ -4616,6 +4747,7 @@ class Panadapter(QDialog):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._update_minipan_width()
         self.save_geometry()
 
     def closeEvent(self, event):
@@ -4634,11 +4766,9 @@ class Panadapter(QDialog):
         # a realistic panadapter width). The K4 oversamples beyond what's
         # useful to display, so crop to the center display_span_hz of
         # that full span rather than showing all of it.
-        full_bin_count = len(bins)
+        full_bins = bins
         display_span_hz = Panadapter.display_span_hz[self.receiver]
-        crop_count = min(full_bin_count, max(1, round(display_span_hz / sample_rate)))
-        start = (full_bin_count - crop_count) // 2
-        bins = bins[start:start + crop_count]
+        bins = self._crop_bins(full_bins, sample_rate, display_span_hz)
 
         self._ensure_bin_count(len(bins))
         data = numpy.array(bins, dtype=numpy.float32)
@@ -4654,6 +4784,12 @@ class Panadapter(QDialog):
         # main-thread time per frame by about a third, which matters
         # because that time is held with the GIL and starves the audio
         # output thread (see Audio.output_loop) into dropouts.
+        # center_hz is this frame's display center, not necessarily the
+        # receiver's actual tuned frequency (they can diverge) -- kept
+        # as a fallback for the frequency line/mini-pan centering below,
+        # for use only until the real frequency arrives via FA;/FB;.
+        self.last_center_hz = center_hz
+
         axis_key = (center_hz, span_hz, self.bin_count, Panadapter.waterfall_rows)
         axis_changed = axis_key != self.axis_key
         if axis_changed:
@@ -4664,8 +4800,11 @@ class Panadapter(QDialog):
             self.trace_plot.setXRange(xs[0], xs[-1], padding=0)
             self._update_frequency_ticks(center_hz, span_hz)
 
+        self._update_freq_line()
+        self._update_bw_region()
         self.trace_curve.setData(self.xs, data)
         self._push_waterfall_row(data)
+        self._update_vscale(data)
         if axis_changed:
             # setRect() must come after the setImage() above (inside
             # _push_waterfall_row), not before: pyqtgraph's ImageItem
@@ -4684,6 +4823,63 @@ class Panadapter(QDialog):
             xs = self.xs
             self.waterfall_img.setRect(xs[0], 0, xs[-1] - xs[0], Panadapter.waterfall_rows)
 
+    def _update_vscale(self, data):
+        # Averaged over 5 seconds rather than fit to every single
+        # frame (pyqtgraph's default auto-range): the noise floor
+        # fluctuates enough frame to frame that auto-ranging made the
+        # trace's dB scale visibly jitter/rescale continuously.
+        self.vscale_low_sum += float(data.min())
+        self.vscale_high_sum += float(data.max())
+        self.vscale_count += 1
+        now = time.perf_counter()
+        if now - self.vscale_last_update < 5.0:
+            return
+        avg_low = self.vscale_low_sum / self.vscale_count
+        avg_high = self.vscale_high_sum / self.vscale_count
+        margin = max((avg_high - avg_low) * 0.1, 1.0)
+        self.trace_plot.setYRange(avg_low - margin, avg_high + margin, padding=0)
+        self.vscale_low_sum = 0.0
+        self.vscale_high_sum = 0.0
+        self.vscale_count = 0
+        self.vscale_last_update = now
+
+    @staticmethod
+    def _crop_bins(bins, sample_rate, span_hz):
+        full_bin_count = len(bins)
+        crop_count = min(full_bin_count, max(1, round(span_hz / sample_rate)))
+        start = (full_bin_count - crop_count) // 2
+        return bins[start:start + crop_count]
+
+    def _update_bw_region(self):
+        bw_hz = Panadapter.bandwidth_hz[self.receiver]
+        if bw_hz == None:
+            return
+        # Shade twice the reported bandwidth in AM mode.
+        am_mode = Panadapter.is_am_mode(self.receiver)
+        if am_mode:
+            bw_hz *= 2
+        freq_hz = self._rx_freq_hz()
+        bw_key = (freq_hz, bw_hz, am_mode)
+        if bw_key == self.bw_key:
+            return
+        self.bw_key = bw_key
+        self.bw_region.setRegion((freq_hz - bw_hz / 2, freq_hz + bw_hz / 2))
+        self.bw_region.setVisible(True)
+
+    def _rx_freq_hz(self):
+        # The receiver's real tuned frequency (FA;/FB;), falling back
+        # to the last PAN frame's own display center only until that
+        # has arrived -- see the rx_freq_hz comment.
+        freq_hz = Panadapter.rx_freq_hz[self.receiver]
+        return freq_hz if freq_hz != None else self.last_center_hz
+
+    def _update_freq_line(self):
+        freq_hz = self._rx_freq_hz()
+        if freq_hz == self.freq_line_hz:
+            return
+        self.freq_line_hz = freq_hz
+        self.freq_line_trace.setPos(freq_hz)
+
     def _update_frequency_ticks(self, center_hz, span_hz):
         # A tick at the center frequency, plus two more evenly spaced
         # below it and two above, rather than relying on pyqtgraph's
@@ -4700,14 +4896,52 @@ class Panadapter(QDialog):
         self.trace_plot.getAxis('bottom').setTicks([ticks])
         self.waterfall_plot.getAxis('bottom').setTicks([ticks])
 
-    def push_minipan(self, bins):
-        # Deliberately not fed into the waterfall: MINI-PAN is a
-        # separate, coarser spectrum with its own bin count and its own
-        # decode scale (min 0 rather than -160), and carries no RX field
-        # to say which receiver it belongs to. Mixing it into a PAN
-        # window's buffer just forces a reallocation -- wiping the
-        # scroll history -- every time one arrives.
-        pass
+    def push_minipan(self, center_hz, sample_rate, bins):
+        # MINI-PAN carries the identical PAN sub-header as PAN frames
+        # (confirmed against real hardware -- see parse_minipan_frame),
+        # including its own RX field, so on_message() has already
+        # routed this to the matching window same as push_frame's data.
+        # Cropped to the mode-selected span around its own center_hz,
+        # exactly like the main trace crops PAN data to display_span_hz
+        # -- then displayed against the receiver's real tuned frequency
+        # (see _rx_freq_hz), same as the frequency line, since that can
+        # differ slightly from this frame's own center_hz.
+        span_hz = 2000 if Panadapter.is_cw_mode(self.receiver) else 10000
+        bins = self._crop_bins(bins, sample_rate, span_hz)
+        data = numpy.array(bins, dtype=numpy.float32)
+        bin_count = len(bins)
+        actual_span_hz = sample_rate * bin_count
+
+        freq_hz = self._rx_freq_hz()
+        if freq_hz == None:
+            freq_hz = center_hz
+
+        axis_key = (freq_hz, actual_span_hz, bin_count)
+        if axis_key != self.minipan_axis_key:
+            self.minipan_axis_key = axis_key
+            self.minipan_xs = numpy.linspace(freq_hz - actual_span_hz / 2,
+                freq_hz + actual_span_hz / 2, bin_count)
+            self.minipan_plot.setXRange(self.minipan_xs[0], self.minipan_xs[-1], padding=0)
+            self._update_minipan_ticks(freq_hz, actual_span_hz)
+
+        self.minipan_curve.setData(self.minipan_xs, data)
+
+    def _update_minipan_ticks(self, center_hz, span_hz):
+        # Same idea as _update_frequency_ticks, but rounded an order of
+        # magnitude finer -- the mini-pan's 2/10 kHz span is that much
+        # narrower than the main trace's, so ticks left at the main
+        # trace's rounding would mostly round to the same displayed
+        # value.
+        step = span_hz / 4
+        ticks = []
+        for i in range(-2, 3):
+            freq = center_hz + i * step
+            if i == 0:
+                label = format_freq_tick(freq, round_to=10, drop_digits=1)
+            else:
+                label = format_freq_tick(freq, round_to=100, drop_digits=2)
+            ticks.append((freq, label))
+        self.minipan_plot.getAxis('bottom').setTicks([ticks])
 
     def _ensure_bin_count(self, count):
         if count != self.bin_count:
@@ -4755,9 +4989,10 @@ class Panadapter(QDialog):
 # has its own GIL, so its repaints cannot touch the audio path at all,
 # and frames_per_buffer can stay at 2 for low transmit/tuning delay.
 #
-# The parent sends PAN/MINI-PAN payloads and the #SPN/#FPS responses;
-# the child sends back only its final window geometry. Messages are
-# 4-byte big-endian length (of type + payload), then a type byte:
+# The parent sends PAN/MINI-PAN payloads and the #SPN/#FPS/MD/BW/FA/FB
+# responses; the child sends back only its final window geometry.
+# Messages are 4-byte big-endian length (of type + payload), then a
+# type byte:
 panadapter_msg_cat = 0
 panadapter_msg_pan = 2
 panadapter_msg_minipan = 3
@@ -4796,6 +5031,20 @@ class PanadapterProcess(QObject):
             Server.k4_server.subscribe_response('#SPN;', cls.on_cat_response)
             Server.k4_server.subscribe_response('#SPN$;', cls.on_cat_response)
             Server.k4_server.subscribe_response('#FPS;', cls.on_cat_response)
+            # MD/MD$ (receiver mode) is relayed for the mini-pan's
+            # bandwidth (2 kHz in CW mode, 10 kHz otherwise).
+            Server.k4_server.subscribe_response('MD;', cls.on_cat_response)
+            Server.k4_server.subscribe_response('MD$;', cls.on_cat_response)
+            # BW/BW$ (receiver bandwidth) is relayed to shade the trace
+            # around center_hz.
+            Server.k4_server.subscribe_response('BW;', cls.on_cat_response)
+            Server.k4_server.subscribe_response('BW$;', cls.on_cat_response)
+            # FA/FB (VFO A/B -- main/sub receiver frequency) is relayed
+            # for the frequency line and the mini-pan's centering,
+            # neither of which can be trusted to always equal center_hz
+            # (the PAN stream's own display center).
+            Server.k4_server.subscribe_response('FA;', cls.on_cat_response)
+            Server.k4_server.subscribe_response('FB;', cls.on_cat_response)
 
         if receiver in cls.processes:
             return
@@ -4831,8 +5080,9 @@ class PanadapterProcess(QObject):
             process.send(panadapter_msg_pan, payload)
 
     @classmethod
-    def received_minipan(cls, payload):
-        for process in cls.processes.values():
+    def received_minipan(cls, receiver, payload):
+        process = cls.processes.get(receiver)
+        if process != None:
             process.send(panadapter_msg_minipan, payload)
 
     def __init__(self, receiver):
@@ -4922,6 +5172,23 @@ class PanadapterProcess(QObject):
         except subprocess.TimeoutExpired:
             self.process.kill()
 
+        # monitor_thread is what actually reads the child's final
+        # #PANGEOM line off stdout and emits exited -- by the time the
+        # process has exited above, that line is already fully written
+        # and flushed (the child does so before its own os._exit()), so
+        # this join is short. It matters because exited is a queued
+        # cross-thread signal: on_exited() (which does the real
+        # Server.settings.put_save() for the geometry) only runs once
+        # the Qt event loop gets a turn to deliver it. Without joining
+        # and pumping here, that delivery could still be pending when
+        # the whole app quits right after this returns (see
+        # clean_up()), silently dropping the geometry save on exit --
+        # the most common time a window's final geometry needs saving.
+        self.monitor_thread.join(timeout=2)
+        app = QApplication.instance()
+        if app != None:
+            app.processEvents()
+
 class PanadapterChannel(QObject):
     # Reads the parent's messages off stdin on a thread and hands them to
     # the Qt thread, which is the only one that may touch the widgets.
@@ -4967,13 +5234,25 @@ class PanadapterChannel(QObject):
                 if receiver == self.window.receiver:
                     self.window.push_frame(center_hz, sample_rate, bins)
             elif msg_type == panadapter_msg_minipan:
-                self.window.push_minipan(parse_minipan_bins(payload))
+                parsed = parse_minipan_frame(payload)
+                if parsed == None:
+                    return
+                receiver, center_hz, sample_rate, noise_floor, bins = parsed
+                if receiver == self.window.receiver:
+                    self.window.push_minipan(center_hz, sample_rate, bins)
             elif msg_type == panadapter_msg_cat:
                 response = payload.decode(errors='replace')
-                if cmd_base(response).startswith('#FPS'):
+                base = cmd_base(response)
+                if base == '#FPS':
                     Panadapter.on_fps_changed(response)
-                else:
+                elif base in ('#SPN', '#SPN$'):
                     Panadapter.on_span_changed(response)
+                elif base in ('MD', 'MD$'):
+                    Panadapter.on_mode_changed(response)
+                elif base in ('BW', 'BW$'):
+                    Panadapter.on_bandwidth_changed(response)
+                elif base in ('FA', 'FB'):
+                    Panadapter.on_frequency_changed(response)
         except Exception:
             traceback.print_exc(file=stderr)
 
@@ -9585,11 +9864,12 @@ class Keyer():
             time_since_last_char = time.perf_counter() - self.end_element_timestamp
             time_remaining = 0
             if time_since_last_char > 5.5/7 * self.inter_word_seconds:
+                # wait an inter-character interval
                 time_remaining = self.inter_word_seconds - time_since_last_char
             elif time_since_last_char > 2/3 * self.inter_character_seconds:
+                # wait an inter-word interval
                 time_remaining = self.inter_character_seconds - time_since_last_char
             if time_remaining > 0:
-                # wait an inter-character interval
                 time.sleep(time_remaining)
 
         Audio.start_sidetone()
