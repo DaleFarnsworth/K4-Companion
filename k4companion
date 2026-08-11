@@ -83,7 +83,7 @@ import opuslib
 os.environ['PATH'] = original_path
 
 appname = 'k4companion'
-version = "1.6.16.3"
+version = "1.6.16.4"
 
 python_version = platform.python_version_tuple()
 python_major = int(python_version[0])
