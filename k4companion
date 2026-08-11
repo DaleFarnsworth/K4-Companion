@@ -83,7 +83,7 @@ import opuslib
 os.environ['PATH'] = original_path
 
 appname = 'k4companion'
-version = "1.6.16.4"
+version = "1.6.16.5"
 
 python_version = platform.python_version_tuple()
 python_major = int(python_version[0])
@@ -5220,7 +5220,7 @@ class Audio():
                         self.output_stream = pa.open(format=pyaudio.paFloat32,
                                                 channels=cls.output_channels,
                                                 rate=cls.output_device_sample_rate(),
-                                                frames_per_buffer=2,
+                                                frames_per_buffer=64,
                                                 output=True,
                                                 output_device_index=self.output_device_index,
                                                 )
@@ -10073,7 +10073,7 @@ def main():
 config_data = '''
 ---
 
-# version = "1.6.16.3"
+# version = "1.6.16.5"
 
 # A description of the various items is provided at the end of this file.
 
