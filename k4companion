@@ -67,7 +67,7 @@ import time
 import traceback
 import yaml
 
-from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize
+from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
@@ -611,7 +611,7 @@ class Server():
         if self.type == 'k4' and not self.cat_only:
             Audio.server_connected(self)
         Page.main().select_tab('Main')
-        Panadapter.restore_open_windows()
+        PanadapterProcess.restore_open_windows()
 
     def on_error_code(self, response):
         response = response.rstrip(';')
@@ -962,9 +962,9 @@ class Server():
             receiver = 'sub' if '$!' in lbase else 'main'
             enable = lcmd[len(base):].strip()
             if enable.startswith('1'):
-                Panadapter.open_window(receiver)
+                PanadapterProcess.open_window(receiver)
             else:
-                Panadapter.close_window(receiver)
+                PanadapterProcess.close_window(receiver)
         else:
            raise Exception('Unknown directive: ', self.directive)
 
@@ -1163,12 +1163,15 @@ class Server():
                 self.received_minipan(payload)
 
     def received_pan(self, data):
-        parsed = parse_pan_frame(data)
-        if parsed == None:
+        # Only enough of the frame is decoded here to route it; the
+        # subprocess does the real parsing and drawing. Everything this
+        # method does runs on the main thread, so it is kept to a
+        # minimum -- see the comment above PanadapterProcess.
+        if len(data) < 2:
             return
-        receiver, center_hz, sample_rate, noise_floor, bins = parsed
+        receiver = 'sub' if data[1] == 1 else 'main'
         try:
-            Panadapter.received_pan(receiver, center_hz, sample_rate, bins)
+            PanadapterProcess.received_pan(receiver, data)
         except Exception:
             # See the matching comment in receive_non_audio_packets(): a
             # bug in the panadapter display must not be allowed to kill
@@ -1177,7 +1180,7 @@ class Server():
 
     def received_minipan(self, data):
         try:
-            Panadapter.received_minipan(parse_minipan_bins(data))
+            PanadapterProcess.received_minipan(data)
         except Exception:
             traceback.print_exc(file=stderr)
 
@@ -4498,35 +4501,12 @@ class Panadapter(QDialog):
                                   # independently per receiver, with the
                                   # K4's own span via #SPN;/#SPN$.
     colormap = None               # built once, shared by every window
-    span_subscribed = False
+    child_mode = False            # True in the panadapter subprocess
+    child_geometry = None         # see save_geometry()
 
-    @classmethod
-    def open_window(cls, receiver):
-        # Named open_window/close_window rather than open/close: this
-        # class subclasses QDialog, and naming these plain open/close
-        # would shadow QDialog's own instance methods of those names.
-        if not cls.span_subscribed:
-            cls.span_subscribed = True
-            Server.k4_server.subscribe_response('#SPN;', cls.on_span_changed)
-            Server.k4_server.subscribe_response('#SPN$;', cls.on_span_changed)
-            Server.k4_server.subscribe_response('#FPS;', cls.on_fps_changed)
-
-        window = cls.windows.get(receiver)
-        if window != None:
-            window.raise_()
-            window.activateWindow()
-            return
-        window = Panadapter(receiver)
-        cls.windows[receiver] = window
-        window.show()
-        Server.settings.put_save('Window', f'Panadapter.{receiver}.open', True)
-
-    @classmethod
-    def restore_open_windows(cls):
-        # Called once per connection, from Server.on_server_connect:
-        for receiver in ('main', 'sub'):
-            if Server.settings.getbool('Window', f'Panadapter.{receiver}.open', False):
-                cls.open_window(receiver)
+    # This class now only ever runs in the panadapter subprocess; the
+    # main process talks to it through PanadapterProcess, which owns
+    # opening, closing, and the persisted "was open" flag.
 
     @classmethod
     def on_span_changed(cls, response):
@@ -4554,40 +4534,23 @@ class Panadapter(QDialog):
         for window in cls.windows.values():
             window.resize_waterfall()
 
-    @classmethod
-    def close_window(cls, receiver):
-        window = cls.windows.pop(receiver, None)
-        if window != None:
-            window.closing_via_directive = True
-            window.close()
-
-    @classmethod
-    def received_pan(cls, receiver, center_hz, sample_rate, bins):
-        window = cls.windows.get(receiver)
-        if window != None:
-            window.push_frame(center_hz, sample_rate, bins)
-
-    @classmethod
-    def received_minipan(cls, bins):
-        for window in cls.windows.values():
-            window.push_minipan(bins)
-
     def __init__(self, receiver):
+        # Page.top is None in the panadapter subprocess (see
+        # panadapter_child_main): there is no main window there, so the
+        # dialog is parentless and titles itself.
         super().__init__(Page.top, Qt.WindowType.Window)
         self.receiver = receiver
         self.bin_count = 0
         self.waterfall_buf = None
         self.axis_key = None    # forces the axis setup in push_frame to
         self.xs = None          # run on the first frame
-        # Set by close_window() just before it calls close() -- lets
-        # closeEvent() tell a directive-driven close (e.g. a WPAN!0;
-        # sent from exit_cmds during app shutdown) apart from the user
-        # actually closing the window, so app shutdown doesn't clear
-        # the persisted "was open" flag restore_open_windows() relies on.
-        self.closing_via_directive = False
 
         label = 'Sub' if receiver == 'sub' else 'Main'
-        self.setWindowTitle(f'{Page.top.windowTitle()} {label} Panadapter')
+        if Page.top != None:
+            prefix = Page.top.windowTitle()
+        else:
+            prefix = f'K4-Companion {version}'
+        self.setWindowTitle(f'{prefix} {label} Panadapter')
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -4638,6 +4601,13 @@ class Panadapter(QDialog):
 
     def save_geometry(self):
         geometry = f'{self.width()}x{self.height()}{self.x():+}{self.y():+}'
+        if Panadapter.child_mode:
+            # Only the parent writes the settings file. Two processes
+            # doing configparser read-modify-write on it would race, and
+            # this runs on every move and resize. Remember it instead;
+            # panadapter_child_main() reports it to the parent on exit.
+            Panadapter.child_geometry = geometry
+            return
         Server.settings.put_save('Window', f'Panadapter.{self.receiver}.geometry', geometry)
 
     def moveEvent(self, event):
@@ -4649,17 +4619,11 @@ class Panadapter(QDialog):
         self.save_geometry()
 
     def closeEvent(self, event):
+        # Closing the window ends the subprocess, and the parent takes
+        # that exit as the user having closed it (see
+        # PanadapterProcess.on_exited) -- it owns the settings file and
+        # the persisted "was open" flag.
         Panadapter.windows.pop(self.receiver, None)
-        # Only clear the persisted "was open" flag for a direct close
-        # (the window's own close button) -- not one routed through
-        # close_window(), e.g. a WPAN!0; directive or clean_up() closing
-        # every open Panadapter before QApplication.instance().quit()
-        # (which otherwise closes any still-open top-level windows
-        # itself, hitting this same closeEvent). Either way that must
-        # leave the flag alone so restore_open_windows() reopens the
-        # window next launch.
-        if not self.closing_via_directive:
-            Server.settings.put_save('Window', f'Panadapter.{self.receiver}.open', False)
         super().closeEvent(event)
 
     def push_frame(self, center_hz, sample_rate, bins):
@@ -4691,21 +4655,34 @@ class Panadapter(QDialog):
         # because that time is held with the GIL and starves the audio
         # output thread (see Audio.output_loop) into dropouts.
         axis_key = (center_hz, span_hz, self.bin_count, Panadapter.waterfall_rows)
-        if axis_key != self.axis_key:
+        axis_changed = axis_key != self.axis_key
+        if axis_changed:
             self.axis_key = axis_key
             self.xs = numpy.linspace(center_hz - span_hz / 2,
                 center_hz + span_hz / 2, self.bin_count)
             xs = self.xs
             self.trace_plot.setXRange(xs[0], xs[-1], padding=0)
             self._update_frequency_ticks(center_hz, span_hz)
-            # Without this, the image sits at its own pixel-index
-            # coordinates (0..bin_count) while waterfall_plot's X view
-            # (XLink'd to trace_plot) shows real Hz values -- entirely
-            # off-screen, so nothing appeared to display at all.
-            self.waterfall_img.setRect(xs[0], 0, xs[-1] - xs[0], Panadapter.waterfall_rows)
 
         self.trace_curve.setData(self.xs, data)
         self._push_waterfall_row(data)
+        if axis_changed:
+            # setRect() must come after the setImage() above (inside
+            # _push_waterfall_row), not before: pyqtgraph's ImageItem
+            # silently discards a rect set before it has any image data,
+            # which on the very first frame -- the only frame this runs
+            # on, since the axis normally never changes again -- left
+            # the waterfall's Y axis auto-ranging against a meaningless
+            # bounding rect instead of the real 0..waterfall_rows one.
+            # The visible symptom was the whole scrolling history being
+            # squeezed into a handful of banded rows, with the trace
+            # panel (which never touches ImageItem) unaffected. Without
+            # this, the image also sits at its own pixel-index
+            # coordinates (0..bin_count) while waterfall_plot's X view
+            # (XLink'd to trace_plot) shows real Hz values -- entirely
+            # off-screen, so nothing appeared to display at all.
+            xs = self.xs
+            self.waterfall_img.setRect(xs[0], 0, xs[-1] - xs[0], Panadapter.waterfall_rows)
 
     def _update_frequency_ticks(self, center_hz, span_hz):
         # A tick at the center frequency, plus two more evenly spaced
@@ -4766,6 +4743,281 @@ class Panadapter(QDialog):
         if high <= low:
             high = low + 1
         self.waterfall_img.setImage(self.waterfall_buf.T, autoLevels=False, levels=(low, high))
+
+# Panadapter subprocess IPC.
+#
+# The panadapter is drawn in its own process because a pyqtgraph repaint
+# holds the GIL on the main thread for ~5 mS typically and up to ~20 mS,
+# while the audio output path tolerates only about 8 mS (the output
+# device's low-latency figure) before it underruns. No amount of
+# buffering fixes that in-process: during the stall the audio threads
+# cannot run either, since they need the same GIL. A separate process
+# has its own GIL, so its repaints cannot touch the audio path at all,
+# and frames_per_buffer can stay at 2 for low transmit/tuning delay.
+#
+# The parent sends PAN/MINI-PAN payloads and the #SPN/#FPS responses;
+# the child sends back only its final window geometry. Messages are
+# 4-byte big-endian length (of type + payload), then a type byte:
+panadapter_msg_cat = 0
+panadapter_msg_pan = 2
+panadapter_msg_minipan = 3
+
+def panadapter_encode_msg(msg_type, payload):
+    body = bytes((msg_type,)) + payload
+    l = len(body)
+    return bytes(((l>>24)&0xff, (l>>16)&0xff, (l>>8)&0xff, l&0xff)) + body
+
+def panadapter_read_msg(stream):
+    # Returns (type, payload), or None at end of stream.
+    header = stream.read(4)
+    if len(header) < 4:
+        return None
+    l = (header[0]<<24) | (header[1]<<16) | (header[2]<<8) | header[3]
+    body = stream.read(l)
+    if len(body) < l:
+        return None
+    return body[0], body[1:]
+
+class PanadapterProcess(QObject):
+    # Parent-side handle for one panadapter subprocess.
+    processes = {}               # receiver ('main'/'sub') -> PanadapterProcess
+    subscribed = False
+
+    # Emitted by monitor_loop when the subprocess exits. A queued signal
+    # hands it to the Qt thread: on_exited() touches the settings file
+    # and the process table, and Poll.call() (used here originally)
+    # builds a QTimer, which may only be created on a Qt thread.
+    exited = pyqtSignal(object)
+
+    @classmethod
+    def open_window(cls, receiver):
+        if not cls.subscribed:
+            cls.subscribed = True
+            Server.k4_server.subscribe_response('#SPN;', cls.on_cat_response)
+            Server.k4_server.subscribe_response('#SPN$;', cls.on_cat_response)
+            Server.k4_server.subscribe_response('#FPS;', cls.on_cat_response)
+
+        if receiver in cls.processes:
+            return
+        cls.processes[receiver] = PanadapterProcess(receiver)
+        Server.settings.put_save('Window', f'Panadapter.{receiver}.open', True)
+
+    @classmethod
+    def close_window(cls, receiver):
+        process = cls.processes.pop(receiver, None)
+        if process != None:
+            process.stop(user_closed=False)
+
+    @classmethod
+    def restore_open_windows(cls):
+        for receiver in ('main', 'sub'):
+            if Server.settings.getbool('Window', f'Panadapter.{receiver}.open', False):
+                cls.open_window(receiver)
+
+    @classmethod
+    def close_all(cls):
+        for receiver in list(cls.processes):
+            cls.close_window(receiver)
+
+    @classmethod
+    def on_cat_response(cls, response):
+        for process in cls.processes.values():
+            process.send(panadapter_msg_cat, response.encode())
+
+    @classmethod
+    def received_pan(cls, receiver, payload):
+        process = cls.processes.get(receiver)
+        if process != None:
+            process.send(panadapter_msg_pan, payload)
+
+    @classmethod
+    def received_minipan(cls, payload):
+        for process in cls.processes.values():
+            process.send(panadapter_msg_minipan, payload)
+
+    def __init__(self, receiver):
+        super().__init__()
+        self.receiver = receiver
+        self.stopping = False
+        self.exited.connect(self.on_exited)
+
+        if getattr(sys, 'frozen', False):
+            argv = [sys.executable]
+        else:
+            argv = [sys.executable, os.path.abspath(__file__)]
+        argv += ['--panadapter', receiver]
+
+        self.process = subprocess.Popen(argv, stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE)
+
+        # Bounded, and dropped rather than blocked on when full: writing
+        # straight from received_pan() would put the pipe's flow control
+        # on the main thread, which is exactly the stall this whole
+        # arrangement exists to avoid. PAN frames are disposable.
+        self.queue = queue.Queue(4)
+        self.writer_thread = threading.Thread(target=self.writer_loop,
+            name=f'panadapter_{receiver}_writer', daemon=True)
+        self.writer_thread.start()
+        self.monitor_thread = threading.Thread(target=self.monitor_loop,
+            name=f'panadapter_{receiver}_monitor', daemon=True)
+        self.monitor_thread.start()
+
+    def send(self, msg_type, payload):
+        try:
+            self.queue.put_nowait(panadapter_encode_msg(msg_type, payload))
+        except queue.Full:
+            pass
+
+    def writer_loop(self):
+        while True:
+            msg = self.queue.get()
+            if msg == None:
+                return
+            try:
+                self.process.stdin.write(msg)
+                self.process.stdin.flush()
+            except (BrokenPipeError, ValueError, OSError):
+                return
+
+    def monitor_loop(self):
+        # The child reports its final geometry, then exits. Its exit is
+        # also how a user close of the window gets back to us.
+        geometry = None
+        try:
+            for line in self.process.stdout:
+                line = line.decode(errors='replace').strip()
+                if line.startswith('#PANGEOM '):
+                    geometry = line[len('#PANGEOM '):]
+        except (ValueError, OSError):
+            pass
+        self.process.wait()
+        self.exited.emit(geometry)
+
+    def on_exited(self, geometry):
+        # Back on the main thread (via Poll), so it is safe to touch the
+        # settings file and the process table here.
+        if geometry != None:
+            Server.settings.put_save('Window',
+                f'Panadapter.{self.receiver}.geometry', geometry)
+        if self.stopping:
+            return
+        # Not stopping, so the child went away on its own -- the user
+        # closed the window. Mirror Panadapter.closeEvent's direct-close
+        # behavior and clear the persisted "was open" flag.
+        PanadapterProcess.processes.pop(self.receiver, None)
+        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.open', False)
+
+    def stop(self, user_closed=False):
+        self.stopping = True
+        try:
+            self.queue.put_nowait(None)
+        except queue.Full:
+            pass
+        try:
+            self.process.stdin.close()
+        except (BrokenPipeError, ValueError, OSError):
+            pass
+        try:
+            self.process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+
+class PanadapterChannel(QObject):
+    # Reads the parent's messages off stdin on a thread and hands them to
+    # the Qt thread, which is the only one that may touch the widgets.
+    message = pyqtSignal(int, bytes)
+    finished = pyqtSignal()
+
+    def __init__(self, window):
+        super().__init__()
+        self.window = window
+        self.message.connect(self.on_message)
+        # Both go through signals rather than being acted on in the
+        # reader thread: a queued signal is delivered on the Qt thread,
+        # which is the only one allowed to touch widgets or end the
+        # event loop. Calling QApplication.quit() from the reader thread
+        # directly did not reliably exit.
+        self.finished.connect(QApplication.instance().quit)
+        self.thread = threading.Thread(target=self.reader_loop,
+            name='panadapter_reader', daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def reader_loop(self):
+        stream = sys.stdin.buffer
+        while True:
+            try:
+                msg = panadapter_read_msg(stream)
+            except (ValueError, OSError):
+                msg = None
+            if msg == None:
+                break
+            self.message.emit(msg[0], msg[1])
+        # Parent closed the pipe (it is shutting us down, or it died).
+        self.finished.emit()
+
+    def on_message(self, msg_type, payload):
+        try:
+            if msg_type == panadapter_msg_pan:
+                parsed = parse_pan_frame(payload)
+                if parsed == None:
+                    return
+                receiver, center_hz, sample_rate, noise_floor, bins = parsed
+                if receiver == self.window.receiver:
+                    self.window.push_frame(center_hz, sample_rate, bins)
+            elif msg_type == panadapter_msg_minipan:
+                self.window.push_minipan(parse_minipan_bins(payload))
+            elif msg_type == panadapter_msg_cat:
+                response = payload.decode(errors='replace')
+                if cmd_base(response).startswith('#FPS'):
+                    Panadapter.on_fps_changed(response)
+                else:
+                    Panadapter.on_span_changed(response)
+        except Exception:
+            traceback.print_exc(file=stderr)
+
+def panadapter_child_main(receiver):
+    # Entry point for the panadapter subprocess (--panadapter RX).
+    Panadapter.child_mode = True
+
+    app = QApplication(sys.argv)
+    app.setStyle(CompactStyle(app.style()))
+
+    # Read-only here: set_geometry() wants the saved geometry, and only
+    # the parent ever writes this file (see Panadapter.save_geometry).
+    Server.settings = Settings()
+
+    window = Panadapter(receiver)
+    Panadapter.windows[receiver] = window
+    window.show()
+
+    channel = PanadapterChannel(window)
+    channel.start()
+
+    app.exec()
+
+    if Panadapter.child_geometry != None:
+        try:
+            sys.stdout.write(f'#PANGEOM {Panadapter.child_geometry}\n')
+        except (BrokenPipeError, ValueError, OSError):
+            pass
+
+    # os._exit(), not a plain return: when the window is closed by the
+    # user (rather than by the parent closing the pipe) the reader thread
+    # is still parked in a blocking read on stdin, holding that file's
+    # lock. Normal interpreter finalization then tries to close stdin
+    # under it and aborts the process with "_enter_buffered_busy: could
+    # not acquire lock ... at interpreter shutdown, possibly due to
+    # daemon threads". Qt has already shut down by here and the flushes
+    # below are what the parent is waiting for, so there is nothing left
+    # that finalization needs to do.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except (BrokenPipeError, ValueError, OSError):
+            pass
+    os._exit(0)
 
 class Audio():
     singleton = None
@@ -5053,6 +5305,11 @@ class Audio():
         self.input_thread = None
         self.output_thread = None
         self.output_device_thread = None
+        # Deliberately shallow, to minimize audio delay when changing
+        # frequency or going into transmit. Deepening this does not fix
+        # panadapter-induced dropouts: during a main-thread stall
+        # output_device_loop cannot run to drain the queue either, so
+        # only PortAudio's own buffer (frames_per_buffer) keeps playing.
         self.output_device_queue = queue.Queue(2)
         self.input_device_index = -1
         self.output_device_index = -1
@@ -9609,6 +9866,7 @@ class Options():
     verbose = 0
     debug = 0
     yaml_file = None
+    panadapter_receiver = None
 
     @staticmethod
     def Parse():
@@ -9621,7 +9879,13 @@ class Options():
                           help="output debugging messages")
         parser.add_option('--yaml', dest='yaml_file', default=None,
                           help="output YAML config to FILE", metavar="FILE")
+        # Internal: how the main process starts a panadapter subprocess
+        # (see PanadapterProcess). Not meant to be run by hand.
+        parser.add_option('--panadapter', dest='panadapter_receiver', default=None,
+                          help=optparse.SUPPRESS_HELP)
         (options, args) = parser.parse_args()
+
+        Options.panadapter_receiver = options.panadapter_receiver
 
         Options.config_file = options.config_file
         Options.verbose = options.verbose
@@ -9648,14 +9912,11 @@ def clean_up(exit=False):
 
     CW.close_window()
     Macros.close_window()
-    # Explicitly, via close_window() (which marks the close as
-    # directive-driven) rather than leaving these for
-    # QApplication.instance().quit() below to close on its own --
-    # that closes any still-open top-level windows itself, which would
-    # hit Panadapter.closeEvent's *direct*-close path and clear the
-    # persisted "was open" flag right as the app exits.
-    for receiver in list(Panadapter.windows):
-        Panadapter.close_window(receiver)
+    # Shut the panadapter subprocesses down explicitly, so their exit is
+    # recorded as parent-driven rather than as the user closing the
+    # window -- otherwise exiting would clear the persisted "was open"
+    # flag that restore_open_windows() relies on next launch.
+    PanadapterProcess.close_all()
     Audio.close()
     Poll.remove_all()
 
@@ -10061,6 +10322,12 @@ def main():
     close_splash_screen()
 
     Options.Parse()
+
+    if Options.panadapter_receiver != None:
+        # Started by PanadapterProcess: draw only the panadapter window,
+        # with no connection, config, or audio of its own.
+        panadapter_child_main(Options.panadapter_receiver)
+        return
 
     app = QApplication(sys.argv)
     app.setStyle(CompactStyle(app.style()))
@@ -11567,7 +11834,6 @@ config_data = '''
 
 #define ctcss-dropdown-button
 - item: dropdownbutton
-  width: 6
   selections: #{
     - { text: " 67.0", cmd: PL01;, evalcmd: '"PL01{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' } 
     - { text: " 69.3", cmd: PL02;, evalcmd: '"PL02{v};".format(v=self.k4param("PL")[2])', evalresponse: 'value[0:4]+";"' }
