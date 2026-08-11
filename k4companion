@@ -9378,6 +9378,7 @@ class Keyer():
         self.dah_down_timestamp = 0
         self.dah_up_timestamp = 0
         self.element_timestamp = 0
+        self.end_element_timestamp = 0
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -9542,8 +9543,6 @@ class Keyer():
 
             first_element = previous_elt == None
             if not dit and not dah:
-                if previous_elt != None:
-                    self.send_element(' ', first_element)
                 return paddle_event.event
 
             if dit and dah:
@@ -9563,14 +9562,11 @@ class Keyer():
         if self.keyer_mode != self.MODE_ULTIMATIC or event == self.CLOSE_EVENT:
             return event
 
-        sent_element = False
+        first_element = True
         while True:
             dit = self.dit_down_timestamp > self.dit_up_timestamp
             dah =  self.dah_down_timestamp > self.dah_up_timestamp
-            first_element = not sent_element
             if not dit and not dah:
-                if sent_element:
-                    self.send_element(' ', first_element)
                 return paddle_event.event
 
             if dit and dah:
@@ -9582,15 +9578,16 @@ class Keyer():
                 elt = '-'
 
             self.send_element(elt, first_element)
-            sent_element = True
+            first_element = False
 
     def send_element(self, elt, first_element):
-        if elt == ' ':
-            # wait an inter-character interval
-            silent_seconds =  self.inter_character_seconds - self.inter_element_seconds
-            self.element_timestamp += silent_seconds
-            time.sleep(self.element_timestamp - time.perf_counter())
-            return
+        if first_element:
+            time_since_last_char = time.perf_counter() - self.end_element_timestamp
+            if time_since_last_char > .5 * self.inter_element_seconds:
+                time_remaining = self.inter_character_seconds - time_since_last_char
+                if time_remaining > 0:
+                    # wait an inter-character interval
+                    time.sleep(time_remaining)
 
         Audio.start_sidetone()
         if first_element:
@@ -9606,6 +9603,7 @@ class Keyer():
         self.element_timestamp += self.dah_seconds if elt == '-'  else self.dit_seconds
         time.sleep(self.element_timestamp - time.perf_counter())
         Audio.stop_sidetone()
+        self.end_element_timestamp = time.perf_counter()
 
         # wait an inter-element interval
         self.element_timestamp += self.inter_element_seconds
