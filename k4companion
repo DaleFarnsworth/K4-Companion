@@ -4887,7 +4887,7 @@ class Panadapter(QDialog):
             center_label.move((widget.width() - center_label.width()) // 2, margin)
 
     def _update_minipan_width(self):
-        self.minipan_plot.setFixedWidth(max(1, self.width() // 3))
+        self.minipan_plot.setFixedWidth(max(1, self.width() // 2))
         self._position_minipan_labels()
 
     def _position_minipan_labels(self):
