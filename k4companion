@@ -4695,6 +4695,9 @@ class Panadapter(QDialog):
         # receiver's current mode.
         self.minipan_axis_key = None
         self.minipan_xs = None
+        self.minipan_history = [] # last up to 3 frames' bin data,
+                                  # averaged per bin for display -- same
+                                  # idea as trace_history/_trace_average
         self.last_center_hz = None
 
         # Receiver bandwidth (BW;/BW$;), for shading the trace -- see
@@ -5007,15 +5010,40 @@ class Panadapter(QDialog):
         # as a fallback for the frequency line/mini-pan centering below,
         # for use only until the real frequency arrives via FA;/FB;.
         self.last_center_hz = center_hz
-
+        # Anchored to THIS FRAME'S OWN center_hz, not _rx_freq_hz() --
+        # tried that (matching push_minipan/freq_line_trace/bw_region's
+        # use of the receiver's real tuned frequency, FA;/FB;), reasoning
+        # that center_hz "can diverge" from it (see the mini-pan's own
+        # comment). That broke live tracking: the PAN stream's displayed
+        # center isn't guaranteed to follow the VFO in real time the way
+        # FA;/FB; does, so anchoring on _rx_freq_hz() relabeled the axis
+        # immediately on a frequency change while the bin *content*
+        # still reflected wherever the PAN stream itself was centered --
+        # the curve's shape stayed visually frozen under new labels
+        # instead of moving. center_hz always matches what the bins
+        # actually contain, so the trace tracks correctly; the earlier
+        # ~1kHz mismatch against the mini-pan is the PAN stream's own
+        # center precision, not something fixable by relabeling it.
         axis_key = (center_hz, span_hz, self.bin_count, Panadapter.waterfall_rows)
         axis_changed = axis_key != self.axis_key
         if axis_changed:
             self.axis_key = axis_key
-            self.xs = numpy.linspace(center_hz - span_hz / 2,
-                center_hz + span_hz / 2, self.bin_count)
-            xs = self.xs
-            self.trace_plot.setXRange(xs[0], xs[-1], padding=0)
+            left_edge = center_hz - span_hz / 2
+            right_edge = center_hz + span_hz / 2
+            # Bin i's center frequency -- NOT numpy.linspace(left_edge,
+            # right_edge, bin_count), which was the bug: that divides
+            # the span into bin_count-1 intervals for bin_count points,
+            # so each point lands sample_rate/(bin_count-1) apart rather
+            # than the true sample_rate (Hz/bin) apart, and forces the
+            # two outermost bins out to sit exactly on the nominal
+            # edges instead of correctly inset by half a bin -- visibly
+            # widening the trace at both edges by a growing amount as
+            # bin_count shrinks (reported as ~2 kHz off at a 200 kHz
+            # span, ~1 kHz at 100 kHz).
+            self.xs = left_edge + (numpy.arange(self.bin_count) + 0.5) * sample_rate
+            # The view/labels still span the full nominal edges, same
+            # as before -- only the bin positions within it changed.
+            self.trace_plot.setXRange(left_edge, right_edge, padding=0)
             self._update_trace_labels(center_hz, span_hz)
             # bin_count changed, so any frames already in trace_history
             # are the wrong shape to average against this one.
@@ -5048,8 +5076,10 @@ class Panadapter(QDialog):
             # coordinates (0..bin_count) while waterfall_plot's X view
             # (XLink'd to trace_plot) shows real Hz values -- entirely
             # off-screen, so nothing appeared to display at all.
-            xs = self.xs
-            self.waterfall_img.setRect(xs[0], 0, xs[-1] - xs[0], Panadapter.waterfall_rows)
+            # left_edge/right_edge (not self.xs, which is now the inset
+            # bin centers -- see above) so the image spans the same
+            # nominal edges as the trace's own view range.
+            self.waterfall_img.setRect(left_edge, 0, right_edge - left_edge, Panadapter.waterfall_rows)
             self.waterfall_plot.setYRange(0, Panadapter.waterfall_rows, padding=0)
 
     def _update_vscale(self, data):
@@ -5097,15 +5127,22 @@ class Panadapter(QDialog):
         return bins[start:start + crop_count]
 
     def _trace_average(self, data):
+        return self._rolling_average(self.trace_history, data)
+
+    def _minipan_average(self, data):
+        return self._rolling_average(self.minipan_history, data)
+
+    @staticmethod
+    def _rolling_average(history, data):
         # Rolling per-bin average over the last 3 frames received,
-        # oldest dropped as each new one arrives -- smooths the trace
+        # oldest dropped as each new one arrives -- smooths the display
         # over time rather than across neighboring bins. Fewer than 3
         # frames collected yet (right after startup or an axis change)
         # just averages however many there are so far.
-        self.trace_history.append(data)
-        if len(self.trace_history) > 3:
-            self.trace_history.pop(0)
-        return numpy.mean(self.trace_history, axis=0)
+        history.append(data)
+        if len(history) > 3:
+            history.pop(0)
+        return numpy.mean(history, axis=0)
 
     def on_ref_button(self):
         self.ref_capturing = True
@@ -5225,12 +5262,24 @@ class Panadapter(QDialog):
         axis_key = (freq_hz, actual_span_hz, bin_count)
         if axis_key != self.minipan_axis_key:
             self.minipan_axis_key = axis_key
-            self.minipan_xs = numpy.linspace(freq_hz - actual_span_hz / 2,
-                freq_hz + actual_span_hz / 2, bin_count)
-            self.minipan_plot.setXRange(self.minipan_xs[0], self.minipan_xs[-1], padding=0)
+            left_edge = freq_hz - actual_span_hz / 2
+            right_edge = freq_hz + actual_span_hz / 2
+            # Bin centers, same fix as push_frame's -- see its comment.
+            self.minipan_xs = left_edge + (numpy.arange(bin_count) + 0.5) * sample_rate
+            self.minipan_plot.setXRange(left_edge, right_edge, padding=0)
             self._update_minipan_labels(actual_span_hz)
+            # bin_count changed (or this is the first frame since
+            # set_minipan_enabled(True) forced axis_key to None), so any
+            # frames already in minipan_history are the wrong shape --
+            # or stale from before the mini-pan was disabled -- to
+            # average against this one.
+            self.minipan_history.clear()
 
-        self.minipan_curve.setData(self.minipan_xs, data)
+        # Same 3-frame rolling per-bin average as the trace's own
+        # display (see _trace_average) -- the Y-range below still uses
+        # this frame's own raw data, same as the trace's waterfall/
+        # vscale do.
+        self.minipan_curve.setData(self.minipan_xs, self._minipan_average(data))
         self._update_minipan_yrange(data)
         self._update_minipan_freq_line(freq_hz)
 
@@ -5274,15 +5323,14 @@ class Panadapter(QDialog):
         return f'{khz:.1f} kHz'
 
     def _update_minipan_yrange(self, data):
-        # Bottom fits the noise floor as usual, but the range is double
-        # the low-to-peak height a plain auto-range would use (which
-        # would put the peak right at the top) -- doubling it from the
-        # same bottom puts the peak at the range's midpoint instead, so
-        # it reads as just below halfway up rather than pinned to the
-        # top.
+        # Bottom fits the noise floor as usual; the range is 1.5x the
+        # low-to-peak height a plain auto-range would use (which would
+        # put the peak right at the top) -- from the same bottom, that
+        # puts the peak 2/3 of the way up rather than pinned to the top:
+        # peak_fraction = height / (height * 1.5) = 2/3.
         bottom = float(data.min())
         height = max(float(data.max()) - bottom, 1.0)
-        top = bottom + height * 2
+        top = bottom + height * 1.5
         self.minipan_plot.setYRange(bottom, top, padding=0)
 
     def _ensure_bin_count(self, count):
@@ -5369,6 +5417,15 @@ class PanadapterProcess(QObject):
                                   # currently has real data to show, per
                                   # _update_dpm_state. Relayed to the
                                   # window's subprocess on change.
+    vfo_step = {'main': None, 'sub': None}
+                                  # VFO tuning step in Hz, from VT;/VT$;
+                                  # -- same encoding as the VFO widget's
+                                  # own (see VFO.on_step_received/
+                                  # VFO.step). Needed only here, to round
+                                  # a trace click's frequency before
+                                  # sending it -- see on_tune_requested --
+                                  # so unlike the state above, this never
+                                  # needs relaying to a child.
 
     # Emitted by monitor_loop when the subprocess exits. A queued signal
     # hands it to the Qt thread: on_exited() touches the settings file
@@ -5430,6 +5487,10 @@ class PanadapterProcess(QObject):
             # panadapter windows are open, whether a window's mini-pan
             # has real data to show -- see _update_dpm_state.
             Server.k4_server.subscribe_response('SB;', cls.on_sb_changed)
+            # VT/VT$ (VFO tuning step) is tracked to round a trace
+            # click's frequency to it -- see on_tune_requested.
+            Server.k4_server.subscribe_response('VT;', cls.on_vfo_step_changed)
+            Server.k4_server.subscribe_response('VT$;', cls.on_vfo_step_changed)
 
         if receiver in cls.processes:
             return
@@ -5452,6 +5513,27 @@ class PanadapterProcess(QObject):
     @classmethod
     def on_sb_changed(cls, response):
         cls._update_dpm_state()
+
+    @classmethod
+    def on_vfo_step_changed(cls, response):
+        # VT/VT$ report the step index (0-4) as the first parameter
+        # digit, same as VFO.on_step_received -- e.g. "VT23;" is step
+        # index 2, mode 3. Index 5 is the same apparent K4 bug
+        # VFO.on_step_received works around; that widget already sends
+        # its own correction back to the radio, so this just interprets
+        # it the same way (2) rather than also sending one.
+        receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
+        param = cmd_parameter(response)
+        if len(param) == 0:
+            return
+        try:
+            step_index = int(param[0])
+        except ValueError:
+            return
+        if step_index == 5:
+            step_index = 2
+        step_index = max(0, min(len(VFO.step) - 1, step_index))
+        cls.vfo_step[receiver] = VFO.step[step_index]
 
     @classmethod
     def _update_dpm_state(cls):
@@ -5653,6 +5735,9 @@ class PanadapterProcess(QObject):
             freq_hz = float(freq_str)
         except ValueError:
             return
+        step = PanadapterProcess.vfo_step[self.receiver]
+        if step != None:
+            freq_hz = round(freq_hz / step) * step
         freq_hz = max(VFO.low_frequency_limit, min(VFO.high_frequency_limit, freq_hz))
         base = 'FA' if self.receiver == 'main' else 'FB'
         Server.k4_server.send_cmds(f'{base}{freq_hz:011.0f};')
