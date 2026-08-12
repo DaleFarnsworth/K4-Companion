@@ -5551,6 +5551,14 @@ class PanadapterProcess(QObject):
         self._close_pipe()
         PanadapterProcess.processes.pop(self.receiver, None)
         Server.settings.put_save('Window', f'Panadapter.{self.receiver}.open', False)
+        # Same as close_window(): whether the other window's mini-pan
+        # should now be enabled (e.g. the only other panadapter open is
+        # main's, once this was the sub) depends on which windows are
+        # open, so it needs recomputing here too -- this is the path a
+        # user closing the window via its own close button takes, not
+        # close_window() (that's only the parent-initiated path, e.g.
+        # app shutdown).
+        PanadapterProcess._update_dpm_state()
 
     def _close_pipe(self):
         try:
