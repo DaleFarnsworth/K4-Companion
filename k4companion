@@ -4983,18 +4983,25 @@ class Panadapter(QDialog):
         # sample_rate is the complex sample rate in kHz -- NOT Hz per
         # bin, which is what this assumed until the frequency scale was
         # found to be stretched about the center (correct at center_hz,
-        # progressively wrong toward both edges). The frame's full bin
-        # set is one FFT across exactly that sample rate, so the real
-        # resolution is sample_rate * 1000 / full_bin_count: for the
-        # one set of values confirmed against real hardware
-        # (full_bin_count=1024, sample_rate=192) that is a standard
-        # 192 kHz rate over a 1024-point FFT = 187.5 Hz/bin spanning
-        # 192 kHz, not the 192 Hz/bin spanning ~197 kHz assumed before.
+        # progressively wrong toward both edges). The units aren't
+        # apparent from the protocol draft, which just calls the field a
+        # sample rate; what settles it is that the frame's full bin set
+        # is one FFT across exactly that rate, making the real
+        # resolution sample_rate * 1000 / full_bin_count. For the values
+        # seen from real hardware (full_bin_count=1024, sample_rate=192)
+        # that is a standard 192 kHz rate over a 1024-point FFT =
+        # 187.5 Hz/bin spanning 192 kHz, not the 192 Hz/bin spanning
+        # ~197 kHz assumed before.
+        #
         # Reading it as Hz/bin stretched every offset from the center by
         # 1024/1000 = 2.4%, which measured as ~2.3 kHz at the edges of a
         # 200 kHz span, ~1.2 kHz at 100 kHz, and put a signal truly at
         # 740 kHz (per the mini-pan, too narrow for the error to show)
-        # at 740.96 kHz on the trace.
+        # at 740.96 kHz on the trace. Confirmed on the air after the
+        # fix: the trace and the mini-pan agree across a full span, not
+        # just at the center -- which is the check that distinguishes a
+        # wrong resolution (a stretch, zero error at center_hz and
+        # growing with distance from it) from a wrong center.
         full_bins = bins
         if len(full_bins) == 0:
             return
