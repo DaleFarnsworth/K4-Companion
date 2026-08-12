@@ -4537,6 +4537,12 @@ class Panadapter(QDialog):
                                   # bandwidth shading, and the mini-pan's
                                   # centering, all of which must track
                                   # where the receiver is actually tuned.
+    scale_db = None               # Panadapter vertical scale (dB span
+                                  # of the trace's Y axis), from #SCL;,
+                                  # clamped -- see on_scale_changed. A
+                                  # single value with no per-receiver
+                                  # ($) variant in the protocol, like
+                                  # #FPS, so it's shared by both windows.
 
     # This class now only ever runs in the panadapter subprocess; the
     # main process talks to it through PanadapterProcess, which owns
@@ -4604,6 +4610,17 @@ class Panadapter(QDialog):
         cls.waterfall_rows = rows
         for window in cls.windows.values():
             window.resize_waterfall()
+
+    @classmethod
+    def on_scale_changed(cls, response):
+        # #SCL reports the panadapter's vertical scale (dB span of the
+        # Y axis) as a plain number, 10-150 per the protocol -- clamped
+        # further here per user preference.
+        try:
+            scl = float(cmd_parameter(response))
+        except ValueError:
+            return
+        cls.scale_db = min(max(scl, 25), 140)
 
     def __init__(self, receiver):
         # Page.top is None in the panadapter subprocess (see
@@ -4899,7 +4916,14 @@ class Panadapter(QDialog):
         # inverted min/max, which would visibly un-pin the bottom, so
         # the top is always kept above it.
         low = self.ref_bottom if self.ref_bottom != None else avg_low - margin
-        high = max(avg_high + margin, low + 1.0)
+        # A known #SCL sets the range's total height (see
+        # on_scale_changed) directly rather than fitting the top to the
+        # data -- the radio's own vertical-scale setting, not something
+        # derived from what's currently on screen.
+        if Panadapter.scale_db != None:
+            high = low + Panadapter.scale_db
+        else:
+            high = max(avg_high + margin, low + 1.0)
         self.trace_plot.setYRange(low, high, padding=0)
         self.vscale_low_sum = 0.0
         self.vscale_high_sum = 0.0
@@ -4937,11 +4961,15 @@ class Panadapter(QDialog):
             return
         self.ref_capturing = False
         self.ref_bottom = self.ref_sum / self.ref_count
-        # The current top is whatever the last auto/Ref update left it
-        # at, with no guarantee it's above this newly captured average
-        # -- passing an inverted range to setYRange gets silently
-        # swapped by pyqtgraph, which would visibly un-pin the bottom.
-        top = max(self.trace_plot.viewRange()[1][1], self.ref_bottom + 1.0)
+        if Panadapter.scale_db != None:
+            top = self.ref_bottom + Panadapter.scale_db
+        else:
+            # The current top is whatever the last auto/Ref update left
+            # it at, with no guarantee it's above this newly captured
+            # average -- passing an inverted range to setYRange gets
+            # silently swapped by pyqtgraph, which would visibly un-pin
+            # the bottom.
+            top = max(self.trace_plot.viewRange()[1][1], self.ref_bottom + 1.0)
         self.trace_plot.setYRange(self.ref_bottom, top, padding=0)
 
     def _update_bw_region(self):
@@ -5135,7 +5163,7 @@ class PanadapterProcess(QObject):
     # session. Each subprocess keeps this state in its own memory (see
     # Panadapter.bandwidth_hz etc), so every newly opened window needs
     # its own explicit seed, not just the first one.
-    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB')
+    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#SCL', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB')
 
     @classmethod
     def open_window(cls, receiver):
@@ -5144,6 +5172,9 @@ class PanadapterProcess(QObject):
             Server.k4_server.subscribe_response('#SPN;', cls.on_cat_response)
             Server.k4_server.subscribe_response('#SPN$;', cls.on_cat_response)
             Server.k4_server.subscribe_response('#FPS;', cls.on_cat_response)
+            # #SCL (panadapter vertical scale) has no per-receiver ($)
+            # variant, same as #FPS -- shared by both windows.
+            Server.k4_server.subscribe_response('#SCL;', cls.on_cat_response)
             # MD/MD$ (receiver mode) is relayed for the mini-pan's
             # bandwidth (2 kHz in CW mode, 10 kHz otherwise).
             Server.k4_server.subscribe_response('MD;', cls.on_cat_response)
@@ -5452,6 +5483,8 @@ class PanadapterChannel(QObject):
                 base = cmd_base(response)
                 if base == '#FPS':
                     Panadapter.on_fps_changed(response)
+                elif base == '#SCL':
+                    Panadapter.on_scale_changed(response)
                 elif base in ('#SPN', '#SPN$'):
                     Panadapter.on_span_changed(response)
                 elif base in ('MD', 'MD$'):
