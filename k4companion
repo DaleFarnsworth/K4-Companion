@@ -71,9 +71,9 @@ from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
-    QGridLayout, QVBoxLayout, QPushButton, QRadioButton, QButtonGroup,
-    QSlider, QProgressBar, QTabWidget, QDialog, QLineEdit, QComboBox,
-    QListWidget, QLayout, QPlainTextEdit, QProxyStyle, QStyle,
+    QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
+    QButtonGroup, QSlider, QProgressBar, QTabWidget, QDialog, QLineEdit,
+    QComboBox, QListWidget, QLayout, QPlainTextEdit, QProxyStyle, QStyle,
 )
 
 # Modify the path to find .\opus.dll on Windows
@@ -4619,6 +4619,17 @@ class Panadapter(QDialog):
                                   # per bin for the trace display -- see
                                   # _trace_average/push_frame
 
+        # "Ref" button: captures a 0.5-second average of the displayed
+        # trace, then pins that average as the bottom of the trace's Y
+        # range -- see on_ref_button/_accumulate_ref. Once set,
+        # ref_bottom overrides _update_vscale's own bottom (its top
+        # keeps auto-adjusting as before) until the next Ref click.
+        self.ref_capturing = False
+        self.ref_sum = 0.0
+        self.ref_count = 0
+        self.ref_start_time = None
+        self.ref_bottom = None
+
         # Vertical (dB) scale of the trace plot: averaged over a rolling
         # window rather than auto-ranged to the current frame's min/max
         # every frame (pyqtgraph's default), which made the scale jitter
@@ -4662,12 +4673,18 @@ class Panadapter(QDialog):
         self.minipan_plot.getPlotItem().hideAxis('bottom')
         self.minipan_plot.setMouseEnabled(x=False, y=False)
         self.minipan_curve = self.minipan_plot.plot(pen=pyqtgraph.mkPen(color=(220, 180, 80), width=1))
+        # Y range is set explicitly (see push_minipan) rather than left
+        # to pyqtgraph's default per-frame auto-range, which would fit
+        # the peak exactly to the top of the plot -- disable that and
+        # seed a plausible starting range so the plot isn't empty before
+        # the first mini-pan frame lands.
+        self.minipan_plot.enableAutoRange(axis='y', enable=False)
+        self.minipan_plot.setYRange(-160, 0, padding=0)
         # 1/3 the window width, left justified: setFixedWidth (kept
         # current in resizeEvent) pins both min and max width, which is
-        # what makes AlignLeft actually leave the remaining 2/3 blank
-        # rather than pyqtgraph's default expanding size policy
-        # stretching it to fill the row.
-        layout.addWidget(self.minipan_plot, 1, Qt.AlignmentFlag.AlignLeft)
+        # what makes it sit at the left of the row below rather than
+        # pyqtgraph's default expanding size policy stretching it to
+        # fill the row.
         # Hidden until the parent says otherwise (see
         # panadapter_msg_minipan_enabled / PanadapterProcess._update_dpm_state)
         # -- the K4 has only one mini-pan hardware stream, so whether this
@@ -4675,6 +4692,21 @@ class Panadapter(QDialog):
         # when both panadapters are open, whether the sub receiver
         # (SB;) is actually on.
         self.minipan_plot.setVisible(False)
+
+        minipan_row = QWidget()
+        minipan_row_layout = QHBoxLayout(minipan_row)
+        minipan_row_layout.setContentsMargins(0, 0, 0, 0)
+        minipan_row_layout.addWidget(self.minipan_plot)
+        # Immediately to the right of the mini-pan -- and, since a
+        # hidden widget claims no space in a QHBoxLayout, this lands at
+        # the mini-pan's own left-justified position whenever the
+        # mini-pan itself is hidden.
+        self.ref_button = QPushButton('Ref')
+        self.ref_button.setStyleSheet(qt_button_stylesheet('black', 'white', '#444', 'white'))
+        self.ref_button.clicked.connect(self.on_ref_button)
+        minipan_row_layout.addWidget(self.ref_button, 0, Qt.AlignmentFlag.AlignTop)
+        minipan_row_layout.addStretch(1)
+        layout.addWidget(minipan_row, 1)
 
         self.trace_plot = pyqtgraph.PlotWidget()
         self.trace_plot.setBackground('k')
@@ -4820,7 +4852,10 @@ class Panadapter(QDialog):
         # received for it, rather than this frame's value alone -- the
         # waterfall and the Y-scale averaging below still use this
         # frame's own full-resolution data.
-        self.trace_curve.setData(self.xs, self._trace_average(data))
+        trace_data = self._trace_average(data)
+        self.trace_curve.setData(self.xs, trace_data)
+        if self.ref_capturing:
+            self._accumulate_ref(trace_data)
         self._push_waterfall_row(data)
         self._update_vscale(data)
         if axis_changed:
@@ -4855,7 +4890,17 @@ class Panadapter(QDialog):
         avg_low = self.vscale_low_sum / self.vscale_count
         avg_high = self.vscale_high_sum / self.vscale_count
         margin = max((avg_high - avg_low) * 0.1, 1.0)
-        self.trace_plot.setYRange(avg_low - margin, avg_high + margin, padding=0)
+        # A pinned Ref bottom (see on_ref_button) overrides the
+        # auto-computed one here so it stays put across these periodic
+        # updates instead of being overwritten a few seconds later --
+        # the top still auto-adjusts as usual. If the signal then drops
+        # well below a high-pinned Ref bottom, avg_high + margin could
+        # otherwise end up below it -- pyqtgraph silently swaps an
+        # inverted min/max, which would visibly un-pin the bottom, so
+        # the top is always kept above it.
+        low = self.ref_bottom if self.ref_bottom != None else avg_low - margin
+        high = max(avg_high + margin, low + 1.0)
+        self.trace_plot.setYRange(low, high, padding=0)
         self.vscale_low_sum = 0.0
         self.vscale_high_sum = 0.0
         self.vscale_count = 0
@@ -4878,6 +4923,26 @@ class Panadapter(QDialog):
         if len(self.trace_history) > 3:
             self.trace_history.pop(0)
         return numpy.mean(self.trace_history, axis=0)
+
+    def on_ref_button(self):
+        self.ref_capturing = True
+        self.ref_sum = 0.0
+        self.ref_count = 0
+        self.ref_start_time = time.perf_counter()
+
+    def _accumulate_ref(self, trace_data):
+        self.ref_sum += float(trace_data.sum())
+        self.ref_count += trace_data.size
+        if time.perf_counter() - self.ref_start_time < 0.5:
+            return
+        self.ref_capturing = False
+        self.ref_bottom = self.ref_sum / self.ref_count
+        # The current top is whatever the last auto/Ref update left it
+        # at, with no guarantee it's above this newly captured average
+        # -- passing an inverted range to setYRange gets silently
+        # swapped by pyqtgraph, which would visibly un-pin the bottom.
+        top = max(self.trace_plot.viewRange()[1][1], self.ref_bottom + 1.0)
+        self.trace_plot.setYRange(self.ref_bottom, top, padding=0)
 
     def _update_bw_region(self):
         bw_hz = Panadapter.bandwidth_hz[self.receiver]
@@ -4952,6 +5017,19 @@ class Panadapter(QDialog):
             self.minipan_plot.setXRange(self.minipan_xs[0], self.minipan_xs[-1], padding=0)
 
         self.minipan_curve.setData(self.minipan_xs, data)
+        self._update_minipan_yrange(data)
+
+    def _update_minipan_yrange(self, data):
+        # Bottom fits the noise floor as usual, but the range is double
+        # the low-to-peak height a plain auto-range would use (which
+        # would put the peak right at the top) -- doubling it from the
+        # same bottom puts the peak at the range's midpoint instead, so
+        # it reads as just below halfway up rather than pinned to the
+        # top.
+        bottom = float(data.min())
+        height = max(float(data.max()) - bottom, 1.0)
+        top = bottom + height * 2
+        self.minipan_plot.setYRange(bottom, top, padding=0)
 
     def _ensure_bin_count(self, count):
         if count != self.bin_count:
