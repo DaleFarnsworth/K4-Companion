@@ -4615,6 +4615,9 @@ class Panadapter(QDialog):
         self.waterfall_buf = None
         self.axis_key = None    # forces the axis setup in push_frame to
         self.xs = None          # run on the first frame
+        self.trace_history = [] # last up to 3 frames' bin data, averaged
+                                  # per bin for the trace display -- see
+                                  # _trace_average/push_frame
 
         # Vertical (dB) scale of the trace plot: averaged over a rolling
         # window rather than auto-ranged to the current frame's min/max
@@ -4655,7 +4658,8 @@ class Panadapter(QDialog):
         self.minipan_plot = pyqtgraph.PlotWidget()
         self.minipan_plot.setBackground('k')
         self.minipan_plot.showGrid(x=True, y=True, alpha=0.25)
-        self.minipan_plot.setLabel('left', 'dB')
+        self.minipan_plot.getPlotItem().hideAxis('left')
+        self.minipan_plot.getPlotItem().hideAxis('bottom')
         self.minipan_plot.setMouseEnabled(x=False, y=False)
         self.minipan_curve = self.minipan_plot.plot(pen=pyqtgraph.mkPen(color=(220, 180, 80), width=1))
         # 1/3 the window width, left justified: setFixedWidth (kept
@@ -4664,17 +4668,23 @@ class Panadapter(QDialog):
         # rather than pyqtgraph's default expanding size policy
         # stretching it to fill the row.
         layout.addWidget(self.minipan_plot, 1, Qt.AlignmentFlag.AlignLeft)
+        # Hidden until the parent says otherwise (see
+        # panadapter_msg_minipan_enabled / PanadapterProcess._update_dpm_state)
+        # -- the K4 has only one mini-pan hardware stream, so whether this
+        # window's mini-pan has real data depends on #DPM select and,
+        # when both panadapters are open, whether the sub receiver
+        # (SB;) is actually on.
+        self.minipan_plot.setVisible(False)
 
         self.trace_plot = pyqtgraph.PlotWidget()
         self.trace_plot.setBackground('k')
         self.trace_plot.showGrid(x=True, y=True, alpha=0.25)
-        self.trace_plot.setLabel('left', 'dB')
         self.trace_plot.setMouseEnabled(x=False, y=False)
         # Added before the curve, so the (translucent) shading renders
         # behind it rather than over it.
         self.bw_region = pyqtgraph.LinearRegionItem(values=(0, 0),
-            movable=False, brush=pyqtgraph.mkBrush(60, 140, 255, 20),
-            pen=pyqtgraph.mkPen(color=(60, 140, 255, 50), width=1))
+            movable=False, brush=pyqtgraph.mkBrush(100, 180, 255, 90),
+            pen=pyqtgraph.mkPen(None))
         self.bw_region.setVisible(False)
         self.trace_plot.addItem(self.bw_region)
         self.trace_curve = self.trace_plot.plot(pen=pyqtgraph.mkPen(color=(80, 220, 120), width=1))
@@ -4693,6 +4703,7 @@ class Panadapter(QDialog):
         self.waterfall_plot = pyqtgraph.PlotWidget()
         self.waterfall_plot.setBackground('k')
         self.waterfall_plot.getPlotItem().hideAxis('left')
+        self.waterfall_plot.getPlotItem().hideAxis('bottom')
         self.waterfall_plot.setMouseEnabled(x=False, y=False)
         self.waterfall_img = pyqtgraph.ImageItem()
         self.waterfall_plot.addItem(self.waterfall_img)
@@ -4799,10 +4810,17 @@ class Panadapter(QDialog):
             xs = self.xs
             self.trace_plot.setXRange(xs[0], xs[-1], padding=0)
             self._update_frequency_ticks(center_hz, span_hz)
+            # bin_count changed, so any frames already in trace_history
+            # are the wrong shape to average against this one.
+            self.trace_history.clear()
 
         self._update_freq_line()
         self._update_bw_region()
-        self.trace_curve.setData(self.xs, data)
+        # The trace displays each bin averaged over the last 3 frames
+        # received for it, rather than this frame's value alone -- the
+        # waterfall and the Y-scale averaging below still use this
+        # frame's own full-resolution data.
+        self.trace_curve.setData(self.xs, self._trace_average(data))
         self._push_waterfall_row(data)
         self._update_vscale(data)
         if axis_changed:
@@ -4850,6 +4868,17 @@ class Panadapter(QDialog):
         start = (full_bin_count - crop_count) // 2
         return bins[start:start + crop_count]
 
+    def _trace_average(self, data):
+        # Rolling per-bin average over the last 3 frames received,
+        # oldest dropped as each new one arrives -- smooths the trace
+        # over time rather than across neighboring bins. Fewer than 3
+        # frames collected yet (right after startup or an axis change)
+        # just averages however many there are so far.
+        self.trace_history.append(data)
+        if len(self.trace_history) > 3:
+            self.trace_history.pop(0)
+        return numpy.mean(self.trace_history, axis=0)
+
     def _update_bw_region(self):
         bw_hz = Panadapter.bandwidth_hz[self.receiver]
         if bw_hz == None:
@@ -4894,7 +4923,6 @@ class Panadapter(QDialog):
                 label = format_freq_tick(freq, round_to=1000, drop_digits=3)
             ticks.append((freq, label))
         self.trace_plot.getAxis('bottom').setTicks([ticks])
-        self.waterfall_plot.getAxis('bottom').setTicks([ticks])
 
     def push_minipan(self, center_hz, sample_rate, bins):
         # MINI-PAN carries the identical PAN sub-header as PAN frames
@@ -4922,26 +4950,8 @@ class Panadapter(QDialog):
             self.minipan_xs = numpy.linspace(freq_hz - actual_span_hz / 2,
                 freq_hz + actual_span_hz / 2, bin_count)
             self.minipan_plot.setXRange(self.minipan_xs[0], self.minipan_xs[-1], padding=0)
-            self._update_minipan_ticks(freq_hz, actual_span_hz)
 
         self.minipan_curve.setData(self.minipan_xs, data)
-
-    def _update_minipan_ticks(self, center_hz, span_hz):
-        # Same idea as _update_frequency_ticks, but rounded an order of
-        # magnitude finer -- the mini-pan's 2/10 kHz span is that much
-        # narrower than the main trace's, so ticks left at the main
-        # trace's rounding would mostly round to the same displayed
-        # value.
-        step = span_hz / 4
-        ticks = []
-        for i in range(-2, 3):
-            freq = center_hz + i * step
-            if i == 0:
-                label = format_freq_tick(freq, round_to=10, drop_digits=1)
-            else:
-                label = format_freq_tick(freq, round_to=100, drop_digits=2)
-            ticks.append((freq, label))
-        self.minipan_plot.getAxis('bottom').setTicks([ticks])
 
     def _ensure_bin_count(self, count):
         if count != self.bin_count:
@@ -4989,13 +4999,15 @@ class Panadapter(QDialog):
 # has its own GIL, so its repaints cannot touch the audio path at all,
 # and frames_per_buffer can stay at 2 for low transmit/tuning delay.
 #
-# The parent sends PAN/MINI-PAN payloads and the #SPN/#FPS/MD/BW/FA/FB
-# responses; the child sends back only its final window geometry.
-# Messages are 4-byte big-endian length (of type + payload), then a
-# type byte:
+# The parent sends PAN/MINI-PAN payloads, the #SPN/#FPS/MD/BW/FA/FB
+# responses, and whether this window's mini-pan currently has real data
+# to show (see PanadapterProcess._update_dpm_state); the child sends
+# back only its final window geometry. Messages are 4-byte big-endian
+# length (of type + payload), then a type byte:
 panadapter_msg_cat = 0
 panadapter_msg_pan = 2
 panadapter_msg_minipan = 3
+panadapter_msg_minipan_enabled = 4  # payload: one byte, 0 or 1
 
 def panadapter_encode_msg(msg_type, payload):
     body = bytes((msg_type,)) + payload
@@ -5017,12 +5029,35 @@ class PanadapterProcess(QObject):
     # Parent-side handle for one panadapter subprocess.
     processes = {}               # receiver ('main'/'sub') -> PanadapterProcess
     subscribed = False
+    dpm_state = None             # last '#DPM' value sent to the radio
+                                  # ('0' or '1'), or None -- see
+                                  # _update_dpm_state/_send_dpm.
+    minipan_enabled = {'main': False, 'sub': False}
+                                  # Whether each window's mini-pan
+                                  # currently has real data to show, per
+                                  # _update_dpm_state. Relayed to the
+                                  # window's subprocess on change.
 
     # Emitted by monitor_loop when the subprocess exits. A queued signal
     # hands it to the Qt thread: on_exited() touches the settings file
     # and the process table, and Poll.call() (used here originally)
     # builds a QTimer, which may only be created on a Qt thread.
     exited = pyqtSignal(object)
+
+    # Relayed to a newly opened window below, from whatever's already
+    # cached, since the subscriptions just below only ever fire their
+    # "here's the current value" callback once, for the very first
+    # window opened in the app's lifetime (see the cls.subscribed guard)
+    # -- and even that one delivery is too early to help, since it runs
+    # before this receiver has been added to cls.processes. Without this,
+    # a window opened after the first one (or a window re-opened later)
+    # started life with no BW/MD/FA/FB/etc of its own, and only found out
+    # once the radio happened to spontaneously send a fresh one -- which,
+    # for something like bandwidth, may not happen for the rest of the
+    # session. Each subprocess keeps this state in its own memory (see
+    # Panadapter.bandwidth_hz etc), so every newly opened window needs
+    # its own explicit seed, not just the first one.
+    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB')
 
     @classmethod
     def open_window(cls, receiver):
@@ -5045,17 +5080,77 @@ class PanadapterProcess(QObject):
             # (the PAN stream's own display center).
             Server.k4_server.subscribe_response('FA;', cls.on_cat_response)
             Server.k4_server.subscribe_response('FB;', cls.on_cat_response)
+            # SB (sub receiver on/off) decides, together with which
+            # panadapter windows are open, whether a window's mini-pan
+            # has real data to show -- see _update_dpm_state.
+            Server.k4_server.subscribe_response('SB;', cls.on_sb_changed)
 
         if receiver in cls.processes:
             return
-        cls.processes[receiver] = PanadapterProcess(receiver)
+        process = PanadapterProcess(receiver)
+        cls.processes[receiver] = process
+        for base in cls.relayed_cat_bases:
+            value = Server.k4_server.k4_parameter(base)
+            if value != None:
+                process.send(panadapter_msg_cat, (base + value + ';').encode())
         Server.settings.put_save('Window', f'Panadapter.{receiver}.open', True)
+        cls._update_dpm_state()
 
     @classmethod
     def close_window(cls, receiver):
         process = cls.processes.pop(receiver, None)
         if process != None:
             process.stop(user_closed=False)
+        cls._update_dpm_state()
+
+    @classmethod
+    def on_sb_changed(cls, response):
+        cls._update_dpm_state()
+
+    @classmethod
+    def _update_dpm_state(cls):
+        # The K4 has only one mini-pan hardware stream, selected by
+        # #DPM0;/#DPM1; (main/sub). With only the main panadapter open,
+        # select main and its mini-pan always has data. With the sub
+        # panadapter open, select sub -- but the mini-pan only has real
+        # per-receiver data for both windows if the sub receiver itself
+        # is actually on (SB1; most recently received from the radio);
+        # if it's off (SB0;), disable both regardless of which windows
+        # are open.
+        main_open = 'main' in cls.processes
+        sub_open = 'sub' in cls.processes
+
+        if sub_open:
+            cls._send_dpm('1')
+            sb = Server.k4_server.k4_parameter('SB')
+            if sb == '1':
+                cls._set_minipan_enabled(main_open, True)
+            elif sb == '0':
+                cls._set_minipan_enabled(False, False)
+            # else: SB state not known yet -- on_sb_changed reruns this
+            # once the radio reports it.
+        elif main_open:
+            cls._send_dpm('0')
+            cls._set_minipan_enabled(True, False)
+        else:
+            cls._set_minipan_enabled(False, False)
+
+    @classmethod
+    def _send_dpm(cls, value):
+        if cls.dpm_state == value:
+            return
+        cls.dpm_state = value
+        Server.k4_server.send_str(f'#DPM{value};')
+
+    @classmethod
+    def _set_minipan_enabled(cls, main, sub):
+        for receiver, enabled in (('main', main), ('sub', sub)):
+            if cls.minipan_enabled[receiver] == enabled:
+                continue
+            cls.minipan_enabled[receiver] = enabled
+            process = cls.processes.get(receiver)
+            if process != None:
+                process.send(panadapter_msg_minipan_enabled, bytes((1 if enabled else 0,)))
 
     @classmethod
     def restore_open_windows(cls):
@@ -5113,8 +5208,29 @@ class PanadapterProcess(QObject):
         self.monitor_thread.start()
 
     def send(self, msg_type, payload):
+        # PAN/MINI-PAN frames are the only high-frequency traffic here
+        # (up to ~12/second) and are genuinely disposable -- another one
+        # is always seconds away, which is the whole reason this queue
+        # is small and drops rather than blocks (see its comment above).
+        # Everything else (CAT relay, mini-pan enable/disable) is
+        # low-frequency and one-shot: dropping e.g. a BW; relay because
+        # a burst of other messages (open_window's seeding of a newly
+        # opened window, in particular -- easily more than 4 messages at
+        # once) happened to fill the queue first silently loses it for
+        # good, since nothing will naturally resend it. Block briefly
+        # for room instead; the writer thread only ever does a queue.get
+        # plus a pipe write, so it drains fast enough that this is not a
+        # real stall outside of a wedged child process, and even then is
+        # capped rather than indefinite.
+        encoded = panadapter_encode_msg(msg_type, payload)
+        if msg_type in (panadapter_msg_pan, panadapter_msg_minipan):
+            try:
+                self.queue.put_nowait(encoded)
+            except queue.Full:
+                pass
+            return
         try:
-            self.queue.put_nowait(panadapter_encode_msg(msg_type, payload))
+            self.queue.put(encoded, timeout=1)
         except queue.Full:
             pass
 
@@ -5154,11 +5270,18 @@ class PanadapterProcess(QObject):
         # Not stopping, so the child went away on its own -- the user
         # closed the window. Mirror Panadapter.closeEvent's direct-close
         # behavior and clear the persisted "was open" flag.
+        # _close_pipe() here matters as much as it does in stop(): without
+        # it, writer_loop stays blocked forever on the now-pointless
+        # queue, which (via its bound-method target) keeps this whole
+        # object -- including the child's already-broken stdin pipe --
+        # alive and unclosed until final interpreter teardown, when
+        # closing/flushing it then raises BrokenPipeError from inside a
+        # finalizer ("Exception ignored while finalizing file ...").
+        self._close_pipe()
         PanadapterProcess.processes.pop(self.receiver, None)
         Server.settings.put_save('Window', f'Panadapter.{self.receiver}.open', False)
 
-    def stop(self, user_closed=False):
-        self.stopping = True
+    def _close_pipe(self):
         try:
             self.queue.put_nowait(None)
         except queue.Full:
@@ -5167,6 +5290,10 @@ class PanadapterProcess(QObject):
             self.process.stdin.close()
         except (BrokenPipeError, ValueError, OSError):
             pass
+
+    def stop(self, user_closed=False):
+        self.stopping = True
+        self._close_pipe()
         try:
             self.process.wait(timeout=2)
         except subprocess.TimeoutExpired:
@@ -5240,6 +5367,8 @@ class PanadapterChannel(QObject):
                 receiver, center_hz, sample_rate, noise_floor, bins = parsed
                 if receiver == self.window.receiver:
                     self.window.push_minipan(center_hz, sample_rate, bins)
+            elif msg_type == panadapter_msg_minipan_enabled:
+                self.window.minipan_plot.setVisible(payload[0] != 0)
             elif msg_type == panadapter_msg_cat:
                 response = payload.decode(errors='replace')
                 base = cmd_base(response)
