@@ -74,6 +74,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
     QButtonGroup, QSlider, QProgressBar, QTabWidget, QDialog, QLineEdit,
     QComboBox, QListWidget, QLayout, QPlainTextEdit, QProxyStyle, QStyle,
+    QSplitter,
 )
 
 # Modify the path to find .\opus.dll on Windows
@@ -4742,22 +4743,22 @@ class Panadapter(QDialog):
         # what makes it sit at the left of the row below rather than
         # pyqtgraph's default expanding size policy stretching it to
         # fill the row.
-        # Hidden until the parent says otherwise (see
-        # panadapter_msg_minipan_enabled / PanadapterProcess._update_dpm_state)
-        # -- the K4 has only one mini-pan hardware stream, so whether this
-        # window's mini-pan has real data depends on #DPM select and,
-        # when both panadapters are open, whether the sub receiver
-        # (SB;) is actually on.
-        self.minipan_plot.setVisible(False)
+        # Blank (not hidden -- see set_minipan_enabled) until the parent
+        # says otherwise (see panadapter_msg_minipan_enabled /
+        # PanadapterProcess._update_dpm_state) -- the K4 has only one
+        # mini-pan hardware stream, so whether this window's mini-pan
+        # has real data depends on #DPM select and, when both
+        # panadapters are open, whether the sub receiver (SB;) is
+        # actually on. Staying visible (just blank) rather than being
+        # hidden keeps the mini-pan's reserved width in this row, so the
+        # Ref button (and anything added after it) doesn't shift
+        # position when the mini-pan is enabled/disabled.
+        self.minipan_enabled = False
 
         minipan_row = QWidget()
         minipan_row_layout = QHBoxLayout(minipan_row)
         minipan_row_layout.setContentsMargins(0, 0, 0, 0)
         minipan_row_layout.addWidget(self.minipan_plot)
-        # Immediately to the right of the mini-pan -- and, since a
-        # hidden widget claims no space in a QHBoxLayout, this lands at
-        # the mini-pan's own left-justified position whenever the
-        # mini-pan itself is hidden.
         self.ref_button = QPushButton('Ref')
         self.ref_button.setStyleSheet(qt_button_stylesheet('black', 'white', '#444', 'white'))
         self.ref_button.clicked.connect(self.on_ref_button)
@@ -4795,7 +4796,17 @@ class Panadapter(QDialog):
         self.trace_left_label = self._make_overlay_label(self.trace_plot)
         self.trace_right_label = self._make_overlay_label(self.trace_plot)
         self.trace_center_label = self._make_overlay_label(self.trace_plot)
-        layout.addWidget(self.trace_plot, 2)
+        # The left label's position depends on the Y axis's reserved
+        # pixel width (see _position_trace_labels), which changes
+        # whenever the Y range's tick labels change width (e.g. once
+        # real data replaces the seeded -160..0 range shortly after
+        # startup) -- not just on an X-axis change or a window resize,
+        # which is all the explicit _position_trace_labels() calls
+        # elsewhere catch. The ViewBox resizes whenever that happens,
+        # so hooking its own resize signal keeps this correct regardless
+        # of what caused the Y range to change.
+        self.trace_plot.getPlotItem().getViewBox().sigResized.connect(
+            lambda *_: self._position_trace_labels())
 
         self.waterfall_plot = pyqtgraph.PlotWidget()
         self.waterfall_plot.setBackground('k')
@@ -4808,7 +4819,17 @@ class Panadapter(QDialog):
             Panadapter.colormap = pyqtgraph.colormap.get('inferno').getLookupTable(0.0, 1.0, 256)
         self.waterfall_img.setLookupTable(Panadapter.colormap)
         self.waterfall_plot.setXLink(self.trace_plot)
-        layout.addWidget(self.waterfall_plot, 3)
+
+        # A draggable divider between the trace and waterfall, in place
+        # of fixed layout stretch factors, so the user can grab and
+        # move it to trade vertical space between the two. Initial
+        # sizes (200/300) match the old 2:3 stretch-factor split;
+        # Qt keeps that ratio on window resize until the user drags it.
+        trace_waterfall_splitter = QSplitter(Qt.Orientation.Vertical)
+        trace_waterfall_splitter.addWidget(self.trace_plot)
+        trace_waterfall_splitter.addWidget(self.waterfall_plot)
+        trace_waterfall_splitter.setSizes([200, 300])
+        layout.addWidget(trace_waterfall_splitter, 5)
 
         self.resize(700, 500)
         self.set_geometry()
@@ -5115,6 +5136,14 @@ class Panadapter(QDialog):
         # -- then displayed against the receiver's real tuned frequency
         # (see _rx_freq_hz), same as the frequency line, since that can
         # differ slightly from this frame's own center_hz.
+        if not self.minipan_enabled:
+            # Data keeps arriving from the K4 regardless of whether this
+            # window's mini-pan is currently enabled (see
+            # PanadapterProcess._update_dpm_state) -- ignored here so
+            # the blanked-out state set_minipan_enabled(False) leaves
+            # behind doesn't get immediately overwritten by the next
+            # frame.
+            return
         span_hz = 2000 if Panadapter.is_cw_mode(self.receiver) else 10000
         bins = self._crop_bins(bins, sample_rate, span_hz)
         data = numpy.array(bins, dtype=numpy.float32)
@@ -5142,6 +5171,24 @@ class Panadapter(QDialog):
             return
         self.freq_line_minipan_hz = freq_hz
         self.freq_line_minipan.setPos(freq_hz)
+
+    def set_minipan_enabled(self, enabled):
+        if enabled == self.minipan_enabled:
+            return
+        self.minipan_enabled = enabled
+        self.freq_line_minipan.setVisible(enabled)
+        if not enabled:
+            # Leaves minipan_plot itself visible (still reserving its
+            # layout space, so the Ref button doesn't shift -- see
+            # __init__) but blank, rather than hiding the whole widget.
+            self.minipan_curve.setData([], [])
+            self.minipan_left_label.setText('')
+            self.minipan_right_label.setText('')
+            # Forces the axis/labels to be recomputed from scratch the
+            # next time this is re-enabled, rather than skipping them
+            # because nothing about the (frozen, stale) axis_key
+            # actually changed since they were last set.
+            self.minipan_axis_key = None
 
     def _update_minipan_labels(self, span_hz):
         # xs[0]/xs[-1] are always exactly freq_hz -+ span_hz/2 (see the
@@ -5592,7 +5639,7 @@ class PanadapterChannel(QObject):
                 if receiver == self.window.receiver:
                     self.window.push_minipan(center_hz, sample_rate, bins)
             elif msg_type == panadapter_msg_minipan_enabled:
-                self.window.minipan_plot.setVisible(payload[0] != 0)
+                self.window.set_minipan_enabled(payload[0] != 0)
             elif msg_type == panadapter_msg_cat:
                 response = payload.decode(errors='replace')
                 base = cmd_base(response)
