@@ -4980,20 +4980,34 @@ class Panadapter(QDialog):
         super().closeEvent(event)
 
     def push_frame(self, center_hz, sample_rate, bins):
-        # sample_rate is Hz per bin (frequency resolution), not the
-        # total span -- confirmed against real hardware (bin_count=1024,
-        # sample_rate=192 produced a ~192 Hz span using sample_rate
-        # alone, when the real span is sample_rate * bin_count, ~197kHz,
-        # a realistic panadapter width). The K4 oversamples beyond what's
-        # useful to display, so crop to the center display_span_hz of
-        # that full span rather than showing all of it.
+        # sample_rate is the complex sample rate in kHz -- NOT Hz per
+        # bin, which is what this assumed until the frequency scale was
+        # found to be stretched about the center (correct at center_hz,
+        # progressively wrong toward both edges). The frame's full bin
+        # set is one FFT across exactly that sample rate, so the real
+        # resolution is sample_rate * 1000 / full_bin_count: for the
+        # one set of values confirmed against real hardware
+        # (full_bin_count=1024, sample_rate=192) that is a standard
+        # 192 kHz rate over a 1024-point FFT = 187.5 Hz/bin spanning
+        # 192 kHz, not the 192 Hz/bin spanning ~197 kHz assumed before.
+        # Reading it as Hz/bin stretched every offset from the center by
+        # 1024/1000 = 2.4%, which measured as ~2.3 kHz at the edges of a
+        # 200 kHz span, ~1.2 kHz at 100 kHz, and put a signal truly at
+        # 740 kHz (per the mini-pan, too narrow for the error to show)
+        # at 740.96 kHz on the trace.
         full_bins = bins
+        if len(full_bins) == 0:
+            return
+        hz_per_bin = sample_rate * 1000 / len(full_bins)
+        # The K4 oversamples beyond what's useful to display, so crop to
+        # the center display_span_hz of that full span rather than
+        # showing all of it.
         display_span_hz = Panadapter.display_span_hz[self.receiver]
-        bins = self._crop_bins(full_bins, sample_rate, display_span_hz)
+        bins = self._crop_bins(full_bins, hz_per_bin, display_span_hz)
 
         self._ensure_bin_count(len(bins))
         data = numpy.array(bins, dtype=numpy.float32)
-        span_hz = sample_rate * self.bin_count
+        span_hz = hz_per_bin * self.bin_count
 
         # Everything below that depends only on the X axis (and not on
         # this frame's samples) is recomputed only when the axis
@@ -5031,16 +5045,13 @@ class Panadapter(QDialog):
             left_edge = center_hz - span_hz / 2
             right_edge = center_hz + span_hz / 2
             # Bin i's center frequency -- NOT numpy.linspace(left_edge,
-            # right_edge, bin_count), which was the bug: that divides
-            # the span into bin_count-1 intervals for bin_count points,
-            # so each point lands sample_rate/(bin_count-1) apart rather
-            # than the true sample_rate (Hz/bin) apart, and forces the
-            # two outermost bins out to sit exactly on the nominal
-            # edges instead of correctly inset by half a bin -- visibly
-            # widening the trace at both edges by a growing amount as
-            # bin_count shrinks (reported as ~2 kHz off at a 200 kHz
-            # span, ~1 kHz at 100 kHz).
-            self.xs = left_edge + (numpy.arange(self.bin_count) + 0.5) * sample_rate
+            # right_edge, bin_count), which divides the span into
+            # bin_count-1 intervals for bin_count points, so each point
+            # lands span/(bin_count-1) apart rather than the true
+            # hz_per_bin apart, and forces the two outermost bins out to
+            # sit exactly on the nominal edges instead of correctly
+            # inset by half a bin.
+            self.xs = left_edge + (numpy.arange(self.bin_count) + 0.5) * hz_per_bin
             # The view/labels still span the full nominal edges, same
             # as before -- only the bin positions within it changed.
             self.trace_plot.setXRange(left_edge, right_edge, padding=0)
@@ -5120,9 +5131,9 @@ class Panadapter(QDialog):
         self.vscale_last_update = now
 
     @staticmethod
-    def _crop_bins(bins, sample_rate, span_hz):
+    def _crop_bins(bins, hz_per_bin, span_hz):
         full_bin_count = len(bins)
-        crop_count = min(full_bin_count, max(1, round(span_hz / sample_rate)))
+        crop_count = min(full_bin_count, max(1, round(span_hz / hz_per_bin)))
         start = (full_bin_count - crop_count) // 2
         return bins[start:start + crop_count]
 
@@ -5249,11 +5260,19 @@ class Panadapter(QDialog):
             # behind doesn't get immediately overwritten by the next
             # frame.
             return
+        if len(bins) == 0:
+            return
+        # sample_rate is in kHz across the frame's full bin set, same as
+        # push_frame's -- see the explanation there. The mini-pan's own
+        # span is narrow enough (10 kHz, or 2 kHz in CW) that reading it
+        # as Hz/bin was only ever off by ~120 Hz at the edges, which is
+        # why the stretch showed up on the trace long before here.
+        hz_per_bin = sample_rate * 1000 / len(bins)
         span_hz = 2000 if Panadapter.is_cw_mode(self.receiver) else 10000
-        bins = self._crop_bins(bins, sample_rate, span_hz)
+        bins = self._crop_bins(bins, hz_per_bin, span_hz)
         data = numpy.array(bins, dtype=numpy.float32)
         bin_count = len(bins)
-        actual_span_hz = sample_rate * bin_count
+        actual_span_hz = hz_per_bin * bin_count
 
         freq_hz = self._rx_freq_hz()
         if freq_hz == None:
@@ -5265,7 +5284,7 @@ class Panadapter(QDialog):
             left_edge = freq_hz - actual_span_hz / 2
             right_edge = freq_hz + actual_span_hz / 2
             # Bin centers, same fix as push_frame's -- see its comment.
-            self.minipan_xs = left_edge + (numpy.arange(bin_count) + 0.5) * sample_rate
+            self.minipan_xs = left_edge + (numpy.arange(bin_count) + 0.5) * hz_per_bin
             self.minipan_plot.setXRange(left_edge, right_edge, padding=0)
             self._update_minipan_labels(actual_span_hz)
             # bin_count changed (or this is the first frame since
