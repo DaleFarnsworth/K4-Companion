@@ -4516,6 +4516,7 @@ class Panadapter(QDialog):
     colormap = None               # built once, shared by every window
     child_mode = False            # True in the panadapter subprocess
     child_geometry = None         # see save_geometry()
+    child_splitter_sizes = None   # see save_splitter_sizes()
     mode = {'main': None, 'sub': None}
                                   # K4 mode digit ('3'=CW, '7'=CW-R, etc,
                                   # see the MD/MD$ selections in the
@@ -4824,20 +4825,29 @@ class Panadapter(QDialog):
             Panadapter.colormap = pyqtgraph.colormap.get('inferno').getLookupTable(0.0, 1.0, 256)
         self.waterfall_img.setLookupTable(Panadapter.colormap)
         self.waterfall_plot.setXLink(self.trace_plot)
+        # Y range is set explicitly (see push_frame, alongside
+        # waterfall_img.setRect()) rather than left to pyqtgraph's
+        # default auto-range, which pads a few percent above and below
+        # the image -- visible as blank bands top and bottom of the
+        # waterfall.
+        self.waterfall_plot.enableAutoRange(axis='y', enable=False)
 
         # A draggable divider between the trace and waterfall, in place
         # of fixed layout stretch factors, so the user can grab and
         # move it to trade vertical space between the two. Initial
         # sizes (200/300) match the old 2:3 stretch-factor split;
         # Qt keeps that ratio on window resize until the user drags it.
-        trace_waterfall_splitter = QSplitter(Qt.Orientation.Vertical)
-        trace_waterfall_splitter.addWidget(self.trace_plot)
-        trace_waterfall_splitter.addWidget(self.waterfall_plot)
-        trace_waterfall_splitter.setSizes([200, 300])
-        layout.addWidget(trace_waterfall_splitter, 5)
+        self.trace_waterfall_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.trace_waterfall_splitter.addWidget(self.trace_plot)
+        self.trace_waterfall_splitter.addWidget(self.waterfall_plot)
+        self.trace_waterfall_splitter.setSizes([200, 300])
+        self.trace_waterfall_splitter.splitterMoved.connect(
+            lambda *_: self.save_splitter_sizes())
+        layout.addWidget(self.trace_waterfall_splitter, 5)
 
         self.resize(700, 500)
         self.set_geometry()
+        self.set_splitter_sizes()
         self._update_minipan_width()
         self._position_trace_labels()
 
@@ -4917,6 +4927,30 @@ class Panadapter(QDialog):
             Panadapter.child_geometry = geometry
             return
         Server.settings.put_save('Window', f'Panadapter.{self.receiver}.geometry', geometry)
+
+    def set_splitter_sizes(self):
+        Server.settings.load()
+        sizes_str = Server.settings.get('Window', f'Panadapter.{self.receiver}.splitter')
+        if sizes_str == None:
+            return
+        try:
+            sizes = [int(size) for size in sizes_str.split(':')]
+        except ValueError:
+            return
+        if len(sizes) != 2:
+            return
+        self.trace_waterfall_splitter.setSizes(sizes)
+
+    def save_splitter_sizes(self):
+        sizes = self.trace_waterfall_splitter.sizes()
+        sizes_str = f'{sizes[0]}:{sizes[1]}'
+        if Panadapter.child_mode:
+            # Same reasoning as save_geometry(): only the parent writes
+            # the settings file, so this is remembered here and reported
+            # to the parent on exit instead (see panadapter_child_main).
+            Panadapter.child_splitter_sizes = sizes_str
+            return
+        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.splitter', sizes_str)
 
     def moveEvent(self, event):
         super().moveEvent(event)
@@ -5010,6 +5044,7 @@ class Panadapter(QDialog):
             # off-screen, so nothing appeared to display at all.
             xs = self.xs
             self.waterfall_img.setRect(xs[0], 0, xs[-1] - xs[0], Panadapter.waterfall_rows)
+            self.waterfall_plot.setYRange(0, Panadapter.waterfall_rows, padding=0)
 
     def _update_vscale(self, data):
         # Averaged over 5 seconds rather than fit to every single
@@ -5522,25 +5557,33 @@ class PanadapterProcess(QObject):
                 return
 
     def monitor_loop(self):
-        # The child reports its final geometry, then exits. Its exit is
-        # also how a user close of the window gets back to us.
+        # The child reports its final geometry and splitter sizes, then
+        # exits. Its exit is also how a user close of the window gets
+        # back to us.
         geometry = None
+        splitter_sizes = None
         try:
             for line in self.process.stdout:
                 line = line.decode(errors='replace').strip()
                 if line.startswith('#PANGEOM '):
                     geometry = line[len('#PANGEOM '):]
+                elif line.startswith('#PANSPLIT '):
+                    splitter_sizes = line[len('#PANSPLIT '):]
         except (ValueError, OSError):
             pass
         self.process.wait()
-        self.exited.emit(geometry)
+        self.exited.emit((geometry, splitter_sizes))
 
-    def on_exited(self, geometry):
+    def on_exited(self, state):
         # Back on the main thread (via Poll), so it is safe to touch the
         # settings file and the process table here.
+        geometry, splitter_sizes = state
         if geometry != None:
             Server.settings.put_save('Window',
                 f'Panadapter.{self.receiver}.geometry', geometry)
+        if splitter_sizes != None:
+            Server.settings.put_save('Window',
+                f'Panadapter.{self.receiver}.splitter', splitter_sizes)
         if self.stopping:
             return
         # Not stopping, so the child went away on its own -- the user
@@ -5700,6 +5743,12 @@ def panadapter_child_main(receiver):
     if Panadapter.child_geometry != None:
         try:
             sys.stdout.write(f'#PANGEOM {Panadapter.child_geometry}\n')
+        except (BrokenPipeError, ValueError, OSError):
+            pass
+
+    if Panadapter.child_splitter_sizes != None:
+        try:
+            sys.stdout.write(f'#PANSPLIT {Panadapter.child_splitter_sizes}\n')
         except (BrokenPipeError, ValueError, OSError):
             pass
 
