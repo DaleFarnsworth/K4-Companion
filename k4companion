@@ -4813,6 +4813,12 @@ class Panadapter(QDialog):
         # of what caused the Y range to change.
         self.trace_plot.getPlotItem().getViewBox().sigResized.connect(
             lambda *_: self._position_trace_labels())
+        # Click-to-tune -- a scene-level signal rather than an item's
+        # own click handler, so it fires no matter what's drawn under
+        # the cursor (bw_region, freq_line_trace, ...). setMouseEnabled
+        # (False, False) above only disables pan/zoom dragging, not
+        # this.
+        self.trace_plot.scene().sigMouseClicked.connect(self.on_trace_clicked)
 
         self.waterfall_plot = pyqtgraph.PlotWidget()
         self.waterfall_plot.setBackground('k')
@@ -5155,6 +5161,28 @@ class Panadapter(QDialog):
         self.freq_line_hz = freq_hz
         self.freq_line_trace.setPos(freq_hz)
 
+    def on_trace_clicked(self, event):
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        view_box = self.trace_plot.getPlotItem().getViewBox()
+        if not view_box.sceneBoundingRect().contains(event.scenePos()):
+            return  # e.g. a click that landed on the axis/label margin
+        freq_hz = view_box.mapSceneToView(event.scenePos()).x()
+        self.request_tune(freq_hz)
+
+    def request_tune(self, freq_hz):
+        # Relayed to the parent, which owns the actual K4 connection
+        # (see PanadapterProcess.on_tune_requested) -- over the same
+        # stdout channel save_geometry/save_splitter_sizes report
+        # through at exit, except this has to reach the radio right
+        # away, which is why monitor_loop processes lines as they
+        # arrive rather than only once at exit.
+        try:
+            sys.stdout.write(f'#PANTUNE {freq_hz}\n')
+            sys.stdout.flush()
+        except (BrokenPipeError, ValueError, OSError):
+            pass
+
     def _update_trace_labels(self, center_hz, span_hz):
         # Same formatting as the corresponding ticks in
         # _update_frequency_ticks: the edges (i=-2/+2 there) use the
@@ -5348,6 +5376,13 @@ class PanadapterProcess(QObject):
     # builds a QTimer, which may only be created on a Qt thread.
     exited = pyqtSignal(object)
 
+    # Emitted by monitor_loop as soon as a click-to-tune request line
+    # arrives (unlike exited, this fires mid-session, not just once at
+    # process exit) -- queued the same way, since on_tune_requested()
+    # sends a CAT command through Server.k4_server, which must happen on
+    # the Qt thread.
+    tuned = pyqtSignal(str)
+
     # Relayed to a newly opened window below, from whatever's already
     # cached, since the subscriptions just below only ever fire their
     # "here's the current value" callback once, for the very first
@@ -5496,6 +5531,7 @@ class PanadapterProcess(QObject):
         self.receiver = receiver
         self.stopping = False
         self.exited.connect(self.on_exited)
+        self.tuned.connect(self.on_tune_requested)
 
         if getattr(sys, 'frozen', False):
             argv = [sys.executable]
@@ -5557,9 +5593,11 @@ class PanadapterProcess(QObject):
                 return
 
     def monitor_loop(self):
-        # The child reports its final geometry and splitter sizes, then
-        # exits. Its exit is also how a user close of the window gets
-        # back to us.
+        # #PANTUNE lines arrive throughout the session (one per trace
+        # click) and are handled immediately; #PANGEOM/#PANSPLIT are
+        # only ever written once, right before the child exits, and are
+        # applied together when that exit is finally seen below -- which
+        # is also how a user close of the window gets back to us.
         geometry = None
         splitter_sizes = None
         try:
@@ -5569,6 +5607,8 @@ class PanadapterProcess(QObject):
                     geometry = line[len('#PANGEOM '):]
                 elif line.startswith('#PANSPLIT '):
                     splitter_sizes = line[len('#PANSPLIT '):]
+                elif line.startswith('#PANTUNE '):
+                    self.tuned.emit(line[len('#PANTUNE '):])
         except (ValueError, OSError):
             pass
         self.process.wait()
@@ -5607,6 +5647,15 @@ class PanadapterProcess(QObject):
         # close_window() (that's only the parent-initiated path, e.g.
         # app shutdown).
         PanadapterProcess._update_dpm_state()
+
+    def on_tune_requested(self, freq_str):
+        try:
+            freq_hz = float(freq_str)
+        except ValueError:
+            return
+        freq_hz = max(VFO.low_frequency_limit, min(VFO.high_frequency_limit, freq_hz))
+        base = 'FA' if self.receiver == 'main' else 'FB'
+        Server.k4_server.send_cmds(f'{base}{freq_hz:011.0f};')
 
     def _close_pipe(self):
         try:
