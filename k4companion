@@ -4538,9 +4538,9 @@ class Panadapter(QDialog):
                                   # centering, all of which must track
                                   # where the receiver is actually tuned.
     scale_db = None               # Panadapter vertical scale (dB span
-                                  # of the trace's Y axis), from #SCL;,
-                                  # clamped -- see on_scale_changed. A
-                                  # single value with no per-receiver
+                                  # of the trace's Y axis), from #SCL;
+                                  # -- see on_scale_changed. A single
+                                  # value with no per-receiver
                                   # ($) variant in the protocol, like
                                   # #FPS, so it's shared by both windows.
 
@@ -4614,13 +4614,12 @@ class Panadapter(QDialog):
     @classmethod
     def on_scale_changed(cls, response):
         # #SCL reports the panadapter's vertical scale (dB span of the
-        # Y axis) as a plain number, 10-150 per the protocol -- clamped
-        # further here per user preference.
+        # Y axis) as a plain number, 10-150 per the protocol -- used
+        # as-is, unclamped.
         try:
-            scl = float(cmd_parameter(response))
+            cls.scale_db = float(cmd_parameter(response))
         except ValueError:
             return
-        cls.scale_db = min(max(scl, 25), 140)
 
     def __init__(self, receiver):
         # Page.top is None in the panadapter subprocess (see
