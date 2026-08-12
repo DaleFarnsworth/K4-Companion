@@ -4747,6 +4747,11 @@ class Panadapter(QDialog):
             pen=pyqtgraph.mkPen(color=(60, 140, 255), width=1))
         self.freq_line_minipan.setVisible(False)
         self.minipan_plot.addItem(self.freq_line_minipan)
+        # Click to tune, same as the trace below -- the mini-pan's own
+        # axis is in real Hz too (centered on _rx_freq_hz), so the same
+        # scene-to-frequency mapping works unchanged. Its narrow span
+        # makes this the finer of the two adjustments.
+        self.minipan_plot.scene().sigMouseClicked.connect(self.on_minipan_clicked)
         # 1/3 the window width, left justified: setFixedWidth (kept
         # current in resizeEvent) pins both min and max width, which is
         # what makes it sit at the left of the row below rather than
@@ -5232,23 +5237,50 @@ class Panadapter(QDialog):
         self.freq_line_trace.setPos(freq_hz)
 
     def on_trace_clicked(self, event):
-        if event.button() != Qt.MouseButton.LeftButton:
-            return
-        view_box = self.trace_plot.getPlotItem().getViewBox()
-        if not view_box.sceneBoundingRect().contains(event.scenePos()):
-            return  # e.g. a click that landed on the axis/label margin
-        freq_hz = view_box.mapSceneToView(event.scenePos()).x()
-        self.request_tune(freq_hz)
+        freq_hz = self._clicked_frequency(self.trace_plot, event)
+        if freq_hz != None:
+            self.request_tune(freq_hz)
 
-    def request_tune(self, freq_hz):
+    def on_minipan_clicked(self, event):
+        if not self.minipan_enabled:
+            # Blank rather than hidden while disabled (see
+            # set_minipan_enabled), so it can still be clicked -- but
+            # there is nothing displayed to have been aiming at, and its
+            # axis is frozen at whatever was last shown, so a click here
+            # would tune to a stale frequency.
+            return
+        freq_hz = self._clicked_frequency(self.minipan_plot, event)
+        if freq_hz != None:
+            self.request_tune(freq_hz, round_to_step=False)
+
+    @staticmethod
+    def _clicked_frequency(plot, event):
+        # Returns the frequency the click landed on, or None if it isn't
+        # a tuning click at all.
+        if event.button() != Qt.MouseButton.LeftButton:
+            return None
+        view_box = plot.getPlotItem().getViewBox()
+        if not view_box.sceneBoundingRect().contains(event.scenePos()):
+            return None  # e.g. a click that landed on the axis/label margin
+        return view_box.mapSceneToView(event.scenePos()).x()
+
+    def request_tune(self, freq_hz, round_to_step=True):
         # Relayed to the parent, which owns the actual K4 connection
         # (see PanadapterProcess.on_tune_requested) -- over the same
         # stdout channel save_geometry/save_splitter_sizes report
         # through at exit, except this has to reach the radio right
         # away, which is why monitor_loop processes lines as they
         # arrive rather than only once at exit.
+        #
+        # The trailing "exact" asks the parent not to round the
+        # frequency to the current VFO step, which it otherwise does.
+        # The step is only ever a coarsening, so it is worth having on
+        # the trace (where a pixel is a good deal wider than the step)
+        # and not on the mini-pan (where it would discard the finer
+        # placement that is the whole point of clicking there).
+        suffix = '' if round_to_step else ' exact'
         try:
-            sys.stdout.write(f'#PANTUNE {freq_hz}\n')
+            sys.stdout.write(f'#PANTUNE {freq_hz}{suffix}\n')
             sys.stdout.flush()
         except (BrokenPipeError, ValueError, OSError):
             pass
@@ -5724,8 +5756,8 @@ class PanadapterProcess(QObject):
                 return
 
     def monitor_loop(self):
-        # #PANTUNE lines arrive throughout the session (one per trace
-        # click) and are handled immediately; #PANGEOM/#PANSPLIT are
+        # #PANTUNE lines arrive throughout the session (one per trace or
+        # mini-pan click) and are handled immediately; #PANGEOM/#PANSPLIT are
         # only ever written once, right before the child exits, and are
         # applied together when that exit is finally seen below -- which
         # is also how a user close of the window gets back to us.
@@ -5779,13 +5811,18 @@ class PanadapterProcess(QObject):
         # app shutdown).
         PanadapterProcess._update_dpm_state()
 
-    def on_tune_requested(self, freq_str):
+    def on_tune_requested(self, request):
+        # "<freq>", or "<freq> exact" to tune to it as clicked -- see
+        # Panadapter.request_tune.
+        fields = request.split()
+        if len(fields) == 0:
+            return
         try:
-            freq_hz = float(freq_str)
+            freq_hz = float(fields[0])
         except ValueError:
             return
         step = PanadapterProcess.vfo_step[self.receiver]
-        if step != None:
+        if step != None and 'exact' not in fields[1:]:
             freq_hz = round(freq_hz / step) * step
         freq_hz = max(VFO.low_frequency_limit, min(VFO.high_frequency_limit, freq_hz))
         base = 'FA' if self.receiver == 'main' else 'FB'
