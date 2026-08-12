@@ -4734,9 +4734,14 @@ class Panadapter(QDialog):
         self.minipan_left_label = self._make_overlay_label(self.minipan_plot)
         self.minipan_right_label = self._make_overlay_label(self.minipan_plot)
         # Center-frequency marker, same idea as freq_line_trace below.
+        # Starts hidden, matching minipan_enabled's own initial False --
+        # otherwise it defaults to visible at its unset (0 Hz) position
+        # until the first enable/disable message arrives from the
+        # parent (see set_minipan_enabled).
         self.freq_line_minipan_hz = None
         self.freq_line_minipan = pyqtgraph.InfiniteLine(angle=90,
             pen=pyqtgraph.mkPen(color=(60, 140, 255), width=1))
+        self.freq_line_minipan.setVisible(False)
         self.minipan_plot.addItem(self.freq_line_minipan)
         # 1/3 the window width, left justified: setFixedWidth (kept
         # current in resizeEvent) pins both min and max width, which is
