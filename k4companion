@@ -4979,6 +4979,21 @@ class Panadapter(QDialog):
         Panadapter.windows.pop(self.receiver, None)
         super().closeEvent(event)
 
+    def raise_to_front(self):
+        # The Pan button was clicked while this window was already open
+        # (see PanadapterProcess.open_window). showNormal() first so a
+        # minimized window comes back rather than just being restacked
+        # while still minimized; raise_() restacks it, and
+        # activateWindow() gives it focus. Which of the last two
+        # actually takes effect is up to the window manager -- some
+        # refuse focus stealing from a process that has no window with
+        # focus, which is exactly the case here since the click landed
+        # on the main window, in the parent process.
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
     def push_frame(self, center_hz, sample_rate, bins):
         # sample_rate is the complex sample rate in kHz -- NOT Hz per
         # bin, which is what this assumed until the frequency scale was
@@ -5414,6 +5429,7 @@ panadapter_msg_cat = 0
 panadapter_msg_pan = 2
 panadapter_msg_minipan = 3
 panadapter_msg_minipan_enabled = 4  # payload: one byte, 0 or 1
+panadapter_msg_raise = 5            # no payload -- see open_window
 
 def panadapter_encode_msg(msg_type, payload):
     body = bytes((msg_type,)) + payload
@@ -5518,7 +5534,14 @@ class PanadapterProcess(QObject):
             Server.k4_server.subscribe_response('VT;', cls.on_vfo_step_changed)
             Server.k4_server.subscribe_response('VT$;', cls.on_vfo_step_changed)
 
-        if receiver in cls.processes:
+        process = cls.processes.get(receiver)
+        if process != None:
+            # Already open -- the Pan button was clicked while the
+            # window was up, most likely because it is buried behind
+            # something else, so raise it rather than doing nothing.
+            # The window belongs to the subprocess, so the parent can
+            # only ask it to raise itself.
+            process.send(panadapter_msg_raise, b'')
             return
         process = PanadapterProcess(receiver)
         cls.processes[receiver] = process
@@ -5856,6 +5879,8 @@ class PanadapterChannel(QObject):
                     self.window.push_minipan(center_hz, sample_rate, bins)
             elif msg_type == panadapter_msg_minipan_enabled:
                 self.window.set_minipan_enabled(payload[0] != 0)
+            elif msg_type == panadapter_msg_raise:
+                self.window.raise_to_front()
             elif msg_type == panadapter_msg_cat:
                 response = payload.decode(errors='replace')
                 base = cmd_base(response)
