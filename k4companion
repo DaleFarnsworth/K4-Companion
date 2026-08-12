@@ -4519,8 +4519,17 @@ class Panadapter(QDialog):
                                   # K4 mode digit ('3'=CW, '7'=CW-R, etc,
                                   # see the MD/MD$ selections in the
                                   # yaml), kept in sync via MD;/MD$;.
-                                  # Used only for the mini-pan's
-                                  # bandwidth (see is_cw_mode).
+                                  # Used for the mini-pan's bandwidth
+                                  # (see is_cw_mode) and to trigger an
+                                  # automatic Ref capture on change --
+                                  # see on_mode_changed.
+    antenna = {'main': None, 'sub': None}
+                                  # RX antenna selection, from AR;/AR$;
+                                  # (deprecated AR8/AR$8 changelog entry
+                                  # confirms AR/AR$ split main/sub the
+                                  # same as BW/BW$ etc). Used only to
+                                  # trigger an automatic Ref capture on
+                                  # change -- see on_antenna_changed.
     bandwidth_hz = {'main': None, 'sub': None}
                                   # Receiver bandwidth in Hz, from
                                   # BW;/BW$; (format BWnnnn, nnnn =
@@ -4560,7 +4569,28 @@ class Panadapter(QDialog):
     @classmethod
     def on_mode_changed(cls, response):
         receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
+        old = cls.mode[receiver]
         cls.mode[receiver] = cmd_parameter(response)
+        cls._trigger_auto_ref(receiver, old, cls.mode[receiver])
+
+    @classmethod
+    def on_antenna_changed(cls, response):
+        receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
+        old = cls.antenna[receiver]
+        cls.antenna[receiver] = cmd_parameter(response)
+        cls._trigger_auto_ref(receiver, old, cls.antenna[receiver])
+
+    @classmethod
+    def _trigger_auto_ref(cls, receiver, old, new):
+        # Skip the first value ever received for a receiver (old is
+        # None) -- that's just the initial cache populating, not an
+        # actual change, and would otherwise fire redundantly right
+        # alongside the "first displayed" trigger in panadapter_child_main.
+        if old == None or old == new:
+            return
+        window = cls.windows.get(receiver)
+        if window != None:
+            window.on_ref_button()
 
     @classmethod
     def is_cw_mode(cls, receiver):
@@ -4696,6 +4726,17 @@ class Panadapter(QDialog):
         # the first mini-pan frame lands.
         self.minipan_plot.enableAutoRange(axis='y', enable=False)
         self.minipan_plot.setYRange(-160, 0, padding=0)
+        # Frequency-delta overlay, top corners -- plain child widgets
+        # rather than pyqtgraph items, so their screen position doesn't
+        # need to track the mini-pan's data (X/Y range) at all, only its
+        # pixel size (see _position_minipan_labels).
+        self.minipan_left_label = self._make_overlay_label(self.minipan_plot)
+        self.minipan_right_label = self._make_overlay_label(self.minipan_plot)
+        # Center-frequency marker, same idea as freq_line_trace below.
+        self.freq_line_minipan_hz = None
+        self.freq_line_minipan = pyqtgraph.InfiniteLine(angle=90,
+            pen=pyqtgraph.mkPen(color=(60, 140, 255), width=1))
+        self.minipan_plot.addItem(self.freq_line_minipan)
         # 1/3 the window width, left justified: setFixedWidth (kept
         # current in resizeEvent) pins both min and max width, which is
         # what makes it sit at the left of the row below rather than
@@ -4727,6 +4768,9 @@ class Panadapter(QDialog):
         self.trace_plot = pyqtgraph.PlotWidget()
         self.trace_plot.setBackground('k')
         self.trace_plot.showGrid(x=True, y=True, alpha=0.25)
+        # Frequency scale now shown via trace_left/right/center_label
+        # instead (see _update_trace_labels).
+        self.trace_plot.getPlotItem().hideAxis('bottom')
         self.trace_plot.setMouseEnabled(x=False, y=False)
         # Added before the curve, so the (translucent) shading renders
         # behind it rather than over it.
@@ -4746,6 +4790,11 @@ class Panadapter(QDialog):
         self.freq_line_trace = pyqtgraph.InfiniteLine(angle=90,
             pen=pyqtgraph.mkPen(color=(60, 140, 255), width=1))
         self.trace_plot.addItem(self.freq_line_trace)
+        # Left/right/center frequency overlay, same idea as the
+        # mini-pan's delta labels above -- see _update_trace_labels.
+        self.trace_left_label = self._make_overlay_label(self.trace_plot)
+        self.trace_right_label = self._make_overlay_label(self.trace_plot)
+        self.trace_center_label = self._make_overlay_label(self.trace_plot)
         layout.addWidget(self.trace_plot, 2)
 
         self.waterfall_plot = pyqtgraph.PlotWidget()
@@ -4764,9 +4813,52 @@ class Panadapter(QDialog):
         self.resize(700, 500)
         self.set_geometry()
         self._update_minipan_width()
+        self._position_trace_labels()
+
+    def _make_overlay_label(self, parent):
+        # Plain child widget rather than a pyqtgraph item, so its screen
+        # position only needs to track the parent plot's pixel size, not
+        # its data (X/Y range) at all -- see _position_overlay_labels.
+        overlay_label = QLabel('', parent)
+        overlay_label.setFont(qt_font('Helvetica', 9))
+        overlay_label.setStyleSheet('QLabel { color: #ffff99; background: transparent; }')
+        overlay_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        return overlay_label
+
+    @staticmethod
+    def _position_overlay_labels(widget, left_label, right_label, center_label=None):
+        margin = 2
+        left_label.adjustSize()
+        left_label.move(margin, margin)
+        right_label.adjustSize()
+        right_label.move(widget.width() - right_label.width() - margin, margin)
+        if center_label != None:
+            center_label.adjustSize()
+            center_label.move((widget.width() - center_label.width()) // 2, margin)
 
     def _update_minipan_width(self):
         self.minipan_plot.setFixedWidth(max(1, self.width() // 3))
+        self._position_minipan_labels()
+
+    def _position_minipan_labels(self):
+        self._position_overlay_labels(self.minipan_plot,
+            self.minipan_left_label, self.minipan_right_label)
+
+    def _position_trace_labels(self):
+        # Unlike the mini-pan (whose axes are fully hidden), the trace
+        # keeps its left (dB) axis -- so the left label sits just to the
+        # right of it, past its reserved pixel width, rather than
+        # overlapping the axis's own tick numbers.
+        margin = 2
+        left_offset = self.trace_plot.getPlotItem().getAxis('left').width()
+        self.trace_left_label.adjustSize()
+        self.trace_left_label.move(int(left_offset) + margin, margin)
+        self.trace_right_label.adjustSize()
+        self.trace_right_label.move(
+            self.trace_plot.width() - self.trace_right_label.width() - margin, margin)
+        self.trace_center_label.adjustSize()
+        self.trace_center_label.move(
+            (self.trace_plot.width() - self.trace_center_label.width()) // 2, margin)
 
     def set_geometry(self):
         Server.settings.load()
@@ -4807,6 +4899,7 @@ class Panadapter(QDialog):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._update_minipan_width()
+        self._position_trace_labels()
         self.save_geometry()
 
     def closeEvent(self, event):
@@ -4857,7 +4950,7 @@ class Panadapter(QDialog):
                 center_hz + span_hz / 2, self.bin_count)
             xs = self.xs
             self.trace_plot.setXRange(xs[0], xs[-1], padding=0)
-            self._update_frequency_ticks(center_hz, span_hz)
+            self._update_trace_labels(center_hz, span_hz)
             # bin_count changed, so any frames already in trace_history
             # are the wrong shape to average against this one.
             self.trace_history.clear()
@@ -5001,20 +5094,16 @@ class Panadapter(QDialog):
         self.freq_line_hz = freq_hz
         self.freq_line_trace.setPos(freq_hz)
 
-    def _update_frequency_ticks(self, center_hz, span_hz):
-        # A tick at the center frequency, plus two more evenly spaced
-        # below it and two above, rather than relying on pyqtgraph's
-        # auto-placed ticks (which don't necessarily land on center_hz).
-        step = span_hz / 4
-        ticks = []
-        for i in range(-2, 3):
-            freq = center_hz + i * step
-            if i == 0:
-                label = format_freq_tick(freq)
-            else:
-                label = format_freq_tick(freq, round_to=1000, drop_digits=3)
-            ticks.append((freq, label))
-        self.trace_plot.getAxis('bottom').setTicks([ticks])
+    def _update_trace_labels(self, center_hz, span_hz):
+        # Same formatting as the corresponding ticks in
+        # _update_frequency_ticks: the edges (i=-2/+2 there) use the
+        # coarser rounding, the center uses format_freq_tick's default.
+        left_hz = center_hz - span_hz / 2
+        right_hz = center_hz + span_hz / 2
+        self.trace_left_label.setText(format_freq_tick(left_hz, round_to=1000, drop_digits=3))
+        self.trace_right_label.setText(format_freq_tick(right_hz, round_to=1000, drop_digits=3))
+        self.trace_center_label.setText(format_freq_tick(center_hz))
+        self._position_trace_labels()
 
     def push_minipan(self, center_hz, sample_rate, bins):
         # MINI-PAN carries the identical PAN sub-header as PAN frames
@@ -5042,9 +5131,32 @@ class Panadapter(QDialog):
             self.minipan_xs = numpy.linspace(freq_hz - actual_span_hz / 2,
                 freq_hz + actual_span_hz / 2, bin_count)
             self.minipan_plot.setXRange(self.minipan_xs[0], self.minipan_xs[-1], padding=0)
+            self._update_minipan_labels(actual_span_hz)
 
         self.minipan_curve.setData(self.minipan_xs, data)
         self._update_minipan_yrange(data)
+        self._update_minipan_freq_line(freq_hz)
+
+    def _update_minipan_freq_line(self, freq_hz):
+        if freq_hz == self.freq_line_minipan_hz:
+            return
+        self.freq_line_minipan_hz = freq_hz
+        self.freq_line_minipan.setPos(freq_hz)
+
+    def _update_minipan_labels(self, span_hz):
+        # xs[0]/xs[-1] are always exactly freq_hz -+ span_hz/2 (see the
+        # linspace above), so the deltas don't depend on freq_hz itself.
+        half = span_hz / 2
+        self.minipan_left_label.setText(self._format_delta_khz(-half))
+        self.minipan_right_label.setText(self._format_delta_khz(half))
+        self._position_minipan_labels()
+
+    @staticmethod
+    def _format_delta_khz(hz):
+        khz = hz / 1000
+        if khz == int(khz):
+            return f'{int(khz)} kHz'
+        return f'{khz:.1f} kHz'
 
     def _update_minipan_yrange(self, data):
         # Bottom fits the noise floor as usual, but the range is double
@@ -5162,7 +5274,7 @@ class PanadapterProcess(QObject):
     # session. Each subprocess keeps this state in its own memory (see
     # Panadapter.bandwidth_hz etc), so every newly opened window needs
     # its own explicit seed, not just the first one.
-    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#SCL', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB')
+    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#SCL', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', 'AR', 'AR$')
 
     @classmethod
     def open_window(cls, receiver):
@@ -5188,6 +5300,10 @@ class PanadapterProcess(QObject):
             # (the PAN stream's own display center).
             Server.k4_server.subscribe_response('FA;', cls.on_cat_response)
             Server.k4_server.subscribe_response('FB;', cls.on_cat_response)
+            # AR/AR$ (RX antenna) is relayed to trigger an automatic Ref
+            # capture on change -- see Panadapter.on_antenna_changed.
+            Server.k4_server.subscribe_response('AR;', cls.on_cat_response)
+            Server.k4_server.subscribe_response('AR$;', cls.on_cat_response)
             # SB (sub receiver on/off) decides, together with which
             # panadapter windows are open, whether a window's mini-pan
             # has real data to show -- see _update_dpm_state.
@@ -5492,6 +5608,8 @@ class PanadapterChannel(QObject):
                     Panadapter.on_bandwidth_changed(response)
                 elif base in ('FA', 'FB'):
                     Panadapter.on_frequency_changed(response)
+                elif base in ('AR', 'AR$'):
+                    Panadapter.on_antenna_changed(response)
         except Exception:
             traceback.print_exc(file=stderr)
 
@@ -5509,6 +5627,10 @@ def panadapter_child_main(receiver):
     window = Panadapter(receiver)
     Panadapter.windows[receiver] = window
     window.show()
+    # As if Ref had just been clicked, the first time the panadapter is
+    # displayed -- see on_ref_button/_trigger_auto_ref for the other
+    # two triggers (mode/antenna change).
+    window.on_ref_button()
 
     channel = PanadapterChannel(window)
     channel.start()
