@@ -629,7 +629,7 @@ class Server():
             self.connect_callbacks.append(callback)
 
     def update_k4_parameter(self, base, parameter):
-        if base in ('TX', 'RX', 'SD0', 'SD1', 'ES', 'TB', 'TB$', 'SB'):
+        if base in ('TX', 'RX', 'SD0', 'SD1', 'ES', 'TB', 'TB$', 'SB', 'NB', 'NB$'):
             if base == 'TX':
                 self.update_k4_parameter('TR', 'T')
             elif base == 'RX':
@@ -646,6 +646,10 @@ class Server():
                     return
             elif base == 'SB' and parameter == '3': # Workaround K4 bug
                 parameter = '1'
+            elif base in ('NB', 'NB$'):
+                if len(parameter) < 4:
+                    param = self.k4_parameter(base)
+                    parameter = f'{param[0:2]}{parameter[0]}{param[3]}'
 
         old = self.k4_parameters.get(base, None)
         self.k4_parameters[base] = parameter
@@ -5254,7 +5258,7 @@ class Panadapter(QDialog):
     def on_trace_clicked(self, event):
         freq_hz = self._clicked_frequency(self.trace_plot, event)
         if freq_hz != None:
-            self.request_tune(freq_hz)
+            self.request_tune(freq_hz, round_to_khz=True)
 
     def on_minipan_clicked(self, event):
         if not self.minipan_enabled:
@@ -5266,7 +5270,7 @@ class Panadapter(QDialog):
             return
         freq_hz = self._clicked_frequency(self.minipan_plot, event)
         if freq_hz != None:
-            self.request_tune(freq_hz, round_to_step=False)
+            self.request_tune(freq_hz, round_to_khz=False)
 
     @staticmethod
     def _clicked_frequency(plot, event):
@@ -5279,7 +5283,7 @@ class Panadapter(QDialog):
             return None  # e.g. a click that landed on the axis/label margin
         return view_box.mapSceneToView(event.scenePos()).x()
 
-    def request_tune(self, freq_hz, round_to_step=True):
+    def request_tune(self, freq_hz, round_to_khz):
         # Relayed to the parent, which owns the actual K4 connection
         # (see PanadapterProcess.on_tune_requested) -- over the same
         # stdout channel save_geometry/save_splitter_sizes report
@@ -5287,13 +5291,12 @@ class Panadapter(QDialog):
         # away, which is why monitor_loop processes lines as they
         # arrive rather than only once at exit.
         #
-        # The trailing "exact" asks the parent not to round the
-        # frequency to the current VFO step, which it otherwise does.
-        # The step is only ever a coarsening, so it is worth having on
-        # the trace (where a pixel is a good deal wider than the step)
-        # and not on the mini-pan (where it would discard the finer
-        # placement that is the whole point of clicking there).
-        suffix = '' if round_to_step else ' exact'
+        # The trailing "khz" asks the parent to round to the nearest
+        # kHz rather than the nearest Hz. That coarsening is worth
+        # having on the trace (where a pixel is a good deal wider than
+        # a kHz) and not on the mini-pan (where it would discard the
+        # finer placement that is the whole point of clicking there).
+        suffix = ' khz' if round_to_khz else ''
         try:
             sys.stdout.write(f'#PANTUNE {freq_hz}{suffix}\n')
             sys.stdout.flush()
@@ -5506,15 +5509,6 @@ class PanadapterProcess(QObject):
                                   # currently has real data to show, per
                                   # _update_dpm_state. Relayed to the
                                   # window's subprocess on change.
-    vfo_step = {'main': None, 'sub': None}
-                                  # VFO tuning step in Hz, from VT;/VT$;
-                                  # -- same encoding as the VFO widget's
-                                  # own (see VFO.on_step_received/
-                                  # VFO.step). Needed only here, to round
-                                  # a trace click's frequency before
-                                  # sending it -- see on_tune_requested --
-                                  # so unlike the state above, this never
-                                  # needs relaying to a child.
 
     # Emitted by monitor_loop when the subprocess exits. A queued signal
     # hands it to the Qt thread: on_exited() touches the settings file
@@ -5580,10 +5574,6 @@ class PanadapterProcess(QObject):
             # panadapter windows are open, whether a window's mini-pan
             # has real data to show -- see _update_dpm_state.
             Server.k4_server.subscribe_response('SB;', cls.on_sb_changed)
-            # VT/VT$ (VFO tuning step) is tracked to round a trace
-            # click's frequency to it -- see on_tune_requested.
-            Server.k4_server.subscribe_response('VT;', cls.on_vfo_step_changed)
-            Server.k4_server.subscribe_response('VT$;', cls.on_vfo_step_changed)
 
         process = cls.processes.get(receiver)
         if process != None:
@@ -5613,27 +5603,6 @@ class PanadapterProcess(QObject):
     @classmethod
     def on_sb_changed(cls, response):
         cls._update_dpm_state()
-
-    @classmethod
-    def on_vfo_step_changed(cls, response):
-        # VT/VT$ report the step index (0-4) as the first parameter
-        # digit, same as VFO.on_step_received -- e.g. "VT23;" is step
-        # index 2, mode 3. Index 5 is the same apparent K4 bug
-        # VFO.on_step_received works around; that widget already sends
-        # its own correction back to the radio, so this just interprets
-        # it the same way (2) rather than also sending one.
-        receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
-        param = cmd_parameter(response)
-        if len(param) == 0:
-            return
-        try:
-            step_index = int(param[0])
-        except ValueError:
-            return
-        if step_index == 5:
-            step_index = 2
-        step_index = max(0, min(len(VFO.step) - 1, step_index))
-        cls.vfo_step[receiver] = VFO.step[step_index]
 
     @classmethod
     def _update_dpm_state(cls):
@@ -5835,7 +5804,7 @@ class PanadapterProcess(QObject):
         PanadapterProcess._update_dpm_state()
 
     def on_tune_requested(self, request):
-        # "<freq>", or "<freq> exact" to tune to it as clicked -- see
+        # "<freq>", or "<freq> khz" to round to the nearest kHz -- see
         # Panadapter.request_tune.
         fields = request.split()
         if len(fields) == 0:
@@ -5844,9 +5813,10 @@ class PanadapterProcess(QObject):
             freq_hz = float(fields[0])
         except ValueError:
             return
-        step = PanadapterProcess.vfo_step[self.receiver]
-        if step != None and 'exact' not in fields[1:]:
-            freq_hz = round(freq_hz / step) * step
+        if 'khz' in fields[1:]:
+            freq_hz = round(freq_hz / 1000) * 1000
+        else:
+            freq_hz = round(freq_hz)
         freq_hz = max(VFO.low_frequency_limit, min(VFO.high_frequency_limit, freq_hz))
         base = 'FA' if self.receiver == 'main' else 'FB'
         Server.k4_server.send_cmds(f'{base}{freq_hz:011.0f};')
@@ -11445,7 +11415,6 @@ config_data = '''
   columns: 1
   contains: #{
     #include receive-tab-row1-group
-    #include receive-tab-row2-group
   #}
 #end
 
@@ -11582,15 +11551,6 @@ config_data = '''
     #include audio-effects-group
     #include af-limiter-slider
     #include af-center-pitch-group
-  #}
-#end
-
-#define receive-tab-row2-group
-- item: group
-  contains: #{
-    #include noise-blanker-group
-    #include noise-reduction-group-lms
-    #include noise-reduction-group-ssnr
   #}
 #end
 
@@ -11748,7 +11708,8 @@ config_data = '''
 #define rx-a-controls-row1-column1-row1
 - item: group
   contains: #{
-    #include main-volume-horizontal-slider-group
+    #include main-pan-togglebutton
+    #include main-volume-horizontal-slider
   #}
 #end
 
@@ -11781,7 +11742,9 @@ config_data = '''
 #define rx-a-controls-row3
 - item: group
   contains: #{
-    #include main-pan-enable
+    #include main-ssnr-group
+    #include main-lmsnr-group
+    #include main-noise-blanker-group
   #}
 #end
 
@@ -12000,7 +11963,8 @@ config_data = '''
 #define rx-b-controls-row1-column1-row1
 - item: group
   contains: #{
-    #include sub-volume-horizontal-slider-group
+    #include sub-pan-togglebutton
+    #include sub-volume-horizontal-slider
   #}
 #end
 
@@ -12032,7 +11996,9 @@ config_data = '''
 #define rx-b-controls-row3
 - item: group
   contains: #{
-    #include sub-pan-enable
+    #include sub-ssnr-group
+    #include sub-lmsnr-group
+    #include sub-noise-blanker-group
   #}
 #end
 
@@ -12217,34 +12183,26 @@ config_data = '''
   #}
 #end
 
-#define main-volume-horizontal-slider-group
-- item: group
-  columnspan: 2
-  contains: #{
-    #include main-volume-horizontal-slider
-  #}
-#end
-
 #define main-volume-horizontal-slider
 - item: slider
   label: AF Gain
   orient: horizontal
   from: 0
   to: 60
-  evallength: 'Widget.by_id["rfout"].frame.width()'
+  evallength: 'Widget.by_id["rfout"].frame.width() * .66'
   showvalue: False
   evalincrement: '1'
   evalcmd: '"AG{:03d};".format(int(round(value)))'
   evalresponse: 'float(value[2:5])'
 #end
 
-#define sub-volume-horizontal-slider-group
+#define sub-volume-horizontal-slider
 - item: slider
   label: AF Gain
   orient: horizontal
   from: 0
   to: 60
-  evallength: 'Widget.by_id["rfout"].frame.width()'
+  evallength: 'Widget.by_id["rfout"].frame.width() * .66'
   showvalue: False
   evalincrement: '1'
   evalcmd: '"AG${:03d};".format(int(round(value)))'
@@ -12597,219 +12555,6 @@ config_data = '''
   #}
 #end
 
-#define noise-blanker-group
-- item: group
-  label: NB
-  contains: #{
-    #include main-noise-blanker-group
-    #include sub-noise-blanker-group
-  #}
-#end
-
-#define main-noise-blanker-group
-- item: group
-  label: Main
-  leading: 0
-  columns: 1
-  contains: #{
-    #include main-noise-blanker-togglebutton
-    #include main-noise-blanker-slider
-  #}
-#end
-
-#define sub-noise-blanker-group
-- item: group
-  label: Sub
-  leading: 0
-  columns: 1
-  contains: #{
-    #include sub-noise-blanker-togglebutton
-    #include sub-noise-blanker-slider
-  #}
-#end
-  
-#define main-noise-blanker-togglebutton
-- item: togglebutton
-  selections: #{
-    - { text: "On",  cmd: NB1;, evalresponse: 'value if len(value) < 5 else value[0:2]+value[4]+";"' } 
-    - { text: "Off", cmd: NB0;, evalresponse: 'value if len(value) < 5 else value[0:2]+value[4]+";"' }
-  #}
-#end
-
-#define sub-noise-blanker-togglebutton
-- item: togglebutton
-  selections: #{
-    - { text: "On",  cmd: NB$1;, evalresponse: 'value if len(value) < 6 else value[0:3]+value[5]+";"' } 
-    - { text: "Off", cmd: NB$0;, evalresponse: 'value if len(value) < 6 else value[0:3]+value[5]+";"' }
-  #}
-#end
-
-#define main-noise-blanker-slider
-- item: slider
-  orient: vertical
-  from: 15
-  to: 0
-  length: 150
-  evalincrement: '1'
-  showvalue: True
-  evalcmd: '"NB{v:02d}{on};".format(v=int(round(value)), on=self.k4param("NB")[0] if self.len_k4param("NB") < 3 else self.k4param("NB")[2])'
-  evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
-#end
-
-#define sub-noise-blanker-slider
-- item: slider
-  orient: vertical
-  from: 15
-  to: 0
-  length: 150
-  evalincrement: '1'
-  showvalue: True
-  evalcmd: '"NB${v:02d}{on};".format(v=int(round(value)), on=self.k4param("NB$")[0] if self.len_k4param("NB$") < 3 else self.k4param("NB$")[2])'
-  evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
-#end
-
-#define noise-reduction-group-lms
-- item: group
-  label: NR (LMS)
-  contains: #{
-    #include main-noise-reduction-group-lms
-    #include sub-noise-reduction-group-lms
-  #}
-#end
-
-#define main-noise-reduction-group-lms
-- item: group
-  label: Main
-  leading: 0
-  columns: 1
-  contains: #{
-    #include main-noise-reduction-lms-togglebutton
-    #include main-noise-reduction-lms-slider
-  #}
-#end
-
-#define sub-noise-reduction-group-lms
-- item: group
-  label: Sub
-  leading: 0
-  columns: 1
-  contains: #{
-    #include sub-noise-reduction-lms-togglebutton
-    #include sub-noise-reduction-lms-slider
-  #}
-#end
-
-#define main-noise-reduction-lms-togglebutton
-- item: togglebutton
-  selections: #{
-    - { text: "On",  cmd: NR1;, evalcmd: '"NR{v}1;".format(v=self.k4param("NR")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' } 
-    - { text: "Off", cmd: NR0;, evalcmd: '"NR{v}0;".format(v=self.k4param("NR")[0:2])', evalresponse: 'value[0:2]+"0" if value[4] != "1" else "1"+";"' }
-  #}
-#end
-
-#define sub-noise-reduction-lms-togglebutton
-- item: togglebutton
-  selections: #{
-    - { text: "On",  cmd: NR$1;, evalcmd: '"NR${v}1;".format(v=self.k4param("NR$")[0:2])', evalresponse: 'value[0:3]+value[5]+";"' } 
-    - { text: "Off", cmd: NR$0;, evalcmd: '"NR${v}0;".format(v=self.k4param("NR$")[0:2])', evalresponse: 'value[0:3]+"0" if value[5] != "1" else "1"+";"' }
-  #}
-#end
-
-#define main-noise-reduction-lms-slider
-- item: slider
-  orient: vertical
-  from: 10
-  to: 1
-  length: 150
-  evalincrement: '1'
-  showvalue: True
-  evalcmd: '"NR{v:02d}{on};".format(v=int(round(value)), on=self.k4param("NR")[0] if self.len_k4param("NR") < 3 else self.k4param("NR")[2])'
-  evalresponse: '-1 if len(value) < 5 else int(value[2:4])'
-#end
-
-#define sub-noise-reduction-lms-slider
-- item: slider
-  orient: vertical
-  from: 10
-  to: 1
-  length: 150
-  evalincrement: '1'
-  showvalue: True
-  evalcmd: '"NR${v:02d}{on};".format(v=int(round(value)), on=self.k4param("NR$")[0] if self.len_k4param("NR$") < 3 else self.k4param("NR$")[2])'
-  evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
-#end
-
-#define noise-reduction-group-ssnr
-- item: group
-  label: NR (SSNR)
-  contains: #{
-    #include main-noise-reduction-group-ssnr
-    #include sub-noise-reduction-group-ssnr
-  #}
-#end
-
-#define main-noise-reduction-group-ssnr
-- item: group
-  label: Main
-  leading: 0
-  columns: 1
-  contains: #{
-    #include main-noise-reduction-ssnr-togglebutton
-    #include main-noise-reduction-ssnr-slider
-  #}
-#end
-
-#define sub-noise-reduction-group-ssnr
-- item: group
-  label: Sub
-  leading: 0
-  columns: 1
-  contains: #{
-    #include sub-noise-reduction-ssnr-togglebutton
-    #include sub-noise-reduction-ssnr-slider
-  #}
-#end
-
-#define main-noise-reduction-ssnr-togglebutton
-- item: togglebutton
-  selections: #{
-    - { text: "On",  cmd: NRS1;, evalcmd: '"NRS{v}1;".format(v=self.k4param("NRS")[0:2])', evalresponse: 'value[0:3]+value[5]+";"' } 
-    - { text: "Off", cmd: NRS0;, evalcmd: '"NRS{v}0;".format(v=self.k4param("NRS")[0:2])', evalresponse: 'value[0:3]+"0" if value[5] != "1" else "1"+";"' }
-  #}
-#end
-
-#define sub-noise-reduction-ssnr-togglebutton
-- item: togglebutton
-  selections: #{
-    - { text: "On",  cmd: NRS$1;, evalcmd: '"NRS${v}1;".format(v=self.k4param("NRS$")[0:2])', evalresponse: 'value[0:4]+value[6]+";"' } 
-    - { text: "Off", cmd: NRS$0;, evalcmd: '"NRS${v}0;".format(v=self.k4param("NRS$")[0:2])', evalresponse: 'value[0:4]+"0" if value[6] != "1" else "1"+";"' }
-  #}
-#end
-
-#define main-noise-reduction-ssnr-slider
-- item: slider
-  orient: vertical
-  from: 20
-  to: 1
-  length: 150
-  evalincrement: '1'
-  showvalue: True
-  evalcmd: '"NRS{v:02d}{on};".format(v=int(round(value)), on=self.k4param("NRS")[0] if self.len_k4param("NRS") < 3 else self.k4param("NRS")[2])'
-  evalresponse: '-1 if len(value) < 6 else int(value[3:5])'
-#end
-
-#define sub-noise-reduction-ssnr-slider
-- item: slider
-  orient: vertical
-  from: 20
-  to: 1
-  length: 150
-  evalincrement: '1'
-  showvalue: True
-  evalcmd: '"NRS${v:02d}{on};".format(v=int(round(value)), on=self.k4param("NRS$")[0] if self.len_k4param("NRS$") < 3 else self.k4param("NRS$")[2])'
-  evalresponse: '-1 if len(value) < 7 else int(value[4:6])'
-#end
-
 #define ctcss-group
 - item: group
   label: CTCSS
@@ -12935,16 +12680,302 @@ config_data = '''
   cmd: PS88;
 #end
 
-#define main-pan-enable
-- item: button
-  text: 'Pan'
-  cmd: WPAN!1;
+#define main-pan-togglebutton
+- item: togglebutton
+  label: Pan
+  selections: #{
+    - { text: "On",  cmd: WPAN!1; } 
+    - { text: "Off", cmd: WPAN!0; } 
+  #}
 #end
 
-#define sub-pan-enable
-- item: button
-  text: 'Pan'
-  cmd: WPAN$!1;
+#define sub-pan-togglebutton
+- item: togglebutton
+  label: Pan
+  selections: #{
+    - { text: "On",  cmd: WPAN$!1; } 
+    - { text: "Off", cmd: WPAN$!0; } 
+  #}
+#end
+
+#define main-noise-blanker-group
+- item: group
+  label: NB
+  contains: #{
+    #include main-noise-blanker-enable-togglebutton
+    #include main-noise-blanker-filter-dropdown-button
+    #include main-noise-blanker-dropdown-button
+  #}
+#end
+
+#define sub-noise-blanker-group
+- item: group
+  label: NB
+  contains: #{
+    #include sub-noise-blanker-enable-togglebutton
+    #include sub-noise-blanker-filter-dropdown-button
+    #include sub-noise-blanker-dropdown-button
+  #}
+#end
+  
+#define main-noise-blanker-enable-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: NB1;, evalcmd: 'f"NB{self.k4param("NB")[0:2]}1{self.k4param("NB")[3]};"', evalresponse: 'f"NB{value[4]};"' } 
+    - { text: "Off", cmd: NB0;, evalcmd: 'f"NB{self.k4param("NB")[0:2]}0{self.k4param("NB")[3]};"', evalresponse: 'f"NB{value[4]};"' } 
+  #}
+#end
+
+#define sub-noise-blanker-enable-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: NB$1;, evalcmd: 'f"NB${self.k4param("NB$")[0:2]}1{self.k4param("NB$")[3]};"', evalresponse: 'f"NB${value[5]};"' } 
+    - { text: "Off", cmd: NB$0;, evalcmd: 'f"NB${self.k4param("NB$")[0:2]}0{self.k4param("NB$")[3]};"', evalresponse: 'f"NB${value[5]};"' } 
+  #}
+#end
+  
+#define main-noise-blanker-filter-dropdown-button
+- item: dropdownbutton
+  selections: #{
+    - { text: "-", cmd: NB0;, evalcmd: 'f"NB{self.k4param("NB")[0:3]}0;"', evalresponse: 'f"NB{value[5]};"' } 
+    - { text: "N", cmd: NB1;, evalcmd: 'f"NB{self.k4param("NB")[0:3]}1;"', evalresponse: 'f"NB{value[5]};"' } 
+    - { text: "W", cmd: NB2;, evalcmd: 'f"NB{self.k4param("NB")[0:3]}2;"', evalresponse: 'f"NB{value[5]};"' } 
+  #}
+#end
+  
+#define sub-noise-blanker-filter-dropdown-button
+- item: dropdownbutton
+  selections: #{
+    - { text: "-", cmd: NB$0;, evalcmd: 'f"NB${self.k4param("NB$")[0:3]}0;"', evalresponse: 'f"NB${value[6]};"' } 
+    - { text: "N", cmd: NB$1;, evalcmd: 'f"NB${self.k4param("NB$")[0:3]}1;"', evalresponse: 'f"NB${value[6]};"' } 
+    - { text: "W", cmd: NB$2;, evalcmd: 'f"NB${self.k4param("NB$")[0:3]}2;"', evalresponse: 'f"NB${value[6]};"' } 
+  #}
+#end
+
+#define main-noise-blanker-dropdown-button
+- item: dropdownbutton
+  from: 0
+  to: 15
+  evalincrement: 1
+  evalcmd: 'f"NB{round(value):02d}{self.k4param("NB")[2]}{self.k4param("NB")[3]};"'
+  unexpectedresponse: value[2:4]
+  selections: #{
+    - { text: "15", cmd: NB15;, evalcmd: 'f"NB15{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "14", cmd: NB14;, evalcmd: 'f"NB14{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "13", cmd: NB13;, evalcmd: 'f"NB13{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "12", cmd: NB12;, evalcmd: 'f"NB12{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "11", cmd: NB11;, evalcmd: 'f"NB11{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "10", cmd: NB10;, evalcmd: 'f"NB10{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "9", cmd: NB09;, evalcmd: 'f"NB09{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "8", cmd: NB08;, evalcmd: 'f"NB08{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "7", cmd: NB07;, evalcmd: 'f"NB07{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "6", cmd: NB06;, evalcmd: 'f"NB06{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "5", cmd: NB05;, evalcmd: 'f"NB05{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "4", cmd: NB04;, evalcmd: 'f"NB04{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "3", cmd: NB03;, evalcmd: 'f"NB03{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "2", cmd: NB02;, evalcmd: 'f"NB02{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "1", cmd: NB01;, evalcmd: 'f"NB01{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+    - { text: "0", cmd: NB00;, evalcmd: 'f"NB00{self.k4param("NB")[2:4]};"', evalresponse: 'f"NB{self.k4param("NB")[0:2]};"' }
+  #}
+#end
+
+#define sub-noise-blanker-dropdown-button
+- item: dropdownbutton
+  from: 0
+  to: 15
+  evalincrement: 1
+  evalcmd: 'f"NB${round(value):02d}{self.k4param("NB$")[2]}{self.k4param("NB$")[3]};"'
+  unexpectedresponse: value[3:5]
+  selections: #{
+    - { text: "15", cmd: NB$15;, evalcmd: 'f"NB$15{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "14", cmd: NB$14;, evalcmd: 'f"NB$14{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "13", cmd: NB$13;, evalcmd: 'f"NB$13{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "12", cmd: NB$12;, evalcmd: 'f"NB$12{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "11", cmd: NB$11;, evalcmd: 'f"NB$11{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "10", cmd: NB$10;, evalcmd: 'f"NB$10{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "9", cmd: NB$09;, evalcmd: 'f"NB$09{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "8", cmd: NB$08;, evalcmd: 'f"NB$08{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "7", cmd: NB$07;, evalcmd: 'f"NB$07{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "6", cmd: NB$06;, evalcmd: 'f"NB$06{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "5", cmd: NB$05;, evalcmd: 'f"NB$05{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "4", cmd: NB$04;, evalcmd: 'f"NB$04{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "3", cmd: NB$03;, evalcmd: 'f"NB$03{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "2", cmd: NB$02;, evalcmd: 'f"NB$02{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "1", cmd: NB$01;, evalcmd: 'f"NB$01{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+    - { text: "0", cmd: NB$00;, evalcmd: 'f"NB$00{self.k4param("NB$")[2:4]};"', evalresponse: 'f"NB${self.k4param("NB$")[0:2]};"' }
+  #}
+#end
+
+#define main-ssnr-group
+- item: group
+  label: SSNR
+  contains: #{
+    #include main-ssnr-enable-togglebutton
+    #include main-ssnr-dropdown-button
+  #}
+#end
+
+#define sub-ssnr-group
+- item: group
+  label: SSNR
+  contains: #{
+    #include sub-ssnr-enable-togglebutton
+    #include sub-ssnr-dropdown-button
+  #}
+#end
+
+#define main-ssnr-enable-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: NRS1;, evalcmd: '"NRS{v}1;".format(v=self.k4param("NRS")[0:2])', evalresponse: 'value[0:3]+value[5]+";"' } 
+    - { text: "Off", cmd: NRS0;, evalcmd: '"NRS{v}0;".format(v=self.k4param("NRS")[0:2])', evalresponse: 'value[0:3]+("1" if value[5] == "1" else "0")+";"' }
+  #}
+#end
+
+#define sub-ssnr-enable-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: NRS$1;, evalcmd: '"NRS${v}1;".format(v=self.k4param("NRS$")[0:2])', evalresponse: 'value[0:4]+value[6]+";"' } 
+    - { text: "Off", cmd: NRS$0;, evalcmd: '"NRS${v}0;".format(v=self.k4param("NRS$")[0:2])', evalresponse: 'value[0:4]+("1" if value[6] == "1" else "0")+";"' }
+  #}
+#end
+
+#define main-ssnr-dropdown-button
+- item: dropdownbutton
+  from: 1
+  to: 20
+  evalincrement: 1
+  evalcmd: 'f"NRS{round(value):02d}{1 if self.k4param("NRS")[2] == "1" else 0};"'
+  unexpectedresponse: value[3:5]
+  selections: #{
+    - { text: "20", cmd: NRS201;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "19", cmd: NRS191;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "18", cmd: NRS181;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "17", cmd: NRS171;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "16", cmd: NRS161;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "15", cmd: NRS151;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "14", cmd: NRS141;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "13", cmd: NRS131;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "12", cmd: NRS121;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "11", cmd: NRS111;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "10", cmd: NRS101;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "9", cmd: NRS091;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "8", cmd: NRS081;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "7", cmd: NRS071;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "6", cmd: NRS061;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "5", cmd: NRS051;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "4", cmd: NRS041;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "3", cmd: NRS031;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "2", cmd: NRS021;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "1", cmd: NRS011;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+  #}
+#end
+
+#define sub-ssnr-dropdown-button
+- item: dropdownbutton
+  from: 1
+  to: 20
+  evalincrement: 1
+  evalcmd: 'f"NRS${round((value)):02d}{1 if self.k4param("NRS$")[2] == "1" else 0};"'
+  unexpectedresponse: value[4:6]
+  selections: #{
+    - { text: "20", cmd: NRS$201;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "19", cmd: NRS$191;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "18", cmd: NRS$181;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "17", cmd: NRS$171;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "16", cmd: NRS$161;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "15", cmd: NRS$151;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "14", cmd: NRS$141;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "13", cmd: NRS$131;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "12", cmd: NRS$121;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "11", cmd: NRS$111;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "10", cmd: NRS$101;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "9", cmd: NRS$091;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "8", cmd: NRS$081;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "7", cmd: NRS$071;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "6", cmd: NRS$061;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "5", cmd: NRS$051;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "4", cmd: NRS$041;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "3", cmd: NRS$031;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "2", cmd: NRS$021;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "1", cmd: NRS$011;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+  #}
+#end
+
+#define main-lmsnr-group
+- item: group
+  label: LMSNR
+  contains: #{
+    #include main-lmsnr-enable-togglebutton
+    #include main-lmsnr-dropdown-button
+  #}
+#end
+
+#define sub-lmsnr-group
+- item: group
+  label: LMSNR
+  contains: #{
+    #include sub-lmsnr-enable-togglebutton
+    #include sub-lmsnr-dropdown-button
+  #}
+#end
+
+#define main-lmsnr-enable-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: NR1;, evalcmd: '"NR{v}1;".format(v=self.k4param("NR")[0:2])', evalresponse: 'value[0:2]+value[4]+";"' } 
+    - { text: "Off", cmd: NR0;, evalcmd: '"NR{v}0;".format(v=self.k4param("NR")[0:2])', evalresponse: 'value[0:2]+("1" if value[4] == "1" else "0")+";"' }
+  #}
+#end
+
+#define sub-lmsnr-enable-togglebutton
+- item: togglebutton
+  selections: #{
+    - { text: "On",  cmd: NR$1;, evalcmd: '"NR${v}1;".format(v=self.k4param("NR$")[0:2])', evalresponse: 'value[0:3]+value[5]+";"' } 
+    - { text: "Off", cmd: NR$0;, evalcmd: '"NR${v}0;".format(v=self.k4param("NR$")[0:2])', evalresponse: 'value[0:3]+("1" if value[5] == "1" else "0")+";"' }
+  #}
+#end
+
+#define main-lmsnr-dropdown-button
+- item: dropdownbutton
+  from: 1
+  to: 10
+  evalincrement: 1
+  evalcmd: 'f"NR{round(value):02d}{1 if self.k4param("NR")[2] == "1" else 0};"'
+  unexpectedresponse: value[2:4]
+  selections: #{
+    - { text: "10", cmd: NR101;, evalresponse: 'f"NR{self.k4param("NR")[0:2]}1;"' }
+    - { text: "9", cmd: NR091;, evalresponse: 'f"NR{self.k4param("NR")[0:2]}1;"' }
+    - { text: "8", cmd: NR081;, evalresponse: 'f"NR{self.k4param("NR")[0:2]}1;"' }
+    - { text: "7", cmd: NR071;, evalresponse: 'f"NR{self.k4param("NR")[0:2]}1;"' }
+    - { text: "6", cmd: NR061;, evalresponse: 'f"NR{self.k4param("NR")[0:2]}1;"' }
+    - { text: "5", cmd: NR051;, evalresponse: 'f"NR{self.k4param("NR")[0:2]}1;"' }
+    - { text: "4", cmd: NR041;, evalresponse: 'f"NR{self.k4param("NR")[0:2]}1;"' }
+    - { text: "3", cmd: NR031;, evalresponse: 'f"NR{self.k4param("NR")[0:2]}1;"' }
+    - { text: "2", cmd: NR021;, evalresponse: 'f"NR{self.k4param("NR")[0:2]}1;"' }
+    - { text: "1", cmd: NR011;, evalresponse: 'f"NR{self.k4param("NR")[0:2]}1;"' }
+  #}
+#end
+
+#define sub-lmsnr-dropdown-button
+- item: dropdownbutton
+  from: 1
+  to: 10
+  evalincrement: 1
+  evalcmd: 'f"NR${round(value):02d}{1 if self.k4param("NR$")[2] == "1" else 0};"'
+  unexpectedresponse: value[3:5]
+  selections: #{
+    - { text: "10", cmd: NR$101;, evalresponse: 'f"NR${self.k4param("NR$")[0:2]}1;"' }
+    - { text: "9", cmd: NR$091;, evalresponse: 'f"NR${self.k4param("NR$")[0:2]}1;"' }
+    - { text: "8", cmd: NR$081;, evalresponse: 'f"NR${self.k4param("NR$")[0:2]}1;"' }
+    - { text: "7", cmd: NR$071;, evalresponse: 'f"NR${self.k4param("NR$")[0:2]}1;"' }
+    - { text: "6", cmd: NR$061;, evalresponse: 'f"NR${self.k4param("NR$")[0:2]}1;"' }
+    - { text: "5", cmd: NR$051;, evalresponse: 'f"NR${self.k4param("NR$")[0:2]}1;"' }
+    - { text: "4", cmd: NR$041;, evalresponse: 'f"NR${self.k4param("NR$")[0:2]}1;"' }
+    - { text: "3", cmd: NR$031;, evalresponse: 'f"NR${self.k4param("NR$")[0:2]}1;"' }
+    - { text: "2", cmd: NR$021;, evalresponse: 'f"NR${self.k4param("NR$")[0:2]}1;"' }
+    - { text: "1", cmd: NR$011;, evalresponse: 'f"NR${self.k4param("NR$")[0:2]}1;"' }
+  #}
 #end
 
 #define rit-xit-group
