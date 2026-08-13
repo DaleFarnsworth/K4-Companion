@@ -612,7 +612,29 @@ class Server():
         if self.type == 'k4' and not self.cat_only:
             Audio.server_connected(self)
         Page.main().select_tab('Main')
-        PanadapterProcess.restore_open_windows()
+        # Deferred via subscribe_received_initial_parameters() rather
+        # than called directly here: restore_open_windows()'s
+        # open_window() syncs the Main/Sub tab's Pan togglebutton (see
+        # its own comment) by dispatching a synthetic WPAN!/WPAN$!
+        # "response" -- but the togglebutton's own subscription to that
+        # is itself deferred the exact same way (built by read_config()
+        # before any connection exists, so its
+        # subscribe_received_initial_parameters() call queues rather
+        # than fires immediately). Calling this directly here ran it as
+        # soon as the socket connected, before request_initial_parameters()
+        # above's responses -- including the one that flips
+        # received_initial_parameters True and finally runs the
+        # togglebutton's queued subscription -- had come back, so the
+        # sync fired to no listener yet and was never replayed (directive
+        # responses are exempted from replay-on-subscribe, same reason
+        # as request_initial_parameters() itself use send=False).
+        # subscribe_received_initial_parameters() queues on the same
+        # list, in the same append order, so as long as this call runs
+        # after the togglebutton's own -- true here since widget
+        # construction (read_config()) always completes before a
+        # connection is even attempted -- it fires after, not before.
+        self.subscribe_received_initial_parameters(
+            lambda server: PanadapterProcess.restore_open_windows())
 
     def on_error_code(self, response):
         response = response.rstrip(';')
@@ -970,6 +992,13 @@ class Server():
                 PanadapterProcess.open_window(receiver)
             else:
                 PanadapterProcess.close_window(receiver)
+                # close_window() itself doesn't clear this -- it is also
+                # used by close_all() at app shutdown, where a window
+                # that is still genuinely open when the user quits must
+                # stay marked open so restore_open_windows() brings it
+                # back next launch. Only an explicit "Off" here means
+                # the user doesn't want it restored.
+                Server.settings.put_save('Window', f'Panadapter.{receiver}.open', False)
         else:
            raise Exception('Unknown directive: ', self.directive)
 
@@ -5544,6 +5573,18 @@ class PanadapterProcess(QObject):
 
     @classmethod
     def open_window(cls, receiver):
+        # Syncs the Main/Sub tab's Pan togglebutton to "On" -- the
+        # counterpart of on_exited()'s "Off" sync, and needed for the
+        # same reason: WPAN!/WPAN$! are purely local directives (see
+        # directive()) that never arrive as a real response, so the
+        # togglebutton has no other way to learn the window is open.
+        # This is the one path both a user's click AND
+        # restore_open_windows() (at app startup, restoring a window
+        # left open from a previous session) funnel through, so it
+        # covers both -- for the click, it is a harmless re-affirmation
+        # of what next_selection() already set locally.
+        wpan_base = 'WPAN$!' if receiver == 'sub' else 'WPAN!'
+        Server.k4_server.update_k4_parameter(wpan_base, '1')
         if not cls.subscribed:
             cls.subscribed = True
             Server.k4_server.subscribe_response('#SPN;', cls.on_cat_response)
@@ -5779,6 +5820,19 @@ class PanadapterProcess(QObject):
         if splitter_sizes != None:
             Server.settings.put_save('Window',
                 f'Panadapter.{self.receiver}.splitter', splitter_sizes)
+        # Syncs the Main/Sub tab's Pan togglebutton to "Off", the same
+        # way a real K4 response would -- see main-pan-togglebutton /
+        # sub-pan-togglebutton in the yaml, whose selections subscribe
+        # to WPAN!/WPAN$! as their own "response" even though WPAN is a
+        # purely local directive (see directive()) that never actually
+        # arrives as one. Unconditional (runs before the stopping check
+        # below) because the window is closed either way by this point,
+        # whether the user closed it directly (self.stopping False) or
+        # it was asked to close, e.g. by clicking the togglebutton
+        # itself (self.stopping True, and already "Off" locally from
+        # that click -- this just re-affirms the same state).
+        wpan_base = 'WPAN$!' if self.receiver == 'sub' else 'WPAN!'
+        Server.k4_server.update_k4_parameter(wpan_base, '0')
         if self.stopping:
             return
         # Not stopping, so the child went away on its own -- the user
@@ -12684,8 +12738,8 @@ config_data = '''
 - item: togglebutton
   label: Pan
   selections: #{
-    - { text: "On",  cmd: WPAN!1; } 
     - { text: "Off", cmd: WPAN!0; } 
+    - { text: "On",  cmd: WPAN!1; } 
   #}
 #end
 
@@ -12693,8 +12747,8 @@ config_data = '''
 - item: togglebutton
   label: Pan
   selections: #{
-    - { text: "On",  cmd: WPAN$!1; } 
     - { text: "Off", cmd: WPAN$!0; } 
+    - { text: "On",  cmd: WPAN$!1; } 
   #}
 #end
 
