@@ -4774,9 +4774,13 @@ class Panadapter(QDialog):
         minipan_row_layout.setContentsMargins(0, 0, 0, 0)
         minipan_row_layout.addWidget(self.minipan_plot)
         self.ref_button = QPushButton('Ref')
-        self.ref_button.setStyleSheet(qt_button_stylesheet('black', 'white', '#444', 'white'))
+        self.ref_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black'))
         self.ref_button.clicked.connect(self.on_ref_button)
         minipan_row_layout.addWidget(self.ref_button, 0, Qt.AlignmentFlag.AlignTop)
+        self.center_button = QPushButton('Center')
+        self.center_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black'))
+        self.center_button.clicked.connect(self.on_center_button)
+        minipan_row_layout.addWidget(self.center_button, 0, Qt.AlignmentFlag.AlignTop)
         minipan_row_layout.addStretch(1)
         layout.addWidget(minipan_row, 1)
 
@@ -5188,6 +5192,17 @@ class Panadapter(QDialog):
         self.ref_count = 0
         self.ref_start_time = time.perf_counter()
 
+    def on_center_button(self):
+        # Relayed to the parent, which owns the actual K4 connection
+        # (see PanadapterProcess.on_center_requested) -- same channel
+        # as request_tune, for the same reason: it has to reach the
+        # radio right away.
+        try:
+            sys.stdout.write('#PANCENTER\n')
+            sys.stdout.flush()
+        except (BrokenPipeError, ValueError, OSError):
+            pass
+
     def _accumulate_ref(self, trace_data):
         self.ref_sum += float(trace_data.sum())
         self.ref_count += trace_data.size
@@ -5514,6 +5529,10 @@ class PanadapterProcess(QObject):
     # the Qt thread.
     tuned = pyqtSignal(str)
 
+    # Emitted the same way as tuned, for the Center button (see
+    # Panadapter.on_center_button/on_center_requested below).
+    centered = pyqtSignal()
+
     # Relayed to a newly opened window below, from whatever's already
     # cached, since the subscriptions just below only ever fire their
     # "here's the current value" callback once, for the very first
@@ -5695,6 +5714,7 @@ class PanadapterProcess(QObject):
         self.stopping = False
         self.exited.connect(self.on_exited)
         self.tuned.connect(self.on_tune_requested)
+        self.centered.connect(self.on_center_requested)
 
         if getattr(sys, 'frozen', False):
             argv = [sys.executable]
@@ -5756,8 +5776,9 @@ class PanadapterProcess(QObject):
                 return
 
     def monitor_loop(self):
-        # #PANTUNE lines arrive throughout the session (one per trace or
-        # mini-pan click) and are handled immediately; #PANGEOM/#PANSPLIT are
+        # #PANTUNE/#PANCENTER lines arrive throughout the session (one
+        # per trace/mini-pan click or Center button press) and are
+        # handled immediately; #PANGEOM/#PANSPLIT are
         # only ever written once, right before the child exits, and are
         # applied together when that exit is finally seen below -- which
         # is also how a user close of the window gets back to us.
@@ -5772,6 +5793,8 @@ class PanadapterProcess(QObject):
                     splitter_sizes = line[len('#PANSPLIT '):]
                 elif line.startswith('#PANTUNE '):
                     self.tuned.emit(line[len('#PANTUNE '):])
+                elif line == '#PANCENTER':
+                    self.centered.emit()
         except (ValueError, OSError):
             pass
         self.process.wait()
@@ -5827,6 +5850,16 @@ class PanadapterProcess(QObject):
         freq_hz = max(VFO.low_frequency_limit, min(VFO.high_frequency_limit, freq_hz))
         base = 'FA' if self.receiver == 'main' else 'FB'
         Server.k4_server.send_cmds(f'{base}{freq_hz:011.0f};')
+
+    def on_center_requested(self):
+        # FC;/FC$; (K4 Programmer's Reference: "Center Panadapter for
+        # target VFO") re-centers the radio's own PAN stream on the
+        # current VFO -- there is no way to do this from software alone
+        # the way click-to-tune moves the VFO instead, since the trace's
+        # displayed frequencies come from the PAN stream's own center_hz
+        # (see push_frame), not from the VFO.
+        base = 'FC' if self.receiver == 'main' else 'FC$'
+        Server.k4_server.send_cmds(f'{base};')
 
     def _close_pipe(self):
         try:
