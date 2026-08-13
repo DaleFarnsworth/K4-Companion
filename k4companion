@@ -107,6 +107,11 @@ def qt_font(family, size, weight='normal'):
     font.setWeight(weight)
     return font
 
+def font_unit():
+    family = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont).family()
+    font = qt_font(family, 10)
+    return QFontMetrics(font).averageCharWidth() / 8
+
 class CompactStyle(QProxyStyle):
     # Every QGridLayout/QVBoxLayout/QHBoxLayout created without explicit
     # setContentsMargins()/setSpacing() falls back to these pixelMetric()
@@ -2814,8 +2819,7 @@ class SliderWidget():
         orient = Qt.Orientation.Horizontal if options.get('orient', 'horizontal') == 'horizontal' \
             else Qt.Orientation.Vertical
         self.evalincrement = options.get('evalincrement', 1.0)
-        length = options.get('length', 100)
-        self.eval_length = options.get('evallength', None)
+        length = round(options.get('length', 100) * font_unit())
         self.label = options.get('label', None)
         self.showvalue = true_values(options.get('showvalue', True))
 
@@ -2889,26 +2893,6 @@ class SliderWidget():
         cmd = self.caller.eval_value(self.evalcmd, self.value)
         if cmd != "":
             self.server.subscribe_response(cmd, self.on_response_received)
-        if self.eval_length != None:
-            # This typically evaluates something like another widget's
-            # .frame.width(), but on_received_initial_parameters() fires
-            # synchronously during start(), which runs before top.show()
-            # -- unlike tk's winfo_width() (which forces an immediate
-            # layout pass on demand, even pre-mainloop), Qt's width() just
-            # returns whatever's cached, which is 0 for anything never
-            # shown/laid out yet. Defer to the next event loop iteration
-            # (once app.exec() is running and the window has actually
-            # been shown) so the referenced widget has a real size.
-            QTimer.singleShot(0, self._apply_eval_length)
-
-    def _apply_eval_length(self):
-        length = self.caller.eval_value(self.eval_length)
-        if self.label != None:
-            length -= 8             # account for width of the LabelFrame
-        if self.scale.orientation() == Qt.Orientation.Horizontal:
-            self.scale.setFixedWidth(round(length))
-        else:
-            self.scale.setFixedHeight(round(length))
 
     def on_mouse_wheel(self, event):
         incr = self.resolution * mouse_wheel_mult(event)
@@ -2961,7 +2945,7 @@ class SliderWidget():
 class Slider(Widget):
     def __init__(self, config_info, container):
         required = ['item', 'evalcmd', 'from', 'to', 'evalresponse']
-        optional = ['orient', 'width', 'length', 'evallength', 'evalincrement',
+        optional = ['orient', 'length', 'evalincrement',
             'showvalue', 'label', 'leading', 'bg', 'abg', 'fg', 'afg', 'font',
             'padx', 'pady']
         validate_options(config_info, required, optional)
@@ -12243,7 +12227,7 @@ config_data = '''
   orient: horizontal
   from: 0
   to: 60
-  evallength: 'Widget.by_id["rfout"].frame.width() * .66'
+  length: 115
   showvalue: False
   evalincrement: '1'
   evalcmd: '"AG{:03d};".format(int(round(value)))'
@@ -12256,7 +12240,7 @@ config_data = '''
   orient: horizontal
   from: 0
   to: 60
-  evallength: 'Widget.by_id["rfout"].frame.width() * .66'
+  length: 115
   showvalue: False
   evalincrement: '1'
   evalcmd: '"AG${:03d};".format(int(round(value)))'
