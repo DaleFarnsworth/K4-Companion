@@ -533,6 +533,7 @@
     - { text: '3.50', cmd: BW0350; }
     - { text: '2.80', cmd: BW0280; }
     - { text: '1.80', cmd: BW0180; }
+    - { text: '1.00', cmd: BW0100; }
     - { text: '0.50', cmd: BW0050; }
     - { text: '0.40', cmd: BW0040; }
     - { text: '0.30', cmd: BW0030; }
@@ -741,6 +742,7 @@
     - { text: '3.50', cmd: BW$0350; }
     - { text: '2.80', cmd: BW$0280; }
     - { text: '1.80', cmd: BW$0180; }
+    - { text: '1.00', cmd: BW$0100; }
     - { text: '0.50', cmd: BW$0050; }
     - { text: '0.40', cmd: BW$0040; }
     - { text: '0.30', cmd: BW$0030; }
