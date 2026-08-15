@@ -598,6 +598,7 @@ class Server():
         self.last_tune_cmd = Server.settings.get(section, 'tune_cmd', 'TU3;')
         self.received_cat_cmd = False
         self.previous_ov_bits = 0
+        self.lost_connection_retry_count = 0
 
         self.set_address(self.address_port)
         self.set_proxy(self.proxy_address_port)
@@ -1097,8 +1098,10 @@ class Server():
                     try:
                         self.socket.send(b)
                     except:
-                        self.lost_connection('Socket send error')
-                        return
+                        if self.lost_connection('Socket send error'):
+                            return
+                        else:
+                            continue
 
             if Options.debug >= 1:
                 cmds = None
@@ -1283,19 +1286,27 @@ class Server():
             if not self.connected:
                 return
             if len(in_error) > 0:
-                self.lost_connection('Select error')
-                return
+                if self.lost_connection('Receive select error'):
+                    return
+                else:
+                    contineu
             if len(readable) == 0:
                 continue
 
             try:
                 recv_bytes = self.socket.recv(16384)
             except:
-                self.lost_connection('Socket receive error')
-                return
+                if self.lost_connection('Socket receive error'):
+                    return
+                else:
+                    continue
             if len(recv_bytes) == 0:
-                self.lost_connection('Received zero bytes')
-                return
+                if self.lost_connection('Received zero bytes'):
+                    return
+                else:
+                    continue
+
+            self.lost_connection_retry_count = 0
 
             try:
                 self.recv_queue.put(recv_bytes)
@@ -1310,19 +1321,27 @@ class Server():
             if not self.connected:
                 return
             if len(in_error) > 0:
-                self.lost_connection('receive select error')
-                return
+                if self.lost_connection('Receive select error'):
+                    return
+                else:
+                    continue
             if len(readable) == 0:
                 continue
 
             try:
                 rb = self.socket.recv(16384)
             except:
-                self.lost_connection('Socket receive error')
-                return
+                if self.lost_connection('Socket receive error'):
+                    return
+                else:
+                    continue
             if len(rb) == 0:
-                self.lost_connection('Received zero bytes')
-                return
+                if self.lost_connection('Received zero bytes'):
+                    return
+                else:
+                    continue
+
+            self.lost_connection_retry_count = 0
 
             if self.partial_packet != None:
                 rb = self.partial_packet + rb
@@ -1482,9 +1501,15 @@ class Server():
         return pw
 
     def lost_connection(self, reason):
+        self.lost_connection_retry_count += 1
+        if self.lost_connection_retry_count <= 10:
+            if self.lost_connection_retry_count == 1:
+                Popup.warning(reason, timeout=1000)
+            return False
         if self.received_cat_cmd:
             Popup.error(f'Lost connection to {self.name}\n{reason}', timeout=None)
         self.connected = False
+        return True
 
     def connect_on_start(self):
         if self.address == '':
