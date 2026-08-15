@@ -8963,10 +8963,19 @@ class CW(TextButtons):
         }
         self.cw_pitch = SliderWidget(self, cw_pitch_frame, cw_pitch_options)
 
+        controls_frame, controls_grid = qt_group_box('', self.label_font())
+        more_grid.addWidget(controls_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        auto_char_space_frame = self.auto_char_space_setting(controls_frame)
+        controls_grid.addWidget(auto_char_space_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        auto_word_space_frame = self.auto_word_space_setting(controls_frame)
+        controls_grid.addWidget(auto_word_space_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
         decode_frame = QWidget()
         decode_grid = QGridLayout(decode_frame)
         decode_grid.setContentsMargins(0, 0, 0, 0)
-        more_grid.addWidget(decode_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        more_grid.addWidget(decode_frame, 3, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         main_decode_frame, main_decode_grid = qt_group_box('Main Decode', self.label_font())
         decode_grid.addWidget(main_decode_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -9059,7 +9068,7 @@ class CW(TextButtons):
         DropdownWidget(self, sub_threshold_frame, sub_threshold_options)
 
         key_down_delay_frame, key_down_delay_grid = qt_group_box('Key Down Initial Delay', self.label_font())
-        more_grid.addWidget(key_down_delay_frame, 3, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        more_grid.addWidget(key_down_delay_frame, 4, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         key_down_delay_options = {
             'orient': 'horizontal', 'from': 0, 'to': 1000,
@@ -9068,6 +9077,52 @@ class CW(TextButtons):
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
         }
         self.key_down_delay = SliderWidget(self, key_down_delay_frame, key_down_delay_options)
+
+    def auto_char_space_setting(self, frame):
+        setting = Server.settings.getbool('CW', 'auto_char_space', False)
+
+        control_frame, control_grid = qt_group_box('ACS', self.label_font())
+
+        acs_options = {
+            'initialindex': 0 if setting else 1,
+            'selections': [
+                {'text': 'On'},
+                {'text': 'Off'},
+            ],
+            'width': 3, 'font': self.font(),
+        }
+        self.acs_toggle = ToggleWidget(self, control_frame, acs_options)
+        self.acs_toggle.button.clicked.connect(self.on_auto_char_space_toggled)
+
+        return control_frame
+
+    def on_auto_char_space_toggled(self):
+        setting = self.acs_toggle.selections[self.acs_toggle.index]['text'] == 'On'
+        Server.settings.put_save('CW', 'auto_char_space', setting)
+        Keyer.set_auto_char_space(setting)
+
+    def auto_word_space_setting(self, frame):
+        setting = Server.settings.getbool('CW', 'auto_word_space', False)
+
+        control_frame, control_grid = qt_group_box('AWS', self.label_font())
+
+        acs_options = {
+            'initialindex': 0 if setting else 1,
+            'selections': [
+                {'text': 'On'},
+                {'text': 'Off'},
+            ],
+            'width': 3, 'font': self.font(),
+        }
+        self.acs_toggle = ToggleWidget(self, control_frame, acs_options)
+        self.acs_toggle.button.clicked.connect(self.on_auto_word_space_toggled)
+
+        return control_frame
+
+    def on_auto_word_space_toggled(self):
+        setting = self.acs_toggle.selections[self.acs_toggle.index]['text'] == 'On'
+        Server.settings.put_save('CW', 'auto_word_space', setting)
+        Keyer.set_auto_word_space(setting)
 
     def add_config_tab(self):
         self.config_frame = QWidget()
@@ -10528,6 +10583,16 @@ class Keyer():
     def set_dah_up_memory_delay_percent(cls, percent):
         cls.dah_up_memory_delay_percent = percent
 
+    @classmethod
+    def set_auto_char_space(cls, val):
+        self = cls.singleton
+        self.auto_char_space = val
+
+    @classmethod
+    def set_auto_word_space(cls, val):
+        self = cls.singleton
+        self.auto_word_space = val
+
     def __init__(self):
         self.DIT_DOWN_EVENT = 'dit_down'
         self.DIT_UP_EVENT = 'dit_up'
@@ -10540,6 +10605,9 @@ class Keyer():
         self.delta = 0
         self.dit_was_down = False
         self.dah_was_down = False
+
+        self.auto_char_space = Server.settings.getbool('CW', 'auto_char_space', False)
+        self.auto_word_space = Server.settings.getbool('CW', 'auto_word_space', False)
 
         # for straight_key handling
         self.paddle_event_queue = queue.Queue()
@@ -10756,13 +10824,13 @@ class Keyer():
             first_element = False
 
     def send_element(self, elt, first_element):
-        if first_element:
+        if (self.auto_char_space or self.auto_word_space) and first_element:
             time_since_last_char = time.perf_counter() - self.end_element_timestamp
             time_remaining = 0
-            if time_since_last_char > 5.5/7 * self.inter_word_seconds:
+            if self.auto_word_space and (time_since_last_char > 5.5/7 * self.inter_word_seconds):
                 # wait an inter-character interval
                 time_remaining = self.inter_word_seconds - time_since_last_char
-            elif time_since_last_char > 2/3 * self.inter_character_seconds:
+            elif self.auto_char_space and (time_since_last_char > 2/3 * self.inter_character_seconds):
                 # wait an inter-word interval
                 time_remaining = self.inter_character_seconds - time_since_last_char
             if time_remaining > 0:
