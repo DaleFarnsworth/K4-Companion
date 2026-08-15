@@ -4914,6 +4914,10 @@ class Panadapter(QDialog):
         # the image -- visible as blank bands top and bottom of the
         # waterfall.
         self.waterfall_plot.enableAutoRange(axis='y', enable=False)
+        # Click-to-tune, same as the trace (see on_trace_clicked) -- the
+        # waterfall's X axis is linked to the trace's, so a click's X
+        # position is already in the same frequency space.
+        self.waterfall_plot.scene().sigMouseClicked.connect(self.on_waterfall_clicked)
 
         # A draggable divider between the trace and waterfall, in place
         # of fixed layout stretch factors, so the user can grab and
@@ -5335,6 +5339,11 @@ class Panadapter(QDialog):
 
     def on_trace_clicked(self, event):
         freq_hz = self._clicked_frequency(self.trace_plot, event)
+        if freq_hz != None:
+            self.request_tune(freq_hz, round_to_khz=True)
+
+    def on_waterfall_clicked(self, event):
+        freq_hz = self._clicked_frequency(self.waterfall_plot, event)
         if freq_hz != None:
             self.request_tune(freq_hz, round_to_khz=True)
 
