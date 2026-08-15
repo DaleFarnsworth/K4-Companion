@@ -5338,11 +5338,18 @@ class Panadapter(QDialog):
         if am_mode:
             bw_hz *= 2
         freq_hz = self._rx_freq_hz()
-        bw_key = (freq_hz, bw_hz, am_mode)
+        mode = Panadapter.mode[self.receiver]
+        bw_key = (freq_hz, bw_hz, mode)
         if bw_key == self.bw_key:
             return
         self.bw_key = bw_key
-        self.bw_region.setRegion((freq_hz - bw_hz / 2, freq_hz + bw_hz / 2))
+        if mode in ('2', '6'):        # USB, DATA: passband is above center.
+            region = (freq_hz, freq_hz + bw_hz)
+        elif mode in ('1', '9'):      # LSB, DATA-R: passband is below center.
+            region = (freq_hz - bw_hz, freq_hz)
+        else:                         # CW/CW-R/AM/FM: centered.
+            region = (freq_hz - bw_hz / 2, freq_hz + bw_hz / 2)
+        self.bw_region.setRegion(region)
         self.bw_region.setVisible(True)
 
     def _rx_freq_hz(self):
