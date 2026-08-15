@@ -4810,6 +4810,14 @@ class Panadapter(QDialog):
         self.minipan_plot.getPlotItem().hideAxis('left')
         self.minipan_plot.getPlotItem().hideAxis('bottom')
         self.minipan_plot.setMouseEnabled(x=False, y=False)
+        # Bandwidth shading, same as the trace's bw_region below (see
+        # _update_bw_region) -- added before the curve so the
+        # (translucent) shading renders behind it rather than over it.
+        self.minipan_bw_region = pyqtgraph.LinearRegionItem(values=(0, 0),
+            movable=False, brush=pyqtgraph.mkBrush(100, 180, 255, 90),
+            pen=pyqtgraph.mkPen(None))
+        self.minipan_bw_region.setVisible(False)
+        self.minipan_plot.addItem(self.minipan_bw_region)
         self.minipan_curve = self.minipan_plot.plot(pen=pyqtgraph.mkPen(color=(220, 180, 80), width=1))
         # Y range is set explicitly (see push_minipan) rather than left
         # to pyqtgraph's default per-frame auto-range, which would fit
@@ -5356,6 +5364,13 @@ class Panadapter(QDialog):
             region = (freq_hz - bw_hz / 2, freq_hz + bw_hz / 2)
         self.bw_region.setRegion(region)
         self.bw_region.setVisible(True)
+        # Same shading on the mini-pan -- both plots are centered on the
+        # same _rx_freq_hz(), so no separate calculation is needed, only
+        # gated by minipan_enabled the same way freq_line_minipan is
+        # (see set_minipan_enabled, which copies this across immediately
+        # on enable rather than waiting for the next recompute here).
+        self.minipan_bw_region.setRegion(region)
+        self.minipan_bw_region.setVisible(self.minipan_enabled)
 
     def _rx_freq_hz(self):
         # The receiver's real tuned frequency (FA;/FB;), falling back
@@ -5502,6 +5517,13 @@ class Panadapter(QDialog):
             return
         self.minipan_enabled = enabled
         self.freq_line_minipan.setVisible(enabled)
+        self.minipan_bw_region.setVisible(enabled)
+        if enabled:
+            # Copy the trace's current shading across immediately (see
+            # _update_bw_region) rather than waiting for the next
+            # push_frame to recompute it, so it isn't blank for a frame
+            # right after being (re-)enabled.
+            self.minipan_bw_region.setRegion(self.bw_region.getRegion())
         if not enabled:
             # Leaves minipan_plot itself visible (still reserving its
             # layout space, so the Ref button doesn't shift -- see
