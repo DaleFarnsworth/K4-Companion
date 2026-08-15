@@ -1097,8 +1097,7 @@ class Server():
                     try:
                         self.socket.send(b)
                     except:
-                        dprint1('socket.send error')
-                        self.lost_connection()
+                        self.lost_connection('Socket send error')
                         return
 
             if Options.debug >= 1:
@@ -1284,8 +1283,7 @@ class Server():
             if not self.connected:
                 return
             if len(in_error) > 0:
-                dprint1('select.select error')
-                self.lost_connection()
+                self.lost_connection('Select error')
                 return
             if len(readable) == 0:
                 continue
@@ -1293,10 +1291,10 @@ class Server():
             try:
                 recv_bytes = self.socket.recv(16384)
             except:
-                dprint1('socket.recv error')
-                recv_bytes = []
+                self.lost_connection('Socket receive error')
+                return
             if len(recv_bytes) == 0:
-                self.lost_connection()
+                self.lost_connection('Received zero bytes')
                 return
 
             try:
@@ -1312,8 +1310,7 @@ class Server():
             if not self.connected:
                 return
             if len(in_error) > 0:
-                dprint1('select.select error')
-                self.lost_connection()
+                self.lost_connection('receive select error')
                 return
             if len(readable) == 0:
                 continue
@@ -1321,10 +1318,10 @@ class Server():
             try:
                 rb = self.socket.recv(16384)
             except:
-                dprint1('socket.recv error')
-                rb = []
+                self.lost_connection('Socket receive error')
+                return
             if len(rb) == 0:
-                self.lost_connection()
+                self.lost_connection('Received zero bytes')
                 return
 
             if self.partial_packet != None:
@@ -1484,9 +1481,9 @@ class Server():
             pw = Reversable_hash.unhash(h)
         return pw
 
-    def lost_connection(self):
+    def lost_connection(self, reason):
         if self.received_cat_cmd:
-            Popup.error('Lost connection to ' + self.name, timeout=None)
+            Popup.error(f'Lost connection to {self.name}\n{reason}', timeout=None)
         self.connected = False
 
     def connect_on_start(self):
