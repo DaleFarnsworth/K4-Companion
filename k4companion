@@ -2448,6 +2448,11 @@ class VFO(Widget):
     step_index = {1: 0, 10: 1, 100: 2, 1000: 3, 10000:4}
     low_frequency_limit=100000
     high_frequency_limit=54000000
+    instances = {}                # AorB ('A'/'B') -> VFO instance, so
+                                   # PanadapterProcess can relay the
+                                   # panadapter's arrow-key/wheel input to
+                                   # the real widget -- see
+                                   # PanadapterProcess.on_vfo_action_requested.
 
     def __init__(self, config_info, container):
         required = ['item', 'AorB']
@@ -2458,6 +2463,7 @@ class VFO(Widget):
         super().__init__(config_info, container)
 
         self.AorB = config_info.get('AorB', 'A').upper()
+        VFO.instances[self.AorB] = self
 
         self.width = config_info.get('width', 9)
 
@@ -4513,6 +4519,48 @@ def format_freq_tick(hz, round_to=100, drop_digits=2):
     # from the now-fully-removed last group.
     return '.'.join(groups)[:-drop_digits].rstrip('.')
 
+class _PanControlFilter(QObject):
+    # Arrow keys and the mouse wheel are meant to behave the same way
+    # anywhere in the panadapter window as they do in the corresponding
+    # VFO control -- not just while some particular child widget (e.g.
+    # the trace plot) happens to have focus/be under the cursor. An
+    # application-wide event filter (same pattern as CW's _CWKeyFilter)
+    # sidesteps that: it sees every event before the widget it's headed
+    # for does, so it works regardless of focus and isn't affected by
+    # e.g. PlotWidget's own default arrow-key/wheel handling.
+    def __init__(self, window):
+        super().__init__()
+        self.window = window
+
+    def eventFilter(self, obj, event):
+        event_type = event.type()
+        if event_type == QEvent.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
+                if not isinstance(obj, QWidget):
+                    return False
+                if not (obj is self.window or self.window.isAncestorOf(obj)):
+                    return False
+                if key == Qt.Key.Key_Left:
+                    self.window.request_vfo_action('step left')
+                elif key == Qt.Key.Key_Right:
+                    self.window.request_vfo_action('step right')
+                elif key == Qt.Key.Key_Up:
+                    self.window.request_vfo_action('bump up')
+                else:
+                    self.window.request_vfo_action('bump down')
+                return True
+        elif event_type == QEvent.Type.Wheel:
+            if not isinstance(obj, QWidget):
+                return False
+            if not (obj is self.window or self.window.isAncestorOf(obj)):
+                return False
+            mult = mouse_wheel_mult(event)
+            if mult != 0:
+                self.window.request_vfo_action(f'wheel {mult}')
+            return True
+        return False
+
 class Panadapter(QDialog):
     # Driven by PAN frames only; MINI-PAN is ignored (see push_minipan).
     windows = {}                 # receiver ('main'/'sub') -> Panadapter
@@ -4886,6 +4934,13 @@ class Panadapter(QDialog):
         self._update_minipan_width()
         self._position_trace_labels()
 
+        # See _PanControlFilter. Kept alive on self (matching CW's
+        # _key_filter) -- installEventFilter only keeps a raw pointer on
+        # the C++ side, so without a surviving Python reference this
+        # would be garbage collected out from under it.
+        self._control_filter = _PanControlFilter(self)
+        QApplication.instance().installEventFilter(self._control_filter)
+
     def _make_overlay_label(self, parent):
         # Plain child widget rather than a pyqtgraph item, so its screen
         # position only needs to track the parent plot's pixel size, not
@@ -5214,8 +5269,18 @@ class Panadapter(QDialog):
         # (see PanadapterProcess.on_center_requested) -- same channel
         # as request_tune, for the same reason: it has to reach the
         # radio right away.
+        self._write_to_parent('#PANCENTER')
+
+    def request_vfo_action(self, action):
+        # Relayed to the parent (see
+        # PanadapterProcess.on_vfo_action_requested), same channel and
+        # reason as request_tune -- see _PanControlFilter for what
+        # triggers this and the 'action' strings it sends.
+        self._write_to_parent(f'#PANVFO {action}')
+
+    def _write_to_parent(self, line):
         try:
-            sys.stdout.write('#PANCENTER\n')
+            sys.stdout.write(line + '\n')
             sys.stdout.flush()
         except (BrokenPipeError, ValueError, OSError):
             pass
@@ -5310,11 +5375,7 @@ class Panadapter(QDialog):
         # a kHz) and not on the mini-pan (where it would discard the
         # finer placement that is the whole point of clicking there).
         suffix = ' khz' if round_to_khz else ''
-        try:
-            sys.stdout.write(f'#PANTUNE {freq_hz}{suffix}\n')
-            sys.stdout.flush()
-        except (BrokenPipeError, ValueError, OSError):
-            pass
+        self._write_to_parent(f'#PANTUNE {freq_hz}{suffix}')
 
     def _update_trace_labels(self, center_hz, span_hz):
         # Same formatting as the corresponding ticks in
@@ -5540,6 +5601,11 @@ class PanadapterProcess(QObject):
     # Panadapter.on_center_button/on_center_requested below).
     centered = pyqtSignal()
 
+    # Emitted the same way as tuned, for arrow-key/mouse-wheel input in
+    # the panadapter window (see Panadapter.request_vfo_action/
+    # _PanControlFilter and on_vfo_action_requested below).
+    vfo_action = pyqtSignal(str)
+
     # Relayed to a newly opened window below, from whatever's already
     # cached, since the subscriptions just below only ever fire their
     # "here's the current value" callback once, for the very first
@@ -5709,6 +5775,7 @@ class PanadapterProcess(QObject):
         self.exited.connect(self.on_exited)
         self.tuned.connect(self.on_tune_requested)
         self.centered.connect(self.on_center_requested)
+        self.vfo_action.connect(self.on_vfo_action_requested)
 
         if getattr(sys, 'frozen', False):
             argv = [sys.executable]
@@ -5770,12 +5837,13 @@ class PanadapterProcess(QObject):
                 return
 
     def monitor_loop(self):
-        # #PANTUNE/#PANCENTER lines arrive throughout the session (one
-        # per trace/mini-pan click or Center button press) and are
-        # handled immediately; #PANGEOM/#PANSPLIT are
-        # only ever written once, right before the child exits, and are
-        # applied together when that exit is finally seen below -- which
-        # is also how a user close of the window gets back to us.
+        # #PANTUNE/#PANCENTER/#PANVFO lines arrive throughout the
+        # session (one per trace/mini-pan click, Center button press, or
+        # arrow-key/wheel input) and are handled immediately;
+        # #PANGEOM/#PANSPLIT are only ever written once, right before
+        # the child exits, and are applied together when that exit is
+        # finally seen below -- which is also how a user close of the
+        # window gets back to us.
         geometry = None
         splitter_sizes = None
         try:
@@ -5789,6 +5857,8 @@ class PanadapterProcess(QObject):
                     self.tuned.emit(line[len('#PANTUNE '):])
                 elif line == '#PANCENTER':
                     self.centered.emit()
+                elif line.startswith('#PANVFO '):
+                    self.vfo_action.emit(line[len('#PANVFO '):])
         except (ValueError, OSError):
             pass
         self.process.wait()
@@ -5868,6 +5938,34 @@ class PanadapterProcess(QObject):
         # (see push_frame), not from the VFO.
         base = 'FC' if self.receiver == 'main' else 'FC$'
         Server.k4_server.send_cmds(f'{base};')
+
+    def on_vfo_action_requested(self, action):
+        # "step left"/"step right", "bump up"/"bump down", or
+        # "wheel <mult>" -- see Panadapter.request_vfo_action/
+        # _PanControlFilter. Dispatched straight to the real VFO widget
+        # for this receiver (VFO.instances), reusing its own key/wheel
+        # handling verbatim -- rather than re-deriving the current step
+        # and frequency here -- so this behaves exactly as if the same
+        # input had landed on the VFO control itself, including things
+        # like the underlined step digit and TX/split coloring that live
+        # only on that widget.
+        vfo = VFO.instances.get('B' if self.receiver == 'sub' else 'A')
+        if vfo is None:
+            return
+        fields = action.split()
+        if len(fields) < 2:
+            return
+        kind, arg = fields[0], fields[1]
+        if kind == 'step':
+            vfo.on_change_step(Qt.Key.Key_Left if arg == 'left' else Qt.Key.Key_Right)
+        elif kind == 'bump':
+            vfo.on_bump_frequency(Qt.Key.Key_Up if arg == 'up' else Qt.Key.Key_Down)
+        elif kind == 'wheel':
+            try:
+                mult = int(arg)
+            except ValueError:
+                return
+            vfo.adjust_frequency(vfo.step * mult)
 
     def _close_pipe(self):
         try:
