@@ -7156,6 +7156,16 @@ class Settings():
                 val = maximum
         return val
 
+    def getfloat(self, section, setting, default=None, minimum=None, maximum=None):
+        val = self.get(section, setting, default)
+        if val != None:
+            val = float(val)
+            if minimum != None and val < minimum:
+                val = minimum
+            if maximum != None and val > maximum:
+                val = maximum
+        return val
+
     def get_section(self, section):
         self.load()
         settings = {}
@@ -8944,7 +8954,7 @@ class CW(TextButtons):
         delay_slider_grid.setContentsMargins(0, 0, 0, 0)
         delay_grid.addWidget(delay_slider_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         delay_slider_options = {
-            'orient': 'horizontal', 'from': 0, 'to': 2.55, 'length': 150,
+            'orient': 'horizontal', 'from': 0, 'to': 2.55, 'length': 125,
             'evalincrement': '-.01', 'showvalue': True,
             'evalcmd': '"SDC{f}{d:03d};".format(f=self.k4param("SDC")[0], d=int(float(value)*100))',
             'evalresponse': 'float(value[4:7])/100',
@@ -8953,18 +8963,29 @@ class CW(TextButtons):
         SliderWidget(self, delay_slider_frame, delay_slider_options)
 
         cw_pitch_frame, cw_pitch_grid = qt_group_box('CW Pitch', self.label_font())
-        more_grid.addWidget(cw_pitch_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        more_grid.addWidget(cw_pitch_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         cw_pitch_options = {
             'orient': 'horizontal', 'from': 300, 'to': 900,
-            'length': 150, 'evalincrement': '10', 'showvalue': True,
+            'length': 125, 'evalincrement': '10', 'showvalue': True,
             'evalcmd': '"CW{:02d};".format(int(int(value)/10))', 'evalresponse': 'int(value[2:4])*10',
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
         }
         self.cw_pitch = SliderWidget(self, cw_pitch_frame, cw_pitch_options)
 
+        key_down_delay_frame, key_down_delay_grid = qt_group_box('Key Down Initial Delay', self.label_font())
+        more_grid.addWidget(key_down_delay_frame, 0, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        key_down_delay_options = {
+            'orient': 'horizontal', 'from': 0, 'to': 1000,
+            'length': 125, 'evalincrement': '10', 'showvalue': True,
+            'evalcmd': '"KZL{:04d};".format(int(value))', 'evalresponse': 'round(int(value[3:7].strip(";")), -1)',
+            'bg': self.bg, 'fg': self.fg, 'font': self.font(),
+        }
+        self.key_down_delay = SliderWidget(self, key_down_delay_frame, key_down_delay_options)
+
         controls_frame, controls_grid = qt_group_box('', self.label_font())
-        more_grid.addWidget(controls_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        more_grid.addWidget(controls_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         auto_char_space_frame = self.auto_char_space_setting(controls_frame)
         controls_grid.addWidget(auto_char_space_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -8972,10 +8993,13 @@ class CW(TextButtons):
         auto_word_space_frame = self.auto_word_space_setting(controls_frame)
         controls_grid.addWidget(auto_word_space_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
+        weighting_frame = self.weighting_setting(controls_frame)
+        controls_grid.addWidget(weighting_frame, 0, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
         decode_frame = QWidget()
         decode_grid = QGridLayout(decode_frame)
         decode_grid.setContentsMargins(0, 0, 0, 0)
-        more_grid.addWidget(decode_frame, 3, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        more_grid.addWidget(decode_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         main_decode_frame, main_decode_grid = qt_group_box('Main Decode', self.label_font())
         decode_grid.addWidget(main_decode_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -9067,17 +9091,6 @@ class CW(TextButtons):
         }
         DropdownWidget(self, sub_threshold_frame, sub_threshold_options)
 
-        key_down_delay_frame, key_down_delay_grid = qt_group_box('Key Down Initial Delay', self.label_font())
-        more_grid.addWidget(key_down_delay_frame, 4, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        key_down_delay_options = {
-            'orient': 'horizontal', 'from': 0, 'to': 1000,
-            'length': 150, 'evalincrement': '10', 'showvalue': True,
-            'evalcmd': '"KZL{:04d};".format(int(value))', 'evalresponse': 'round(int(value[3:7].strip(";")), -1)',
-            'bg': self.bg, 'fg': self.fg, 'font': self.font(),
-        }
-        self.key_down_delay = SliderWidget(self, key_down_delay_frame, key_down_delay_options)
-
     def auto_char_space_setting(self, frame):
         setting = Server.settings.getbool('CW', 'auto_char_space', False)
 
@@ -9123,6 +9136,25 @@ class CW(TextButtons):
         setting = self.acs_toggle.selections[self.acs_toggle.index]['text'] == 'On'
         Server.settings.put_save('CW', 'auto_word_space', setting)
         Keyer.set_auto_word_space(setting)
+
+    def weighting_setting(self, frame):
+        current_value = Server.settings.getfloat('CW', 'weighting', 1.00, .90, 1.25)
+        current_value = f'{current_value:.2f}'
+
+        values = ('0.90', '0.95', '1.00', '1.05', '1.10', '1.15', '1.20', '1.25')
+
+        weighting_frame, weighting_combobox = qt_labeled_readonly_combobox(
+            'Weighting', self.label_font(), self.font(), values,
+            current_value, self.bg, self.fg, self.bg, self.fg,
+            self.on_weighting_combobox_changed, justify='right')
+
+        return weighting_frame
+
+    def on_weighting_combobox_changed(self, current_value):
+        if current_value == '':
+            return
+        Server.settings.put_save('CW', 'weighting', f'{float(current_value):.2f}')
+        Keyer.set_weighting(float(current_value))
 
     def add_config_tab(self):
         self.config_frame = QWidget()
@@ -10593,6 +10625,16 @@ class Keyer():
         self = cls.singleton
         self.auto_word_space = val
 
+    @classmethod
+    def set_weighting(cls, val):
+        self = cls.singleton
+        if not self:
+            return
+        self.weighting = val
+        self.on_speed_change()
+        kp = Server.k4_server.k4_parameter('KP')
+        Server.k4_server.send_str(f'KP{kp[0:2]}{round(self.weighting*100):03d};')
+
     def __init__(self):
         self.DIT_DOWN_EVENT = 'dit_down'
         self.DIT_UP_EVENT = 'dit_up'
@@ -10608,6 +10650,7 @@ class Keyer():
 
         self.auto_char_space = Server.settings.getbool('CW', 'auto_char_space', False)
         self.auto_word_space = Server.settings.getbool('CW', 'auto_word_space', False)
+        self.weighting = 1
 
         # for straight_key handling
         self.paddle_event_queue = queue.Queue()
@@ -10628,6 +10671,11 @@ class Keyer():
 
         self.keyer_thread = threading.Thread(target=self.keyer_loop, name='keyer_thread')
         self.keyer_thread.start()
+        Server.k4_server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
+    def on_received_initial_parameters(self, response):
+        self.weighting = Server.settings.getfloat('CW', 'weighting', 1.0)
+        self.on_speed_change()
 
     def midi_message_callback(self, event, data=None):
         message, midi_delta_time = event
@@ -10858,12 +10906,18 @@ class Keyer():
 
     def on_speed_change(self, response=None):
         # The length of a dit in seconds is 1.2 / wpm,
-        wpm = int(response[2:].strip(';'))
-        self.dit_seconds = 1.2/wpm
-        self.dah_seconds = self.dit_seconds * 3
-        self.inter_element_seconds = self.dit_seconds
-        self.inter_character_seconds = self.inter_element_seconds * 3
-        self.inter_word_seconds = self.inter_element_seconds * 7
+        wpm = int(Server.k4_server.k4_parameter('KS'))
+        delta = (1 - self.weighting) / (1 + self.weighting)
+        elt_mult = 1 - delta
+        space_mult = 1 + delta
+        orig_dit_seconds = 1.2/wpm
+        sidetone_shortener = .005
+
+        self.dit_seconds = orig_dit_seconds * elt_mult - sidetone_shortener
+        self.dah_seconds = self.dit_seconds + orig_dit_seconds * 2 
+        self.inter_element_seconds = orig_dit_seconds * space_mult + sidetone_shortener
+        self.inter_character_seconds = orig_dit_seconds * 3
+        self.inter_word_seconds = orig_dit_seconds * 7
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure
