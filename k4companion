@@ -1378,7 +1378,7 @@ class Server():
                 rb = rb[end_offset:]
 
     def received_audio_packet(self, payload):
-        if Audio.mute_k4_audio:
+        if Audio.k4_is_muted():
             return
 
         Audio.output_packet_counter += 1
@@ -6211,7 +6211,7 @@ class Audio():
     encode_mode_opus = 2
     encode_mode_opus_float = 3
     input_encode_mode = encode_mode_opus_float
-    mute_k4_audio = False
+    k4_muted = False
     server = None
 
     output_packet_counter = 0
@@ -6222,8 +6222,10 @@ class Audio():
     milliseconds_per_packet = 40        # default
 
     sidetone_min_packet_time = .003     # minimum packet time sending with straight key
-    sidetone_rise_time = .004           # 4 ms rise and fall time
+    sidetone_rise_time = .008           # 8 ms rise time
+    sidetone_fall_time = .020           # 20 ms fall time
     sidetone_enabled = True
+    sidetone_stopped_time = time.perf_counter() - 1
 
     @classmethod
     def get_singleton(cls):
@@ -6252,7 +6254,7 @@ class Audio():
             self.sidetone_thread.join()
 
         if self.output_thread != None:
-            self.output_queue.put([])
+            self.server.output_audio_queue.put([])
             self.output_thread.join()
 
         if self.output_device_thread != None:
@@ -6398,7 +6400,7 @@ class Audio():
         self = cls.get_singleton()
         latency = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
         cls.set_remote_audio_latency(latency)
-        self.start_output_thread(cls.server.output_audio_queue)
+        self.start_output_thread()
 
     @classmethod
     def set_remote_audio_latency(cls, latency):
@@ -6425,7 +6427,6 @@ class Audio():
             return
 
         self = cls.singleton
-        cls.mute_k4_audio = True
         self.starting_sidetone = True
         self.sidetone_event.set()
 
@@ -6438,9 +6439,43 @@ class Audio():
             return
 
         self = cls.singleton
-        cls.mute_k4_audio = False
         self.ending_sidetone = True
+        cls.sidetone_stopped_time = time.perf_counter()
         self.sidetone_event.clear()
+
+    @classmethod
+    def mute_k4(cls):
+        cls.k4_muted = True
+        self = cls.singleton
+        while True:
+            try:
+                cls.server.output_audio_queue.get_nowait()
+            except queue.Empty:
+                break
+        while True:
+            try:
+                self.server.recv_queue.get_nowait()
+            except queue.Empty:
+                break
+        # Wait for any K4 audio packets to drain
+        time.sleep(.0015)
+
+    @classmethod
+    def unmute_k4(cls):
+        while True:
+            try:
+                cls.server.output_audio_queue.get_nowait()
+            except queue.Empty:
+                break
+        cls.k4_muted = False
+
+    @classmethod
+    def k4_is_muted(cls):
+        if cls.k4_muted:
+            return True
+        if (time.perf_counter() - cls.sidetone_stopped_time) < .1:
+            return True
+        return False
 
     @classmethod
     def enable_sidetone(cls, enable):
@@ -6607,7 +6642,7 @@ class Audio():
                 return dev_info
         return None
 
-    def start_output_thread(self, queue):
+    def start_output_thread(self):
         if self.output_device_index < 0:
             return
 
@@ -6617,7 +6652,6 @@ class Audio():
         self.sidetone_thread = threading.Thread(target=self.sidetone_loop, name='audio_sidetone_thread')
         self.sidetone_thread.start()
 
-        self.output_queue = queue
         self.output_thread = threading.Thread(target=self.output_loop, name='audio_output_thread')
         self.output_thread.start()
 
@@ -6633,7 +6667,7 @@ class Audio():
                 continue
 
             cls.output_dequeueing_packets = True
-            packet = self.output_queue.get()
+            packet = cls.server.output_audio_queue.get()
             if len(packet) == 0:
                 return
 
@@ -6641,7 +6675,7 @@ class Audio():
             cls.milliseconds_per_packet = frame_size // self.k4_frames_per_millisecond
             cls.output_packet_qlen = cls.receive_latency // cls.milliseconds_per_packet
 
-            if self.mute_k4_audio:
+            if self.k4_is_muted():
                 continue
 
             if current_index != self.output_device_index:
@@ -6739,7 +6773,7 @@ class Audio():
             # send 1 ms at a time to permit timely sidetone generation
             millisecond_len = len(stereo) // self.milliseconds_per_packet
             for i in range(0, len(stereo), millisecond_len):
-                if self.mute_k4_audio:
+                if self.k4_is_muted():
                     break
                 else:
                     ms_samples = stereo[i:i+millisecond_len]
@@ -6794,17 +6828,16 @@ class Audio():
                     self.output_device_queue.put(self.sidetone_fall_packet)
 #                    log_packet('sidetone', self.sidetone_fall_packet)
 #                    print_packet('fall', self.sidetone_fall_packet)
-                    self.output_device_queue.put(self.sidetone_fall2_packet)
-#                    log_packet('sidetone', self.sidetone_fall2_packet)
-#                    print_packet('fall2', self.sidetone_fall2_packet)
                     self.ending_sidetone = False
+                    Audio.unmute_k4()
                 self.sidetone_event.wait()
             if self.starting_sidetone:
+                Audio.mute_k4()
                 self.output_device_queue.put(self.sidetone_rise_packet)
 #                log_packet('sidetone', self.sidetone_rise_packet)
 #                print_packet('rise', self.sidetone_rise_packet)
                 self.starting_sidetone = False
-            else:
+            elif self.enable_sidetone_loop:
                 elt_packet = self.sidetone_cycle_packet * elt_cycles
                 self.output_device_queue.put(elt_packet)
 #                log_packet('sidetone', elt_packet)
@@ -6830,8 +6863,8 @@ class Audio():
 
             if mode in ("1", "2", "4", "5"):        # LSB, USB, FM, AM
                 # Discard queued audio
-                while self.output_queue.qsize() > 2:
-                    self.output_queue.get_nowait()
+                while self.server.output_audio_queue.qsize() > 2:
+                    self.server.output_audio_queue.get_nowait()
 
                 if not self.transmit_audio:
                     self.transmit_audio = True
@@ -6946,30 +6979,28 @@ class Audio():
         sample_rate = Audio.output_device_sample_rate()
         samples_per_cycle = round(sample_rate / self.cw_pitch)
         seconds_per_cycle = samples_per_cycle / sample_rate
-        samples_per_rise_time = round(sample_rate * self.sidetone_rise_time)
+        samples_per_rise_time = math.ceil(sample_rate * self.sidetone_rise_time)
+        samples_per_fall_time = math.ceil(sample_rate * self.sidetone_fall_time)
         cycles_per_rise_packet = math.ceil(samples_per_rise_time / samples_per_cycle)
+        cycles_per_fall_packet = math.ceil(samples_per_fall_time / samples_per_cycle)
         samples_per_rise_packet = cycles_per_rise_packet * samples_per_cycle
-        samples_per_fall_packet = samples_per_rise_packet
-        volume = self.sidetone_volume / 60 * self.averaged_left_right_volume()
+        samples_per_fall_packet =  cycles_per_fall_packet * samples_per_cycle
+        volume = self.sidetone_volume / 150 * self.averaged_left_right_volume()
 
         steps = numpy.linspace(0, 1, samples_per_cycle, endpoint=False, dtype=numpy.float32)
         cycle = numpy.sin(2 * numpy.pi * steps) * volume
         self.sidetone_cycle_packet = cycle.repeat(2).tobytes()
 
-        rise_steps = numpy.linspace(0, 1, samples_per_rise_packet, endpoint=False, dtype=numpy.float32)
+        rise_steps = numpy.linspace(0, 1, samples_per_rise_packet, dtype=numpy.float32)
+        fall_steps = numpy.linspace(1, 0, samples_per_fall_packet, dtype=numpy.float32)
         rise_sin_samples = numpy.tile(cycle, cycles_per_rise_packet)
-        rise_envelope = 1 - numpy.cos(.5 * numpy.pi * rise_steps)
+        fall_sin_samples = numpy.tile(cycle, cycles_per_fall_packet)
+        rise_envelope = .5 * (1 - numpy.cos(numpy.pi * rise_steps))
+        fall_envelope = .5 * (1 - numpy.cos(numpy.pi * fall_steps))
         rise_samples = (rise_sin_samples * rise_envelope).repeat(2)
-        rise_samples = numpy.roll(rise_samples, -2)
+        fall_samples = (fall_sin_samples * fall_envelope).repeat(2)
         self.sidetone_rise_packet = rise_samples.tobytes()
-
-        fall_samples = -rise_samples[::-1]
         self.sidetone_fall_packet = fall_samples.tobytes()
-
-        fall2_steps = numpy.linspace(0, 1, samples_per_fall_packet, endpoint=False, dtype=numpy.float32)
-        fall2_samples = fall_samples[-1] * (1 - numpy.cos(.5 * numpy.pi * fall2_steps))
-        fall2_samples = fall2_samples[::-1]
-        self.sidetone_fall2_packet = fall2_samples.repeat(2).tobytes()
 
         self.sidetone_space_cycle = numpy.zeros(samples_per_cycle * 2, dtype=numpy.float32).tobytes()
 
