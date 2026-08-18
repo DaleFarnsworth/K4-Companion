@@ -232,7 +232,7 @@ class Server():
     k4_section = 'Elecraft K4'
     settings = None
 
-    receive_poll_interval = 1           # poll every 1 mS
+    receive_poll_interval = 1           # poll every 1 ms
     ping_poll_interval = 2000           # poll every 2 seconds
     packet_header_len = 8
     packet_trailer_len = 4
@@ -1546,7 +1546,7 @@ class Server():
         self.unsubscribe_responses('MD;MD$;FT;MEDF;', callback)
 
 class Widget():
-    blink_mS = 500
+    blink_ms = 500
     default_leading = 0
     default_label_leading = 1
     by_id = {}
@@ -2201,7 +2201,7 @@ class ToggleWidget():
                 self.configure()
 
     def blinkon(self, selection):
-        Poll.add(Widget.blink_mS, self.blink)
+        Poll.add(Widget.blink_ms, self.blink)
 
     def blinkoff(self, selection):
         Poll.remove(self.blink)
@@ -2311,7 +2311,7 @@ class Radiobutton(Widget):
                 self.blinkoff()
 
     def blinkon(self):
-        Poll.add(Widget.blink_mS, self.do_blink)
+        Poll.add(Widget.blink_ms, self.do_blink)
 
     def blinkoff(self):
         Poll.remove(self.do_blink)
@@ -4057,7 +4057,7 @@ class Menu_definition():
                     item.setText(self.updated_desc)
 
         if self.type == 'ms':
-            self.updated_desc = self.desc + "\n(mS)"
+            self.updated_desc = self.desc + "\n(ms)"
 
         if self.type == 'ZMON':
             self.updated_desc = self.desc + "\n(-1 = OFF, 0 = MON)"
@@ -5601,8 +5601,8 @@ class Panadapter(QDialog):
 # Panadapter subprocess IPC.
 #
 # The panadapter is drawn in its own process because a pyqtgraph repaint
-# holds the GIL on the main thread for ~5 mS typically and up to ~20 mS,
-# while the audio output path tolerates only about 8 mS (the output
+# holds the GIL on the main thread for ~5 ms typically and up to ~20 ms,
+# while the audio output path tolerates only about 8 ms (the output
 # device's low-latency figure) before it underruns. No amount of
 # buffering fixes that in-process: during the stall the audio threads
 # cannot run either, since they need the same GIL. A separate process
@@ -6222,7 +6222,7 @@ class Audio():
     milliseconds_per_packet = 40        # default
 
     sidetone_min_packet_time = .003     # minimum packet time sending with straight key
-    sidetone_rise_time = .004           # 4 mS rise and fall time
+    sidetone_rise_time = .004           # 4 ms rise and fall time
     sidetone_enabled = True
 
     @classmethod
@@ -6736,14 +6736,14 @@ class Audio():
 #            if Server.k4_server.k4_parameter('TR') == 'T':
 #                log_packet('tx_output_left', left)
 #                print_packet('received monitor', stereo)
-            # send 1 mS at a time to permit timely sidetone generation
+            # send 1 ms at a time to permit timely sidetone generation
             millisecond_len = len(stereo) // self.milliseconds_per_packet
             for i in range(0, len(stereo), millisecond_len):
                 if self.mute_k4_audio:
                     break
                 else:
-                    mS_samples = stereo[i:i+millisecond_len]
-                    self.output_device_queue.put(mS_samples.tobytes())
+                    ms_samples = stereo[i:i+millisecond_len]
+                    self.output_device_queue.put(ms_samples.tobytes())
 
     def averaged_left_right_volume(self):
             a = self.a_volume
@@ -7580,7 +7580,7 @@ class AppSettings_widget(Widget):
         values = (0, 50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800, 900, 1000)
 
         receive_latency_frame, receive_latency_combobox = qt_labeled_readonly_combobox(
-            'Receive Latency (mS)', self.label_font(), self.font(), values,
+            'Receive Latency (ms)', self.label_font(), self.font(), values,
             current_value, self.bg, self.fg, self.selectbg, self.selectfg,
             self.on_receive_latency_combobox_changed, justify='right')
 
@@ -9629,7 +9629,7 @@ and everything after the & is sent.'''
 
     def on_keyer_speed_change(self, response=None):
         # The length of a dit in seconds is 1.2 / wpm,
-        # therefore the length of an E n mS is 1000 * 2.4 / wpm.
+        # therefore the length of an E in ms is 1000 * 2.4 / wpm.
         # We want to poll at least as often as every charater.
         wpm = int(self.k4param('KS'))
         self.tx_poll_interval = int(1000 * 2.4 / float(wpm))
@@ -10786,7 +10786,7 @@ class Keyer():
                 milliseconds = 0
             elif milliseconds < 20:
 # Very short key down times cause ADC overload
-# I've seen it (rarely) at 40 mS, which is 30 WPM
+# I've seen it (rarely) at 40 ms, which is 30 WPM
 # 20 milliseconds is approximately 60 WPM
                 milliseconds = 20;
             Server.k4_server.send_str(f'KZU{milliseconds:04d};')
@@ -11230,7 +11230,7 @@ def save_geometry():
 
 class Popup(QDialog):
     queue = queue.Queue()
-    poll_interval = 200          # 200 mS
+    poll_interval = 200          # 200 ms
     previous_popup = None
 
     @classmethod
