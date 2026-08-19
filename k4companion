@@ -3278,7 +3278,7 @@ class DropdownWidget():
                 bg = self.bg
             selection['bg'] = bg
             self.selections.append(selection)
-        width += 3 * QFontMetrics(font).averageCharWidth()
+        width += 5 * QFontMetrics(font).averageCharWidth()
 
 
         if height == 0:
