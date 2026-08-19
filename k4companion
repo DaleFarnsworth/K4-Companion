@@ -1517,7 +1517,7 @@ class Server():
         self.lost_connection_retry_count += 1
         if self.lost_connection_retry_count <= 10:
             if self.lost_connection_retry_count == 1:
-                Popup.warning(reason, timeout=1000)
+                dprint1(reason);
             return False
         if self.received_cat_cmd:
             Popup.error(f'Lost connection to {self.name}\n{reason}', timeout=None)
