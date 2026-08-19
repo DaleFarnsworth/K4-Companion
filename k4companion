@@ -9193,7 +9193,7 @@ class CW(TextButtons):
 
         control_frame, control_grid = qt_group_box('AWS', self.label_font())
 
-        acs_options = {
+        aws_options = {
             'initialindex': 0 if setting else 1,
             'selections': [
                 {'text': 'On'},
@@ -9201,13 +9201,13 @@ class CW(TextButtons):
             ],
             'width': 3, 'font': self.font(),
         }
-        self.acs_toggle = ToggleWidget(self, control_frame, acs_options)
-        self.acs_toggle.button.clicked.connect(self.on_auto_word_space_toggled)
+        self.aws_toggle = ToggleWidget(self, control_frame, aws_options)
+        self.aws_toggle.button.clicked.connect(self.on_auto_word_space_toggled)
 
         return control_frame
 
     def on_auto_word_space_toggled(self):
-        setting = self.acs_toggle.selections[self.acs_toggle.index]['text'] == 'On'
+        setting = self.aws_toggle.selections[self.aws_toggle.index]['text'] == 'On'
         Server.settings.put_save('CW', 'auto_word_space', setting)
         Keyer.set_auto_word_space(setting)
 
