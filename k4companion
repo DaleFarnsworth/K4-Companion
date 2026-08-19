@@ -1517,7 +1517,7 @@ class Server():
         self.lost_connection_retry_count += 1
         if self.lost_connection_retry_count <= 10:
             if self.lost_connection_retry_count == 1:
-                dprint1(reason);
+                dprint1(reason)
             return False
         if self.received_cat_cmd:
             Popup.error(f'Lost connection to {self.name}\n{reason}', timeout=None)
@@ -8962,7 +8962,6 @@ class CW(TextButtons):
         frame_grid.addWidget(self.notebook, 0, 0)
 
         self.add_cw_tab()
-        self.add_more_tab()
         self.add_config_tab()
 
         self._key_filter = _CWKeyFilter(self)
@@ -8985,10 +8984,12 @@ class CW(TextButtons):
         cw_grid.addWidget(self.cw_controls_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.add_cw_controls(self.cw_controls_frame)
 
+        self.add_more_widgets(cw_grid)
+
         self.buttons_and_text_frame = QWidget()
         bat_grid = QGridLayout(self.buttons_and_text_frame)
         bat_grid.setContentsMargins(0, 0, 0, 0)
-        cw_grid.addWidget(self.buttons_and_text_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        cw_grid.addWidget(self.buttons_and_text_frame, 4, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         self.buttons_frame = QWidget()
         buttons_grid = QGridLayout(self.buttons_frame)
@@ -9022,15 +9023,11 @@ class CW(TextButtons):
         else:
             self._show(self.qsk_frame, self.delay_frame, 0, 1)
 
-    def add_more_tab(self):
-        self.more_frame = QWidget()
-        more_grid = QGridLayout(self.more_frame)
-        self.add_tab(self.more_frame, 'More')
-
+    def add_more_widgets(self, cw_grid):
         self.qsk_frame = QWidget()
         qsk_grid = QGridLayout(self.qsk_frame)
         qsk_grid.setContentsMargins(0, 0, 0, 0)
-        more_grid.addWidget(self.qsk_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        cw_grid.addWidget(self.qsk_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         qsk_onoff_frame, qsk_onoff_grid = qt_group_box('QSK', self.label_font())
         qsk_grid.addWidget(qsk_onoff_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
@@ -9072,7 +9069,7 @@ class CW(TextButtons):
         SliderWidget(self, delay_slider_frame, delay_slider_options)
 
         cw_pitch_frame, cw_pitch_grid = qt_group_box('CW Pitch', self.label_font())
-        more_grid.addWidget(cw_pitch_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        qsk_grid.addWidget(cw_pitch_frame, 0, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         cw_pitch_options = {
             'orient': 'horizontal', 'from': 300, 'to': 900,
@@ -9083,7 +9080,7 @@ class CW(TextButtons):
         self.cw_pitch = SliderWidget(self, cw_pitch_frame, cw_pitch_options)
 
         key_down_delay_frame, key_down_delay_grid = qt_group_box('Key Down Initial Delay', self.label_font())
-        more_grid.addWidget(key_down_delay_frame, 0, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        qsk_grid.addWidget(key_down_delay_frame, 0, 3, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         key_down_delay_options = {
             'orient': 'horizontal', 'from': 0, 'to': 1000,
@@ -9094,7 +9091,7 @@ class CW(TextButtons):
         self.key_down_delay = SliderWidget(self, key_down_delay_frame, key_down_delay_options)
 
         controls_frame, controls_grid = qt_group_box('', self.label_font())
-        more_grid.addWidget(controls_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        cw_grid.addWidget(controls_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         auto_char_space_frame = self.auto_char_space_setting(controls_frame)
         controls_grid.addWidget(auto_char_space_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -9108,7 +9105,7 @@ class CW(TextButtons):
         decode_frame = QWidget()
         decode_grid = QGridLayout(decode_frame)
         decode_grid.setContentsMargins(0, 0, 0, 0)
-        more_grid.addWidget(decode_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        cw_grid.addWidget(decode_frame, 3, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         main_decode_frame, main_decode_grid = qt_group_box('Main Decode', self.label_font())
         decode_grid.addWidget(main_decode_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
