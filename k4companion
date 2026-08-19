@@ -3440,7 +3440,7 @@ class Dropdownbutton(Widget):
     def __init__(self, config_info, container):
         required = ['item', 'selections']
         optional = ['bg', 'abg', 'fg', 'afg',
-            'height', 'justify', 'unexpectedresponse', 'label',
+            'height', 'width', 'justify', 'unexpectedresponse', 'label',
             'leading', 'evalincrement', 'evalcmd', 'from', 'to', 'padx', 'pady']
         validate_options(config_info, required, optional)
 
@@ -7324,7 +7324,7 @@ class ServerSettings_widget(Widget):
 
         self.dropdown = Dropdown_Widget(frame, bd=2, bg=self.bg,
             fg=self.fg, abg=self.abg, selectbg=self.selectbg, selectfg=self.selectfg,
-            font=self.font(), justify='left', height=0)
+            font=self.font(), justify='left')
         self.dropdown.grid(row=0, column=0)
 
         self.dropdown.select_callback(self.on_select_server)
@@ -7778,7 +7778,7 @@ class AppSettings_widget(Widget):
         selectfg = self.fg
         self.keyer_device_type_dropdown = Dropdown_Widget(keyer_device_type_frame, bd=2,
             bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
-            font=self.font(), justify='left', height=0)
+            font=self.font(), justify='left')
         self.keyer_device_type_dropdown.grid(row=0, column=0)
 
         self.keyer_device_type_dropdown.select_callback(self.on_select_device_type)
@@ -7912,8 +7912,7 @@ class AppSettings_widget(Widget):
         selectfg = self.fg
         self.dit_paddle_note_dropdown = Dropdown_Widget(self.dit_paddle_note_frame,
             bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
-            selectfg=selectfg, font=self.font(), justify='right', height=0,
-            state='normal')
+            selectfg=selectfg, font=self.font(), justify='right', state='normal')
         self.dit_paddle_note_dropdown.grid(row=0, column=0)
 
         self.dit_paddle_note_dropdown.select_callback(self.on_select_dit_paddle_note)
@@ -7942,8 +7941,7 @@ class AppSettings_widget(Widget):
         selectfg = self.fg
         self.dah_paddle_note_dropdown = Dropdown_Widget(self.dah_paddle_note_frame,
             bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
-            selectfg=selectfg, font=self.font(), justify='right', height=0,
-            state='normal')
+            selectfg=selectfg, font=self.font(), justify='right', state='normal')
         self.dah_paddle_note_dropdown.grid(row=0, column=0)
 
         self.dah_paddle_note_dropdown.select_callback(self.on_select_dah_paddle_note)
@@ -8011,8 +8009,7 @@ class AppSettings_widget(Widget):
         selectfg = self.fg
         self.dit_paddle_signal_dropdown = Dropdown_Widget(self.dit_paddle_signal_frame,
             bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
-            selectfg=selectfg, font=self.font(), justify='right', height=0,
-            state='normal')
+            selectfg=selectfg, font=self.font(), justify='right', state='normal')
         self.dit_paddle_signal_dropdown.grid(row=0, column=0)
 
         self.dit_paddle_signal_dropdown.select_callback(self.on_select_dit_paddle_signal)
@@ -8041,8 +8038,7 @@ class AppSettings_widget(Widget):
         selectfg = self.fg
         self.dah_paddle_signal_dropdown = Dropdown_Widget(self.dah_paddle_signal_frame,
             bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
-            selectfg=selectfg, font=self.font(), justify='right', height=0,
-            state='normal')
+            selectfg=selectfg, font=self.font(), justify='right', state='normal')
         self.dah_paddle_signal_dropdown.grid(row=0, column=0)
 
         self.dah_paddle_signal_dropdown.select_callback(self.on_select_dah_paddle_signal)
@@ -8070,7 +8066,7 @@ class AppSettings_widget(Widget):
         selectfg = self.fg
         self.keyer_mode_dropdown = Dropdown_Widget(frame, bd=2,
             bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
-            font=self.font(), justify='left', height=0)
+            font=self.font(), justify='left')
         self.keyer_mode_dropdown.grid(row=0, column=0)
 
         self.keyer_mode_dropdown.select_callback(self.on_select_keyer_mode)
@@ -8353,7 +8349,7 @@ class Dropdown_Widget():
             self.combobox.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         else:
             self.combobox.setEditable(state != 'readonly')
-        self.combobox.setMaxVisibleItems(max(height, 1))
+        self.combobox.setMaxVisibleItems(max(height, 10))
         self.combobox.setStyleSheet(
             f'QComboBox {{ background-color: {bg}; color: {fg}; }}'
             f'QComboBox QAbstractItemView {{ background-color: {selectbg}; color: {selectfg}; }}')
