@@ -9060,7 +9060,7 @@ class CW(TextButtons):
         delay_slider_grid.setContentsMargins(0, 0, 0, 0)
         delay_grid.addWidget(delay_slider_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         delay_slider_options = {
-            'orient': 'horizontal', 'from': 0, 'to': 2.55, 'length': 125,
+            'orient': 'horizontal', 'from': 0, 'to': 2.55, 'length': 120,
             'evalincrement': '-.01', 'showvalue': True,
             'evalcmd': '"SDC{f}{d:03d};".format(f=self.k4param("SDC")[0], d=int(float(value)*100))',
             'evalresponse': 'float(value[4:7])/100',
@@ -9073,7 +9073,7 @@ class CW(TextButtons):
 
         cw_pitch_options = {
             'orient': 'horizontal', 'from': 300, 'to': 900,
-            'length': 125, 'evalincrement': '10', 'showvalue': True,
+            'length': 120, 'evalincrement': '10', 'showvalue': True,
             'evalcmd': '"CW{:02d};".format(int(int(value)/10))', 'evalresponse': 'int(value[2:4])*10',
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
         }
@@ -9084,7 +9084,7 @@ class CW(TextButtons):
 
         key_down_delay_options = {
             'orient': 'horizontal', 'from': 0, 'to': 1000,
-            'length': 125, 'evalincrement': '10', 'showvalue': True,
+            'length': 120, 'evalincrement': '10', 'showvalue': True,
             'evalcmd': '"KZL{:04d};".format(int(value))', 'evalresponse': 'round(int(value[3:7].strip(";")), -1)',
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
         }
@@ -9333,7 +9333,7 @@ and everything after the & is sent.'''
         parent_frame.layout().addWidget(sidetone_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         sidetone_options = {
-            'orient': 'horizontal', 'from': 0, 'to': 60, 'length': 150,
+            'orient': 'horizontal', 'from': 0, 'to': 60, 'length': 120,
             'showvalue': False, 'evalincrement': '1',
             'evalcmd': '"ML0{:03d};".format(int(float(value)))', 'evalresponse': 'float(value[3:6])',
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
@@ -9344,7 +9344,7 @@ and everything after the & is sent.'''
         parent_frame.layout().addWidget(self.keyer_speed_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         keyer_speed_options = {
-            'orient': 'horizontal', 'from': 8, 'to': 100, 'length': 150,
+            'orient': 'horizontal', 'from': 8, 'to': 100, 'length': 120,
             'showvalue': False, 'evalincrement': '1',
             'evalcmd': '"KS{:03d};".format(int(float(value)))', 'evalresponse': 'float(value[2:5])',
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
