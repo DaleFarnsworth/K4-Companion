@@ -67,7 +67,7 @@ import time
 import traceback
 import yaml
 
-from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal, QThread
 from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
@@ -171,6 +171,19 @@ def qt_size_tight_groupbox_title(frame, title, font):
     # title, and 1px border on each side.
     fm = QFontMetrics(font)
     frame.setMinimumWidth(fm.horizontalAdvance(title) + 12)
+
+def qt_top_level_parent():
+    # On Windows, any top-level widget created with a Qt parent becomes a
+    # native "owned window", which Windows always keeps above its owner
+    # in Z-order -- unlike X11 window managers, this isn't affected by
+    # the Qt.WindowType passed in. Dropping the parent there is the only
+    # way to get a genuinely independent window; elsewhere, keeping
+    # Page.top as parent is harmless (and is relied on by the
+    # Qt.WindowType.Window workaround for transient-for-parent window
+    # managers).
+    if sys.platform == 'win32':
+        return None
+    return Page.top
 
 def qt_group_box(title, font):
     # Factors out the "tk.LabelFrame(text=, font=, labelanchor='nw', ...)"
@@ -5640,6 +5653,25 @@ def panadapter_read_msg(stream):
         return None
     return body[0], body[1:]
 
+class PanadapterMonitorThread(QThread):
+    # monitor_loop() emits queued cross-thread Qt signals (tuned/
+    # centered/vfo_action/exited). A plain threading.Thread doing that
+    # still works -- Qt auto-queues the delivery regardless of who
+    # emitted it -- but Qt only registers/deregisters its internal
+    # per-thread bookkeeping (QThreadStorage entries) in the right order
+    # for threads it manages itself. A foreign thread's entries get torn
+    # down via the OS's own TLS destructor ordering instead, which on
+    # Windows produces "QThreadStorage: entry N destroyed before end of
+    # thread" warnings when the thread exits (harmless, but noisy, and
+    # not seen on Linux/macOS where the ordering happens to work out).
+    # Running the same loop on a real QThread avoids it.
+    def __init__(self, process):
+        super().__init__()
+        self.process = process
+
+    def run(self):
+        self.process.monitor_loop()
+
 class PanadapterProcess(QObject):
     # Parent-side handle for one panadapter subprocess.
     processes = {}               # receiver ('main'/'sub') -> PanadapterProcess
@@ -5863,8 +5895,7 @@ class PanadapterProcess(QObject):
         self.writer_thread = threading.Thread(target=self.writer_loop,
             name=f'panadapter_{receiver}_writer', daemon=True)
         self.writer_thread.start()
-        self.monitor_thread = threading.Thread(target=self.monitor_loop,
-            name=f'panadapter_{receiver}_monitor', daemon=True)
+        self.monitor_thread = PanadapterMonitorThread(self)
         self.monitor_thread.start()
 
     def send(self, msg_type, payload):
@@ -6066,7 +6097,7 @@ class PanadapterProcess(QObject):
         # the whole app quits right after this returns (see
         # clean_up()), silently dropping the geometry save on exit --
         # the most common time a window's final geometry needs saving.
-        self.monitor_thread.join(timeout=2)
+        self.monitor_thread.wait(2000)
         app = QApplication.instance()
         if app != None:
             app.processEvents()
@@ -6087,8 +6118,16 @@ class PanadapterChannel(QObject):
         # event loop. Calling QApplication.quit() from the reader thread
         # directly did not reliably exit.
         self.finished.connect(QApplication.instance().quit)
-        self.thread = threading.Thread(target=self.reader_loop,
-            name='panadapter_reader', daemon=True)
+        # A QThread rather than a plain threading.Thread: this thread's
+        # only job is emitting queued cross-thread signals (message/
+        # finished, above), and it runs right up until the moment this
+        # process exits when the window closes -- exactly when a foreign
+        # (non-QThread) thread's Qt-internal per-thread bookkeeping gets
+        # torn down via the OS's own TLS destructor ordering instead of
+        # Qt's, which is what produces the "QThreadStorage: entry N
+        # destroyed before end of thread" warnings seen on Windows.
+        self.thread = QThread()
+        self.thread.run = self.reader_loop
 
     def start(self):
         self.thread.start()
@@ -8864,8 +8903,12 @@ class CW(TextButtons):
         # Qt.WindowType.Window overrides QDialog's default Dialog type,
         # which most window managers treat as transient-for-parent and
         # force to stay above Page.top -- this lets the main window come
-        # to the front instead.
-        self.top_level = QDialog(Page.top, Qt.WindowType.Window)
+        # to the front instead. On Windows, though, giving it a parent at
+        # all makes it a native "owned window", which Windows always
+        # keeps above its owner in Z-order regardless of Qt window type
+        # -- so there, only dropping the parent avoids the same
+        # always-on-top behavior.
+        self.top_level = QDialog(qt_top_level_parent(), Qt.WindowType.Window)
         self.top_level.setWindowTitle(Page.top.windowTitle() + ' CW')
 
         def _close_event(event):
@@ -9813,8 +9856,10 @@ class Macros(TextButtons):
             return
         self.is_open = True
         # See the matching comment in CW.open(): Qt.WindowType.Window
-        # keeps this from being forced to stay above Page.top.
-        self.top_level = QDialog(Page.top, Qt.WindowType.Window)
+        # keeps this from being forced to stay above Page.top, and
+        # qt_top_level_parent() drops the parent on Windows to avoid its
+        # native owned-window always-above-owner Z-order behavior.
+        self.top_level = QDialog(qt_top_level_parent(), Qt.WindowType.Window)
         self.top_level.setWindowTitle(Page.top.windowTitle() + ' Macros')
 
         def _close_event(event):
