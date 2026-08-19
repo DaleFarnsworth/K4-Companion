@@ -10987,7 +10987,7 @@ class Keyer():
         elt_mult = 1 - delta
         space_mult = 1 + delta
         orig_dit_seconds = 1.2/wpm
-        sidetone_shortener = .005
+        sidetone_shortener = min(.035, orig_dit_seconds)
 
         self.dit_seconds = orig_dit_seconds * elt_mult - sidetone_shortener
         self.dah_seconds = self.dit_seconds + orig_dit_seconds * 2 
