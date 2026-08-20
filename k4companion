@@ -4692,6 +4692,7 @@ class Panadapter(QDialog):
     fps_min = 1                  # #FPS's valid range per the K4
     fps_max = 30                 # Programmer's Reference (#FPSnn;, 01-30)
     waterfall_rows = 120         # = waterfall_seconds * frames_per_second
+    frozen = False                # updated from #FRZ; (0=running, 1=frozen)
     display_span_hz = {'main': 100000, 'sub': 100000}
                                   # K4 sends more spectrum than this is
                                   # useful to show; crop to the center
@@ -4925,6 +4926,20 @@ class Panadapter(QDialog):
             window.resize_waterfall()
 
     @classmethod
+    def on_frz_changed(cls, response):
+        # #FRZ reports panadapter/waterfall freeze state, 0 (running) or
+        # 1 (frozen). Shared -- no per-receiver ($) variant, same as
+        # #FPS -- so this updates the Freeze button on every open
+        # window, not just one.
+        param = cmd_parameter(response)
+        if param not in ('0', '1'):
+            return
+        frozen = param == '1'
+        cls.frozen = frozen
+        for window in cls.windows.values():
+            window._set_freeze_button(frozen)
+
+    @classmethod
     def on_scale_changed(cls, response):
         # #SCL reports the panadapter's vertical scale (dB span of the
         # Y axis) as a plain number, 10-150 per the protocol -- used
@@ -5146,6 +5161,17 @@ class Panadapter(QDialog):
         self.center_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black'))
         self.center_button.clicked.connect(self.on_center_button)
         ref_center_row_layout.addWidget(self.center_button, 0, Qt.AlignmentFlag.AlignTop)
+        # Freeze/Unfreeze (#FRZ;) -- shared between main/sub (no #FRZ$
+        # variant), like FPS/#SCL, so a change here is reflected on
+        # every open window's button the same way. Two-valued: shows
+        # the action available given the current confirmed state ("Freeze"
+        # while running, "Unfreeze" while frozen) -- see on_freeze_button/
+        # _set_freeze_button/on_frz_changed.
+        self.freeze_button = QPushButton()
+        self.freeze_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black'))
+        self.freeze_button.clicked.connect(self.on_freeze_button)
+        self._set_freeze_button(Panadapter.frozen)
+        ref_center_row_layout.addWidget(self.freeze_button, 0, Qt.AlignmentFlag.AlignTop)
         controls_layout.addWidget(ref_center_row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         controls_layout.addWidget(span_fps_row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
@@ -5626,6 +5652,28 @@ class Panadapter(QDialog):
         # as request_tune, for the same reason: it has to reach the
         # radio right away.
         self._write_to_parent('#PANCENTER')
+
+    def on_freeze_button(self):
+        self.request_freeze(not Panadapter.frozen)
+
+    def request_freeze(self, frozen):
+        # Updated locally right away, same reasoning as request_span/
+        # request_fps -- otherwise this button would lag until the
+        # round trip through the radio (via #FRZ;) comes back. Other
+        # open windows pick it up from that round trip instead, same as
+        # they do for Span/FPS.
+        self._set_freeze_button(frozen)
+        self._write_to_parent(f'#PANFRZ {1 if frozen else 0}')
+
+    def _set_freeze_button(self, frozen):
+        # Also updates the shared class-level flag (not just this
+        # window's own button) -- otherwise on_freeze_button's "not
+        # Panadapter.frozen" would keep reading the stale value between
+        # clicks and this window's own repeated clicks would toggle the
+        # same way every time instead of alternating, until a #FRZ;
+        # response happened to come back and correct it.
+        Panadapter.frozen = frozen
+        self.freeze_button.setText('Unfreeze' if frozen else 'Freeze')
 
     def request_vfo_action(self, action):
         # Relayed to the parent (see
@@ -6126,6 +6174,10 @@ class PanadapterProcess(QObject):
     # Panadapter.request_fps and on_fps_requested below).
     fps_requested = pyqtSignal(str)
 
+    # Emitted the same way as tuned, for the Freeze button (see
+    # Panadapter.request_freeze and on_frz_requested below).
+    frz_requested = pyqtSignal(str)
+
     # Relayed to a newly opened window below, from whatever's already
     # cached, since the subscriptions just below only ever fire their
     # "here's the current value" callback once, for the very first
@@ -6139,7 +6191,7 @@ class PanadapterProcess(QObject):
     # session. Each subprocess keeps this state in its own memory (see
     # Panadapter.bandwidth_hz etc), so every newly opened window needs
     # its own explicit seed, not just the first one.
-    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#SCL', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', 'AR', 'AR$', 'AN', 'SB')
+    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#FRZ', '#SCL', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', 'AR', 'AR$', 'AN', 'SB')
 
     @classmethod
     def open_window(cls, receiver):
@@ -6163,6 +6215,10 @@ class PanadapterProcess(QObject):
             # #SCL (panadapter vertical scale) has no per-receiver ($)
             # variant, same as #FPS -- shared by both windows.
             Server.k4_server.subscribe_response('#SCL;', cls.on_cat_response)
+            # #FRZ (panadapter/waterfall freeze) likewise has no
+            # per-receiver ($) variant -- shared by both windows, for
+            # the Freeze/Unfreeze button (see Panadapter.on_frz_changed).
+            Server.k4_server.subscribe_response('#FRZ;', cls.on_cat_response)
             # MD/MD$ (receiver mode) is relayed for the mini-pan's
             # bandwidth (2 kHz in CW mode, 10 kHz otherwise).
             Server.k4_server.subscribe_response('MD;', cls.on_cat_response)
@@ -6305,6 +6361,7 @@ class PanadapterProcess(QObject):
         self.vfo_action.connect(self.on_vfo_action_requested)
         self.span_requested.connect(self.on_span_requested)
         self.fps_requested.connect(self.on_fps_requested)
+        self.frz_requested.connect(self.on_frz_requested)
 
         if getattr(sys, 'frozen', False):
             argv = [sys.executable]
@@ -6391,6 +6448,8 @@ class PanadapterProcess(QObject):
                     self.span_requested.emit(line[len('#PANSPAN '):])
                 elif line.startswith('#PANFPS '):
                     self.fps_requested.emit(line[len('#PANFPS '):])
+                elif line.startswith('#PANFRZ '):
+                    self.frz_requested.emit(line[len('#PANFRZ '):])
         except (ValueError, OSError):
             pass
         self.process.wait()
@@ -6515,6 +6574,13 @@ class PanadapterProcess(QObject):
         fps = max(Panadapter.fps_min, min(Panadapter.fps_max, fps))
         Server.k4_server.send_cmds(f'#FPS{fps:02d};')
 
+    def on_frz_requested(self, arg):
+        # "0" or "1" -- see Panadapter.request_freeze. #FRZ has no
+        # per-receiver ($) variant either, same reason.
+        if arg not in ('0', '1'):
+            return
+        Server.k4_server.send_cmds(f'#FRZ{arg};')
+
     def _close_pipe(self):
         try:
             self.queue.put_nowait(None)
@@ -6618,6 +6684,8 @@ class PanadapterChannel(QObject):
                 base = cmd_base(response)
                 if base == '#FPS':
                     Panadapter.on_fps_changed(response)
+                elif base == '#FRZ':
+                    Panadapter.on_frz_changed(response)
                 elif base == '#SCL':
                     Panadapter.on_scale_changed(response)
                 elif base in ('#SPN', '#SPN$'):
