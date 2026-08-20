@@ -6548,6 +6548,17 @@ def panadapter_child_main(receiver):
     window = Panadapter(receiver)
     Panadapter.windows[receiver] = window
     window.show()
+    # See the matching comment in main(): set_geometry()'s move(), run
+    # from Panadapter.__init__ before this show(), targets the window's
+    # undecorated content rect -- but the WM only attaches its frame
+    # once actually mapped, and that reparenting happens asynchronously
+    # after show() returns, so re-running set_geometry() immediately
+    # still races it. Deferring it to the next event loop iteration
+    # instead runs it after the frame has actually landed; harmless to
+    # call twice, and one-time only (this function runs once per child
+    # process).
+    for geo_delay in (100, 250, 500, 1000):
+        QTimer.singleShot(geo_delay, window.set_geometry)
     # As if Ref had just been clicked, the first time the panadapter is
     # displayed -- see on_ref_button/_trigger_auto_ref for the other
     # triggers (mode/antenna/span change).
@@ -9288,6 +9299,18 @@ class CW(TextButtons):
 
         self.set_geometry()
         self.top_level.show()
+        # See the matching comment in main(): move()/resize() before
+        # show() targets the window's undecorated content rect, but the
+        # WM only attaches its frame once the window is actually mapped
+        # -- and that reparenting happens asynchronously, after show()
+        # returns, so a move() issued immediately still races it. Redo
+        # it deferred to the next event loop iteration instead, once
+        # the frame has actually landed; harmless to call twice since it
+        # just re-reads the same persisted geometry. One-time only
+        # (open() itself is guarded by is_open), so this doesn't fight a
+        # later user-dragged position.
+        for geo_delay in (100, 250, 500, 1000):
+            QTimer.singleShot(geo_delay, self.set_geometry)
 
     def add_cw_tab(self):
         self.cw_frame = QWidget()
@@ -10182,6 +10205,7 @@ class Macros(TextButtons):
         self.is_open = False
         self.previous_tabname = None
         self._fkey_shortcuts = []
+        self._geometry_needs_recheck = False
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def on_received_initial_parameters(self, response):
@@ -10230,6 +10254,14 @@ class Macros(TextButtons):
         self.add_config_tab()
 
         self.set_geometry()
+        # move()/resize() here happen before this window is ever shown
+        # (see below), so the WM hasn't attached a decoration frame yet
+        # and the eventual on-screen content ends up misplaced by the
+        # frame's size once it finally is shown -- see the matching
+        # comment in main(). Since the actual first show() happens
+        # later (via show()/show_or_hide()), flag it here so show()
+        # can redo set_geometry() once, right after that first show().
+        self._geometry_needs_recheck = True
         # Deliberately not shown here: on_received_initial_parameters()
         # calls open() unconditionally, then immediately calls
         # show_or_hide() to apply the persisted enabled/disabled state.
@@ -10339,6 +10371,18 @@ and everything after the & is sent.'''
         if self.k4param('!MACROS') != 'ENABLE':
             self.server.update_k4_parameter('!MACROS', 'ENABLE')
         self.top_level.show()
+        if self._geometry_needs_recheck:
+            # See open()'s matching comment: this is the first real
+            # show() after open()'s pre-show set_geometry(), so redo it
+            # now that the WM has actually attached a frame -- deferred
+            # to the next event loop iteration since the WM's reparent/
+            # decorate happens asynchronously after show() returns, not
+            # immediately. One-time only -- a later show() (after the
+            # user's own hide()) must not re-snap back to the persisted
+            # position.
+            self._geometry_needs_recheck = False
+            for geo_delay in (100, 250, 500, 1000):
+                QTimer.singleShot(geo_delay, self.set_geometry)
         self.top_level.raise_()
         self.top_level.activateWindow()
 
@@ -12080,6 +12124,23 @@ def main():
     start()
 
     top.show()
+    if geometry != None:
+        # move() before show() targets the *content* position, but the
+        # window manager doesn't reparent this into a decorated frame
+        # until it's actually mapped -- so at that pre-show move(), Qt
+        # doesn't yet know the frame's size and the WM ends up placing
+        # the whole (content + decoration) rectangle at the requested
+        # position instead, shifting the actual content down/right by
+        # the title bar/border size. Re-issuing the same move() right
+        # after show() isn't enough either: show() only requests the
+        # map, it doesn't wait for the WM to actually reparent/decorate
+        # the window, which happens asynchronously over the X11
+        # connection -- a move() issued before that completes just
+        # races the WM's own placement. Deferring it to the next event
+        # loop iteration (singleShot(100, ...)) runs it after that
+        # reparenting has actually landed.
+        for geo_delay in (100, 250, 500, 1000):
+            QTimer.singleShot(geo_delay, lambda: top.move(x, y))
     app.exec()
 
 config_data = '''
