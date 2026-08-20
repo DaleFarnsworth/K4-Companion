@@ -3401,6 +3401,13 @@ class DropdownWidget():
             value = self.to
         if self.evalcmd != None:
             cmd = self.caller.eval_value(self.evalcmd, value)
+        # Updated locally right away, formatted the same way a real
+        # response would be (reusing unexpected_response), rather than
+        # waiting entirely on the radio's own echo to move the display
+        # -- otherwise Up/Down/wheel stepping can visibly lag behind or
+        # appear to do nothing between presses.
+        if self.unexpected_response != '':
+            self.set_val(str(self.caller.eval_value(self.unexpected_response, cmd)))
         self.server.expand_and_send_cmds(cmd)
 
     def update_value(self):
@@ -12559,8 +12566,8 @@ config_data = '''
   label: RF Gain
   from: -60
   to: -0
-  evalincrement: '5'
-  evalcmd: f'RG{int(round(value)):+03d};'
+  evalincrement: '1'
+  evalcmd: f'RG-{abs(int(round(value))):02d};'
   unexpectedresponse: '"-0" if int(value[2:5]) == 0 else f"{int(value[2:5]):-02d}" if int(value[2:5]) > -10 else f"{int(value[2:5]):-03d}"'
   selections: #{
     - { text: ' -0', cmd: RG-00; }
@@ -12768,8 +12775,8 @@ config_data = '''
   label: RF Gain
   from: -60
   to: -0
-  evalincrement: '5'
-  evalcmd: f'RG${int(value):+03d};'
+  evalincrement: '1'
+  evalcmd: f'RG$-{abs(round(value)):02d};'
   unexpectedresponse: '"-0" if int(value[3:6]) == 0 else f"{int(value[3:6]):-02d}" if int(value[3:6]) > -10 else f"{int(value[3:6]):-03d}"'
   selections: #{
     - { text: ' -0', cmd: RG$-00; }

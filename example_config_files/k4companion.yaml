@@ -574,8 +574,8 @@
   label: RF Gain
   from: -60
   to: -0
-  evalincrement: '5'
-  evalcmd: f'RG{int(round(value)):+03d};'
+  evalincrement: '1'
+  evalcmd: f'RG-{abs(int(round(value))):02d};'
   unexpectedresponse: '"-0" if int(value[2:5]) == 0 else f"{int(value[2:5]):-02d}" if int(value[2:5]) > -10 else f"{int(value[2:5]):-03d}"'
   selections: #{
     - { text: ' -0', cmd: RG-00; }
@@ -783,8 +783,8 @@
   label: RF Gain
   from: -60
   to: -0
-  evalincrement: '5'
-  evalcmd: f'RG${int(value):+03d};'
+  evalincrement: '1'
+  evalcmd: f'RG$-{abs(round(value)):02d};'
   unexpectedresponse: '"-0" if int(value[3:6]) == 0 else f"{int(value[3:6]):-02d}" if int(value[3:6]) > -10 else f"{int(value[3:6]):-03d}"'
   selections: #{
     - { text: ' -0', cmd: RG$-00; }
