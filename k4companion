@@ -4689,6 +4689,8 @@ class Panadapter(QDialog):
                                   # that depth constant regardless of
                                   # how fast frames arrive.
     frames_per_second = 12       # updated from #FPS
+    fps_min = 1                  # #FPS's valid range per the K4
+    fps_max = 30                 # Programmer's Reference (#FPSnn;, 01-30)
     waterfall_rows = 120         # = waterfall_seconds * frames_per_second
     display_span_hz = {'main': 100000, 'sub': 100000}
                                   # K4 sends more spectrum than this is
@@ -4902,7 +4904,10 @@ class Panadapter(QDialog):
 
     @classmethod
     def on_fps_changed(cls, response):
-        # #FPS reports PAN frames per second, as a plain number.
+        # #FPS reports PAN frames per second, as a plain number. Shared
+        # -- no per-receiver ($) variant -- so this updates the FPS
+        # combobox on every open window (main and sub alike), not just
+        # one, same as #FPS itself has no receiver to restrict it to.
         try:
             fps = float(cmd_parameter(response))
         except ValueError:
@@ -4910,6 +4915,8 @@ class Panadapter(QDialog):
         if fps <= 0:
             return
         cls.frames_per_second = fps
+        for window in cls.windows.values():
+            window._set_fps_combobox(fps)
         rows = max(2, round(fps * cls.waterfall_seconds))
         if rows == cls.waterfall_rows:
             return
@@ -5101,6 +5108,30 @@ class Panadapter(QDialog):
             'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
         span_grid.addWidget(self.span_combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
+        # FPS (#FPS;) selector -- every valid value (1-30, per the K4
+        # Programmer's Reference) enumerated, so unlike Span there's no
+        # need for an editable/steppable combobox to reach values outside
+        # a preset list. Shared between main/sub (no #FPS$ variant), so
+        # a change here updates every open window's combobox the same
+        # way -- see on_fps_changed/_set_fps_combobox.
+        fps_frame, fps_grid = qt_group_box('FPS', qt_font('Helvetica', 9))
+        self.fps_combobox = QComboBox()
+        self.fps_combobox.addItems([str(v) for v in range(Panadapter.fps_min, Panadapter.fps_max + 1)])
+        self.fps_combobox.setFont(qt_font('Helvetica', 9))
+        self.fps_combobox.view().setFont(qt_font('Helvetica', 9))
+        self.fps_combobox.activated.connect(self.on_fps_selected)
+        self.fps_combobox.setStyleSheet(
+            'QComboBox { background-color: white; color: black; }'
+            'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
+        self._set_fps_combobox(Panadapter.frames_per_second)
+        fps_grid.addWidget(self.fps_combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        span_fps_row = QWidget()
+        span_fps_row_layout = QHBoxLayout(span_fps_row)
+        span_fps_row_layout.setContentsMargins(0, 0, 0, 0)
+        span_fps_row_layout.addWidget(span_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        span_fps_row_layout.addWidget(fps_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
         controls_frame = QWidget()
         controls_layout = QVBoxLayout(controls_frame)
         controls_layout.setContentsMargins(0, 0, 0, 0)
@@ -5116,7 +5147,7 @@ class Panadapter(QDialog):
         self.center_button.clicked.connect(self.on_center_button)
         ref_center_row_layout.addWidget(self.center_button, 0, Qt.AlignmentFlag.AlignTop)
         controls_layout.addWidget(ref_center_row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        controls_layout.addWidget(span_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        controls_layout.addWidget(span_fps_row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         minipan_row = QWidget()
         minipan_row_layout = QHBoxLayout(minipan_row)
@@ -5676,6 +5707,26 @@ class Panadapter(QDialog):
         if self.span_combobox.currentText() != text:
             self.span_combobox.setCurrentText(text)
 
+    def on_fps_selected(self, index):
+        try:
+            fps = int(self.fps_combobox.itemText(index))
+        except ValueError:
+            return
+        self.request_fps(fps)
+
+    def request_fps(self, fps):
+        fps = max(Panadapter.fps_min, min(Panadapter.fps_max, fps))
+        # Updated locally right away, same reasoning as request_span --
+        # otherwise the combobox would visibly lag until the round trip
+        # through the radio (via #FPS;) comes back.
+        self._set_fps_combobox(fps)
+        self._write_to_parent(f'#PANFPS {fps}')
+
+    def _set_fps_combobox(self, fps):
+        text = str(round(fps))
+        if self.fps_combobox.currentText() != text:
+            self.fps_combobox.setCurrentText(text)
+
     def _write_to_parent(self, line):
         try:
             sys.stdout.write(line + '\n')
@@ -6071,6 +6122,10 @@ class PanadapterProcess(QObject):
     # Panadapter.request_span and on_span_requested below).
     span_requested = pyqtSignal(str)
 
+    # Emitted the same way as tuned, for the FPS combobox (see
+    # Panadapter.request_fps and on_fps_requested below).
+    fps_requested = pyqtSignal(str)
+
     # Relayed to a newly opened window below, from whatever's already
     # cached, since the subscriptions just below only ever fire their
     # "here's the current value" callback once, for the very first
@@ -6249,6 +6304,7 @@ class PanadapterProcess(QObject):
         self.centered.connect(self.on_center_requested)
         self.vfo_action.connect(self.on_vfo_action_requested)
         self.span_requested.connect(self.on_span_requested)
+        self.fps_requested.connect(self.on_fps_requested)
 
         if getattr(sys, 'frozen', False):
             argv = [sys.executable]
@@ -6333,6 +6389,8 @@ class PanadapterProcess(QObject):
                     self.vfo_action.emit(line[len('#PANVFO '):])
                 elif line.startswith('#PANSPAN '):
                     self.span_requested.emit(line[len('#PANSPAN '):])
+                elif line.startswith('#PANFPS '):
+                    self.fps_requested.emit(line[len('#PANFPS '):])
         except (ValueError, OSError):
             pass
         self.process.wait()
@@ -6445,6 +6503,17 @@ class PanadapterProcess(QObject):
         span_khz = max(Panadapter.span_min_khz, min(Panadapter.span_max_khz, span_khz))
         base = '#SPN$' if self.receiver == 'sub' else '#SPN'
         Server.k4_server.send_cmds(f'{base}{span_khz * 1000};')
+
+    def on_fps_requested(self, arg):
+        # "<fps>" -- see Panadapter.request_fps. #FPS has no per-receiver
+        # ($) variant -- it's one shared setting -- so this doesn't
+        # branch on self.receiver the way on_span_requested does.
+        try:
+            fps = int(arg)
+        except ValueError:
+            return
+        fps = max(Panadapter.fps_min, min(Panadapter.fps_max, fps))
+        Server.k4_server.send_cmds(f'#FPS{fps:02d};')
 
     def _close_pipe(self):
         try:
