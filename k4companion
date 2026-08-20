@@ -6756,6 +6756,11 @@ class Audio():
                 break
         while True:
             try:
+                 self.output_device_queue.get_nowait()
+            except queue.Empty:
+                break
+        while True:
+            try:
                 self.server.recv_queue.get_nowait()
             except queue.Empty:
                 break
