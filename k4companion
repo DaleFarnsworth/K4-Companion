@@ -3330,7 +3330,8 @@ class DropdownWidget():
         editable = self.evalcmd != None
 
         self.combobox = SteppedComboBox(
-            on_step=self.on_increment if self.evalincrement != None else None)
+            on_step=self.on_increment if self.evalincrement != None else None,
+            on_wheel=self.on_wheel_increment if self.evalincrement != None else None)
         self.combobox.addItems(texts)
         self.combobox.setFont(font)
         self.combobox.view().setFont(font)
@@ -3378,6 +3379,17 @@ class DropdownWidget():
             incr = -incr
         value += incr
         self.set_value(value)
+
+    def on_wheel_increment(self, event):
+        # Same continuous stepping as the Up/Down keys (on_increment),
+        # one on_increment step per wheel notch, rather than the
+        # combobox's own default wheel behavior of cycling through only
+        # the enumerated selections.
+        mult = mouse_wheel_mult(event)
+        if mult > 0:
+            self.on_increment(Qt.Key.Key_Up)
+        elif mult < 0:
+            self.on_increment(Qt.Key.Key_Down)
 
     def set_value(self, value):
         if self.server.warn_if_not_connected():
