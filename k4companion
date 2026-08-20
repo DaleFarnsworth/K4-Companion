@@ -9379,7 +9379,7 @@ class CW(TextButtons):
         delay_slider_grid.setContentsMargins(0, 0, 0, 0)
         delay_grid.addWidget(delay_slider_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         delay_slider_options = {
-            'orient': 'horizontal', 'from': 0, 'to': 2.55, 'length': 120,
+            'orient': 'horizontal', 'from': 0, 'to': 2.55, 'length': 110,
             'evalincrement': '-.01', 'showvalue': True,
             'evalcmd': '"SDC{f}{d:03d};".format(f=self.k4param("SDC")[0], d=int(float(value)*100))',
             'evalresponse': 'float(value[4:7])/100',
@@ -9392,7 +9392,7 @@ class CW(TextButtons):
 
         cw_pitch_options = {
             'orient': 'horizontal', 'from': 300, 'to': 900,
-            'length': 120, 'evalincrement': '10', 'showvalue': True,
+            'length': 110, 'evalincrement': '10', 'showvalue': True,
             'evalcmd': '"CW{:02d};".format(int(int(value)/10))', 'evalresponse': 'int(value[2:4])*10',
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
         }
@@ -9403,7 +9403,7 @@ class CW(TextButtons):
 
         key_down_delay_options = {
             'orient': 'horizontal', 'from': 0, 'to': 1000,
-            'length': 120, 'evalincrement': '10', 'showvalue': True,
+            'length': 110, 'evalincrement': '10', 'showvalue': True,
             'evalcmd': '"KZL{:04d};".format(int(value))', 'evalresponse': 'round(int(value[3:7].strip(";")), -1)',
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
         }
@@ -9652,7 +9652,7 @@ and everything after the & is sent.'''
         parent_frame.layout().addWidget(sidetone_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         sidetone_options = {
-            'orient': 'horizontal', 'from': 0, 'to': 60, 'length': 120,
+            'orient': 'horizontal', 'from': 0, 'to': 60, 'length': 110,
             'showvalue': False, 'evalincrement': '1',
             'evalcmd': '"ML0{:03d};".format(int(float(value)))', 'evalresponse': 'float(value[3:6])',
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
@@ -9663,7 +9663,7 @@ and everything after the & is sent.'''
         parent_frame.layout().addWidget(self.keyer_speed_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         keyer_speed_options = {
-            'orient': 'horizontal', 'from': 8, 'to': 100, 'length': 120,
+            'orient': 'horizontal', 'from': 8, 'to': 100, 'length': 110,
             'showvalue': False, 'evalincrement': '1',
             'evalcmd': '"KS{:03d};".format(int(float(value)))', 'evalresponse': 'float(value[2:5])',
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
@@ -9701,24 +9701,22 @@ and everything after the & is sent.'''
         }
         ToggleWidget(self, sub_apf_frame, sub_apf_options)
 
-        self.autospot_frame = QWidget()
-        autospot_grid = QGridLayout(self.autospot_frame)
-        autospot_grid.setContentsMargins(0, 0, 0, 0)
+        self.autospot_frame, autospot_grid = qt_group_box('Autospot', self.label_font())
         parent_frame.layout().addWidget(self.autospot_frame, 0, 3, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        spot_options = {
-            'selections': [
-                { 'text': 'Autospot', 'cmd': 'SP0;' },
-                { 'text': 'Autospot', 'cmd': 'SP3;', 'bg': 'yellow' },
-                { 'text': 'Autospot', 'cmd': 'SP1;' },
-                { 'text': 'Autospot', 'cmd': 'SP3;', 'bg': 'yellow' },
-                { 'text': 'Autospot', 'cmd': 'SP2;' },
-                { 'text': 'Autospot', 'cmd': 'SP3;', 'bg': 'yellow' },
-            ],
-            'width': 8, 'bg': self.bg, 'fg': self.fg, 'abg': self.abg,
-            'afg': self.afg, 'font': self.font(),
 
-        }
-        ToggleWidget(self, self.autospot_frame, spot_options)
+        self.main_spot_button = QPushButton('Main')
+        self.main_spot_button.setFont(self.font())
+        self.main_spot_button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.abg, self.afg))
+        self.main_spot_button.setMinimumWidth(5 * QFontMetrics(self.font()).averageCharWidth())
+        self.main_spot_button.clicked.connect(lambda: self.server.send_cmds('SP3;'))
+        autospot_grid.addWidget(self.main_spot_button, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        self.sub_spot_button = QPushButton('Sub')
+        self.sub_spot_button.setFont(self.font())
+        self.sub_spot_button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.abg, self.afg))
+        self.sub_spot_button.setMinimumWidth(5 * QFontMetrics(self.font()).averageCharWidth())
+        self.sub_spot_button.clicked.connect(lambda: self.server.send_cmds('SP$3;'))
+        autospot_grid.addWidget(self.sub_spot_button, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
     def _size_cw_text(self, cw_text, height_lines):
         cw_text.max_lines = height_lines
