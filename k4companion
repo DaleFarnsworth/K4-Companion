@@ -4693,6 +4693,9 @@ class Panadapter(QDialog):
     fps_max = 30                 # Programmer's Reference (#FPSnn;, 01-30)
     waterfall_rows = 120         # = waterfall_seconds * frames_per_second
     frozen = False                # updated from #FRZ; (0=running, 1=frozen)
+    fxa = None                    # updated from #FXA; (DDC Fixed Tune Mode,
+                                  # 0-4) -- see on_fxa_changed/on_fxt_changed.
+    fxt = None                    # updated from #FXT; ('0'=track, '1'=fixed)
     display_span_hz = {'main': 100000, 'sub': 100000}
                                   # K4 sends more spectrum than this is
                                   # useful to show; crop to the center
@@ -4940,6 +4943,41 @@ class Panadapter(QDialog):
             window._set_freeze_button(frozen)
 
     @classmethod
+    def on_fxa_changed(cls, response):
+        # #FXA reports DDC Fixed Tune Mode (0-4, see the Fixed Tune
+        # combobox's own comment). Shared -- no per-receiver ($)
+        # variant. Only reflected in the combobox when fixed tune is
+        # actually active (fxt == '1') -- while tracking ('0'), the
+        # combobox shows "Track" regardless of whatever #FXA last was
+        # (see on_fxt_changed), so there's nothing to update here yet;
+        # the cached value is picked up once #FXT1; arrives.
+        param = cmd_parameter(response)
+        try:
+            value = int(param)
+        except ValueError:
+            return
+        cls.fxa = value
+        if cls.fxt == '1':
+            for window in cls.windows.values():
+                window._set_fixed_tune_combobox(value)
+
+    @classmethod
+    def on_fxt_changed(cls, response):
+        # #FXT is the track/fixed toggle (0=track, 1=fixed) -- see the
+        # Fixed Tune combobox's own comment. Shared, no per-receiver
+        # ($) variant.
+        param = cmd_parameter(response)
+        if param not in ('0', '1'):
+            return
+        cls.fxt = param
+        if param == '0':
+            for window in cls.windows.values():
+                window._set_fixed_tune_combobox(5)
+        elif cls.fxa != None:
+            for window in cls.windows.values():
+                window._set_fixed_tune_combobox(cls.fxa)
+
+    @classmethod
     def on_scale_changed(cls, response):
         # #SCL reports the panadapter's vertical scale (dB span of the
         # Y axis) as a plain number, 10-150 per the protocol -- used
@@ -5161,6 +5199,25 @@ class Panadapter(QDialog):
         self.center_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black'))
         self.center_button.clicked.connect(self.on_center_button)
         ref_center_row_layout.addWidget(self.center_button, 0, Qt.AlignmentFlag.AlignTop)
+        # DDC Fixed Tune Mode selector (#FXA;/#FXT;) -- shared between
+        # main/sub (no $ variant on either), same as FPS/#FRZ. Picking a
+        # 0-4 item sets that #FXA mode and engages fixed tune (#FXT1;);
+        # picking "Track" disengages it (#FXT0;) instead, with no #FXA
+        # needed for that direction. Bidirectional: #FXT0; always shows
+        # "Track"; #FXT1; shows whichever item matches the current #FXA
+        # value -- see request_fixed_tune/_set_fixed_tune_combobox and
+        # the classmethods on_fxa_changed/on_fxt_changed.
+        self.fixed_tune_combobox = QComboBox()
+        self.fixed_tune_combobox.setFont(qt_font('Helvetica', 9))
+        self.fixed_tune_combobox.view().setFont(qt_font('Helvetica', 9))
+        for text, value in (('Track', 5), ('Fixed1', 0), ('Fixed2', 1),
+                            ('Slide1', 2), ('Slide2', 4), ('Static', 3)):
+            self.fixed_tune_combobox.addItem(text, value)
+        self.fixed_tune_combobox.activated.connect(self.on_fixed_tune_selected)
+        self.fixed_tune_combobox.setStyleSheet(
+            'QComboBox { background-color: white; color: black; }'
+            'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
+        ref_center_row_layout.addWidget(self.fixed_tune_combobox, 0, Qt.AlignmentFlag.AlignTop)
         # Freeze/Unfreeze (#FRZ;) -- shared between main/sub (no #FRZ$
         # variant), like FPS/#SCL, so a change here is reflected on
         # every open window's button the same way. Two-valued: shows
@@ -5675,6 +5732,30 @@ class Panadapter(QDialog):
         Panadapter.frozen = frozen
         self.freeze_button.setText('Unfreeze' if frozen else 'Freeze')
 
+    def on_fixed_tune_selected(self, index):
+        self.request_fixed_tune(self.fixed_tune_combobox.itemData(index))
+
+    def request_fixed_tune(self, value):
+        # Updated locally right away, same reasoning as request_span/
+        # request_fps/request_freeze -- otherwise this combobox would
+        # lag until the round trip through the radio comes back.
+        self._set_fixed_tune_combobox(value)
+        self._write_to_parent(f'#PANFXA {value}')
+
+    def _set_fixed_tune_combobox(self, value):
+        # Also updates the shared class-level cache (not just this
+        # window's own combobox) -- same reasoning as
+        # _set_freeze_button: on_fxa_changed/on_fxt_changed both read
+        # Panadapter.fxa/fxt to decide what a future #FXA;/#FXT;
+        # response should do, so a local selection here needs to keep
+        # that cache current too, not just this window's display.
+        Panadapter.fxt = '0' if value == 5 else '1'
+        if value != 5:
+            Panadapter.fxa = value
+        index = self.fixed_tune_combobox.findData(value)
+        if index >= 0 and self.fixed_tune_combobox.currentIndex() != index:
+            self.fixed_tune_combobox.setCurrentIndex(index)
+
     def request_vfo_action(self, action):
         # Relayed to the parent (see
         # PanadapterProcess.on_vfo_action_requested), same channel and
@@ -6178,6 +6259,10 @@ class PanadapterProcess(QObject):
     # Panadapter.request_freeze and on_frz_requested below).
     frz_requested = pyqtSignal(str)
 
+    # Emitted the same way as tuned, for the Fixed Tune combobox (see
+    # Panadapter.request_fixed_tune and on_fxa_requested below).
+    fxa_requested = pyqtSignal(str)
+
     # Relayed to a newly opened window below, from whatever's already
     # cached, since the subscriptions just below only ever fire their
     # "here's the current value" callback once, for the very first
@@ -6191,7 +6276,7 @@ class PanadapterProcess(QObject):
     # session. Each subprocess keeps this state in its own memory (see
     # Panadapter.bandwidth_hz etc), so every newly opened window needs
     # its own explicit seed, not just the first one.
-    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#FRZ', '#SCL', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', 'AR', 'AR$', 'AN', 'SB')
+    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#FRZ', '#FXA', '#FXT', '#SCL', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', 'AR', 'AR$', 'AN', 'SB')
 
     @classmethod
     def open_window(cls, receiver):
@@ -6219,6 +6304,12 @@ class PanadapterProcess(QObject):
             # per-receiver ($) variant -- shared by both windows, for
             # the Freeze/Unfreeze button (see Panadapter.on_frz_changed).
             Server.k4_server.subscribe_response('#FRZ;', cls.on_cat_response)
+            # #FXA/#FXT (DDC Fixed Tune mode/toggle) likewise have no
+            # per-receiver ($) variant -- shared by both windows, for
+            # the Fixed Tune combobox (see Panadapter.on_fxa_changed/
+            # on_fxt_changed).
+            Server.k4_server.subscribe_response('#FXA;', cls.on_cat_response)
+            Server.k4_server.subscribe_response('#FXT;', cls.on_cat_response)
             # MD/MD$ (receiver mode) is relayed for the mini-pan's
             # bandwidth (2 kHz in CW mode, 10 kHz otherwise).
             Server.k4_server.subscribe_response('MD;', cls.on_cat_response)
@@ -6362,6 +6453,7 @@ class PanadapterProcess(QObject):
         self.span_requested.connect(self.on_span_requested)
         self.fps_requested.connect(self.on_fps_requested)
         self.frz_requested.connect(self.on_frz_requested)
+        self.fxa_requested.connect(self.on_fxa_requested)
 
         if getattr(sys, 'frozen', False):
             argv = [sys.executable]
@@ -6450,6 +6542,8 @@ class PanadapterProcess(QObject):
                     self.fps_requested.emit(line[len('#PANFPS '):])
                 elif line.startswith('#PANFRZ '):
                     self.frz_requested.emit(line[len('#PANFRZ '):])
+                elif line.startswith('#PANFXA '):
+                    self.fxa_requested.emit(line[len('#PANFXA '):])
         except (ValueError, OSError):
             pass
         self.process.wait()
@@ -6581,6 +6675,21 @@ class PanadapterProcess(QObject):
             return
         Server.k4_server.send_cmds(f'#FRZ{arg};')
 
+    def on_fxa_requested(self, arg):
+        # "<value>" (0-5) -- see Panadapter.request_fixed_tune. 0-4 pick
+        # a DDC Fixed Tune mode and engage it (#FXA;/#FXT1;); 5
+        # ("Track") disengages fixed tune (#FXT0;) instead, with no
+        # #FXA needed for that direction. Neither has a per-receiver
+        # ($) variant, same reason as #FRZ/#FPS.
+        try:
+            value = int(arg)
+        except ValueError:
+            return
+        if value == 5:
+            Server.k4_server.send_cmds('#FXT0;')
+        elif 0 <= value <= 4:
+            Server.k4_server.send_cmds(f'#FXA{value};#FXT1;')
+
     def _close_pipe(self):
         try:
             self.queue.put_nowait(None)
@@ -6686,6 +6795,10 @@ class PanadapterChannel(QObject):
                     Panadapter.on_fps_changed(response)
                 elif base == '#FRZ':
                     Panadapter.on_frz_changed(response)
+                elif base == '#FXA':
+                    Panadapter.on_fxa_changed(response)
+                elif base == '#FXT':
+                    Panadapter.on_fxt_changed(response)
                 elif base == '#SCL':
                     Panadapter.on_scale_changed(response)
                 elif base in ('#SPN', '#SPN$'):
