@@ -4993,8 +4993,9 @@ class Panadapter(QDialog):
         # the bw_region setup below and push_frame.
         self.bw_key = None
 
-        # Frequency line position -- see _update_freq_line/_rx_freq_hz.
-        self.freq_line_hz = None
+        # Frequency line positions -- see _update_freq_line.
+        self.freq_line_a_hz = None
+        self.freq_line_b_hz = None
 
         label = 'Sub' if receiver == 'sub' else 'Main'
         if Page.top != None:
@@ -5034,7 +5035,7 @@ class Panadapter(QDialog):
         # pixel size (see _position_minipan_labels).
         self.minipan_left_label = self._make_overlay_label(self.minipan_plot)
         self.minipan_right_label = self._make_overlay_label(self.minipan_plot)
-        # Center-frequency marker, same idea as freq_line_trace below.
+        # Center-frequency marker, same idea as freq_line_a/freq_line_b below.
         # Starts hidden, matching minipan_enabled's own initial False --
         # otherwise it defaults to visible at its unset (0 Hz) position
         # until the first enable/disable message arrives from the
@@ -5146,10 +5147,20 @@ class Panadapter(QDialog):
         # range so the plot isn't empty before the first average lands.
         self.trace_plot.enableAutoRange(axis='y', enable=False)
         self.trace_plot.setYRange(-160, 0, padding=0)
-        # Frequency marker: trace only, not the waterfall.
-        self.freq_line_trace = pyqtgraph.InfiniteLine(angle=90,
+        # Frequency markers, on the trace -- see below for the matching
+        # ones on the waterfall. Both VFOs are shown on both the main
+        # and sub panadapters -- not just this window's own receiver --
+        # since FA/FB are both relayed to every open panadapter
+        # subprocess regardless of receiver (see
+        # PanadapterProcess.on_cat_response), so Panadapter.rx_freq_hz
+        # has both here either way. VFO A (main receiver, FA) is blue,
+        # VFO B (sub receiver, FB) is green.
+        self.freq_line_a = pyqtgraph.InfiniteLine(angle=90,
             pen=pyqtgraph.mkPen(color=(60, 140, 255), width=1))
-        self.trace_plot.addItem(self.freq_line_trace)
+        self.trace_plot.addItem(self.freq_line_a)
+        self.freq_line_b = pyqtgraph.InfiniteLine(angle=90,
+            pen=pyqtgraph.mkPen(color=(60, 200, 90), width=1))
+        self.trace_plot.addItem(self.freq_line_b)
         # Left/right/center frequency overlay, same idea as the
         # mini-pan's delta labels above -- see _update_trace_labels.
         self.trace_left_label = self._make_overlay_label(self.trace_plot)
@@ -5168,7 +5179,7 @@ class Panadapter(QDialog):
             lambda *_: self._position_trace_labels())
         # Click-to-tune -- a scene-level signal rather than an item's
         # own click handler, so it fires no matter what's drawn under
-        # the cursor (bw_region, freq_line_trace, ...). setMouseEnabled
+        # the cursor (bw_region, freq_line_a/freq_line_b, ...). setMouseEnabled
         # (False, False) above only disables pan/zoom dragging, not
         # this.
         self.trace_plot.scene().sigMouseClicked.connect(self.on_trace_clicked)
@@ -5184,6 +5195,16 @@ class Panadapter(QDialog):
             Panadapter.colormap = pyqtgraph.colormap.get('inferno').getLookupTable(0.0, 1.0, 256)
         self.waterfall_img.setLookupTable(Panadapter.colormap)
         self.waterfall_plot.setXLink(self.trace_plot)
+        # Same VFO A/B markers as the trace (see freq_line_a/b above),
+        # extended down into the waterfall -- separate InfiniteLine
+        # instances since one item can't be a child of two plots, kept
+        # in sync with the trace's own lines in _update_freq_line.
+        self.freq_line_a_waterfall = pyqtgraph.InfiniteLine(angle=90,
+            pen=pyqtgraph.mkPen(color=(60, 140, 255), width=1))
+        self.waterfall_plot.addItem(self.freq_line_a_waterfall)
+        self.freq_line_b_waterfall = pyqtgraph.InfiniteLine(angle=90,
+            pen=pyqtgraph.mkPen(color=(60, 200, 90), width=1))
+        self.waterfall_plot.addItem(self.freq_line_b_waterfall)
         # Y range is set explicitly (see push_frame, alongside
         # waterfall_img.setRect()) rather than left to pyqtgraph's
         # default auto-range, which pads a few percent above and below
@@ -5424,7 +5445,7 @@ class Panadapter(QDialog):
         if old_center_hz != None and old_center_hz != center_hz:
             self.schedule_ref_reset()
         # Anchored to THIS FRAME'S OWN center_hz, not _rx_freq_hz() --
-        # tried that (matching push_minipan/freq_line_trace/bw_region's
+        # tried that (matching push_minipan/freq_line_a/freq_line_b/bw_region's
         # use of the receiver's real tuned frequency, FA;/FB;), reasoning
         # that center_hz "can diverge" from it (see the mini-pan's own
         # comment). That broke live tracking: the PAN stream's displayed
@@ -5723,11 +5744,24 @@ class Panadapter(QDialog):
         return freq_hz if freq_hz != None else self.last_center_hz
 
     def _update_freq_line(self):
-        freq_hz = self._rx_freq_hz()
-        if freq_hz == self.freq_line_hz:
-            return
-        self.freq_line_hz = freq_hz
-        self.freq_line_trace.setPos(freq_hz)
+        vfo_a_hz = Panadapter.rx_freq_hz['main']
+        if vfo_a_hz != self.freq_line_a_hz:
+            self.freq_line_a_hz = vfo_a_hz
+            visible = vfo_a_hz != None
+            self.freq_line_a.setVisible(visible)
+            self.freq_line_a_waterfall.setVisible(visible)
+            if visible:
+                self.freq_line_a.setPos(vfo_a_hz)
+                self.freq_line_a_waterfall.setPos(vfo_a_hz)
+        vfo_b_hz = Panadapter.rx_freq_hz['sub']
+        if vfo_b_hz != self.freq_line_b_hz:
+            self.freq_line_b_hz = vfo_b_hz
+            visible = vfo_b_hz != None
+            self.freq_line_b.setVisible(visible)
+            self.freq_line_b_waterfall.setVisible(visible)
+            if visible:
+                self.freq_line_b.setPos(vfo_b_hz)
+                self.freq_line_b_waterfall.setPos(vfo_b_hz)
 
     def on_trace_clicked(self, event):
         freq_hz = self._clicked_frequency(self.trace_plot, event)
