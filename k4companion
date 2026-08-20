@@ -4732,6 +4732,23 @@ class Panadapter(QDialog):
                                   # same as BW/BW$ etc). Used only to
                                   # trigger an automatic Ref capture on
                                   # change -- see on_antenna_changed.
+    tx_antenna = None
+                                  # TX antenna selection, from AN; --
+                                  # shared between main/sub (there is no
+                                  # AN$). A receiver whose own AR/AR$ is
+                                  # 2 ("RX USES TX ANT" per the K4
+                                  # Programmer's Reference) doesn't emit
+                                  # its own AR/AR$ when the antenna it's
+                                  # actually using changes -- only AN
+                                  # does, since AR's value (2) stays the
+                                  # same. See on_tx_antenna_changed.
+    sub_receiver_on = None
+                                  # Sub receiver on/off, from SB; -- only
+                                  # meaningful to the sub panadapter (the
+                                  # main receiver is always on). Used
+                                  # only to trigger an automatic Ref
+                                  # capture on change -- see
+                                  # on_sub_receiver_changed.
     bandwidth_hz = {'main': None, 'sub': None}
                                   # Receiver bandwidth in Hz, from
                                   # BW;/BW$; (format BWnnnn, nnnn =
@@ -4785,9 +4802,9 @@ class Panadapter(QDialog):
     @classmethod
     def on_mode_changed(cls, response):
         receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
-        old = cls.mode[receiver]
+        # Mode changes no longer auto-reset Ref -- only span and
+        # antenna changes do (see _trigger_auto_ref).
         cls.mode[receiver] = cmd_parameter(response)
-        cls._trigger_auto_ref(receiver, old, cls.mode[receiver])
 
     @classmethod
     def on_antenna_changed(cls, response):
@@ -4795,6 +4812,40 @@ class Panadapter(QDialog):
         old = cls.antenna[receiver]
         cls.antenna[receiver] = cmd_parameter(response)
         cls._trigger_auto_ref(receiver, old, cls.antenna[receiver])
+
+    @classmethod
+    def on_tx_antenna_changed(cls, response):
+        # AN (TX antenna) -- see tx_antenna's own comment for why this
+        # needs to be its own auto-Ref trigger, distinct from AR/AR$:
+        # a receiver parked on AR/AR$ value 2 ("RX USES TX ANT") keeps
+        # reporting that same "2" when AN changes underneath it, so
+        # on_antenna_changed's old-vs-new AR comparison never fires
+        # even though the antenna actually feeding that receiver did
+        # change.
+        old = cls.tx_antenna
+        cls.tx_antenna = cmd_parameter(response)
+        if old == None or old == cls.tx_antenna:
+            return
+        for receiver in ('main', 'sub'):
+            if cls.antenna[receiver] == '2':
+                window = cls.windows.get(receiver)
+                if window != None:
+                    window.schedule_ref_reset()
+
+    @classmethod
+    def on_sub_receiver_changed(cls, response):
+        # SB (sub receiver on/off) -- only the sub panadapter cares,
+        # since the main receiver is always on. Turning the sub
+        # receiver on or off changes what its PAN stream actually
+        # shows (no signal path at all while off), so it's an auto-Ref
+        # trigger the same as an antenna or span change.
+        old = cls.sub_receiver_on
+        cls.sub_receiver_on = cmd_parameter(response)
+        if old == None or old == cls.sub_receiver_on:
+            return
+        window = cls.windows.get('sub')
+        if window != None:
+            window.schedule_ref_reset()
 
     @classmethod
     def _trigger_auto_ref(cls, receiver, old, new):
@@ -4806,7 +4857,12 @@ class Panadapter(QDialog):
             return
         window = cls.windows.get(receiver)
         if window != None:
-            window.on_ref_button()
+            # Debounced (like span/center), not on_ref_button directly:
+            # switching antennas changes the signal path, and the PAN
+            # stream's displayed levels take the same kind of moment to
+            # settle to the new antenna's actual noise floor that a
+            # span change does -- see schedule_ref_reset's own comment.
+            window.schedule_ref_reset()
 
     @classmethod
     def is_cw_mode(cls, receiver):
@@ -4834,6 +4890,10 @@ class Panadapter(QDialog):
         # FA = VFO A = main receiver, FB = VFO B = sub receiver (the
         # same A/B split the yaml's own vfo/rit widgets use). Reported
         # as a plain Hz value, same as VFO.on_frequency_received.
+        # NOT an auto-Ref trigger -- fires continuously while tuning,
+        # and the genuine "panadapter center frequency changed" trigger
+        # is push_frame's own center_hz comparison instead (a real
+        # re-center, not ordinary tuning -- see its comment).
         receiver = 'main' if cmd_base(response) == 'FA' else 'sub'
         try:
             cls.rx_freq_hz[receiver] = float(cmd_parameter(response))
@@ -4892,15 +4952,17 @@ class Panadapter(QDialog):
         self.ref_start_time = None
         self.ref_bottom = None
 
-        # A span change doesn't take effect in the K4's PAN stream
-        # immediately -- frames captured right after one still reflect
-        # the old span for roughly a second, so an auto-Ref triggered
+        # A span/antenna/center-frequency change doesn't take effect in
+        # the K4's PAN stream immediately -- frames captured right
+        # after one still reflect the old span, antenna's noise floor,
+        # or center for roughly a moment, so an auto-Ref triggered
         # immediately (see schedule_ref_reset) ends up averaging that
         # stale/transitional data, producing a bottom barely different
         # from the old one. Delaying the actual capture lets the stream
         # settle first; single-shot and restarted (not stacked) on each
-        # call so rapid span changes (e.g. holding an arrow key) only
-        # capture once, after things stop moving.
+        # call so a rapid run of changes (e.g. holding an arrow key, or
+        # stepping through antennas) only captures once, after things
+        # stop moving.
         self._ref_reset_timer = QTimer()
         self._ref_reset_timer.setSingleShot(True)
         self._ref_reset_timer.timeout.connect(self.on_ref_button)
@@ -5344,7 +5406,23 @@ class Panadapter(QDialog):
         # receiver's actual tuned frequency (they can diverge) -- kept
         # as a fallback for the frequency line/mini-pan centering below,
         # for use only until the real frequency arrives via FA;/FB;.
+        #
+        # A genuine center move (re-center, click-to-tune, VFO tracking
+        # onto a new frequency) is also one of the auto-Ref triggers --
+        # see _trigger_auto_ref/on_span_changed for the others. Detected
+        # here, by comparing this frame's center_hz against the last
+        # one, rather than from FC;/FC$; or the tune/VFO request paths,
+        # because none of those guarantee the PAN stream's own center
+        # actually moved (or by how much) -- this is the one source
+        # that can't be wrong about it. Same "skip the first frame ever
+        # seen" guard as span/mode/antenna (old None means just-opened,
+        # not a change), and same debounced schedule_ref_reset (not
+        # on_ref_button directly) as span, since a center move shares
+        # the same "stream needs a moment to settle" issue.
+        old_center_hz = self.last_center_hz
         self.last_center_hz = center_hz
+        if old_center_hz != None and old_center_hz != center_hz:
+            self.schedule_ref_reset()
         # Anchored to THIS FRAME'S OWN center_hz, not _rx_freq_hz() --
         # tried that (matching push_minipan/freq_line_trace/bw_region's
         # use of the receiver's real tuned frequency, FA;/FB;), reasoning
@@ -5483,10 +5561,11 @@ class Panadapter(QDialog):
         self.ref_start_time = time.perf_counter()
 
     def schedule_ref_reset(self):
-        # See _ref_reset_timer's own comment (in __init__) for why a
-        # span change's auto-Ref needs this delay instead of just
-        # calling on_ref_button() directly, unlike the other auto-Ref
-        # triggers (mode/antenna change, initial display).
+        # See _ref_reset_timer's own comment (in __init__) for why
+        # span/antenna/center-frequency changes need this delay
+        # instead of just calling on_ref_button() directly, unlike the
+        # panadapter's initial display (panadapter_child_main), which
+        # has no prior data to still be settling from.
         self._ref_reset_timer.start(300)
 
     def on_center_button(self):
@@ -5971,7 +6050,7 @@ class PanadapterProcess(QObject):
     # session. Each subprocess keeps this state in its own memory (see
     # Panadapter.bandwidth_hz etc), so every newly opened window needs
     # its own explicit seed, not just the first one.
-    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#SCL', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', 'AR', 'AR$')
+    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#SCL', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', 'AR', 'AR$', 'AN', 'SB')
 
     @classmethod
     def open_window(cls, receiver):
@@ -6010,13 +6089,20 @@ class PanadapterProcess(QObject):
             Server.k4_server.subscribe_response('FA;', cls.on_cat_response)
             Server.k4_server.subscribe_response('FB;', cls.on_cat_response)
             # AR/AR$ (RX antenna) is relayed to trigger an automatic Ref
-            # capture on change -- see Panadapter.on_antenna_changed.
+            # capture on change -- see Panadapter.on_antenna_changed. AN
+            # (TX antenna) is relayed alongside it for the same reason
+            # -- see Panadapter.on_tx_antenna_changed.
             Server.k4_server.subscribe_response('AR;', cls.on_cat_response)
             Server.k4_server.subscribe_response('AR$;', cls.on_cat_response)
+            Server.k4_server.subscribe_response('AN;', cls.on_cat_response)
             # SB (sub receiver on/off) decides, together with which
             # panadapter windows are open, whether a window's mini-pan
-            # has real data to show -- see _update_dpm_state.
+            # has real data to show -- see _update_dpm_state. Also
+            # relayed to trigger an automatic Ref capture on the sub
+            # panadapter when the sub receiver is turned on/off -- see
+            # Panadapter.on_sub_receiver_changed.
             Server.k4_server.subscribe_response('SB;', cls.on_sb_changed)
+            Server.k4_server.subscribe_response('SB;', cls.on_cat_response)
 
         process = cls.processes.get(receiver)
         if process != None:
@@ -6441,6 +6527,10 @@ class PanadapterChannel(QObject):
                     Panadapter.on_frequency_changed(response)
                 elif base in ('AR', 'AR$'):
                     Panadapter.on_antenna_changed(response)
+                elif base == 'AN':
+                    Panadapter.on_tx_antenna_changed(response)
+                elif base == 'SB':
+                    Panadapter.on_sub_receiver_changed(response)
         except Exception:
             traceback.print_exc(file=stderr)
 
