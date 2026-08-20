@@ -68,7 +68,7 @@ import traceback
 import yaml
 
 from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal, QThread
-from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat
+from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QIntValidator, QPainter, QPen, QTextCursor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
     QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
@@ -459,7 +459,7 @@ class Server():
         'SD': ['SD0', 'SD1', 'SDC', 'SDV', 'SDD'],           # Differentiate between the cmd variants
         'SI': ['SIDA', 'SIDD', 'SIDU', 'SIFP', 'SIRF', 'SIRC'],         # SIDU is first after param dump
         'SM': ['SMH'],
-        '#S': ['#SCL', '#SFL', '#SPM', '#SPN'],
+        '#S': ['#SCL', '#SFL', '#SPM', '#SPN', '#SPN$'],
         'SW': ['SWT', 'SWH'],
         'UP': ['UPB'],
         'VG': ['VGV', 'VGD'],
@@ -3230,17 +3230,25 @@ class NoSpaceValidator(QValidator):
 
 class SteppedComboBox(QComboBox):
     # A plain DropdownWidget can't be installed as a Qt event filter (it's
-    # not a QObject), so Up/Down-key stepping is handled here instead by
-    # overriding keyPressEvent on the combobox itself.
-    def __init__(self, on_step=None, parent=None):
+    # not a QObject), so Up/Down-key stepping and (optionally) mouse-wheel
+    # stepping are handled here instead by overriding keyPressEvent/
+    # wheelEvent on the combobox itself.
+    def __init__(self, on_step=None, on_wheel=None, parent=None):
         super().__init__(parent)
         self.on_step = on_step
+        self.on_wheel = on_wheel
 
     def keyPressEvent(self, event):
         if self.on_step != None and event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
             self.on_step(event.key())
             return
         super().keyPressEvent(event)
+
+    def wheelEvent(self, event):
+        if self.on_wheel != None:
+            self.on_wheel(event)
+            return
+        super().wheelEvent(event)
 
 class DropdownWidget():
     def __init__(self, caller, frame, options):
@@ -4610,6 +4618,13 @@ class _PanControlFilter(QObject):
         event_type = event.type()
         if event_type == QEvent.Type.KeyPress:
             key = event.key()
+            if key in (Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right):
+                # The span combobox needs its own Up/Down stepping and
+                # Left/Right text-cursor movement while it has focus --
+                # let those through untouched rather than hijacking them
+                # for the VFO.
+                if self.window.span_combobox.hasFocus():
+                    return False
             if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
                 if not isinstance(obj, QWidget):
                     return False
@@ -4632,6 +4647,11 @@ class _PanControlFilter(QObject):
             if not isinstance(obj, QWidget):
                 return False
             if not (obj is self.window or self.window.isAncestorOf(obj)):
+                return False
+            # Same idea as the focus check above: let the span combobox
+            # handle its own wheel events when the cursor is over it,
+            # rather than nudging the VFO.
+            if self.window.span_combobox.underMouse():
                 return False
             mult = mouse_wheel_mult(event)
             delta_hz = self._nudge_size_hz()
@@ -4656,7 +4676,24 @@ class Panadapter(QDialog):
                                   # useful to show; crop to the center
                                   # of it (see push_frame). Kept in sync,
                                   # independently per receiver, with the
-                                  # K4's own span via #SPN;/#SPN$.
+                                  # K4's own span via #SPN;/#SPN$. Seeded
+                                  # with a plausible default so push_frame
+                                  # has something to crop to even before
+                                  # the first #SPN;/#SPN$; is seen -- see
+                                  # span_seen for tracking that instead.
+    span_seen = {'main': False, 'sub': False}
+                                  # Whether #SPN;/#SPN$; has actually been
+                                  # received yet, per receiver -- since
+                                  # display_span_hz itself always holds a
+                                  # number (see above), this is what lets
+                                  # on_span_changed tell its first real
+                                  # value apart from a later, genuine
+                                  # change (see _trigger_auto_ref).
+    span_min_khz = 6              # #SPN;/#SPN$;'s own documented range
+    span_max_khz = 368            # (6000 to 368000 Hz) -- see the Span
+                                  # combobox and PanadapterProcess.
+                                  # on_span_requested.
+    span_choices_khz = (6, 10, 50, 100, 200, 300, 368)
     colormap = None               # built once, shared by every window
     child_mode = False            # True in the panadapter subprocess
     child_geometry = None         # see save_geometry()
@@ -4708,9 +4745,23 @@ class Panadapter(QDialog):
         # #SPN reports the span as a plain Hz value.
         receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
         try:
-            cls.display_span_hz[receiver] = float(cmd_parameter(response))
+            new_span_hz = float(cmd_parameter(response))
         except ValueError:
-            pass
+            return
+        old_span_hz = cls.display_span_hz[receiver] if cls.span_seen[receiver] else None
+        cls.span_seen[receiver] = True
+        cls.display_span_hz[receiver] = new_span_hz
+        window = cls.windows.get(receiver)
+        if window != None:
+            window.on_span_hz_changed(new_span_hz)
+            # Same "a change happened, not just the initial seed" logic
+            # as the shared _trigger_auto_ref (mode/antenna change), but
+            # via schedule_ref_reset rather than on_ref_button directly
+            # -- unlike those, a span change needs the K4's PAN stream a
+            # moment to actually settle at the new resolution first (see
+            # _ref_reset_timer's comment in Panadapter.__init__).
+            if old_span_hz != None and old_span_hz != new_span_hz:
+                window.schedule_ref_reset()
 
     @classmethod
     def on_mode_changed(cls, response):
@@ -4822,6 +4873,19 @@ class Panadapter(QDialog):
         self.ref_start_time = None
         self.ref_bottom = None
 
+        # A span change doesn't take effect in the K4's PAN stream
+        # immediately -- frames captured right after one still reflect
+        # the old span for roughly a second, so an auto-Ref triggered
+        # immediately (see schedule_ref_reset) ends up averaging that
+        # stale/transitional data, producing a bottom barely different
+        # from the old one. Delaying the actual capture lets the stream
+        # settle first; single-shot and restarted (not stacked) on each
+        # call so rapid span changes (e.g. holding an arrow key) only
+        # capture once, after things stop moving.
+        self._ref_reset_timer = QTimer()
+        self._ref_reset_timer.setSingleShot(True)
+        self._ref_reset_timer.timeout.connect(self.on_ref_button)
+
         # Vertical (dB) scale of the trace plot: averaged over a rolling
         # window rather than auto-ranged to the current frame's min/max
         # every frame (pyqtgraph's default), which made the scale jitter
@@ -4921,18 +4985,62 @@ class Panadapter(QDialog):
         # position when the mini-pan is enabled/disabled.
         self.minipan_enabled = False
 
+        # Span (#SPN;/#SPN$;) selector -- a preset list of common spans,
+        # but also editable and steppable (Up/Down keys, mouse wheel) to
+        # any whole kHz in between, matching the K4's own #SPN;/#SPN$;
+        # range (see Panadapter.span_min_khz/span_max_khz). Bidirectional:
+        # a local change sends #PANSPAN to the parent (see
+        # PanadapterProcess.on_span_requested), and the resulting #SPN;/
+        # #SPN$; response -- from this window's own request, another
+        # window, or the radio's own front panel -- comes back through
+        # on_span_changed/on_span_hz_changed to keep the display in sync.
+        span_frame, span_grid = qt_group_box('Span', qt_font('Helvetica', 9))
+        self.span_combobox = SteppedComboBox(
+            on_step=self.on_span_step, on_wheel=self.on_span_wheel)
+        self.span_combobox.addItems([str(v) for v in Panadapter.span_choices_khz])
+        # Tracks the last-applied span independently of the combobox's
+        # own displayed text -- see request_span for why. Starts at the
+        # combobox's own initial (index-0) item; corrected immediately
+        # once the real value arrives via on_span_hz_changed, same as
+        # the combobox's displayed text is.
+        self.span_khz = Panadapter.span_choices_khz[0]
+        self.span_combobox.setEditable(True)
+        self.span_combobox.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.span_combobox.setFont(qt_font('Helvetica', 9))
+        self.span_combobox.view().setFont(qt_font('Helvetica', 9))
+        span_line_edit = self.span_combobox.lineEdit()
+        span_line_edit.setValidator(QIntValidator(
+            Panadapter.span_min_khz, Panadapter.span_max_khz, span_line_edit))
+        span_line_edit.setAlignment(Qt.AlignmentFlag.AlignRight)
+        span_line_edit.editingFinished.connect(self.on_span_edited)
+        self.span_combobox.activated.connect(self.on_span_selected)
+        self.span_combobox.setStyleSheet(
+            'QComboBox { background-color: white; color: black; }'
+            'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
+        span_grid.addWidget(self.span_combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        controls_frame = QWidget()
+        controls_layout = QVBoxLayout(controls_frame)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        ref_center_row = QWidget()
+        ref_center_row_layout = QHBoxLayout(ref_center_row)
+        ref_center_row_layout.setContentsMargins(0, 0, 0, 0)
+        self.ref_button = QPushButton('Ref')
+        self.ref_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black'))
+        self.ref_button.clicked.connect(self.on_ref_button)
+        ref_center_row_layout.addWidget(self.ref_button, 0, Qt.AlignmentFlag.AlignTop)
+        self.center_button = QPushButton('Center')
+        self.center_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black'))
+        self.center_button.clicked.connect(self.on_center_button)
+        ref_center_row_layout.addWidget(self.center_button, 0, Qt.AlignmentFlag.AlignTop)
+        controls_layout.addWidget(ref_center_row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        controls_layout.addWidget(span_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
         minipan_row = QWidget()
         minipan_row_layout = QHBoxLayout(minipan_row)
         minipan_row_layout.setContentsMargins(0, 0, 0, 0)
         minipan_row_layout.addWidget(self.minipan_plot)
-        self.ref_button = QPushButton('Ref')
-        self.ref_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black'))
-        self.ref_button.clicked.connect(self.on_ref_button)
-        minipan_row_layout.addWidget(self.ref_button, 0, Qt.AlignmentFlag.AlignTop)
-        self.center_button = QPushButton('Center')
-        self.center_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black'))
-        self.center_button.clicked.connect(self.on_center_button)
-        minipan_row_layout.addWidget(self.center_button, 0, Qt.AlignmentFlag.AlignTop)
+        minipan_row_layout.addWidget(controls_frame, 0, Qt.AlignmentFlag.AlignTop)
         minipan_row_layout.addStretch(1)
         layout.addWidget(minipan_row, 1)
 
@@ -5355,6 +5463,13 @@ class Panadapter(QDialog):
         self.ref_count = 0
         self.ref_start_time = time.perf_counter()
 
+    def schedule_ref_reset(self):
+        # See _ref_reset_timer's own comment (in __init__) for why a
+        # span change's auto-Ref needs this delay instead of just
+        # calling on_ref_button() directly, unlike the other auto-Ref
+        # triggers (mode/antenna change, initial display).
+        self._ref_reset_timer.start(300)
+
     def on_center_button(self):
         # Relayed to the parent, which owns the actual K4 connection
         # (see PanadapterProcess.on_center_requested) -- same channel
@@ -5368,6 +5483,79 @@ class Panadapter(QDialog):
         # reason as request_tune -- see _PanControlFilter for what
         # triggers this and the 'action' strings it sends.
         self._write_to_parent(f'#PANVFO {action}')
+
+    def on_span_step(self, key):
+        self._adjust_span(1 if key == Qt.Key.Key_Up else -1)
+
+    def on_span_wheel(self, event):
+        mult = mouse_wheel_mult(event)
+        if mult != 0:
+            self._adjust_span(mult)
+
+    def on_span_selected(self, index):
+        self._apply_span_combobox_text()
+
+    def on_span_edited(self):
+        self._apply_span_combobox_text()
+
+    def _adjust_span(self, delta_khz):
+        span_khz = self._current_span_combobox_khz()
+        if span_khz != None:
+            self.request_span(span_khz + delta_khz)
+
+    def _apply_span_combobox_text(self):
+        span_khz = self._current_span_combobox_khz()
+        if span_khz != None:
+            self.request_span(span_khz)
+
+    def _current_span_combobox_khz(self):
+        try:
+            return int(round(float(self.span_combobox.currentText())))
+        except ValueError:
+            return None
+
+    def request_span(self, span_khz):
+        span_khz = max(Panadapter.span_min_khz, min(Panadapter.span_max_khz, span_khz))
+        # Triggered locally right away, the same as clicking Ref, rather
+        # than relying solely on the #SPN;/#SPN$; response's own
+        # old-vs-new comparison (see on_span_changed/_trigger_auto_ref)
+        # -- that path still exists for a span change originating
+        # elsewhere (the radio's front panel, say), but this window's
+        # own request is the common case and shouldn't depend on a round
+        # trip through the radio to visibly reset.
+        #
+        # Compared against self.span_khz, NOT the combobox's own
+        # currentText() -- picking an item from the dropdown list, or
+        # typing a value and pressing Enter, both update the combobox's
+        # displayed text as part of Qt's normal handling *before*
+        # on_span_selected/on_span_edited (and so this method) ever
+        # run, so by the time this runs, currentText() already shows
+        # the new value and a same-vs-new comparison against it would
+        # always see "no change" and skip the Ref reset.
+        if span_khz != self.span_khz:
+            self.schedule_ref_reset()
+        self.span_khz = span_khz
+        # Updated locally right away rather than waiting on the round
+        # trip through the radio (see on_span_hz_changed for that side)
+        # -- otherwise arrow-key/wheel stepping would visibly lag behind
+        # each press.
+        self._set_span_combobox_khz(span_khz)
+        self._write_to_parent(f'#PANSPAN {span_khz}')
+
+    def on_span_hz_changed(self, span_hz):
+        # Called for any #SPN;/#SPN$; response for this receiver --
+        # this window's own request, another source's, or the radio's
+        # own front panel -- see Panadapter.on_span_changed. Keeps
+        # self.span_khz in sync too (see request_span) so a later local
+        # request compares against the radio's actual last-known span,
+        # not a stale value from before this update.
+        self.span_khz = round(span_hz / 1000)
+        self._set_span_combobox_khz(self.span_khz)
+
+    def _set_span_combobox_khz(self, span_khz):
+        text = str(span_khz)
+        if self.span_combobox.currentText() != text:
+            self.span_combobox.setCurrentText(text)
 
     def _write_to_parent(self, line):
         try:
@@ -5747,6 +5935,10 @@ class PanadapterProcess(QObject):
     # _PanControlFilter and on_vfo_action_requested below).
     vfo_action = pyqtSignal(str)
 
+    # Emitted the same way as tuned, for the Span combobox (see
+    # Panadapter.request_span and on_span_requested below).
+    span_requested = pyqtSignal(str)
+
     # Relayed to a newly opened window below, from whatever's already
     # cached, since the subscriptions just below only ever fire their
     # "here's the current value" callback once, for the very first
@@ -5917,6 +6109,7 @@ class PanadapterProcess(QObject):
         self.tuned.connect(self.on_tune_requested)
         self.centered.connect(self.on_center_requested)
         self.vfo_action.connect(self.on_vfo_action_requested)
+        self.span_requested.connect(self.on_span_requested)
 
         if getattr(sys, 'frozen', False):
             argv = [sys.executable]
@@ -5999,6 +6192,8 @@ class PanadapterProcess(QObject):
                     self.centered.emit()
                 elif line.startswith('#PANVFO '):
                     self.vfo_action.emit(line[len('#PANVFO '):])
+                elif line.startswith('#PANSPAN '):
+                    self.span_requested.emit(line[len('#PANSPAN '):])
         except (ValueError, OSError):
             pass
         self.process.wait()
@@ -6101,6 +6296,16 @@ class PanadapterProcess(QObject):
             except ValueError:
                 return
             vfo.nudge_frequency(delta_hz)
+
+    def on_span_requested(self, arg):
+        # "<span_khz>" -- see Panadapter.request_span/_PanControlFilter.
+        try:
+            span_khz = int(arg)
+        except ValueError:
+            return
+        span_khz = max(Panadapter.span_min_khz, min(Panadapter.span_max_khz, span_khz))
+        base = '#SPN$' if self.receiver == 'sub' else '#SPN'
+        Server.k4_server.send_cmds(f'{base}{span_khz * 1000};')
 
     def _close_pipe(self):
         try:
@@ -6236,7 +6441,7 @@ def panadapter_child_main(receiver):
     window.show()
     # As if Ref had just been clicked, the first time the panadapter is
     # displayed -- see on_ref_button/_trigger_auto_ref for the other
-    # two triggers (mode/antenna change).
+    # triggers (mode/antenna/span change).
     window.on_ref_button()
 
     channel = PanadapterChannel(window)
