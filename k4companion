@@ -4794,6 +4794,16 @@ class Panadapter(QDialog):
                                   # value with no per-receiver
                                   # ($) variant in the protocol, like
                                   # #FPS, so it's shared by both windows.
+    scale_min = 10                # #SCL's valid range per the K4
+    scale_max = 150               # Programmer's Reference (#SCLn;, 10-150)
+    scale_choices_db = tuple(range(scale_min, scale_max + 1, 5))
+                                  # Listed in steps of 5 rather than every
+                                  # single value, same reasoning as Span's
+                                  # preset list -- see _set_scale_combobox
+                                  # for how a radio-reported value outside
+                                  # this list (still valid -- #SCL isn't
+                                  # actually restricted to multiples of 5)
+                                  # is still shown.
 
     # This class now only ever runs in the panadapter subprocess; the
     # main process talks to it through PanadapterProcess, which owns
@@ -4998,11 +5008,15 @@ class Panadapter(QDialog):
     def on_scale_changed(cls, response):
         # #SCL reports the panadapter's vertical scale (dB span of the
         # Y axis) as a plain number, 10-150 per the protocol -- used
-        # as-is, unclamped.
+        # as-is, unclamped. Shared -- no per-receiver ($) variant -- so
+        # this updates the Scale combobox on every open window, same as
+        # #FPS.
         try:
             cls.scale_db = float(cmd_parameter(response))
         except ValueError:
             return
+        for window in cls.windows.values():
+            window._set_scale_combobox(cls.scale_db)
 
     def __init__(self, receiver):
         # Page.top is None in the panadapter subprocess (see
@@ -5144,6 +5158,32 @@ class Panadapter(QDialog):
         # position when the mini-pan is enabled/disabled.
         self.minipan_enabled = False
 
+        # Scale (#SCL;) selector -- a preset list in steps of 5 (10-150,
+        # per the K4 Programmer's Reference), like Span: #SCL isn't
+        # actually restricted to multiples of 5, so a radio-reported
+        # value outside this list still needs to be shown -- see
+        # _set_scale_combobox, same dynamic-item mechanism as Span's own
+        # _set_span_combobox_khz. Shared between main/sub (no #SCL$
+        # variant), so a change here updates every open window's
+        # combobox the same way -- see on_scale_changed.
+        scale_frame, scale_grid = qt_group_box('Scale', qt_font('Helvetica', 9))
+        self.scale_combobox = QComboBox()
+        self.scale_combobox.addItems([str(v) for v in Panadapter.scale_choices_db])
+        # Tracks a dynamically-added item for whatever the radio's actual
+        # scale is when it isn't one of the preset choices above -- same
+        # reasoning as Span's _span_dynamic_khz.
+        self._scale_dynamic_db = None
+        self.scale_combobox.setFont(qt_font('Helvetica', 9))
+        self.scale_combobox.view().setFont(qt_font('Helvetica', 9))
+        self.scale_combobox.activated.connect(self.on_scale_selected)
+        self.scale_combobox.setStyleSheet(
+            'QComboBox { background-color: white; color: black; }'
+            'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
+        qt_tighten_combobox_popup(self.scale_combobox)
+        if Panadapter.scale_db != None:
+            self._set_scale_combobox(Panadapter.scale_db)
+        scale_grid.addWidget(self.scale_combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
         # Span (#SPN;/#SPN$;) selector -- a plain preset-list dropdown,
         # like FPS/Fixed Tune: not editable, not steppable via Up/Down
         # or the mouse wheel, and not focusable, so those all fall
@@ -5202,6 +5242,7 @@ class Panadapter(QDialog):
         span_fps_row = QWidget()
         span_fps_row_layout = QHBoxLayout(span_fps_row)
         span_fps_row_layout.setContentsMargins(0, 0, 0, 0)
+        span_fps_row_layout.addWidget(scale_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         span_fps_row_layout.addWidget(span_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         span_fps_row_layout.addWidget(fps_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
@@ -5875,6 +5916,45 @@ class Panadapter(QDialog):
         if self.fps_combobox.currentText() != text:
             self.fps_combobox.setCurrentText(text)
 
+    def on_scale_selected(self, index):
+        try:
+            scale_db = int(self.scale_combobox.itemText(index))
+        except ValueError:
+            return
+        self.request_scale(scale_db)
+
+    def request_scale(self, scale_db):
+        scale_db = max(Panadapter.scale_min, min(Panadapter.scale_max, scale_db))
+        # Updated locally right away, same reasoning as request_fps --
+        # otherwise the combobox would visibly lag until the round trip
+        # through the radio (via #SCL;) comes back.
+        self._set_scale_combobox(scale_db)
+        self._write_to_parent(f'#PANSCL {scale_db}')
+
+    def _set_scale_combobox(self, scale_db):
+        # Same dynamic-item mechanism as _set_span_combobox_khz: the
+        # combobox only lists multiples of 5, but #SCL isn't actually
+        # restricted to those, so a value outside that list needs to be
+        # added (once, replacing any previous such addition rather than
+        # piling up) for it to be reflected here at all.
+        scale_db = round(scale_db)
+        if scale_db in Panadapter.scale_choices_db:
+            if self._scale_dynamic_db != None:
+                index = self.scale_combobox.findText(str(self._scale_dynamic_db))
+                if index >= 0:
+                    self.scale_combobox.removeItem(index)
+                self._scale_dynamic_db = None
+        elif scale_db != self._scale_dynamic_db:
+            if self._scale_dynamic_db != None:
+                index = self.scale_combobox.findText(str(self._scale_dynamic_db))
+                if index >= 0:
+                    self.scale_combobox.removeItem(index)
+            self.scale_combobox.addItem(str(scale_db))
+            self._scale_dynamic_db = scale_db
+        text = str(scale_db)
+        if self.scale_combobox.currentText() != text:
+            self.scale_combobox.setCurrentText(text)
+
     def _write_to_parent(self, line):
         try:
             sys.stdout.write(line + '\n')
@@ -6282,6 +6362,10 @@ class PanadapterProcess(QObject):
     # Panadapter.request_fixed_tune and on_fxa_requested below).
     fxa_requested = pyqtSignal(str)
 
+    # Emitted the same way as tuned, for the Scale combobox (see
+    # Panadapter.request_scale and on_scale_requested below).
+    scale_requested = pyqtSignal(str)
+
     # Relayed to a newly opened window below, from whatever's already
     # cached, since the subscriptions just below only ever fire their
     # "here's the current value" callback once, for the very first
@@ -6473,6 +6557,7 @@ class PanadapterProcess(QObject):
         self.fps_requested.connect(self.on_fps_requested)
         self.frz_requested.connect(self.on_frz_requested)
         self.fxa_requested.connect(self.on_fxa_requested)
+        self.scale_requested.connect(self.on_scale_requested)
 
         if getattr(sys, 'frozen', False):
             argv = [sys.executable]
@@ -6563,6 +6648,8 @@ class PanadapterProcess(QObject):
                     self.frz_requested.emit(line[len('#PANFRZ '):])
                 elif line.startswith('#PANFXA '):
                     self.fxa_requested.emit(line[len('#PANFXA '):])
+                elif line.startswith('#PANSCL '):
+                    self.scale_requested.emit(line[len('#PANSCL '):])
         except (ValueError, OSError):
             pass
         self.process.wait()
@@ -6708,6 +6795,16 @@ class PanadapterProcess(QObject):
             Server.k4_server.send_cmds('#FXT0;')
         elif 0 <= value <= 4:
             Server.k4_server.send_cmds(f'#FXA{value};#FXT1;')
+
+    def on_scale_requested(self, arg):
+        # "<scale_db>" -- see Panadapter.request_scale. #SCL has no
+        # per-receiver ($) variant either, same reason as #FRZ/#FPS.
+        try:
+            scale_db = int(arg)
+        except ValueError:
+            return
+        scale_db = max(Panadapter.scale_min, min(Panadapter.scale_max, scale_db))
+        Server.k4_server.send_cmds(f'#SCL{scale_db};')
 
     def _close_pipe(self):
         try:
