@@ -74,7 +74,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
     QButtonGroup, QSlider, QProgressBar, QTabWidget, QDialog, QLineEdit,
     QComboBox, QListWidget, QLayout, QPlainTextEdit, QProxyStyle, QStyle,
-    QSplitter,
+    QSplitter, QStyledItemDelegate,
 )
 
 # Modify the path to find .\opus.dll on Windows
@@ -135,6 +135,33 @@ class CompactStyle(QProxyStyle):
         if compact is not None:
             return compact
         return super().pixelMetric(metric, option, widget)
+
+class _TightComboBoxDelegate(QStyledItemDelegate):
+    # A combobox popup's default per-item height is far more generous
+    # than plain text needs -- same idea as CompactStyle above, but
+    # that can't fix this one: this height comes from QStyle's
+    # CT_ItemViewItem contents sizing, which (at least on the styles
+    # this app has been tested against) doesn't route through the
+    # widget's own stylesheet at all -- so QSS's ::item { padding: }
+    # (or even min-height:) on a combobox has no effect whatsoever on
+    # the popup's actual row height, confirmed against real values, not
+    # just theory. Overriding sizeHint() directly, bypassing the style
+    # entirely, is the one thing that reliably works.
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        # No added constant -- just the font's own line height, exactly
+        # enough for one line of text and nothing more. An earlier
+        # version added a few px on top of this, which (on at least
+        # some platforms/styles) turned out to be *more* than several
+        # comboboxes' own previous native height, making things worse
+        # rather than better for them.
+        size.setHeight(QFontMetrics(option.font).height())
+        return size
+
+_tight_combobox_delegate = _TightComboBoxDelegate()
+
+def qt_tighten_combobox_popup(combobox):
+    combobox.setItemDelegate(_tight_combobox_delegate)
 
 def qt_tight_groupbox_stylesheet(title, font):
     # QGroupBox's native title area reserves far more vertical space than
@@ -211,6 +238,7 @@ def qt_labeled_readonly_combobox(title, font, box_font, values, current_value, b
     combobox.setStyleSheet(
         f'QComboBox {{ background-color: {bg}; color: {fg}; }}'
         f'QComboBox QAbstractItemView {{ background-color: {selectbg}; color: {selectfg}; }}')
+    qt_tighten_combobox_popup(combobox)
     combobox.setCurrentText(str(current_value))
     grid.addWidget(combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
     combobox.currentTextChanged.connect(on_changed)
@@ -3339,6 +3367,7 @@ class DropdownWidget():
         self.combobox.setMaxVisibleItems(max(height, 1))
         self.combobox.setMinimumWidth(width)
         self.set_bg(self.bg)
+        qt_tighten_combobox_popup(self.combobox)
 
         if editable:
             line_edit = self.combobox.lineEdit()
@@ -3695,6 +3724,7 @@ class Equalizers(Widget):
         combobox.setStyleSheet(
             f'QComboBox {{ background-color: {self.bg}; color: {self.fg}; }}'
             f'QComboBox QAbstractItemView {{ background-color: {self.selectbg}; color: {self.selectfg}; }}')
+        qt_tighten_combobox_popup(combobox)
 
     def _reload_combobox_items(self, combobox, items):
         items = list(items)
@@ -5159,6 +5189,7 @@ class Panadapter(QDialog):
         self.span_combobox.setStyleSheet(
             'QComboBox { background-color: white; color: black; }'
             'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
+        qt_tighten_combobox_popup(self.span_combobox)
         span_grid.addWidget(self.span_combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         # FPS (#FPS;) selector -- every valid value (1-30, per the K4
@@ -5176,6 +5207,7 @@ class Panadapter(QDialog):
         self.fps_combobox.setStyleSheet(
             'QComboBox { background-color: white; color: black; }'
             'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
+        qt_tighten_combobox_popup(self.fps_combobox)
         self._set_fps_combobox(Panadapter.frames_per_second)
         fps_grid.addWidget(self.fps_combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
@@ -5217,6 +5249,7 @@ class Panadapter(QDialog):
         self.fixed_tune_combobox.setStyleSheet(
             'QComboBox { background-color: white; color: black; }'
             'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
+        qt_tighten_combobox_popup(self.fixed_tune_combobox)
         ref_center_row_layout.addWidget(self.fixed_tune_combobox, 0, Qt.AlignmentFlag.AlignTop)
         # Freeze/Unfreeze (#FRZ;) -- shared between main/sub (no #FRZ$
         # variant), like FPS/#SCL, so a change here is reflected on
@@ -9045,6 +9078,7 @@ class Dropdown_Widget():
         self.combobox.setStyleSheet(
             f'QComboBox {{ background-color: {bg}; color: {fg}; }}'
             f'QComboBox QAbstractItemView {{ background-color: {selectbg}; color: {selectfg}; }}')
+        qt_tighten_combobox_popup(self.combobox)
         if self.combobox.isEditable():
             self.combobox.lineEdit().setAlignment(qt_justify(justify))
 
