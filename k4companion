@@ -67,7 +67,7 @@ import time
 import traceback
 import yaml
 
-from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal, QThread
+from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal, QThread, qInstallMessageHandler
 from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
@@ -12556,7 +12556,29 @@ class MainWindow(QWidget):
             self.close_callback()
         event.accept()
 
+def _qt_message_handler(msg_type, context, message):
+    # Silently drops "QThreadStorage: entry N destroyed before end of
+    # thread ..." -- Qt's own qWarning(), not a Python exception, so
+    # there's no call site to catch it at. It fires specifically when a
+    # panadapter window is closed directly by the user (rather than the
+    # main window's Pan togglebutton, or the whole app quitting): the
+    # child process's reader thread (PanadapterChannel.thread) is
+    # deliberately still parked in a blocking stdin read at that point
+    # (see panadapter_child_main's own comment on why os._exit() is used
+    # instead of waiting for it), so the process exits out from under
+    # that still-running thread instead of it finishing normally first,
+    # and Qt's per-thread bookkeeping for it gets torn down by the OS
+    # rather than by Qt itself. Harmless -- the process is exiting
+    # either way -- but noisy, and Windows-only (not seen on Linux/
+    # macOS, where thread teardown ordering happens to work out).
+    # Everything else still prints normally, same as Qt's default
+    # handler.
+    if 'QThreadStorage' in message and 'destroyed before end of thread' in message:
+        return
+    sys.stderr.write(message + '\n')
+
 def main():
+    qInstallMessageHandler(_qt_message_handler)
     # remove obsolete settings file
     obsolete_settings_file = Settings.settings_pathname(-1)
     if os.path.isfile(obsolete_settings_file):
