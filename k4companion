@@ -4838,6 +4838,9 @@ class Panadapter(QDialog):
         # Mode changes no longer auto-reset Ref -- only span and
         # antenna changes do (see _trigger_auto_ref).
         cls.mode[receiver] = cmd_parameter(response)
+        window = cls.windows.get(receiver)
+        if window != None:
+            window._update_autospot_enabled()
 
     @classmethod
     def on_antenna_changed(cls, response):
@@ -5291,6 +5294,17 @@ class Panadapter(QDialog):
         self.freeze_button.clicked.connect(self.on_freeze_button)
         self._set_freeze_button(Panadapter.frozen)
         ref_center_row_layout.addWidget(self.freeze_button, 0, Qt.AlignmentFlag.AlignTop)
+        # Autospot -- sends SP3;/SP$3; (main/sub) to log the receiver's
+        # current frequency as a CW spot; meaningless outside CW/CW-R,
+        # so only enabled in those modes -- see _update_autospot_enabled,
+        # called here for the initial state and from on_mode_changed for
+        # every later MD;/MD$; change.
+        self.autospot_button = QPushButton('Autospot')
+        self.autospot_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black') +
+            'QPushButton:disabled { background-color: #999; color: #666; }')
+        self.autospot_button.clicked.connect(self.on_autospot_button)
+        ref_center_row_layout.addWidget(self.autospot_button, 0, Qt.AlignmentFlag.AlignTop)
+        self._update_autospot_enabled()
         controls_layout.addWidget(ref_center_row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         controls_layout.addWidget(span_fps_row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
@@ -5771,6 +5785,19 @@ class Panadapter(QDialog):
         # as request_tune, for the same reason: it has to reach the
         # radio right away.
         self._write_to_parent('#PANCENTER')
+
+    def on_autospot_button(self):
+        # Relayed to the parent, same channel and reason as
+        # on_center_button -- see PanadapterProcess.on_spot_requested
+        # for the actual SP3;/SP$3; split.
+        self._write_to_parent('#PANSPOT')
+
+    def _update_autospot_enabled(self):
+        # SP3;/SP$3; only makes sense in CW/CW-R -- see
+        # Panadapter.on_mode_changed, which calls this on every MD;/MD$;
+        # change, and __init__, which calls it once for the receiver's
+        # initial (possibly still-unknown, i.e. disabled) mode.
+        self.autospot_button.setEnabled(Panadapter.is_cw_mode(self.receiver))
 
     def on_freeze_button(self):
         self.request_freeze(not Panadapter.frozen)
@@ -6341,6 +6368,10 @@ class PanadapterProcess(QObject):
     # Panadapter.on_center_button/on_center_requested below).
     centered = pyqtSignal()
 
+    # Emitted the same way as tuned, for the Autospot button (see
+    # Panadapter.on_autospot_button/on_spot_requested below).
+    spot_requested = pyqtSignal()
+
     # Emitted the same way as tuned, for arrow-key/mouse-wheel input in
     # the panadapter window (see Panadapter.request_vfo_action/
     # _PanControlFilter and on_vfo_action_requested below).
@@ -6552,6 +6583,7 @@ class PanadapterProcess(QObject):
         self.exited.connect(self.on_exited)
         self.tuned.connect(self.on_tune_requested)
         self.centered.connect(self.on_center_requested)
+        self.spot_requested.connect(self.on_spot_requested)
         self.vfo_action.connect(self.on_vfo_action_requested)
         self.span_requested.connect(self.on_span_requested)
         self.fps_requested.connect(self.on_fps_requested)
@@ -6638,6 +6670,8 @@ class PanadapterProcess(QObject):
                     self.tuned.emit(line[len('#PANTUNE '):])
                 elif line == '#PANCENTER':
                     self.centered.emit()
+                elif line == '#PANSPOT':
+                    self.spot_requested.emit()
                 elif line.startswith('#PANVFO '):
                     self.vfo_action.emit(line[len('#PANVFO '):])
                 elif line.startswith('#PANSPAN '):
@@ -6728,6 +6762,13 @@ class PanadapterProcess(QObject):
         # displayed frequencies come from the PAN stream's own center_hz
         # (see push_frame), not from the VFO.
         base = 'FC' if self.receiver == 'main' else 'FC$'
+        Server.k4_server.send_cmds(f'{base};')
+
+    def on_spot_requested(self):
+        # #PANSPOT -- see Panadapter.on_autospot_button. SP3;/SP$3;
+        # (main/sub), same split as FC;/FC$; above -- matches the
+        # existing Main/Sub Autospot buttons on the CW tab (CW class).
+        base = 'SP$3' if self.receiver == 'sub' else 'SP3'
         Server.k4_server.send_cmds(f'{base};')
 
     def on_vfo_action_requested(self, action):
