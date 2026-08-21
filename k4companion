@@ -7096,8 +7096,8 @@ class Audio():
     milliseconds_per_packet = 40        # default
 
     sidetone_min_packet_time = .003     # minimum packet time sending with straight key
-    sidetone_rise_time = .008           # 8 ms rise time
-    sidetone_fall_time = .020           # 20 ms fall time
+    sidetone_rise_time = .005           # 5 ms rise time
+    sidetone_fall_time = .019           # 19 ms fall time
     sidetone_enabled = True
     sidetone_stopped_time = time.perf_counter() - 1
 
@@ -11838,8 +11838,10 @@ class Keyer():
         # wait an element interval
         self.element_timestamp += self.dah_seconds if elt == '-'  else self.dit_seconds
         # Make sure we sleep for a positive value
-        delta = max(self.element_timestamp - time.perf_counter(), .001)
-        time.sleep(delta)
+        element_sleep = max(self.element_timestamp - time.perf_counter(), .0001)
+        if element_sleep == .0001:
+            tprint('long dit')
+        time.sleep(element_sleep)
         Audio.stop_sidetone()
         self.end_element_timestamp = time.perf_counter()
 
@@ -11854,8 +11856,8 @@ class Keyer():
         elt_mult = 1 - delta
         space_mult = 1 + delta
         orig_dit_seconds = 1.2/wpm
-        # The .020 was determined empirically to compensate for long rise/fall times
-        sidetone_shortener = .020
+        # The .030 was determined empirically to compensate for long rise/fall times
+        sidetone_shortener = .030
 
         self.dit_seconds = orig_dit_seconds * elt_mult - sidetone_shortener
         self.dah_seconds = self.dit_seconds + (orig_dit_seconds * 2) * elt_mult
