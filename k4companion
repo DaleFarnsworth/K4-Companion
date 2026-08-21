@@ -68,7 +68,7 @@ import traceback
 import yaml
 
 from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal, QThread
-from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QIntValidator, QPainter, QPen, QTextCursor, QTextCharFormat
+from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
     QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
@@ -4668,13 +4668,6 @@ class _PanControlFilter(QObject):
         event_type = event.type()
         if event_type == QEvent.Type.KeyPress:
             key = event.key()
-            if key in (Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right):
-                # The span combobox needs its own Up/Down stepping and
-                # Left/Right text-cursor movement while it has focus --
-                # let those through untouched rather than hijacking them
-                # for the VFO.
-                if self.window.span_combobox.hasFocus():
-                    return False
             if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
                 if not isinstance(obj, QWidget):
                     return False
@@ -4695,11 +4688,6 @@ class _PanControlFilter(QObject):
             if not isinstance(obj, QWidget):
                 return False
             if not (obj is self.window or self.window.isAncestorOf(obj)):
-                return False
-            # Same idea as the focus check above: let the span combobox
-            # handle its own wheel events when the cursor is over it,
-            # rather than nudging the VFO.
-            if self.window.span_combobox.underMouse():
                 return False
             mult = mouse_wheel_mult(event)
             if mult != 0:
@@ -4747,7 +4735,7 @@ class Panadapter(QDialog):
     span_max_khz = 368            # (6000 to 368000 Hz) -- see the Span
                                   # combobox and PanadapterProcess.
                                   # on_span_requested.
-    span_choices_khz = (6, 10, 50, 100, 200, 300, 368)
+    span_choices_khz = (6, 10, 20, 50, 100, 150, 200, 250, 300, 350, 368)
     colormap = None               # built once, shared by every window
     child_mode = False            # True in the panadapter subprocess
     child_geometry = None         # see save_geometry()
@@ -5156,18 +5144,19 @@ class Panadapter(QDialog):
         # position when the mini-pan is enabled/disabled.
         self.minipan_enabled = False
 
-        # Span (#SPN;/#SPN$;) selector -- a preset list of common spans,
-        # but also editable and steppable (Up/Down keys, mouse wheel) to
-        # any whole kHz in between, matching the K4's own #SPN;/#SPN$;
-        # range (see Panadapter.span_min_khz/span_max_khz). Bidirectional:
-        # a local change sends #PANSPAN to the parent (see
-        # PanadapterProcess.on_span_requested), and the resulting #SPN;/
-        # #SPN$; response -- from this window's own request, another
-        # window, or the radio's own front panel -- comes back through
-        # on_span_changed/on_span_hz_changed to keep the display in sync.
+        # Span (#SPN;/#SPN$;) selector -- a plain preset-list dropdown,
+        # like FPS/Fixed Tune: not editable, not steppable via Up/Down
+        # or the mouse wheel, and not focusable, so those all fall
+        # through to _PanControlFilter's normal VFO-nudge handling
+        # instead (same as hovering anywhere else in the window) rather
+        # than changing the span. Bidirectional: a local pick sends
+        # #PANSPAN to the parent (see PanadapterProcess.on_span_requested),
+        # and the resulting #SPN;/#SPN$; response -- from this window's
+        # own request, another window, or the radio's own front panel --
+        # comes back through on_span_changed/on_span_hz_changed to keep
+        # the display in sync.
         span_frame, span_grid = qt_group_box('Span', qt_font('Helvetica', 9))
-        self.span_combobox = SteppedComboBox(
-            on_step=self.on_span_step, on_wheel=self.on_span_wheel)
+        self.span_combobox = QComboBox()
         self.span_combobox.addItems([str(v) for v in Panadapter.span_choices_khz])
         # Tracks the last-applied span independently of the combobox's
         # own displayed text -- see request_span for why. Starts at the
@@ -5175,15 +5164,15 @@ class Panadapter(QDialog):
         # once the real value arrives via on_span_hz_changed, same as
         # the combobox's displayed text is.
         self.span_khz = Panadapter.span_choices_khz[0]
-        self.span_combobox.setEditable(True)
-        self.span_combobox.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        # Tracks a dynamically-added item for whatever the radio's
+        # actual span is when it isn't one of the preset choices above
+        # -- see _set_span_combobox_khz for why that's needed, and why
+        # this is tracked (so a later value replaces it instead of
+        # leaving stale extra entries piled up in the list).
+        self._span_dynamic_khz = None
+        self.span_combobox.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.span_combobox.setFont(qt_font('Helvetica', 9))
         self.span_combobox.view().setFont(qt_font('Helvetica', 9))
-        span_line_edit = self.span_combobox.lineEdit()
-        span_line_edit.setValidator(QIntValidator(
-            Panadapter.span_min_khz, Panadapter.span_max_khz, span_line_edit))
-        span_line_edit.setAlignment(Qt.AlignmentFlag.AlignRight)
-        span_line_edit.editingFinished.connect(self.on_span_edited)
         self.span_combobox.activated.connect(self.on_span_selected)
         self.span_combobox.setStyleSheet(
             'QComboBox { background-color: white; color: black; }'
@@ -5795,26 +5784,7 @@ class Panadapter(QDialog):
         # triggers this and the 'action' strings it sends.
         self._write_to_parent(f'#PANVFO {action}')
 
-    def on_span_step(self, key):
-        self._adjust_span(1 if key == Qt.Key.Key_Up else -1)
-
-    def on_span_wheel(self, event):
-        mult = mouse_wheel_mult(event)
-        if mult != 0:
-            self._adjust_span(mult)
-
     def on_span_selected(self, index):
-        self._apply_span_combobox_text()
-
-    def on_span_edited(self):
-        self._apply_span_combobox_text()
-
-    def _adjust_span(self, delta_khz):
-        span_khz = self._current_span_combobox_khz()
-        if span_khz != None:
-            self.request_span(span_khz + delta_khz)
-
-    def _apply_span_combobox_text(self):
         span_khz = self._current_span_combobox_khz()
         if span_khz != None:
             self.request_span(span_khz)
@@ -5836,20 +5806,17 @@ class Panadapter(QDialog):
         # trip through the radio to visibly reset.
         #
         # Compared against self.span_khz, NOT the combobox's own
-        # currentText() -- picking an item from the dropdown list, or
-        # typing a value and pressing Enter, both update the combobox's
-        # displayed text as part of Qt's normal handling *before*
-        # on_span_selected/on_span_edited (and so this method) ever
-        # run, so by the time this runs, currentText() already shows
+        # currentText() -- picking an item from the dropdown list
+        # updates the combobox's displayed text as part of Qt's normal
+        # handling *before* on_span_selected (and so this method) ever
+        # runs, so by the time this runs, currentText() already shows
         # the new value and a same-vs-new comparison against it would
         # always see "no change" and skip the Ref reset.
         if span_khz != self.span_khz:
             self.schedule_ref_reset()
         self.span_khz = span_khz
         # Updated locally right away rather than waiting on the round
-        # trip through the radio (see on_span_hz_changed for that side)
-        # -- otherwise arrow-key/wheel stepping would visibly lag behind
-        # each press.
+        # trip through the radio (see on_span_hz_changed for that side).
         self._set_span_combobox_khz(span_khz)
         self._write_to_parent(f'#PANSPAN {span_khz}')
 
@@ -5864,6 +5831,26 @@ class Panadapter(QDialog):
         self._set_span_combobox_khz(self.span_khz)
 
     def _set_span_combobox_khz(self, span_khz):
+        # Now that the combobox isn't editable, setCurrentText() can
+        # only ever select an item that's actually in the list -- it
+        # silently does nothing otherwise -- but the radio's actual
+        # span isn't limited to the preset choices, so a value outside
+        # that list needs to be added (once, replacing any previous
+        # such addition rather than piling up) for it to be reflected
+        # here at all.
+        if span_khz in Panadapter.span_choices_khz:
+            if self._span_dynamic_khz != None:
+                index = self.span_combobox.findText(str(self._span_dynamic_khz))
+                if index >= 0:
+                    self.span_combobox.removeItem(index)
+                self._span_dynamic_khz = None
+        elif span_khz != self._span_dynamic_khz:
+            if self._span_dynamic_khz != None:
+                index = self.span_combobox.findText(str(self._span_dynamic_khz))
+                if index >= 0:
+                    self.span_combobox.removeItem(index)
+            self.span_combobox.addItem(str(span_khz))
+            self._span_dynamic_khz = span_khz
         text = str(span_khz)
         if self.span_combobox.currentText() != text:
             self.span_combobox.setCurrentText(text)
