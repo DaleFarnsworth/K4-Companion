@@ -4640,28 +4640,29 @@ class _PanControlFilter(QObject):
     # for does, so it works regardless of focus and isn't affected by
     # e.g. PlotWidget's own default arrow-key/wheel handling.
     #
-    # Left/Right and each wheel notch all nudge the frequency by the
-    # same fixed amount, which depends on where the cursor is (1 kHz
-    # over the trace/waterfall, 10 Hz -- matching the mini-pan's much
-    # narrower span -- over the mini-pan) rather than the VFO's current
-    # tuning step, so the panadapter's own resolution controls the
-    # nudge size, not whatever the VFO widget happens to be set to.
-    # Up/Down are swallowed and do nothing -- there's no vertical (dB
-    # scale) control here worth binding them to, and left unhandled
-    # they'd fall through to PlotWidget's own default arrow-key
-    # handling.
+    # Left/Right and each wheel notch all nudge the frequency by a fixed
+    # amount that depends on where the cursor is -- finer over the
+    # narrower/more zoomed-in displays (1 Hz over the mini-pan, 10 Hz
+    # over the trace, 100 Hz over the waterfall) and 1 kHz anywhere else
+    # in the window (e.g. hovering the Ref/Center buttons) -- rather
+    # than the VFO's current tuning step, so the panadapter's own
+    # resolution controls the nudge size, not whatever the VFO widget
+    # happens to be set to. Up/Down are swallowed and do nothing --
+    # there's no vertical (dB scale) control here worth binding them
+    # to, and left unhandled they'd fall through to PlotWidget's own
+    # default arrow-key handling.
     def __init__(self, window):
         super().__init__()
         self.window = window
 
     def _nudge_size_hz(self):
-        # None when the cursor isn't over any widget this applies to
-        # (e.g. hovering the Ref/Center buttons).
         if self.window.minipan_plot.underMouse():
+            return 1
+        if self.window.trace_plot.underMouse():
             return 10
-        if self.window.trace_plot.underMouse() or self.window.waterfall_plot.underMouse():
-            return 1000
-        return None
+        if self.window.waterfall_plot.underMouse():
+            return 100
+        return 1000
 
     def eventFilter(self, obj, event):
         event_type = event.type()
@@ -4686,8 +4687,6 @@ class _PanControlFilter(QObject):
                 if not (obj is self.window or self.window.isAncestorOf(obj)):
                     return False
                 delta_hz = self._nudge_size_hz()
-                if delta_hz is None:
-                    return True
                 if key == Qt.Key.Key_Left:
                     delta_hz = -delta_hz
                 self.window.request_vfo_action(f'nudge {delta_hz}')
@@ -4703,8 +4702,8 @@ class _PanControlFilter(QObject):
             if self.window.span_combobox.underMouse():
                 return False
             mult = mouse_wheel_mult(event)
-            delta_hz = self._nudge_size_hz()
-            if mult != 0 and delta_hz is not None:
+            if mult != 0:
+                delta_hz = self._nudge_size_hz()
                 self.window.request_vfo_action(f'nudge {delta_hz * mult}')
             return True
         return False
