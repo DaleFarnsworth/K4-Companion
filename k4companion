@@ -4641,28 +4641,43 @@ class _PanControlFilter(QObject):
     # e.g. PlotWidget's own default arrow-key/wheel handling.
     #
     # Left/Right and each wheel notch all nudge the frequency by a fixed
-    # amount that depends on where the cursor is -- finer over the
-    # narrower/more zoomed-in displays (1 Hz over the mini-pan, 10 Hz
-    # over the trace, 100 Hz over the waterfall) and 1 kHz anywhere else
-    # in the window (e.g. hovering the Ref/Center buttons) -- rather
-    # than the VFO's current tuning step, so the panadapter's own
-    # resolution controls the nudge size, not whatever the VFO widget
-    # happens to be set to. Up/Down are swallowed and do nothing --
-    # there's no vertical (dB scale) control here worth binding them
-    # to, and left unhandled they'd fall through to PlotWidget's own
-    # default arrow-key handling.
+    # amount that depends on where the cursor is -- finest over the
+    # button area (1 Hz) and coarser over each successively wider/less
+    # zoomed-in display (10 Hz over the mini-pan, 100 Hz over the trace,
+    # 1 kHz over the waterfall) -- rather than the VFO's current tuning
+    # step, so the panadapter's own resolution controls the nudge size,
+    # not whatever the VFO widget happens to be set to. Nothing happens
+    # over the window's own margins or the splitter handle between the
+    # trace and waterfall -- those aren't any of the four areas above,
+    # so _nudge_size_hz returns None there (see its own comment) rather
+    # than falling back to some default rate. Up/Down are swallowed and
+    # do nothing -- there's no vertical (dB scale) control here worth
+    # binding them to, and left unhandled they'd fall through to
+    # PlotWidget's own default arrow-key handling.
     def __init__(self, window):
         super().__init__()
         self.window = window
 
     def _nudge_size_hz(self):
+        # None (not 0) for "not over a recognized area" -- 0 would be a
+        # valid-looking nudge size that just happens to do nothing;
+        # None lets the caller tell "no nudge here" apart from "nudge by
+        # zero" and skip calling request_vfo_action at all.
         if self.window.minipan_plot.underMouse():
-            return 1
-        if self.window.trace_plot.underMouse():
             return 10
-        if self.window.waterfall_plot.underMouse():
+        if self.window.trace_plot.underMouse():
             return 100
-        return 1000
+        if self.window.waterfall_plot.underMouse():
+            return 1000
+        # The whole upper-right area, not just controls_frame's own
+        # widget bounds -- includes minipan_row's stretch to the right
+        # of it, so the button rate covers that empty space too, not
+        # just the buttons/comboboxes themselves. minipan_plot (checked
+        # above) is the only other thing in this row, so this can't
+        # double-count it.
+        if self.window.minipan_row.underMouse():
+            return 1
+        return None
 
     def eventFilter(self, obj, event):
         event_type = event.type()
@@ -4680,9 +4695,10 @@ class _PanControlFilter(QObject):
                 if not (obj is self.window or self.window.isAncestorOf(obj)):
                     return False
                 delta_hz = self._nudge_size_hz()
-                if key == Qt.Key.Key_Left:
-                    delta_hz = -delta_hz
-                self.window.request_vfo_action(f'nudge {delta_hz}')
+                if delta_hz != None:
+                    if key == Qt.Key.Key_Left:
+                        delta_hz = -delta_hz
+                    self.window.request_vfo_action(f'nudge {delta_hz}')
                 return True
         elif event_type == QEvent.Type.Wheel:
             if not isinstance(obj, QWidget):
@@ -4692,7 +4708,8 @@ class _PanControlFilter(QObject):
             mult = mouse_wheel_mult(event)
             if mult != 0:
                 delta_hz = self._nudge_size_hz()
-                self.window.request_vfo_action(f'nudge {delta_hz * mult}')
+                if delta_hz != None:
+                    self.window.request_vfo_action(f'nudge {delta_hz * mult}')
             return True
         return False
 
@@ -5107,6 +5124,11 @@ class Panadapter(QDialog):
         self.minipan_plot.getPlotItem().hideAxis('left')
         self.minipan_plot.getPlotItem().hideAxis('bottom')
         self.minipan_plot.setMouseEnabled(x=False, y=False)
+        # pyqtgraph's own auto-range ('A') button would otherwise appear
+        # on hover -- pointless here since the axes are always set
+        # explicitly (see the Y range below/push_minipan) and never left
+        # to pyqtgraph's auto-range.
+        self.minipan_plot.getPlotItem().hideButtons()
         # Bandwidth shading, same as the trace's bw_region below (see
         # _update_bw_region) -- added before the curve so the
         # (translucent) shading renders behind it rather than over it.
@@ -5249,8 +5271,8 @@ class Panadapter(QDialog):
         span_fps_row_layout.addWidget(span_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         span_fps_row_layout.addWidget(fps_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        controls_frame = QWidget()
-        controls_layout = QVBoxLayout(controls_frame)
+        self.controls_frame = QWidget()
+        controls_layout = QVBoxLayout(self.controls_frame)
         controls_layout.setContentsMargins(0, 0, 0, 0)
         ref_center_row = QWidget()
         ref_center_row_layout = QHBoxLayout(ref_center_row)
@@ -5308,13 +5330,13 @@ class Panadapter(QDialog):
         controls_layout.addWidget(ref_center_row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         controls_layout.addWidget(span_fps_row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        minipan_row = QWidget()
-        minipan_row_layout = QHBoxLayout(minipan_row)
+        self.minipan_row = QWidget()
+        minipan_row_layout = QHBoxLayout(self.minipan_row)
         minipan_row_layout.setContentsMargins(0, 0, 0, 0)
         minipan_row_layout.addWidget(self.minipan_plot)
-        minipan_row_layout.addWidget(controls_frame, 0, Qt.AlignmentFlag.AlignTop)
+        minipan_row_layout.addWidget(self.controls_frame, 0, Qt.AlignmentFlag.AlignTop)
         minipan_row_layout.addStretch(1)
-        layout.addWidget(minipan_row, 1)
+        layout.addWidget(self.minipan_row, 1)
 
         self.trace_plot = pyqtgraph.PlotWidget()
         self.trace_plot.setBackground('k')
@@ -5323,6 +5345,10 @@ class Panadapter(QDialog):
         # instead (see _update_trace_labels).
         self.trace_plot.getPlotItem().hideAxis('bottom')
         self.trace_plot.setMouseEnabled(x=False, y=False)
+        # Same reasoning as minipan_plot's hideButtons() above -- the
+        # trace's own axes are always set explicitly too (see
+        # _update_vscale/push_frame), never pyqtgraph's auto-range.
+        self.trace_plot.getPlotItem().hideButtons()
         # Added before the curve, so the (translucent) shading renders
         # behind it rather than over it.
         self.bw_region = pyqtgraph.LinearRegionItem(values=(0, 0),
@@ -5379,6 +5405,10 @@ class Panadapter(QDialog):
         self.waterfall_plot.getPlotItem().hideAxis('left')
         self.waterfall_plot.getPlotItem().hideAxis('bottom')
         self.waterfall_plot.setMouseEnabled(x=False, y=False)
+        # Same reasoning as minipan_plot/trace_plot's hideButtons()
+        # above -- XLink'd to trace_plot (see setXLink below) and never
+        # left to pyqtgraph's own auto-range either.
+        self.waterfall_plot.getPlotItem().hideButtons()
         self.waterfall_img = pyqtgraph.ImageItem()
         self.waterfall_plot.addItem(self.waterfall_img)
         if Panadapter.colormap is None:
@@ -6072,12 +6102,12 @@ class Panadapter(QDialog):
     def on_trace_clicked(self, event):
         freq_hz = self._clicked_frequency(self.trace_plot, event)
         if freq_hz != None:
-            self.request_tune(freq_hz, round_to_khz=True)
+            self.request_tune(freq_hz, round_to_hz=100)
 
     def on_waterfall_clicked(self, event):
         freq_hz = self._clicked_frequency(self.waterfall_plot, event)
         if freq_hz != None:
-            self.request_tune(freq_hz, round_to_khz=True)
+            self.request_tune(freq_hz, round_to_hz=1000)
 
     def on_minipan_clicked(self, event):
         if not self.minipan_enabled:
@@ -6089,7 +6119,7 @@ class Panadapter(QDialog):
             return
         freq_hz = self._clicked_frequency(self.minipan_plot, event)
         if freq_hz != None:
-            self.request_tune(freq_hz, round_to_khz=False)
+            self.request_tune(freq_hz, round_to_hz=1)
 
     @staticmethod
     def _clicked_frequency(plot, event):
@@ -6102,7 +6132,7 @@ class Panadapter(QDialog):
             return None  # e.g. a click that landed on the axis/label margin
         return view_box.mapSceneToView(event.scenePos()).x()
 
-    def request_tune(self, freq_hz, round_to_khz):
+    def request_tune(self, freq_hz, round_to_hz):
         # Relayed to the parent, which owns the actual K4 connection
         # (see PanadapterProcess.on_tune_requested) -- over the same
         # stdout channel save_geometry/save_splitter_sizes report
@@ -6110,13 +6140,13 @@ class Panadapter(QDialog):
         # away, which is why monitor_loop processes lines as they
         # arrive rather than only once at exit.
         #
-        # The trailing "khz" asks the parent to round to the nearest
-        # kHz rather than the nearest Hz. That coarsening is worth
-        # having on the trace (where a pixel is a good deal wider than
-        # a kHz) and not on the mini-pan (where it would discard the
-        # finer placement that is the whole point of clicking there).
-        suffix = ' khz' if round_to_khz else ''
-        self._write_to_parent(f'#PANTUNE {freq_hz}{suffix}')
+        # round_to_hz is the granularity the parent should round the
+        # clicked frequency to: exact Hz on the mini-pan (the finer
+        # placement is the whole point of clicking there), 100 Hz on the
+        # trace, and 1 kHz on the waterfall -- each coarser than the
+        # last, matching how much wider a pixel is on that plot (see
+        # on_trace_clicked/on_waterfall_clicked/on_minipan_clicked).
+        self._write_to_parent(f'#PANTUNE {freq_hz} {round_to_hz}')
 
     def _update_trace_labels(self, center_hz, span_hz):
         # Same formatting as the corresponding ticks in
@@ -6737,17 +6767,17 @@ class PanadapterProcess(QObject):
         PanadapterProcess._update_dpm_state()
 
     def on_tune_requested(self, request):
-        # "<freq>", or "<freq> khz" to round to the nearest kHz -- see
-        # Panadapter.request_tune.
+        # "<freq> <round_to_hz>" -- see Panadapter.request_tune.
         fields = request.split()
-        if len(fields) == 0:
+        if len(fields) < 2:
             return
         try:
             freq_hz = float(fields[0])
+            round_to_hz = int(fields[1])
         except ValueError:
             return
-        if 'khz' in fields[1:]:
-            freq_hz = round(freq_hz / 1000) * 1000
+        if round_to_hz > 1:
+            freq_hz = round(freq_hz / round_to_hz) * round_to_hz
         else:
             freq_hz = round(freq_hz)
         freq_hz = max(VFO.low_frequency_limit, min(VFO.high_frequency_limit, freq_hz))
