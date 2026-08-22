@@ -7746,6 +7746,8 @@ class Audio():
                     self.output_device_queue.put(self.sidetone_fall_packet)
 #                    log_packet('sidetone', self.sidetone_fall_packet)
 #                    print_packet('fall', self.sidetone_fall_packet)
+                    while not self.output_device_queue.empty():
+                        time.sleep(.01)
                     self.ending_sidetone = False
                     Audio.unmute_k4()
                 self.sidetone_event.wait()
