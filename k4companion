@@ -67,7 +67,7 @@ import time
 import traceback
 import yaml
 
-from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal, QThread, qInstallMessageHandler
+from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal, QThread, qInstallMessageHandler, QCoreApplication
 from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
@@ -12148,6 +12148,30 @@ class Options():
 
 def clean_up(exit=False):
     save_geometry()
+    # CW/Macros close *before* the server is disconnected, not after --
+    # CW.close() may still need to send a real command (stop_sending()'s
+    # 'KY @;', if CW text was actively being sent when the main window
+    # closed). Doing that after server.close()/exit() already set
+    # self.connected = False made send_cmds() see a "disconnected" state
+    # that was only ever true because clean_up() itself just forced it,
+    # not a real connectivity problem -- which made warn_if_not_connected()
+    # pop up a spurious "not connected" warning in the middle of shutting
+    # down.
+    CW.close_window()
+    Macros.close_window()
+    # Both of the above end with top_level.deleteLater(), which only
+    # *schedules* the actual C++ destruction for the next event-loop
+    # pass -- it does not run immediately. quit() (see exit(), below)
+    # stops the loop right after this function returns, which can leave
+    # that deferred deletion permanently pending. Forcing it to run now,
+    # while the loop is still very much alive, avoids that race -- same
+    # reasoning as PanadapterProcess.stop()'s own processEvents() call.
+    # A plain processEvents() alone does NOT do this -- DeferredDelete
+    # events are deliberately excluded from its normal event processing,
+    # so they must be flushed explicitly via sendPostedEvents() first.
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    QApplication.instance().processEvents()
+
     server = Server.k4_server
     server.cancel_k4_subscriptions()
     if exit:
@@ -12155,8 +12179,6 @@ def clean_up(exit=False):
     else:
         server.close()
 
-    CW.close_window()
-    Macros.close_window()
     # Shut the panadapter subprocesses down explicitly, so their exit is
     # recorded as parent-driven rather than as the user closing the
     # window -- otherwise exiting would clear the persisted "was open"
