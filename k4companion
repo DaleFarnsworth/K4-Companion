@@ -7351,7 +7351,13 @@ class Audio():
 
     @classmethod
     def unmute_k4(cls):
-        time.sleep(.100)
+        self = cls.singleton
+        while True:
+            try:
+                 self.output_device_queue.get_nowait()
+            except queue.Empty:
+                break
+                self.output_device_queue.put(packet)
         cls.k4_muted = False
 
     @classmethod
