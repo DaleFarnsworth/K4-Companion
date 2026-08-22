@@ -9880,10 +9880,7 @@ class CW(TextButtons):
         if not self.delay_frame:
             return
         qsk_enabled = response[3] == '1'
-        if qsk_enabled:
-            self._hide(self.qsk_frame, self.delay_frame)
-        else:
-            self._show(self.qsk_frame, self.delay_frame, 0, 1)
+        self.delay_frame.setEnabled(not qsk_enabled)
 
     def add_more_widgets(self, cw_grid):
         self.qsk_frame = QWidget()
@@ -9913,9 +9910,9 @@ class CW(TextButtons):
         ToggleWidget(self, qsk_onoff_frame, qsk_options)
 
         self.delay_frame, delay_grid = qt_group_box('Delay', self.label_font())
+        qsk_grid.addWidget(self.delay_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         qsk_enabled = self.k4param('SDC')[0] == '1'
-        if not qsk_enabled:
-            self._show(self.qsk_frame, self.delay_frame, 0, 1)
+        self.delay_frame.setEnabled(not qsk_enabled)
 
         delay_slider_frame = QWidget()
         delay_slider_grid = QGridLayout(delay_slider_frame)
