@@ -7097,7 +7097,9 @@ class Audio():
 
     sidetone_min_packet_time = .003     # minimum packet time sending with straight key
     sidetone_rise_time = .005           # 5 ms rise time
-    sidetone_fall_time = .019           # 19 ms fall time
+    sidetone_fall_time = .033           # 33 ms fall time
+    sidetone_rise_packet_perceived_ratio = .5
+    sidetone_fall_packet_perceived_ratio = .5
     sidetone_enabled = True
     sidetone_stopped_time = time.perf_counter() - 1
 
@@ -7122,10 +7124,15 @@ class Audio():
         if self.input_thread != None:
             self.input_thread.join()
 
-        if self.sidetone_thread != None:
-            self.enable_sidetone_loop = False
+        if self.straight_key_sidetone_thread != None:
+            self.enable_straight_key_sidetone_loop = False
             self.sidetone_event.set()
-            self.sidetone_thread.join()
+            self.straight_key_sidetone_thread.join()
+
+        if self.keyer_sidetone_thread != None:
+            self.enable_keyer_sidetone_loop = False
+            self.keyer_output_queue.put(None)
+            self.keyer_sidetone_thread.join()
 
         if self.output_thread != None:
             self.server.output_audio_queue.put([])
@@ -7319,6 +7326,9 @@ class Audio():
 
     @classmethod
     def mute_k4(cls):
+        if cls.k4_muted:
+            return
+
         cls.k4_muted = True
         self = cls.singleton
         while True:
@@ -7341,11 +7351,7 @@ class Audio():
 
     @classmethod
     def unmute_k4(cls):
-        while True:
-            try:
-                cls.server.output_audio_queue.get_nowait()
-            except queue.Empty:
-                break
+        time.sleep(.100)
         cls.k4_muted = False
 
     @classmethod
@@ -7359,6 +7365,27 @@ class Audio():
     @classmethod
     def enable_sidetone(cls, enable):
         cls.sidetone_enabled = enable
+
+    @classmethod
+    def send_sidetone_rise_packet(cls):
+        self = cls.singleton
+        self.keyer_output_queue.put(self.sidetone_rise_packet)
+
+    @classmethod
+    def send_sidetone_fall_packet(cls):
+        self = cls.singleton
+        self.keyer_output_queue.put(self.sidetone_fall_packet)
+
+    @classmethod
+    def send_sidetone_cycle_packets(cls, seconds):
+        self = cls.singleton
+        seconds -= self.seconds_per_sidetone_rise_packet * self.sidetone_rise_packet_perceived_ratio
+        seconds -= self.seconds_per_sidetone_fall_packet * self.sidetone_fall_packet_perceived_ratio
+        cycles = round(seconds / self.seconds_per_sidetone_cycle)
+        if Options.debug >= 1 and cycles < 1:
+            dprint('element_lengthened')
+        for i in range(cycles):
+            self.keyer_output_queue.put(self.sidetone_cycle_packet)
 
     def pyaudio(cls):
         fd = os.dup(2)
@@ -7400,6 +7427,7 @@ class Audio():
         # output_device_loop cannot run to drain the queue either, so
         # only PortAudio's own buffer (frames_per_buffer) keeps playing.
         self.output_device_queue = queue.Queue(4)
+        self.keyer_output_queue = queue.Queue()
         self.input_device_index = -1
         self.output_device_index = -1
         self.input_device_infos = {}
@@ -7409,8 +7437,10 @@ class Audio():
         self.transmit_audio = False
         self.cw_pitch = 600
         self.sidetone_volume = 30
-        self.sidetone_thread = None
-        self.enable_sidetone_loop = True
+        self.straight_key_sidetone_thread = None
+        self.keyer_sidetone_thread = None
+        self.enable_straight_key_sidetone_loop = True
+        self.enable_keyer_sidetone_loop = True
         self.sidetone_event = threading.Event()
         self.starting_sidetone = False
         self.ending_sidetone = False
@@ -7528,8 +7558,11 @@ class Audio():
         self.output_device_thread = threading.Thread(target=self.output_device_loop, name='audio_output_device_thread')
         self.output_device_thread.start()
 
-        self.sidetone_thread = threading.Thread(target=self.sidetone_loop, name='audio_sidetone_thread')
-        self.sidetone_thread.start()
+        self.straight_key_sidetone_thread = threading.Thread(target=self.straight_key_sidetone_loop, name='audio_straight_key_sidetone_thread')
+        self.straight_key_sidetone_thread.start()
+
+        self.keyer_sidetone_thread = threading.Thread(target=self.keyer_sidetone_loop, name='audio_keyer_sidetone_thread')
+        self.keyer_sidetone_thread.start()
 
         self.output_thread = threading.Thread(target=self.output_loop, name='audio_output_thread')
         self.output_thread.start()
@@ -7697,11 +7730,11 @@ class Audio():
             averaged_left_right_volume = (left + right) / 2
             return averaged_left_right_volume
 
-    def sidetone_loop(self):
+    def straight_key_sidetone_loop(self):
         self.generate_sidetone_packets()
-        elt_cycles = math.ceil(self.sidetone_min_packet_time / self.sidetone_seconds_per_cycle)
+        elt_cycles = math.ceil(self.sidetone_min_packet_time / self.seconds_per_sidetone_cycle)
 
-        while self.enable_sidetone_loop:
+        while self.enable_straight_key_sidetone_loop:
             if not self.sidetone_event.is_set():
                 if self.ending_sidetone:
                     self.output_device_queue.put(self.sidetone_fall_packet)
@@ -7716,11 +7749,17 @@ class Audio():
 #                log_packet('sidetone', self.sidetone_rise_packet)
 #                print_packet('rise', self.sidetone_rise_packet)
                 self.starting_sidetone = False
-            elif self.enable_sidetone_loop:
+            elif self.enable_straight_key_sidetone_loop:
                 elt_packet = self.sidetone_cycle_packet * elt_cycles
                 self.output_device_queue.put(elt_packet)
 #                log_packet('sidetone', elt_packet)
 #                print_packet('elt', elt_packet)
+
+    def keyer_sidetone_loop(self):
+        while self.enable_keyer_sidetone_loop:
+            packet = self.keyer_output_queue.get()
+            if packet:
+                self.output_device_queue.put(packet)
 
     def output_device_loop(self):
         while True:
@@ -7864,7 +7903,7 @@ class Audio():
         cycles_per_fall_packet = math.ceil(samples_per_fall_time / samples_per_cycle)
         samples_per_rise_packet = cycles_per_rise_packet * samples_per_cycle
         samples_per_fall_packet =  cycles_per_fall_packet * samples_per_cycle
-        volume = self.sidetone_volume / 150 * self.averaged_left_right_volume()
+        volume = self.sidetone_volume / 135 * self.averaged_left_right_volume()
 
         steps = numpy.linspace(0, 1, samples_per_cycle, endpoint=False, dtype=numpy.float32)
         cycle = numpy.sin(2 * numpy.pi * steps) * volume
@@ -7883,8 +7922,9 @@ class Audio():
 
         self.sidetone_space_cycle = numpy.zeros(samples_per_cycle * 2, dtype=numpy.float32).tobytes()
 
-        self.sidetone_seconds_per_cycle = seconds_per_cycle
-        self.sidetone_seconds_per_rise_packet = seconds_per_cycle * cycles_per_rise_packet
+        self.seconds_per_sidetone_cycle = seconds_per_cycle
+        self.seconds_per_sidetone_rise_packet = seconds_per_cycle * cycles_per_rise_packet
+        self.seconds_per_sidetone_fall_packet = seconds_per_cycle * cycles_per_fall_packet
 
     def on_cw_pitch_change(self, response):
         self.cw_pitch = int(response[2:].rstrip(';')) * 10
@@ -9907,14 +9947,14 @@ class CW(TextButtons):
         controls_frame, controls_grid = qt_group_box('', self.label_font())
         cw_grid.addWidget(controls_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
+        weighting_frame = self.weighting_setting(controls_frame)
+        controls_grid.addWidget(weighting_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
         auto_char_space_frame = self.auto_char_space_setting(controls_frame)
-        controls_grid.addWidget(auto_char_space_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        controls_grid.addWidget(auto_char_space_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         auto_word_space_frame = self.auto_word_space_setting(controls_frame)
-        controls_grid.addWidget(auto_word_space_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        weighting_frame = self.weighting_setting(controls_frame)
-        controls_grid.addWidget(weighting_frame, 0, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        controls_grid.addWidget(auto_word_space_frame, 0, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         decode_frame = QWidget()
         decode_grid = QGridLayout(decode_frame)
@@ -10014,7 +10054,7 @@ class CW(TextButtons):
     def auto_char_space_setting(self, frame):
         setting = Server.settings.getbool('CW', 'auto_char_space', False)
 
-        control_frame, control_grid = qt_group_box('ACS', self.label_font())
+        control_frame, control_grid = qt_group_box('Auto char space', self.label_font())
 
         acs_options = {
             'initialindex': 0 if setting else 1,
@@ -10037,7 +10077,7 @@ class CW(TextButtons):
     def auto_word_space_setting(self, frame):
         setting = Server.settings.getbool('CW', 'auto_word_space', False)
 
-        control_frame, control_grid = qt_group_box('AWS', self.label_font())
+        control_frame, control_grid = qt_group_box('Auto word space', self.label_font())
 
         aws_options = {
             'initialindex': 0 if setting else 1,
@@ -11591,6 +11631,8 @@ class Keyer():
 
         self.auto_char_space = Server.settings.getbool('CW', 'auto_char_space', False)
         self.auto_word_space = Server.settings.getbool('CW', 'auto_word_space', False)
+        self.auto_char_space_dits = 2
+        self.auto_word_space_dits = 5
         self.weighting = 1
 
         # for straight_key handling
@@ -11775,6 +11817,7 @@ class Keyer():
 
             first_element = previous_elt == None
             if not dit and not dah:
+                self.send_element(None)
                 return paddle_event.event
 
             if dit and dah:
@@ -11799,6 +11842,7 @@ class Keyer():
             dit = self.dit_down_timestamp > self.dit_up_timestamp
             dah =  self.dah_down_timestamp > self.dah_up_timestamp
             if not dit and not dah:
+                self.send_element(None)
                 return paddle_event.event
 
             if dit and dah:
@@ -11812,22 +11856,34 @@ class Keyer():
             self.send_element(elt, first_element)
             first_element = False
 
-    def send_element(self, elt, first_element):
+    def send_element(self, elt, first_element=False):
+        if elt:
+            Audio.mute_k4()
+        else:
+            Audio.unmute_k4()
+            return
+
         if (self.auto_char_space or self.auto_word_space) and first_element:
             time_since_last_char = time.perf_counter() - self.end_element_timestamp
+            aws_min_seconds = self.auto_word_space_dits * self.dit_seconds
+            acs_min_seconds = self.auto_char_space_dits * self.dit_seconds
+            acs_time_remaining = self.inter_character_seconds - time_since_last_char
+            aws_time_remaining = self.inter_word_seconds - time_since_last_char
             time_remaining = 0
-            if self.auto_word_space and (time_since_last_char > 5.5/7 * self.inter_word_seconds):
+
+            if self.auto_word_space and (time_since_last_char > aws_min_seconds):
                 # wait an inter-character interval
                 time_remaining = self.inter_word_seconds - time_since_last_char
-            elif self.auto_char_space and (time_since_last_char > 2/3 * self.inter_character_seconds):
+            elif self.auto_char_space and (time_since_last_char > acs_min_seconds):
                 # wait an inter-word interval
                 time_remaining = self.inter_character_seconds - time_since_last_char
             if time_remaining > 0:
                 time.sleep(time_remaining)
 
-        Audio.start_sidetone()
+        Audio.send_sidetone_rise_packet()
         if first_element:
             # Establish a baseline for timing later elements
+            # to avoid cumulative errors
             self.element_timestamp = time.perf_counter()
 
             # The first element sent to the K4 is delayed so that each successive
@@ -11835,19 +11891,16 @@ class Keyer():
             time.sleep(.005)
         Server.k4_server.send_str(f'KZ{elt};')
 
-        # wait an element interval
-        self.element_timestamp += self.dah_seconds if elt == '-'  else self.dit_seconds
-        # Make sure we sleep for a positive value
-        element_sleep = max(self.element_timestamp - time.perf_counter(), .0001)
-        if element_sleep == .0001:
-            tprint('long dit')
-        time.sleep(element_sleep)
-        Audio.stop_sidetone()
-        self.end_element_timestamp = time.perf_counter()
-
-        # wait an inter-element interval
+        element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
+        self.element_timestamp += element_seconds
+        self.end_element_timestamp = self.element_timestamp
+        Audio.send_sidetone_cycle_packets(element_seconds)
+        Audio.send_sidetone_fall_packet()
+        time_remaining = self.element_timestamp - time.perf_counter()
         self.element_timestamp += self.inter_element_seconds
-        time.sleep(self.element_timestamp - time.perf_counter())
+        element_sleep = self.element_timestamp - time.perf_counter()
+        if element_sleep > 0:
+            time.sleep(element_sleep)
 
     def on_speed_change(self, response=None):
         # The length of a dit in seconds is 1.2 / wpm,
@@ -11856,12 +11909,11 @@ class Keyer():
         elt_mult = 1 - delta
         space_mult = 1 + delta
         orig_dit_seconds = 1.2/wpm
-        # The .030 was determined empirically to compensate for long rise/fall times
-        sidetone_shortener = .030
+        orig_dah_seconds = orig_dit_seconds * 3
 
-        self.dit_seconds = orig_dit_seconds * elt_mult - sidetone_shortener
-        self.dah_seconds = self.dit_seconds + (orig_dit_seconds * 2) * elt_mult
-        self.inter_element_seconds = orig_dit_seconds * space_mult + sidetone_shortener
+        self.dit_seconds = orig_dit_seconds * elt_mult
+        self.dah_seconds = orig_dah_seconds * elt_mult
+        self.inter_element_seconds = orig_dit_seconds * space_mult
         self.inter_character_seconds = orig_dit_seconds * 3
         self.inter_word_seconds = orig_dit_seconds * 7
 
