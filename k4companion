@@ -7369,8 +7369,9 @@ class Audio():
     def k4_is_muted(cls):
         if cls.k4_muted:
             return True
-        if not Keyer.device_type_straight_key:
+        if not Keyer.straight_keying:
             return False
+        # if straight keying, mute for 100 ms, after sideton stops
         if (time.perf_counter() - cls.sidetone_stopped_time) < .1:
             return True
         return False
