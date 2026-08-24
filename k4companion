@@ -7447,7 +7447,7 @@ class Audio():
         # panadapter-induced dropouts: during a main-thread stall
         # output_device_loop cannot run to drain the queue either, so
         # only PortAudio's own buffer (frames_per_buffer) keeps playing.
-        self.output_device_queue = queue.Queue(2)
+        self.output_device_queue = queue.Queue(4)
         self.keyer_output_queue = queue.Queue()
         self.input_device_index = -1
         self.output_device_index = -1
