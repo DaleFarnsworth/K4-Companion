@@ -7368,7 +7368,7 @@ class Audio():
 
         while True:
             try:
-                 self.output_device_queue.get_nowait()
+                 self.server.output_audio_queue.get_nowait()
             except queue.Empty:
                 break
         while True:
@@ -7385,7 +7385,8 @@ class Audio():
         cls.k4_muted = True
         while True:
             try:
-                cls.server.output_audio_queue.get_nowait()
+                self = cls.singleton
+                self.output_device_queue.get_nowait()
             except queue.Empty:
                 break
 
