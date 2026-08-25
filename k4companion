@@ -7129,11 +7129,6 @@ class Audio():
             self.sidetone_event.set()
             self.straight_key_sidetone_thread.join()
 
-        if self.keyer_sidetone_thread != None:
-            self.enable_keyer_sidetone_loop = False
-            self.keyer_output_queue.put(None)
-            self.keyer_sidetone_thread.join()
-
         if self.output_thread != None:
             self.server.output_audio_queue.put([])
             self.output_thread.join()
@@ -7383,7 +7378,7 @@ class Audio():
     @classmethod
     def send_sidetone_rise_packet(cls):
         self = cls.singleton
-        self.keyer_output_queue.put(self.sidetone_rise_packet)
+        self.output_device_queue.put(self.sidetone_rise_packet)
         rise_secs = self.seconds_per_sidetone_rise_packet
         delay = rise_secs * self.sidetone_rise_packet_perceived_ratio
         len = rise_secs * (1 -  self.sidetone_rise_packet_perceived_ratio)
@@ -7392,7 +7387,7 @@ class Audio():
     @classmethod
     def send_sidetone_fall_packet(cls):
         self = cls.singleton
-        self.keyer_output_queue.put(self.sidetone_fall_packet)
+        self.output_device_queue.put(self.sidetone_fall_packet)
         len = self.seconds_per_sidetone_fall_packet * self.sidetone_fall_packet_perceived_ratio
         return len
 
@@ -7405,7 +7400,7 @@ class Audio():
         if Options.debug >= 1 and cycles < 1:
             dprint('element_lengthened')
         for i in range(cycles):
-            self.keyer_output_queue.put(self.sidetone_cycle_packet)
+            self.output_device_queue.put(self.sidetone_cycle_packet)
         len = cycles * self.seconds_per_sidetone_cycle
         return len
 
@@ -7452,7 +7447,6 @@ class Audio():
         # output_stream_callback cannot run to drain the queue either, so
         # only PortAudio's own buffer (frames_per_buffer) keeps playing.
         self.output_device_queue = queue.Queue(4)
-        self.keyer_output_queue = queue.Queue()
         self.input_device_index = -1
         self.output_device_index = -1
         self.input_device_infos = {}
@@ -7463,9 +7457,7 @@ class Audio():
         self.cw_pitch = 600
         self.sidetone_volume = 30
         self.straight_key_sidetone_thread = None
-        self.keyer_sidetone_thread = None
         self.enable_straight_key_sidetone_loop = True
-        self.enable_keyer_sidetone_loop = True
         self.sidetone_event = threading.Event()
         self.starting_sidetone = False
         self.ending_sidetone = False
@@ -7582,9 +7574,6 @@ class Audio():
 
         self.straight_key_sidetone_thread = threading.Thread(target=self.straight_key_sidetone_loop, name='audio_straight_key_sidetone_thread')
         self.straight_key_sidetone_thread.start()
-
-        self.keyer_sidetone_thread = threading.Thread(target=self.keyer_sidetone_loop, name='audio_keyer_sidetone_thread')
-        self.keyer_sidetone_thread.start()
 
         self.output_thread = threading.Thread(target=self.output_loop, name='audio_output_thread')
         self.output_thread.start()
@@ -7781,12 +7770,6 @@ class Audio():
                 self.output_device_queue.put(elt_packet)
 #                log_packet('sidetone', elt_packet)
 #                print_packet('elt', elt_packet)
-
-    def keyer_sidetone_loop(self):
-        while self.enable_keyer_sidetone_loop:
-            packet = self.keyer_output_queue.get()
-            if packet:
-                self.output_device_queue.put(packet)
 
     def output_stream_callback(self, in_data, frame_count, time_info, status):
         # Called on PortAudio's own thread whenever it needs more frames;
