@@ -4748,6 +4748,11 @@ class Panadapter(QDialog):
                                   # on_span_changed tell its first real
                                   # value apart from a later, genuine
                                   # change (see _trigger_auto_ref).
+    freq_line_waterfall_stable_ms = 2000
+                                  # How long a VFO frequency must hold
+                                  # steady before its waterfall marker
+                                  # line is hidden -- see
+                                  # freq_line_a_waterfall_timer.
     span_min_khz = 6              # #SPN;/#SPN$;'s own documented range
     span_max_khz = 368            # (6000 to 368000 Hz) -- see the Span
                                   # combobox and PanadapterProcess.
@@ -5425,6 +5430,20 @@ class Panadapter(QDialog):
         self.freq_line_b_waterfall = pyqtgraph.InfiniteLine(angle=90,
             pen=pyqtgraph.mkPen(color=(60, 200, 90), width=1))
         self.waterfall_plot.addItem(self.freq_line_b_waterfall)
+        # Once a VFO's frequency holds steady for freq_line_waterfall_stable_ms,
+        # hide just the waterfall's copy of its line -- the trace's own
+        # freq_line_a/freq_line_b stays put -- so a stopped-on frequency
+        # doesn't leave a lingering marker drawn over the waterfall's
+        # history. Single-shot and restarted (not stacked) on every
+        # change, same debounce pattern as _ref_reset_timer above.
+        self.freq_line_a_waterfall_timer = QTimer()
+        self.freq_line_a_waterfall_timer.setSingleShot(True)
+        self.freq_line_a_waterfall_timer.timeout.connect(
+            lambda: self.freq_line_a_waterfall.setVisible(False))
+        self.freq_line_b_waterfall_timer = QTimer()
+        self.freq_line_b_waterfall_timer.setSingleShot(True)
+        self.freq_line_b_waterfall_timer.timeout.connect(
+            lambda: self.freq_line_b_waterfall.setVisible(False))
         # Y range is set explicitly (see push_frame, alongside
         # waterfall_img.setRect()) rather than left to pyqtgraph's
         # default auto-range, which pads a few percent above and below
@@ -6089,6 +6108,9 @@ class Panadapter(QDialog):
             if visible:
                 self.freq_line_a.setPos(vfo_a_hz)
                 self.freq_line_a_waterfall.setPos(vfo_a_hz)
+                self.freq_line_a_waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
+            else:
+                self.freq_line_a_waterfall_timer.stop()
         vfo_b_hz = Panadapter.rx_freq_hz['sub']
         if vfo_b_hz != self.freq_line_b_hz:
             self.freq_line_b_hz = vfo_b_hz
@@ -6098,6 +6120,9 @@ class Panadapter(QDialog):
             if visible:
                 self.freq_line_b.setPos(vfo_b_hz)
                 self.freq_line_b_waterfall.setPos(vfo_b_hz)
+                self.freq_line_b_waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
+            else:
+                self.freq_line_b_waterfall_timer.stop()
 
     def on_trace_clicked(self, event):
         freq_hz = self._clicked_frequency(self.trace_plot, event)
@@ -6108,6 +6133,18 @@ class Panadapter(QDialog):
         freq_hz = self._clicked_frequency(self.waterfall_plot, event)
         if freq_hz != None:
             self.request_tune(freq_hz, round_to_hz=1000)
+            # A click doesn't necessarily change the receiver's rounded
+            # frequency (e.g. landing within the same 1 kHz bin it's
+            # already on), so _update_freq_line's own change-triggered
+            # timer restart (see freq_line_a_waterfall_timer's comment)
+            # might not fire -- show the line directly here instead, so
+            # every click reveals it for a couple of seconds regardless.
+            if self.receiver == 'main':
+                self.freq_line_a_waterfall.setVisible(True)
+                self.freq_line_a_waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
+            else:
+                self.freq_line_b_waterfall.setVisible(True)
+                self.freq_line_b_waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
 
     def on_minipan_clicked(self, event):
         if not self.minipan_enabled:
