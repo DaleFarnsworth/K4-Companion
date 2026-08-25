@@ -7170,10 +7170,10 @@ class Audio():
             self.sidetone_event.set()
             self.straight_key_sidetone_thread.join()
 
-        if self.keyer_sidetone_thread != None:
-            self.enable_keyer_sidetone_loop = False
-            self.keyer_output_queue.put(None)
-            self.keyer_sidetone_thread.join()
+        if self.sidetone_output_thread != None:
+            self.enable_sidetone_output_loop = False
+            self.sidetone_output_queue.put(None)
+            self.sidetone_output_thread.join()
 
         if self.output_thread != None:
             self.server.output_audio_queue.put([])
@@ -7425,12 +7425,12 @@ class Audio():
     @classmethod
     def send_sidetone_rise_packet(cls):
         self = cls.singleton
-        self.keyer_output_queue.put(self.sidetone_rise_packet)
+        self.sidetone_output_queue.put(self.sidetone_rise_packet)
 
     @classmethod
     def send_sidetone_fall_packet(cls):
         self = cls.singleton
-        self.keyer_output_queue.put(self.sidetone_fall_packet)
+        self.sidetone_output_queue.put(self.sidetone_fall_packet)
 
     @classmethod
     def send_sidetone_full_amplitude_packets(cls, seconds):
@@ -7441,7 +7441,7 @@ class Audio():
         if Options.debug >= 1 and cycles < 1:
             dprint('element_lengthened')
         for i in range(cycles):
-            self.keyer_output_queue.put(self.sidetone_full_amplitude_cycle_packet)
+            self.sidetone_output_queue.put(self.sidetone_full_amplitude_cycle_packet)
 
     def pyaudio(cls):
         fd = os.dup(2)
@@ -7486,7 +7486,7 @@ class Audio():
         # output_stream_callback cannot run to drain the queue either, so
         # only PortAudio's own buffer (frames_per_buffer) keeps playing.
         self.output_device_queue = queue.Queue(4)
-        self.keyer_output_queue = queue.Queue()
+        self.sidetone_output_queue = queue.Queue()
         self.input_device_index = -1
         self.output_device_index = -1
         self.input_device_infos = {}
@@ -7497,9 +7497,9 @@ class Audio():
         self.cw_pitch = 600
         self.sidetone_volume = 30
         self.straight_key_sidetone_thread = None
-        self.keyer_sidetone_thread = None
+        self.sidetone_output_thread = None
         self.enable_straight_key_sidetone_loop = True
-        self.enable_keyer_sidetone_loop = True
+        self.enable_sidetone_output_loop = True
         self.sidetone_event = threading.Event()
         self.starting_sidetone = False
         self.ending_sidetone = False
@@ -7617,8 +7617,8 @@ class Audio():
         self.straight_key_sidetone_thread = threading.Thread(target=self.straight_key_sidetone_loop, name='audio_straight_key_sidetone_thread')
         self.straight_key_sidetone_thread.start()
 
-        self.keyer_sidetone_thread = threading.Thread(target=self.keyer_sidetone_loop, name='audio_keyer_sidetone_thread')
-        self.keyer_sidetone_thread.start()
+        self.sidetone_output_thread = threading.Thread(target=self.sidetone_output_loop, name='audio_sidetone_output_thread')
+        self.sidetone_output_thread.start()
 
         self.output_thread = threading.Thread(target=self.output_loop, name='audio_output_thread')
         self.output_thread.start()
@@ -7795,7 +7795,7 @@ class Audio():
         while self.enable_straight_key_sidetone_loop:
             if not self.sidetone_event.is_set():
                 if self.ending_sidetone:
-                    self.output_device_queue.put(self.sidetone_fall_packet)
+                    self.sidetone_output_queue.put(self.sidetone_fall_packet)
 #                    log_packet('sidetone', self.sidetone_fall_packet)
 #                    print_packet('fall', self.sidetone_fall_packet)
                     while not self.output_device_queue.empty():
@@ -7806,19 +7806,19 @@ class Audio():
             if self.starting_sidetone:
                 Audio.drain_audio_queues()
                 Audio.mute_k4()
-                self.output_device_queue.put(self.sidetone_rise_packet)
+                self.sidetone_output_queue.put(self.sidetone_rise_packet)
 #                log_packet('sidetone', self.sidetone_rise_packet)
 #                print_packet('rise', self.sidetone_rise_packet)
                 self.starting_sidetone = False
             elif self.enable_straight_key_sidetone_loop:
                 elt_packet = self.sidetone_full_amplitude_cycle_packet * elt_cycles
-                self.output_device_queue.put(elt_packet)
+                self.sidetone_output_queue.put(elt_packet)
 #                log_packet('sidetone', elt_packet)
 #                print_packet('elt', elt_packet)
 
-    def keyer_sidetone_loop(self):
-        while self.enable_keyer_sidetone_loop:
-            packet = self.keyer_output_queue.get()
+    def sidetone_output_loop(self):
+        while self.enable_sidetone_output_loop:
+            packet = self.sidetone_output_queue.get()
             if packet:
                 self.output_device_queue.put(packet)
 
