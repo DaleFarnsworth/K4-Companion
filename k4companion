@@ -7416,30 +7416,22 @@ class Audio():
     def send_sidetone_rise_packet(cls):
         self = cls.singleton
         self.output_device_queue.put(self.sidetone_rise_packet)
-        rise_secs = self.seconds_per_sidetone_rise_packet
-        delay = rise_secs * self.sidetone_rise_packet_perceived_ratio
-        len = rise_secs * (1 -  self.sidetone_rise_packet_perceived_ratio)
-        return delay, len
 
     @classmethod
     def send_sidetone_fall_packet(cls):
         self = cls.singleton
         self.output_device_queue.put(self.sidetone_fall_packet)
-        len = self.seconds_per_sidetone_fall_packet * self.sidetone_fall_packet_perceived_ratio
-        return len
 
     @classmethod
-    def send_sidetone_cycle_packets(cls, seconds):
+    def send_sidetone_full_amplitued_packets(cls, seconds):
         self = cls.singleton
-        seconds -= self.seconds_per_sidetone_rise_packet * self.sidetone_rise_packet_perceived_ratio
-        seconds -= self.seconds_per_sidetone_fall_packet * self.sidetone_fall_packet_perceived_ratio
-        cycles = round(seconds / self.seconds_per_sidetone_cycle)
+        seconds += self.seconds_per_sidetone_rise_packet * self.sidetone_rise_packet_perceived_ratio
+        seconds += self.seconds_per_sidetone_fall_packet * self.sidetone_fall_packet_perceived_ratio
+        cycles = round(seconds / self.seconds_per_sidetone_full_amplitude_cycle)
         if Options.debug >= 1 and cycles < 1:
             dprint('element_lengthened')
         for i in range(cycles):
-            self.output_device_queue.put(self.sidetone_cycle_packet)
-        len = cycles * self.seconds_per_sidetone_cycle
-        return len
+            self.output_device_queue.put(self.sidetone_full_amplitude_cycle_packet)
 
     def pyaudio(cls):
         fd = os.dup(2)
@@ -7782,7 +7774,7 @@ class Audio():
 
     def straight_key_sidetone_loop(self):
         self.generate_sidetone_packets()
-        elt_cycles = math.ceil(self.sidetone_min_packet_time / self.seconds_per_sidetone_cycle)
+        elt_cycles = math.ceil(self.sidetone_min_packet_time / self.seconds_per_sidetone_full_amplitude_cycle)
 
         while self.enable_straight_key_sidetone_loop:
             if not self.sidetone_event.is_set():
@@ -7803,7 +7795,7 @@ class Audio():
 #                print_packet('rise', self.sidetone_rise_packet)
                 self.starting_sidetone = False
             elif self.enable_straight_key_sidetone_loop:
-                elt_packet = self.sidetone_cycle_packet * elt_cycles
+                elt_packet = self.sidetone_full_amplitude_cycle_packet * elt_cycles
                 self.output_device_queue.put(elt_packet)
 #                log_packet('sidetone', elt_packet)
 #                print_packet('elt', elt_packet)
@@ -7962,7 +7954,7 @@ class Audio():
 
         steps = numpy.linspace(0, 1, samples_per_cycle, endpoint=False, dtype=numpy.float32)
         cycle = numpy.sin(2 * numpy.pi * steps) * volume
-        self.sidetone_cycle_packet = cycle.repeat(2).tobytes()
+        self.sidetone_full_amplitude_cycle_packet = cycle.repeat(2).tobytes()
 
         rise_steps = numpy.linspace(0, 1, samples_per_rise_packet, dtype=numpy.float32)
         fall_steps = numpy.linspace(1, 0, samples_per_fall_packet, dtype=numpy.float32)
@@ -7975,7 +7967,7 @@ class Audio():
         self.sidetone_rise_packet = rise_samples.tobytes()
         self.sidetone_fall_packet = fall_samples.tobytes()
 
-        self.seconds_per_sidetone_cycle = seconds_per_cycle
+        self.seconds_per_sidetone_full_amplitude_cycle = seconds_per_cycle
         self.seconds_per_sidetone_rise_packet = seconds_per_cycle * cycles_per_rise_packet
         self.seconds_per_sidetone_fall_packet = seconds_per_cycle * cycles_per_fall_packet
 
@@ -11936,10 +11928,10 @@ class Keyer():
             self.element_timestamp = time.perf_counter()
 
         # queue sidetone element to output device
-        rise_delay, rise_len = Audio.send_sidetone_rise_packet()
+        Audio.send_sidetone_rise_packet()
         element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
-        cycles_len = Audio.send_sidetone_cycle_packets(element_seconds)
-        fall_len = Audio.send_sidetone_fall_packet()
+        Audio.send_sidetone_full_amplitued_packets(element_seconds)
+        Audio.send_sidetone_fall_packet()
 
         if first_element:
             # The first element sent to the K4 is delayed so that each successive
@@ -11948,8 +11940,7 @@ class Keyer():
         Server.k4_server.send_str(f'KZ{elt};')
 
         # calculate the time at which the sidetone ends
-        element_end_delta = rise_delay + rise_len + cycles_len + fall_len
-        self.end_element_timestamp = self.element_timestamp + element_end_delta
+        self.end_element_timestamp = self.element_timestamp + element_seconds
 
         # calculate the time to send the next element
         self.element_timestamp += element_seconds + self.inter_element_seconds
