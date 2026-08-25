@@ -7096,8 +7096,8 @@ class Audio():
     milliseconds_per_packet = 40        # default
 
     sidetone_min_packet_time = .003     # minimum packet time sending with straight key
-    sidetone_rise_time = .005           # 5 ms rise time
-    sidetone_fall_time = .033           # 33 ms fall time
+    sidetone_rise_time = .006           # 6 ms rise time
+    sidetone_fall_time = .006           # 6 ms fall time
     sidetone_rise_packet_perceived_ratio = .5
     sidetone_fall_packet_perceived_ratio = .5
     sidetone_enabled = True
