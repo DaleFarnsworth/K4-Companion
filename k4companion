@@ -7428,7 +7428,7 @@ class Audio():
         self.keyer_output_queue.put(self.sidetone_fall_packet)
 
     @classmethod
-    def send_sidetone_full_amplitued_packets(cls, seconds):
+    def send_sidetone_full_amplitude_packets(cls, seconds):
         self = cls.singleton
         seconds += self.seconds_per_sidetone_rise_packet * self.sidetone_rise_packet_perceived_ratio
         seconds += self.seconds_per_sidetone_fall_packet * self.sidetone_fall_packet_perceived_ratio
@@ -11947,7 +11947,8 @@ class Keyer():
         # queue sidetone element to output device
         Audio.send_sidetone_rise_packet()
         element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
-        Audio.send_sidetone_full_amplitued_packets(element_seconds)
+        full_amplitude_seconds = element_seconds - Audio.sidetone_rise_time - Audio.sidetone_fall_time
+        Audio.send_sidetone_full_amplitude_packets(full_amplitude_seconds)
         Audio.send_sidetone_fall_packet()
 
         if first_element:
@@ -11964,7 +11965,8 @@ class Keyer():
         element_sleep = self.element_timestamp - time.perf_counter()
         if element_sleep > 0:
             time.sleep(element_sleep)
-        else:
+
+        if element_sleep < 0:
             Popup.warning(msg='Keyer error')
 
     def on_speed_change(self, response=None):
