@@ -7115,6 +7115,8 @@ class Audio():
     k4_sample_rate = 12000
     k4_frames_per_millisecond = k4_sample_rate // 1000
     k4_sample_rate_code = 0
+    min_input_sample_rate = k4_sample_rate
+    min_output_sample_rate = k4_sample_rate * 2
     max_input_sample_rate = 48000
     max_output_sample_rate = 48000
     encode_mode_raw32 = 0
@@ -7540,7 +7542,7 @@ class Audio():
 
             input_device_info = { 'default_sample_rate': int(default_sample_rate), 'input_channels': 0 }
 
-            begin_rate = Audio.k4_sample_rate
+            begin_rate = Audio.min_input_sample_rate
             end_rate = Audio.max_input_sample_rate + begin_rate
             step = begin_rate
             for input_sample_rate in range(begin_rate, end_rate, step):
@@ -7567,7 +7569,7 @@ class Audio():
 
             output_device_info = { 'default_sample_rate': int(default_sample_rate), 'output_channels': 0 }
 
-            begin_rate = Audio.k4_sample_rate
+            begin_rate = Audio.min_output_sample_rate
             end_rate = Audio.max_output_sample_rate + begin_rate
             step = begin_rate
             for output_sample_rate in range(begin_rate, end_rate, step):
