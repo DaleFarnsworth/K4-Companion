@@ -7706,8 +7706,8 @@ class Audio():
 #            if Server.k4_server.k4_parameter('TR') == 'T':
 #                log_packet('tx_output_left', left)
 #                print_packet('received monitor', stereo)
-            # send 1 ms at a time to permit timely sidetone generation
-            millisecond_len = len(stereo) // self.milliseconds_per_packet
+            # send 4 ms at a time to permit timely sidetone generation
+            millisecond_len = len(stereo) * 4 // self.milliseconds_per_packet
             for i in range(0, len(stereo), millisecond_len):
                 if self.k4_is_muted():
                     break
