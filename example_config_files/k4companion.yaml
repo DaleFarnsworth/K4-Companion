@@ -1352,8 +1352,8 @@
 - item: togglebutton
   label: Pan
   selections: #{
-    - { text: "Off", cmd: WPAN!0; } 
-    - { text: "On",  cmd: WPAN!1; } 
+    - { text: "Off", cmd: WPAN!0;, tooltip: "Enable the panadapter window" }
+    - { text: "On",  cmd: WPAN!1;, tooltip: "Disable the panadapter window" }
   #}
 #end
 
@@ -1361,8 +1361,8 @@
 - item: togglebutton
   label: Pan
   selections: #{
-    - { text: "Off", cmd: WPAN$!0; } 
-    - { text: "On",  cmd: WPAN$!1; } 
+    - { text: "Off", cmd: WPAN$!0;, tooltip: "Enable the panadapter window" }
+    - { text: "On",  cmd: WPAN$!1;, tooltip: "Disable the panadapter window" }
   #}
 #end
 
