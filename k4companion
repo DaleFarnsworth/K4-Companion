@@ -7138,9 +7138,10 @@ class Audio():
             self.server.output_audio_queue.put([])
             self.output_thread.join()
 
-        if self.output_device_thread != None:
-            self.output_device_queue.put([])
-            self.output_device_thread.join()
+        if self.output_stream != None:
+            self.output_stream.stop_stream()
+            self.output_stream.close()
+            self.output_stream = None
 
     @classmethod
     def set_input_device_name(cls, name):
@@ -7441,11 +7442,14 @@ class Audio():
         self.output_stream = None
         self.input_thread = None
         self.output_thread = None
-        self.output_device_thread = None
+        # Bytes pulled from output_device_queue that didn't fit in the
+        # previous output_stream_callback() call; carried over so each
+        # PortAudio-requested block gets exactly frame_count frames.
+        self.output_stream_leftover = b''
         # Deliberately shallow, to minimize audio delay when changing
         # frequency or going into transmit. Deepening this does not fix
         # panadapter-induced dropouts: during a main-thread stall
-        # output_device_loop cannot run to drain the queue either, so
+        # output_stream_callback cannot run to drain the queue either, so
         # only PortAudio's own buffer (frames_per_buffer) keeps playing.
         self.output_device_queue = queue.Queue(4)
         self.keyer_output_queue = queue.Queue()
@@ -7576,9 +7580,6 @@ class Audio():
         if self.output_device_index < 0:
             return
 
-        self.output_device_thread = threading.Thread(target=self.output_device_loop, name='audio_output_device_thread')
-        self.output_device_thread.start()
-
         self.straight_key_sidetone_thread = threading.Thread(target=self.straight_key_sidetone_loop, name='audio_straight_key_sidetone_thread')
         self.straight_key_sidetone_thread.start()
 
@@ -7628,6 +7629,7 @@ class Audio():
                 if self.output_stream != None:
                     self.output_stream.close()
                     self.output_stream = None
+                self.output_stream_leftover = b''
 
                 resample_ratio = int(cls.output_device_sample_rate() / cls.k4_sample_rate)
 
@@ -7640,6 +7642,7 @@ class Audio():
                                                 frames_per_buffer=2,
                                                 output=True,
                                                 output_device_index=self.output_device_index,
+                                                stream_callback=self.output_stream_callback,
                                                 )
                         warned = False
                         break
@@ -7785,13 +7788,21 @@ class Audio():
             if packet:
                 self.output_device_queue.put(packet)
 
-    def output_device_loop(self):
-        while True:
-            samples = self.output_device_queue.get()
-            if len(samples) == 0:
-                return
-            if self.output_stream:
-                self.output_stream.write(samples)
+    def output_stream_callback(self, in_data, frame_count, time_info, status):
+        # Called on PortAudio's own thread whenever it needs more frames;
+        # unlike the blocking-write loop this replaced, it must never
+        # block, so a queue underrun is padded with silence rather than
+        # waiting for output_device_queue to be refilled.
+        needed = frame_count * self.output_channels * pyaudio.get_sample_size(pyaudio.paFloat32)
+        data = self.output_stream_leftover
+        while len(data) < needed:
+            try:
+                chunk = self.output_device_queue.get_nowait()
+            except queue.Empty:
+                break
+            data += chunk
+        self.output_stream_leftover = data[needed:]
+        return (data[:needed].ljust(needed, b'\x00'), pyaudio.paContinue)
 
     def on_transmit_changed(self, server, response):
         transmit = server.k4_parameters.get('TR') == 'T'
