@@ -7975,8 +7975,6 @@ class Audio():
         self.sidetone_rise_packet = rise_samples.tobytes()
         self.sidetone_fall_packet = fall_samples.tobytes()
 
-        self.sidetone_space_cycle = numpy.zeros(samples_per_cycle * 2, dtype=numpy.float32).tobytes()
-
         self.seconds_per_sidetone_cycle = seconds_per_cycle
         self.seconds_per_sidetone_rise_packet = seconds_per_cycle * cycles_per_rise_packet
         self.seconds_per_sidetone_fall_packet = seconds_per_cycle * cycles_per_fall_packet
