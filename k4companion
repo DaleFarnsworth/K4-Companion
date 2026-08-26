@@ -7924,6 +7924,8 @@ class Audio():
 
     def generate_sidetone_packets(self):
         sample_rate = Audio.output_device_sample_rate()
+        if sample_rate is None:
+            return
         samples_per_cycle = round(sample_rate / self.cw_pitch)
         seconds_per_cycle = samples_per_cycle / sample_rate
         samples_per_rise_time = math.ceil(sample_rate * self.sidetone_rise_time)
