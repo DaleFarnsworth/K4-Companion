@@ -1419,9 +1419,6 @@ class Server():
                 rb = rb[end_offset:]
 
     def received_audio_packet(self, payload):
-        if Audio.k4_is_muted():
-            return
-
         Audio.output_packet_counter += 1
         while True:
             queued_count = self.output_audio_queue.qsize()
@@ -7367,44 +7364,11 @@ class Audio():
         self.sidetone_event.clear()
 
     @classmethod
-    def drain_audio_queues(cls):
-        self = cls.singleton
-
-        while True:
-            try:
-                 self.server.output_audio_queue.get_nowait()
-            except queue.Empty:
-                break
-        while True:
-            try:
-                self.server.recv_queue.get_nowait()
-            except queue.Empty:
-                break
-
-    @classmethod
     def mute_k4(cls):
-        if cls.k4_muted:
-            return
-
         cls.k4_muted = True
-        while True:
-            try:
-                self = cls.singleton
-                self.output_device_queue.get_nowait()
-            except queue.Empty:
-                break
-
-        # Wait for any K4 audio packets to drain
-        time.sleep(.0015)
 
     @classmethod
     def unmute_k4(cls):
-        self = cls.singleton
-        while True:
-            try:
-                 self.output_device_queue.get_nowait()
-            except queue.Empty:
-                break
         cls.k4_muted = False
 
     @classmethod
@@ -7643,9 +7607,6 @@ class Audio():
             cls.milliseconds_per_packet = frame_size // self.k4_frames_per_millisecond
             cls.output_packet_qlen = cls.receive_latency // cls.milliseconds_per_packet
 
-            if self.k4_is_muted():
-                continue
-
             if current_index != self.output_device_index:
                 current_index = self.output_device_index
                 encode_mode = packet[0]
@@ -7804,7 +7765,6 @@ class Audio():
                     Audio.unmute_k4()
                 self.sidetone_event.wait()
             if self.starting_sidetone:
-                Audio.drain_audio_queues()
                 Audio.mute_k4()
                 self.sidetone_output_queue.put(self.sidetone_rise_packet)
 #                log_packet('sidetone', self.sidetone_rise_packet)
