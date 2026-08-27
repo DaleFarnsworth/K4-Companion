@@ -7367,6 +7367,8 @@ class Audio():
                 self.output_device_queue.get_nowait()
             except queue.Empty:
                 break
+        # Wait for audio already sent to the driver to drain
+        time.sleep(.002)
 
     @classmethod
     def mute_k4(cls):
