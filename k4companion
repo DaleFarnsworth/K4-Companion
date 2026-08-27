@@ -7364,8 +7364,22 @@ class Audio():
         self.sidetone_event.clear()
 
     @classmethod
+    def drain_audio_output_queue(cls):
+        # Drain the audio output queue to minimize the delay 
+        self = cls.singleton
+        while True:
+            try:
+                self.output_device_queue.get_nowait()
+            except queue.Empty:
+                break
+
+    @classmethod
     def mute_k4(cls):
+        if cls.k4_muted:
+            return
+
         cls.k4_muted = True
+        cls.drain_audio_output_queue()
 
     @classmethod
     def unmute_k4(cls):
