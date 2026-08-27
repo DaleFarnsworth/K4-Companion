@@ -7721,10 +7721,10 @@ class Audio():
                     # application already has the device open
                     # exclusively, or it doesn't support this format/rate
                     # exclusively. Fall back to an ordinary shared-mode
-                    # stream rather than losing audio output entirely,
-                    # but let the user know they're not getting
-                    # exclusive mode's benefits.
-                    Popup.warning('Could not get exclusive audio mode for:\n  ' + self.output_device_name())
+                    # stream rather than losing audio output entirely.
+#                    # but let the user know they're not getting
+#                    # exclusive mode's benefits.
+#                    Popup.warning('Could not get exclusive audio mode for:\n  ' + self.output_device_name())
                     self.output_stream = try_open_output(None)
 
                 if self.output_stream != None:
