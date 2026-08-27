@@ -7685,7 +7685,7 @@ class Audio():
 
                 resample_ratio = int(cls.output_device_sample_rate() / cls.k4_sample_rate)
 
-                frames_per_buffer = 8
+                frames_per_buffer = 16
 
                 def try_open_output(extra_settings):
                     retries = 2
