@@ -7369,7 +7369,8 @@ class Audio():
             except queue.Empty:
                 break
         # Wait for audio already sent to the driver to drain
-        time.sleep(.002)
+        wait_time = 1.1 * cls.frames_per_output_buffer / cls.output_device_sample_rate()
+        time.sleep(wait_time)
 
     @classmethod
     def mute_k4(cls):
