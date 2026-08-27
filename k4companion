@@ -12026,10 +12026,6 @@ class Keyer():
         Audio.send_sidetone_full_amplitude_packets(full_amplitude_seconds)
         Audio.send_sidetone_fall_packet()
 
-        if first_element:
-            # The first element sent to the K4 is delayed so that each successive
-            # element will be queued at the K4 before the previous element finishes
-            time.sleep(.010)
         Server.k4_server.send_str(f'KZ{elt};')
 
         # calculate the time at which the sidetone ends
