@@ -7683,6 +7683,14 @@ class Audio():
                                     device=self.output_device_index,
                                     channels=cls.output_channels,
                                     dtype='float32',
+                                    # blocksize alone doesn't minimize
+                                    # buffering -- left unspecified, this
+                                    # defaults to 'high' (PortAudio's
+                                    # robust-but-slower preset), which can
+                                    # negotiate several times the actual
+                                    # stream latency 'low' gets on the
+                                    # same device.
+                                    latency='low',
                                     callback=self.output_stream_callback,
                                     extra_settings=extra_settings,
                                     )
@@ -7929,6 +7937,9 @@ class Audio():
                                     device=self.input_device_index,
                                     channels=Audio.input_channels,
                                     dtype='float32',
+                                    # See the matching comment on
+                                    # RawOutputStream in output_loop.
+                                    latency='low',
                                     extra_settings=extra_settings,
                                     )
                             stream.start()
