@@ -7468,25 +7468,14 @@ class Audio():
             os.close(fd)
 
     def wasapi_host_api_index(cls):
-        # WASAPI is Windows-only; no host API here has "WASAPI" in its
-        # name elsewhere, so devices stay enumerated under whatever's at
-        # index 0 there (e.g. ALSA on Linux).
+        # WASAPI is Windows' modern, low-latency host API; no host API
+        # here has "WASAPI" in its name elsewhere, so devices stay
+        # enumerated under whatever's at index 0 there (e.g. ALSA on
+        # Linux).
         for index, api in enumerate(cls.sd_query_hostapis()):
             if 'WASAPI' in api['name']:
                 return index
         return None
-
-    def wasapi_extra_settings(cls):
-        # Exclusive mode hands this process sole, direct access to the
-        # device's own hardware buffer, bypassing the Windows shared-mode
-        # audio engine's mixer, resampler, and format converter entirely.
-        # WasapiSettings is constructible cross-platform, but PortAudio
-        # itself rejects it (paIncompatibleHostApiSpecificStreamInfo)
-        # for any device that isn't actually on the WASAPI host API, so
-        # it's only meaningful -- and only attempted -- on Windows.
-        if sys.platform != 'win32':
-            return None
-        return sounddevice.WasapiSettings(exclusive=True)
 
     def __init__(self):
         self.input_stream = None
@@ -7539,12 +7528,10 @@ class Audio():
             mic_gain = '040'
         self.mic_gain = float(mic_gain) / 80.0
 
-        # Enumerate WASAPI's own devices specifically when available, so
-        # the indices this collects are the ones opened below can
-        # actually be opened in WASAPI exclusive mode -- device indices
-        # are per-host-API, not global, so staying on whatever's at
-        # index 0 would enumerate a different (e.g. MME) device list on
-        # Windows.
+        # Enumerate WASAPI's own devices specifically when available --
+        # device indices are per-host-API, not global, so staying on
+        # whatever's at index 0 would enumerate a different (e.g. MME)
+        # device list on Windows.
         host_api_index = self.wasapi_host_api_index()
         if host_api_index is None:
             host_api_index = 0
@@ -7692,7 +7679,7 @@ class Audio():
 
                 resample_ratio = int(cls.output_device_sample_rate() / cls.k4_sample_rate)
 
-                def try_open_output(extra_settings):
+                def try_open_output():
                     retries = 2
                     for retry in range(retries+1):
                         try:
@@ -7711,7 +7698,6 @@ class Audio():
                                     # same device.
                                     latency='low',
                                     callback=self.output_stream_callback,
-                                    extra_settings=extra_settings,
                                     )
                             stream.start()
                             return stream
@@ -7719,18 +7705,7 @@ class Audio():
                             continue
                     return None
 
-                wasapi_extra_settings = self.wasapi_extra_settings()
-                self.output_stream = try_open_output(wasapi_extra_settings)
-                if self.output_stream == None and wasapi_extra_settings != None:
-                    # Exclusive access wasn't granted -- e.g. another
-                    # application already has the device open
-                    # exclusively, or it doesn't support this format/rate
-                    # exclusively. Fall back to an ordinary shared-mode
-                    # stream rather than losing audio output entirely.
-#                    # but let the user know they're not getting
-#                    # exclusive mode's benefits.
-#                    Popup.warning('Could not get exclusive audio mode for:\n  ' + self.output_device_name())
-                    self.output_stream = try_open_output(None)
+                self.output_stream = try_open_output()
 
                 if self.output_stream != None:
                     warned = False
@@ -7946,7 +7921,7 @@ class Audio():
                     input_stream.close()
                     input_stream = None
 
-                def try_open_input(extra_settings):
+                def try_open_input():
                     retries = 2
                     for retry in range(retries+1):
                         try:
@@ -7959,7 +7934,6 @@ class Audio():
                                     # See the matching comment on
                                     # RawOutputStream in output_loop.
                                     latency='low',
-                                    extra_settings=extra_settings,
                                     )
                             stream.start()
                             return stream
@@ -7967,13 +7941,7 @@ class Audio():
                             continue
                     return None
 
-                wasapi_extra_settings = self.wasapi_extra_settings()
-                input_stream = try_open_input(wasapi_extra_settings)
-                if input_stream == None and wasapi_extra_settings != None:
-                    # Same exclusive-mode fallback as the output stream
-                    # -- see try_open_output's comment in output_loop.
-                    Popup.warning('Could not get exclusive audio mode for:\n  ' + self.input_device_name())
-                    input_stream = try_open_input(None)
+                input_stream = try_open_input()
 
                 if input_stream != None:
                     warned = False
