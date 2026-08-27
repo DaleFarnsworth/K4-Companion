@@ -12041,8 +12041,7 @@ class Keyer():
         element_sleep = self.element_timestamp - time.perf_counter()
         if element_sleep > 0:
             time.sleep(element_sleep)
-
-        if element_sleep < 0:
+        else:
             Popup.warning(msg='Keyer error')
 
     def on_speed_change(self, response=None):
