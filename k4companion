@@ -6356,7 +6356,7 @@ class Panadapter(QDialog):
 # buffering fixes that in-process: during the stall the audio threads
 # cannot run either, since they need the same GIL. A separate process
 # has its own GIL, so its repaints cannot touch the audio path at all,
-# and frames_per_buffer can stay at 2 for low transmit/tuning delay.
+# and frames_per_buffer can stay low for low transmit/tuning delay.
 #
 # The parent sends PAN/MINI-PAN payloads, the #SPN/#FPS/MD/BW/FA/FB
 # responses, and whether this window's mini-pan currently has real data
@@ -7118,6 +7118,7 @@ class Audio():
     min_output_sample_rate = k4_sample_rate * 2
     max_input_sample_rate = 48000
     max_output_sample_rate = 48000
+    frames_per_output_buffer = 0    # Set when the device is opened
     encode_mode_raw32 = 0
     encode_mode_raw16 = 1
     encode_mode_opus = 2
@@ -7613,6 +7614,9 @@ class Audio():
                              dtype='float32'):
                     dprint('Info:', device_info['name'], 'does not support multiple of K4 sample rate. supported rate:', default_sample_rate)
 
+            # Let the hardware buffer 3 ms of audio
+            self.__class__.frames_per_output_buffer = round(output_sample_rate * .003)
+
     def input_device_info_by_name(self, name):
         for index in self.input_device_infos:
             dev_info = self.input_device_infos[index]
@@ -7676,15 +7680,13 @@ class Audio():
 
                 resample_ratio = int(cls.output_device_sample_rate() / cls.k4_sample_rate)
 
-                frames_per_buffer = 16
-
                 def try_open_output(extra_settings):
                     retries = 2
                     for retry in range(retries+1):
                         try:
                             stream = sounddevice.RawOutputStream(
                                     samplerate=cls.output_device_sample_rate(),
-                                    blocksize=frames_per_buffer,
+                                    blocksize=self.frames_per_output_buffer,
                                     device=self.output_device_index,
                                     channels=cls.output_channels,
                                     dtype='float32',
