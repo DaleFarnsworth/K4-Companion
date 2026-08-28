@@ -11784,7 +11784,8 @@ class Keyer():
         self.dah_down_timestamp = 0
         self.dah_up_timestamp = 0
         self.element_timestamp = 0
-        self.end_element_timestamp = 0
+        self.end_sidetone_timestamp = 0
+        self.previous_element_stamp = 0
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -12001,7 +12002,7 @@ class Keyer():
             return
 
         if (self.auto_char_space or self.auto_word_space) and first_element:
-            time_since_last_char = time.perf_counter() - self.end_element_timestamp
+            time_since_last_char = time.perf_counter() - self.end_sidetone_timestamp
             aws_min_seconds = self.auto_word_space_dits * self.dit_seconds
             acs_min_seconds = self.auto_char_space_dits * self.dit_seconds
             acs_time_remaining = self.inter_character_seconds - time_since_last_char
@@ -12017,7 +12018,13 @@ class Keyer():
             if time_remaining > 0:
                 time.sleep(time_remaining)
 
+        pause_ms = None
         if first_element:
+            pause_ms = int(round(time.perf_counter() - self.previous_element_stamp - self.orig_dit_seconds, 3) * 1000)
+            # This doesn't match the spec as I understand it, but it works!
+            if pause_ms > 5000:
+                pause_ms = None
+            
             # Establish a baseline for timing later elements
             # to avoid cumulative errors
             self.element_timestamp = time.perf_counter()
@@ -12029,10 +12036,16 @@ class Keyer():
         Audio.send_sidetone_full_amplitude_packets(full_amplitude_seconds)
         Audio.send_sidetone_fall_packet()
 
-        Server.k4_server.send_str(f'KZ{elt};')
+        if pause_ms:
+            kz_str = f'KZP{pause_ms:04d}{elt};'
+        else:
+            kz_str = f'KZ{elt};'
+        Server.k4_server.send_str(kz_str)
 
         # calculate the time at which the sidetone ends
-        self.end_element_timestamp = self.element_timestamp + element_seconds
+        self.end_sidetone_timestamp = self.element_timestamp + element_seconds
+
+        self.previous_element_stamp = self.element_timestamp
 
         # calculate the time to send the next element
         self.element_timestamp += element_seconds + self.inter_element_seconds
@@ -12056,6 +12069,7 @@ class Keyer():
         self.inter_element_seconds = orig_dit_seconds * space_mult
         self.inter_character_seconds = orig_dit_seconds * 3
         self.inter_word_seconds = orig_dit_seconds * 7
+        self.orig_dit_seconds = orig_dit_seconds
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure
