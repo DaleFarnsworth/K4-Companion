@@ -5052,9 +5052,9 @@ class Panadapter(QDialog):
         self.waterfall_buf = None
         self.axis_key = None    # forces the axis setup in push_frame to
         self.xs = None          # run on the first frame
-        self.trace_history = [] # last up to 3 frames' bin data, averaged
-                                  # per bin for the trace display -- see
-                                  # _trace_average/push_frame
+        self.trace_history = [] # last up to self.avg_count frames' bin
+                                  # data, averaged per bin for the trace
+                                  # display -- see _trace_average/push_frame
 
         # "Ref" button: captures a 0.5-second average of the displayed
         # trace, then pins that average as the bottom of the trace's Y
@@ -5099,9 +5099,9 @@ class Panadapter(QDialog):
         # receiver's current mode.
         self.minipan_axis_key = None
         self.minipan_xs = None
-        self.minipan_history = [] # last up to 3 frames' bin data,
-                                  # averaged per bin for display -- same
-                                  # idea as trace_history/_trace_average
+        self.minipan_history = [] # last up to self.avg_count frames' bin
+                                  # data, averaged per bin for display --
+                                  # same idea as trace_history/_trace_average
         self.last_center_hz = None
 
         # Receiver bandwidth (BW;/BW$;), for shading the trace -- see
@@ -5268,12 +5268,32 @@ class Panadapter(QDialog):
         self._set_fps_combobox(Panadapter.frames_per_second)
         fps_grid.addWidget(self.fps_combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
+        # Avg -- a purely local display preference (no corresponding CAT
+        # command, unlike Scale/Span/FPS above), so it's per-window
+        # rather than shared, and persisted the same way as this
+        # window's geometry/splitter (see save_geometry). Controls how
+        # many frames _rolling_average smooths the trace/mini-pan over.
+        avg_frame, avg_grid = qt_group_box('Avg', qt_font('Helvetica', 9))
+        self.avg_combobox = QComboBox()
+        self.avg_combobox.addItems([str(v) for v in range(1, 11)])
+        self.avg_combobox.setFont(qt_font('Helvetica', 9))
+        self.avg_combobox.view().setFont(qt_font('Helvetica', 9))
+        self.avg_combobox.activated.connect(self.on_avg_selected)
+        self.avg_combobox.setStyleSheet(
+            'QComboBox { background-color: white; color: black; }'
+            'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
+        qt_tighten_combobox_popup(self.avg_combobox)
+        self.avg_count = Server.settings.getint('Window', f'Panadapter.{self.receiver}.avg_count', 3, minimum=1, maximum=10)
+        self.avg_combobox.setCurrentText(str(self.avg_count))
+        avg_grid.addWidget(self.avg_combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
         span_fps_row = QWidget()
         span_fps_row_layout = QHBoxLayout(span_fps_row)
         span_fps_row_layout.setContentsMargins(0, 0, 0, 0)
         span_fps_row_layout.addWidget(scale_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         span_fps_row_layout.addWidget(span_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         span_fps_row_layout.addWidget(fps_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        span_fps_row_layout.addWidget(avg_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         self.controls_frame = QWidget()
         controls_layout = QVBoxLayout(self.controls_frame)
@@ -5801,15 +5821,17 @@ class Panadapter(QDialog):
     def _minipan_average(self, data):
         return self._rolling_average(self.minipan_history, data)
 
-    @staticmethod
-    def _rolling_average(history, data):
-        # Rolling per-bin average over the last 3 frames received,
-        # oldest dropped as each new one arrives -- smooths the display
-        # over time rather than across neighboring bins. Fewer than 3
-        # frames collected yet (right after startup or an axis change)
-        # just averages however many there are so far.
+    def _rolling_average(self, history, data):
+        # Rolling per-bin average over the last self.avg_count frames
+        # received (see the "Avg" combobox), oldest dropped as each new
+        # one arrives -- smooths the display over time rather than
+        # across neighboring bins. Fewer than self.avg_count frames
+        # collected yet (right after startup, an axis change, or Avg
+        # being raised) just averages however many there are so far.
+        # Trims with a while (not if): lowering Avg needs to drop more
+        # than one stale frame at once, since each call only appends one.
         history.append(data)
-        if len(history) > 3:
+        while len(history) > self.avg_count:
             history.pop(0)
         return numpy.mean(history, axis=0)
 
@@ -5990,6 +6012,14 @@ class Panadapter(QDialog):
         text = str(round(fps))
         if self.fps_combobox.currentText() != text:
             self.fps_combobox.setCurrentText(text)
+
+    def on_avg_selected(self, index):
+        try:
+            avg_count = int(self.avg_combobox.itemText(index))
+        except ValueError:
+            return
+        self.avg_count = avg_count
+        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.avg_count', avg_count)
 
     def on_scale_selected(self, index):
         try:
