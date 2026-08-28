@@ -7172,6 +7172,11 @@ class Audio():
     sidetone_enabled = True
     sidetone_stopped_time = time.perf_counter() - 1
 
+    if platform == 'win32':
+        output_buffer_time = .010
+    else:
+        output_buffer_time = .003
+
     @classmethod
     def get_singleton(cls):
         if cls.singleton == None:
@@ -7404,7 +7409,7 @@ class Audio():
             except queue.Empty:
                 break
         # Wait for audio already sent to the driver to drain
-        wait_time = 1.1 * cls.frames_per_output_buffer / cls.output_device_sample_rate()
+        wait_time = self.output_buffer_time + .001
         time.sleep(wait_time)
 
     @classmethod
@@ -7640,8 +7645,10 @@ class Audio():
                              dtype='float32'):
                     dprint('Info:', device_info['name'], 'does not support multiple of K4 sample rate. supported rate:', default_sample_rate)
 
-            # Let the hardware buffer 3 ms of audio
-            self.__class__.frames_per_output_buffer = round(output_sample_rate * .003)
+            cls = self.__class__
+            cls.frames_per_output_buffer = round(output_sample_rate * cls.output_buffer_time)
+            cls.output_buffer_time = cls.frames_per_output_buffer / output_sample_rate
+
 
     def input_device_info_by_name(self, name):
         for index in self.input_device_infos:
