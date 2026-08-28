@@ -12020,7 +12020,7 @@ class Keyer():
 
         pause_ms = None
         if first_element:
-            pause_ms = int(round(time.perf_counter() - self.previous_element_stamp - self.orig_dit_seconds, 3) * 1000)
+            pause_ms = int(round(time.perf_counter() - self.previous_element_stamp - self.unweighted_dit_seconds, 3) * 1000)
             # This doesn't match the spec as I understand it, but it works!
             if pause_ms > 5000:
                 pause_ms = None
@@ -12061,15 +12061,15 @@ class Keyer():
         delta = (1 - self.weighting) / (1 + self.weighting)
         elt_mult = 1 - delta
         space_mult = 1 + delta
-        orig_dit_seconds = 1.2/wpm
-        orig_dah_seconds = orig_dit_seconds * 3
+        unweighted_dit_seconds = 1.2/wpm
+        unweighted_dah_seconds = unweighted_dit_seconds * 3
 
-        self.dit_seconds = orig_dit_seconds * elt_mult
-        self.dah_seconds = orig_dah_seconds * elt_mult
-        self.inter_element_seconds = orig_dit_seconds * space_mult
-        self.inter_character_seconds = orig_dit_seconds * 3
-        self.inter_word_seconds = orig_dit_seconds * 7
-        self.orig_dit_seconds = orig_dit_seconds
+        self.dit_seconds = unweighted_dit_seconds * elt_mult
+        self.dah_seconds = unweighted_dah_seconds * elt_mult
+        self.inter_element_seconds = unweighted_dit_seconds * space_mult
+        self.inter_character_seconds = unweighted_dit_seconds * 3
+        self.inter_word_seconds = unweighted_dit_seconds * 7
+        self.unweighted_dit_seconds = unweighted_dit_seconds
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure
