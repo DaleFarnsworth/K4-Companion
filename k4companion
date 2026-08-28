@@ -12029,6 +12029,8 @@ class Keyer():
         if first_element:
             pause_ms = int(round(time.perf_counter() - self.previous_element_stamp - self.unweighted_dit_seconds, 3) * 1000)
             # This doesn't match the spec as I understand it, but it works!
+            # From testing, I believe the worst case is actually 4500,
+            # (3.5 + maximum network jitter, but use 5000 to be safe.
             if pause_ms > 5000:
                 pause_ms = None
             
