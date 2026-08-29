@@ -7172,10 +7172,7 @@ class Audio():
     sidetone_enabled = True
     sidetone_stopped_time = time.perf_counter() - 1
 
-    if platform == 'win32':
-        output_buffer_time = .010
-    else:
-        output_buffer_time = .003
+    output_buffer_time = .010
 
     @classmethod
     def get_singleton(cls):
