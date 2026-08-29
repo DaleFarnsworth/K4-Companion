@@ -7170,7 +7170,6 @@ class Audio():
     sidetone_rise_packet_perceived_ratio = .5
     sidetone_fall_packet_perceived_ratio = .5
     sidetone_enabled = True
-    sidetone_stopped_time = time.perf_counter() - 1
 
     output_buffer_time = .010
 
@@ -7202,7 +7201,7 @@ class Audio():
 
         if self.sidetone_output_thread != None:
             self.enable_sidetone_output_loop = False
-            self.sidetone_output_queue.put(None)
+            self.keyer_output_queue.put(None)
             self.sidetone_output_thread.join()
 
         if self.output_thread != None:
@@ -7393,11 +7392,10 @@ class Audio():
 
         self = cls.singleton
         self.ending_sidetone = True
-        cls.sidetone_stopped_time = time.perf_counter()
         self.sidetone_event.clear()
 
     @classmethod
-    def drain_audio_output_queue(cls):
+    def drain_audio_output(cls, wait_for_output_buffer_to_drain=True):
         # Drain the audio output queue to minimize the delay 
         self = cls.singleton
         while True:
@@ -7405,6 +7403,16 @@ class Audio():
                 self.output_device_queue.get_nowait()
             except queue.Empty:
                 break
+        if wait_for_output_buffer_to_drain:
+            # Wait for audio already sent to the driver to drain
+            wait_time = self.output_buffer_time + .001
+            time.sleep(wait_time)
+
+    @classmethod
+    def wait_for_audio_output_to_drain(cls):
+        self = cls.singleton
+        while not self.output_device_queue.empty():
+            time.sleep(.001)
         # Wait for audio already sent to the driver to drain
         wait_time = self.output_buffer_time + .001
         time.sleep(wait_time)
@@ -7415,7 +7423,7 @@ class Audio():
             return
 
         cls.k4_muted = True
-        cls.drain_audio_output_queue()
+        cls.drain_audio_output()
 
     @classmethod
     def unmute_k4(cls):
@@ -7424,11 +7432,6 @@ class Audio():
     @classmethod
     def k4_is_muted(cls):
         if cls.k4_muted:
-            return True
-        if not Keyer.straight_keying:
-            return False
-        # if straight keying, mute for 100 ms, after sideton stops
-        if (time.perf_counter() - cls.sidetone_stopped_time) < .1:
             return True
         return False
 
@@ -7439,12 +7442,12 @@ class Audio():
     @classmethod
     def send_sidetone_rise_packet(cls):
         self = cls.singleton
-        self.sidetone_output_queue.put(self.sidetone_rise_packet)
+        self.keyer_output_queue.put(self.sidetone_rise_packet)
 
     @classmethod
     def send_sidetone_fall_packet(cls):
         self = cls.singleton
-        self.sidetone_output_queue.put(self.sidetone_fall_packet)
+        self.keyer_output_queue.put(self.sidetone_fall_packet)
 
     @classmethod
     def send_sidetone_full_amplitude_packets(cls, seconds):
@@ -7455,7 +7458,7 @@ class Audio():
         if Options.debug >= 1 and cycles < 1:
             dprint('element_lengthened')
         for i in range(cycles):
-            self.sidetone_output_queue.put(self.sidetone_full_amplitude_cycle_packet)
+            self.keyer_output_queue.put(self.sidetone_full_amplitude_cycle_packet)
 
     def sd_query_hostapis(cls, index=None):
         fd = os.dup(2)
@@ -7524,7 +7527,7 @@ class Audio():
         # output_stream_callback cannot run to drain the queue either, so
         # only PortAudio's own buffer (frames_per_buffer) keeps playing.
         self.output_device_queue = queue.Queue(8)
-        self.sidetone_output_queue = queue.Queue()
+        self.keyer_output_queue = queue.Queue()
         self.input_device_index = -1
         self.output_device_index = -1
         self.input_device_infos = {}
@@ -7857,29 +7860,23 @@ class Audio():
         while self.enable_straight_key_sidetone_loop:
             if not self.sidetone_event.is_set():
                 if self.ending_sidetone:
-                    self.sidetone_output_queue.put(self.sidetone_fall_packet)
-#                    log_packet('sidetone', self.sidetone_fall_packet)
-#                    print_packet('fall', self.sidetone_fall_packet)
-                    while not self.output_device_queue.empty():
-                        time.sleep(.01)
-                    self.ending_sidetone = False
+                    self.drain_audio_output(wait_for_output_buffer_to_drain=False)
+                    self.output_device_queue.put(self.sidetone_fall_packet)
+                    self.wait_for_audio_output_to_drain()
                     Audio.unmute_k4()
+                    self.ending_sidetone = False
                 self.sidetone_event.wait()
             if self.starting_sidetone:
                 Audio.mute_k4()
-                self.sidetone_output_queue.put(self.sidetone_rise_packet)
-#                log_packet('sidetone', self.sidetone_rise_packet)
-#                print_packet('rise', self.sidetone_rise_packet)
+                self.output_device_queue.put(self.sidetone_rise_packet)
                 self.starting_sidetone = False
             elif self.enable_straight_key_sidetone_loop:
                 elt_packet = self.sidetone_full_amplitude_cycle_packet * elt_cycles
-                self.sidetone_output_queue.put(elt_packet)
-#                log_packet('sidetone', elt_packet)
-#                print_packet('elt', elt_packet)
+                self.output_device_queue.put(elt_packet)
 
     def sidetone_output_loop(self):
         while self.enable_sidetone_output_loop:
-            packet = self.sidetone_output_queue.get()
+            packet = self.keyer_output_queue.get()
             if packet:
                 self.output_device_queue.put(packet)
 
