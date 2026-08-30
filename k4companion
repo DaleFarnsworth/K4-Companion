@@ -2171,6 +2171,10 @@ class ToggleWidget():
         self.button.clicked.connect(self.do_selection)
         frame.layout().addWidget(self.button, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
+        # Without this, Qt fails to generate hover/tooltip events for
+        # this button on Windows once connected to a K4
+        self.button.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+
         self.configure()
 
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
