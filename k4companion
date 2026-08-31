@@ -182,7 +182,7 @@ def qt_tight_groupbox_stylesheet(title, font):
     if '\n' in title:
         return ''
     title_height = QFontMetrics(font).height()
-    margin_top = max(2, title_height - 2)
+    margin_top = max(2, title_height)
     return (
         'QGroupBox { border: 1px solid palette(mid); border-radius: 3px; '
         f'margin-top: {margin_top}px; padding-top: 0px; }}'
