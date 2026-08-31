@@ -8731,10 +8731,18 @@ class AppSettings_widget(Widget):
             self._hide(self.keyer_settings_frame, self.keyer_enable_sidetone_frame)
         else:
             self._show(self.keyer_settings_frame, self.keyer_enable_sidetone_frame, 4, 0)
+            if Keyer.device_type_internal_keyer:
+                self.enable_keyer_controls_frame()
+            else:
+                self.disable_keyer_controls_frame()
         if Keyer.device_type_MoMIDI:
             self.enable_midi_device_frame()
             self.keyer_dit_paddle_note()
             self._show(self.keyer_settings_frame, self.midi_note_frame, 2, 0)
+            if Keyer.device_type_internal_keyer:
+                self.enable_keyer_controls_frame()
+            else:
+                self.disable_keyer_controls_frame()
         if Keyer.device_type_serial:
             self.enable_serial_device_frame()
             self.keyer_dit_paddle_signal()
@@ -8813,11 +8821,27 @@ class AppSettings_widget(Widget):
         self.keyer_midi_device_settings(frame)
         self.keyer_serial_device_settings(frame)
         self.keyer_mode_settings(frame)
+        self.keyer_controls_settings(grid)
 
         keyer_device_type_frame = self.keyer_device_type_settings(frame)
         grid.addWidget(keyer_device_type_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         return frame
+
+    def keyer_controls_settings(self, grid):
+        self.keyer_controls_frame = QWidget()
+        controls_grid = QGridLayout(self.keyer_controls_frame)
+        controls_grid.setContentsMargins(0, 0, 0, 0)
+        grid.addWidget(self.keyer_controls_frame, 5, 0,  Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        weighting_frame = self.weighting_setting()
+        controls_grid.addWidget(weighting_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        auto_char_space_frame = self.auto_char_space_setting()
+        controls_grid.addWidget(auto_char_space_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        auto_word_space_frame = self.auto_word_space_setting()
+        controls_grid.addWidget(auto_word_space_frame, 0, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
     def keyer_enable_sidetone_setting(self):
         setting = Server.settings.getbool('Audio', 'keyer_enable_sidetone', True)
@@ -8928,6 +8952,12 @@ class AppSettings_widget(Widget):
         self._hide(self.keyer_settings_frame, self.serial_signal_frame)
         self._hide(self.serial_signal_frame, self.keyer_dit_paddle_signal_frame)
         self._hide(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame)
+
+    def enable_keyer_controls_frame(self):
+        self._show(self.keyer_settings_frame, self.keyer_controls_frame, 5, 0)
+
+    def disable_keyer_controls_frame(self):
+        self._hide(self.keyer_settings_frame, self.keyer_controls_frame)
 
     def keyer_midi_device_settings(self, frame):
         self.keyer_settings_frame = frame
@@ -9260,6 +9290,121 @@ class AppSettings_widget(Widget):
     def delayed_set_dah_memory_delay_percent(self):
         if self.dah_memory_delay_percent_entry.text() == "":
             self.set_dah_memory_delay_percent_text(self.keyer_dah_memory_delay_percent())
+
+    def auto_char_space_setting(self):
+        setting = Server.settings.getbool('CW', 'auto_char_space', False)
+
+        control_frame, control_grid = qt_group_box('Auto Char Space', self.label_font())
+        options_frame, options_grid = qt_group_box('', self.label_font())
+        control_grid.addWidget(options_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+
+        acs_options = {
+            'initialindex': 0 if setting else 1,
+            'selections': [
+                {'text': 'On'},
+                {'text': 'Off'},
+            ],
+            'width': 3, 'font': self.font(),
+        }
+        self.acs_toggle = ToggleWidget(self, options_frame, acs_options)
+        self.acs_toggle.button.clicked.connect(self.on_auto_char_space_toggled)
+
+        acs_trigger_dits_frame = self.acs_trigger_dits_setting()
+        control_grid.addWidget(acs_trigger_dits_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        return control_frame
+
+    def on_auto_char_space_toggled(self):
+        setting = self.acs_toggle.selections[self.acs_toggle.index]['text'] == 'On'
+        Server.settings.put_save('CW', 'auto_char_space', setting)
+        Keyer.set_auto_char_space(setting)
+
+    def acs_trigger_dits_setting(self):
+        current_value = Server.settings.getfloat('CW', 'auto_char_space_dits', 2.5, 1.50, 3.0)
+        current_value = f'{current_value:.1f}'
+
+        values = ('1.5', '1.6', '1.7', '1.8', '1.9', '2.0', '2.1', '2.2', '2.3',
+                  '2.4', '2.5', '2.6', '2.7', '2.8', '2.9', '3.0')
+
+        auto_char_space_dits_frame, auto_char_space_dits_combobox = qt_labeled_readonly_combobox(
+            'Trigger Dits', self.label_font(), self.font(), values,
+            current_value, self.bg, self.fg, self.bg, self.fg,
+            self.on_auto_char_space_dits_combobox_changed, justify='right')
+
+        return auto_char_space_dits_frame
+
+    def on_auto_char_space_dits_combobox_changed(self, current_value):
+        if current_value == '':
+            return
+        Server.settings.put_save('CW', 'auto_char_space_dits', f'{float(current_value):.2f}')
+        Keyer.set_auto_char_space_dits(float(current_value))
+
+    def auto_word_space_setting(self):
+        setting = Server.settings.getbool('CW', 'auto_word_space', False)
+
+        control_frame, control_grid = qt_group_box('Auto Word Space', self.label_font())
+        options_frame, options_grid = qt_group_box('', self.label_font())
+        control_grid.addWidget(options_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+
+        aws_options = {
+            'initialindex': 0 if setting else 1,
+            'selections': [
+                {'text': 'On'},
+                {'text': 'Off'},
+            ],
+            'width': 3, 'font': self.font(),
+        }
+        self.aws_toggle = ToggleWidget(self, options_frame, aws_options)
+        self.aws_toggle.button.clicked.connect(self.on_auto_word_space_toggled)
+
+        aws_trigger_dits_frame = self.aws_trigger_dits_setting()
+        control_grid.addWidget(aws_trigger_dits_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        return control_frame
+
+    def on_auto_word_space_toggled(self):
+        setting = self.aws_toggle.selections[self.aws_toggle.index]['text'] == 'On'
+        Server.settings.put_save('CW', 'auto_word_space', setting)
+        Keyer.set_auto_word_space(setting)
+
+    def aws_trigger_dits_setting(self):
+        current_value = Server.settings.getfloat('CW', 'auto_word_space_dits', 6.0, 5.0, 7.0)
+        current_value = f'{current_value:.1f}'
+
+        values = ('5.0', '5.1', '5.2', '5.3','5.4', '5.5', '5.6', '5.7', '5.8', '5.9',
+                  '6.0', '6.1', '6.2', '6.3', '6.4', '6.6', '6.7', '6.8', '6.9', '7.0')
+
+        auto_word_space_dits_frame, auto_word_space_dits_combobox = qt_labeled_readonly_combobox(
+            'Trigger Dits', self.label_font(), self.font(), values,
+            current_value, self.bg, self.fg, self.bg, self.fg,
+            self.on_auto_word_space_dits_combobox_changed, justify='right')
+
+        return auto_word_space_dits_frame
+
+    def on_auto_word_space_dits_combobox_changed(self, current_value):
+        if current_value == '':
+            return
+        Server.settings.put_save('CW', 'auto_word_space_dits', f'{float(current_value):.2f}')
+        Keyer.set_auto_word_space_dits(float(current_value))
+
+    def weighting_setting(self):
+        current_value = Server.settings.getfloat('CW', 'weighting', 1.00, .90, 1.25)
+        current_value = f'{current_value:.2f}'
+
+        values = ('0.90', '0.95', '1.00', '1.05', '1.10', '1.15', '1.20', '1.25')
+
+        weighting_frame, weighting_combobox = qt_labeled_readonly_combobox(
+            'Weight', self.label_font(), self.font(), values,
+            current_value, self.bg, self.fg, self.bg, self.fg,
+            self.on_weighting_combobox_changed, justify='left')
+
+        return weighting_frame
+
+    def on_weighting_combobox_changed(self, current_value):
+        if current_value == '':
+            return
+        Server.settings.put_save('CW', 'weighting', f'{float(current_value):.2f}')
+        Keyer.set_weighting(float(current_value))
 
 class FWversions(Text):
     def __init__(self, config_info, container):
@@ -10098,22 +10243,10 @@ class CW(TextButtons):
         }
         self.key_down_delay = SliderWidget(self, key_down_delay_frame, key_down_delay_options)
 
-        controls_frame, controls_grid = qt_group_box('', self.label_font())
-        cw_grid.addWidget(controls_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        weighting_frame = self.weighting_setting()
-        controls_grid.addWidget(weighting_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        auto_char_space_frame = self.auto_char_space_setting()
-        controls_grid.addWidget(auto_char_space_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        auto_word_space_frame = self.auto_word_space_setting()
-        controls_grid.addWidget(auto_word_space_frame, 0, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
         decode_frame = QWidget()
         decode_grid = QGridLayout(decode_frame)
         decode_grid.setContentsMargins(0, 0, 0, 0)
-        cw_grid.addWidget(decode_frame, 3, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        cw_grid.addWidget(decode_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         main_decode_frame, main_decode_grid = qt_group_box('Main Decode', self.label_font())
         decode_grid.addWidget(main_decode_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -10204,121 +10337,6 @@ class CW(TextButtons):
             'width': 4, 'bg': self.bg, 'fg': self.fg, 'selectbg': self.bg, 'selectfg': self.fg, 'font': self.font(),
         }
         DropdownWidget(self, sub_threshold_frame, sub_threshold_options)
-
-    def auto_char_space_setting(self):
-        setting = Server.settings.getbool('CW', 'auto_char_space', False)
-
-        control_frame, control_grid = qt_group_box('Auto Char Space', self.label_font())
-        options_frame, options_grid = qt_group_box('', self.label_font())
-        control_grid.addWidget(options_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
-
-        acs_options = {
-            'initialindex': 0 if setting else 1,
-            'selections': [
-                {'text': 'On'},
-                {'text': 'Off'},
-            ],
-            'width': 3, 'font': self.font(),
-        }
-        self.acs_toggle = ToggleWidget(self, options_frame, acs_options)
-        self.acs_toggle.button.clicked.connect(self.on_auto_char_space_toggled)
-
-        acs_trigger_dits_frame = self.acs_trigger_dits_setting()
-        control_grid.addWidget(acs_trigger_dits_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        return control_frame
-
-    def on_auto_char_space_toggled(self):
-        setting = self.acs_toggle.selections[self.acs_toggle.index]['text'] == 'On'
-        Server.settings.put_save('CW', 'auto_char_space', setting)
-        Keyer.set_auto_char_space(setting)
-
-    def acs_trigger_dits_setting(self):
-        current_value = Server.settings.getfloat('CW', 'auto_char_space_dits', 2.5, 1.50, 3.0)
-        current_value = f'{current_value:.1f}'
-
-        values = ('1.5', '1.6', '1.7', '1.8', '1.9', '2.0', '2.1', '2.2', '2.3',
-                  '2.4', '2.5', '2.6', '2.7', '2.8', '2.9', '3.0')
-
-        auto_char_space_dits_frame, auto_char_space_dits_combobox = qt_labeled_readonly_combobox(
-            'Begin Dits', self.label_font(), self.font(), values,
-            current_value, self.bg, self.fg, self.bg, self.fg,
-            self.on_auto_char_space_dits_combobox_changed, justify='right')
-
-        return auto_char_space_dits_frame
-
-    def on_auto_char_space_dits_combobox_changed(self, current_value):
-        if current_value == '':
-            return
-        Server.settings.put_save('CW', 'auto_char_space_dits', f'{float(current_value):.2f}')
-        Keyer.set_auto_char_space_dits(float(current_value))
-
-    def auto_word_space_setting(self):
-        setting = Server.settings.getbool('CW', 'auto_word_space', False)
-
-        control_frame, control_grid = qt_group_box('Auto Word Space', self.label_font())
-        options_frame, options_grid = qt_group_box('', self.label_font())
-        control_grid.addWidget(options_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
-
-        aws_options = {
-            'initialindex': 0 if setting else 1,
-            'selections': [
-                {'text': 'On'},
-                {'text': 'Off'},
-            ],
-            'width': 3, 'font': self.font(),
-        }
-        self.aws_toggle = ToggleWidget(self, options_frame, aws_options)
-        self.aws_toggle.button.clicked.connect(self.on_auto_word_space_toggled)
-
-        aws_trigger_dits_frame = self.aws_trigger_dits_setting()
-        control_grid.addWidget(aws_trigger_dits_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        return control_frame
-
-    def on_auto_word_space_toggled(self):
-        setting = self.aws_toggle.selections[self.aws_toggle.index]['text'] == 'On'
-        Server.settings.put_save('CW', 'auto_word_space', setting)
-        Keyer.set_auto_word_space(setting)
-
-    def aws_trigger_dits_setting(self):
-        current_value = Server.settings.getfloat('CW', 'auto_word_space_dits', 6.0, 5.0, 7.0)
-        current_value = f'{current_value:.1f}'
-
-        values = ('5.0', '5.1', '5.2', '5.3','5.4', '5.5', '5.6', '5.7', '5.8', '5.9',
-                  '6.0', '6.1', '6.2', '6.3', '6.4', '6.6', '6.7', '6.8', '6.9', '7.0')
-
-        auto_word_space_dits_frame, auto_word_space_dits_combobox = qt_labeled_readonly_combobox(
-            'Begin Dits', self.label_font(), self.font(), values,
-            current_value, self.bg, self.fg, self.bg, self.fg,
-            self.on_auto_word_space_dits_combobox_changed, justify='right')
-
-        return auto_word_space_dits_frame
-
-    def on_auto_word_space_dits_combobox_changed(self, current_value):
-        if current_value == '':
-            return
-        Server.settings.put_save('CW', 'auto_word_space_dits', f'{float(current_value):.2f}')
-        Keyer.set_auto_word_space_dits(float(current_value))
-
-    def weighting_setting(self):
-        current_value = Server.settings.getfloat('CW', 'weighting', 1.00, .90, 1.25)
-        current_value = f'{current_value:.2f}'
-
-        values = ('0.90', '0.95', '1.00', '1.05', '1.10', '1.15', '1.20', '1.25')
-
-        weighting_frame, weighting_combobox = qt_labeled_readonly_combobox(
-            'Weight', self.label_font(), self.font(), values,
-            current_value, self.bg, self.fg, self.bg, self.fg,
-            self.on_weighting_combobox_changed, justify='right')
-
-        return weighting_frame
-
-    def on_weighting_combobox_changed(self, current_value):
-        if current_value == '':
-            return
-        Server.settings.put_save('CW', 'weighting', f'{float(current_value):.2f}')
-        Keyer.set_weighting(float(current_value))
 
     def add_config_tab(self):
         self.config_frame = QWidget()
@@ -11650,6 +11668,7 @@ class Keyer():
     device_type_MoMIDI = False
     device_type_serial = False
     device_type_vail_adapter = False
+    device_type_internal_keyer = False
     straight_keying = False
     keyer_mode = MODE_IAMBIC_B
     dit_paddle_notes = None
@@ -11753,19 +11772,23 @@ class Keyer():
                 cls.straight_keying = True
                 cls.device_type_MoMIDI = True
                 cls.device_type_serial = False
+                cls.device_type_internal_keyer = False
             else:
                 cls.device_type_vail_adapter = False
                 if 'Straight Key' in typ:
                     cls.device_type_straight_key = True
+                    cls.device_type_internal_keyer = False
                     cls.straight_keying = True
                 else:
-                    cls.straight_keying = False
+                    cls.device_type_internal_keyer = True
                     cls.device_type_straight_key = False
+                    cls.straight_keying = False
                 cls.device_type_MoMIDI = 'MoMIDI' in typ
                 cls.device_type_serial = 'Serial' in typ
             cls.set_message_callback()
         else:
             cls.device_type_straight_key = False
+            cls.device_type_internal_keyer = False
             cls.straight_keying = False
             cls.device_type_MoMIDI = False
             cls.device_type_serial = False
