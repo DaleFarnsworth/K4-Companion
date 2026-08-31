@@ -14061,7 +14061,7 @@ config_data = '''
   to: 0
   length: 150
   evalincrement: '1'
-  showvalue: False
+  showvalue: True
   evalcmd: '"MG{:03d};".format(int(round(value)))'
   evalresponse: 'int(value[2:5])'
 #end
@@ -14074,7 +14074,7 @@ config_data = '''
   to: 0
   length: 150
   evalincrement: '1'
-  showvalue: False
+  showvalue: True
   evalcmd: '"ML2{:03d};".format(int(round(value)))'
   evalresponse: 'float(value[3:6])'
 #end
@@ -14713,7 +14713,7 @@ config_data = '''
   to: 0
   length: 150
   evalincrement: '1'
-  showvalue: False
+  showvalue: True
   evalcmd: '"VGD{:03d};".format(int(round(value)))'
   evalresponse: 'float(value[3:6])'
 #end
@@ -14726,7 +14726,7 @@ config_data = '''
   to: 0
   length: 150
   evalincrement: '1'
-  showvalue: False
+  showvalue: True
   evalcmd: '"VI{:03d};".format(int(round(value)))'
   evalresponse: 'float(value[2:5])'
 #end
