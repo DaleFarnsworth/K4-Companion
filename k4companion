@@ -101,6 +101,9 @@ except:
 _qt_font_weights = {'normal': QFont.Weight.Normal, 'bold': QFont.Weight.Bold}
 
 def qt_font(family, size, weight='normal'):
+    if family == 'FixedFont':
+        family = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont).family()
+
     font = QFont(family, size)
     if isinstance(weight, str):
         weight = _qt_font_weights.get(weight, QFont.Weight.Normal)
@@ -184,7 +187,7 @@ def qt_tight_groupbox_stylesheet(title, font):
         'QGroupBox { border: 1px solid palette(mid); border-radius: 3px; '
         f'margin-top: {margin_top}px; padding-top: 0px; }}'
         'QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; '
-        'left: 4px; top: 0px; padding: 0 2px; }'
+        'left: 4px; top: 0px; padding: 2px 2px; }'
     )
 
 def qt_size_tight_groupbox_title(frame, title, font):
@@ -3345,12 +3348,6 @@ class DropdownWidget():
                 bg = self.bg
             selection['bg'] = bg
             self.selections.append(selection)
-        if sys.platform == 'win32':
-            width += 5 * QFontMetrics(font).averageCharWidth()
-        else:
-            width += 3 * QFontMetrics(font).averageCharWidth()
-            
-
 
         if height == 0:
             height = len(texts)
@@ -13302,7 +13299,7 @@ config_data = '''
   lengthpercent: 98
   thicknesspercent: 50
   cmd: SM1;
-  font: { family: TkFixedFont, size: 8, weight: normal }
+  font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ' '
   bottomtext: "S1 2 3 4 5 6 7 8 9  +10 +20 +30 +40 +50 +60"
   response: SM;
@@ -13317,9 +13314,9 @@ config_data = '''
   lengthpercent: 100
   thicknesspercent: 50
   cmd: TM1;PC;
-  font: { family: TkFixedFont, size: 8, weight: normal }
+  font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ''
-  evalbottomtext: "'' if self.len_k4param('PC') < 4 else '0      2      4      6      8     10      ' if self.k4param('PC')[3] == 'L' else '0     20     40     60     80    100      '"
+  evalbottomtext: "'' if self.len_k4param('PC') < 4 else '0    2    4    6    8   10    ' if self.k4param('PC')[3] == 'L' else '0   20   40   60   80  100    '"
   evalresponse: "0.0 if len(self.k4param('TM')) < 8 else float(self.k4param('TM')[6:9])/10 if self.k4param('PC')[3] == 'L' else self.k4param('TM')[6:9]"
 #end
 
@@ -13330,9 +13327,9 @@ config_data = '''
   lengthpercent: 93
   thicknesspercent: 50
   cmd: TM1;
-  font: { family: TkFixedFont, size: 8, weight: normal }
+  font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ''
-  bottomtext: "1    3    5    7"
+  bottomtext: " 1   3   5   7"
   evalresponse: "0.0 if len(self.k4param('TM')) < 2 else float(self.k4param('TM')[0:3])"
 #end
 
@@ -13344,9 +13341,9 @@ config_data = '''
   lengthpercent: 96
   thicknesspercent: 50
   cmd: TM1;
-  font: { family: TkFixedFont, size: 8, weight: normal }
+  font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ''
-  bottomtext: "0    10    20    30"
+  bottomtext: "0  10  20  30 "
   evalresponse: "0.0 if len(self.k4param('TM')) < 5 else float(self.k4param('TM')[3:6])"
 #end
 
@@ -13357,9 +13354,9 @@ config_data = '''
   lengthpercent: 100
   thicknesspercent: 50
   cmd: TM1;TQ;TU;
-  font: { family: TkFixedFont, size: 8, weight: normal }
+  font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ' '
-  bottomtext: "1:1          2:1          3:1       "
+  bottomtext: "1:1        2:1        3:1     "
   evalresponse: "0.0 if len(self.k4param('TM')) < 11 else float(self.k4param('TM')[9:12])-10"
 #end
 
@@ -13565,7 +13562,7 @@ config_data = '''
   lengthpercent: 98
   thicknesspercent: 50
   cmd: SM1;
-  font: { family: TkFixedFont, size: 8, weight: normal }
+  font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ' '
   bottomtext: "S1 2 3 4 5 6 7 8 9  +10 +20 +30 +40 +50 +60"
   response: SM$;
