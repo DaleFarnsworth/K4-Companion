@@ -3637,6 +3637,10 @@ class Equalizers(Widget):
 
         self.equalizer_frame, equalizer_grid = qt_group_box('', self.label_font())
         self.frame.layout().addWidget(self.equalizer_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        # qt_group_box() zeroes both spacings for its usual tight layout;
+        # add horizontal space back between the equalizer sliders (and
+        # their value/frequency labels above/below) specifically.
+        equalizer_grid.setHorizontalSpacing(12)
 
         column0_frame = QWidget()
         column0_grid = QGridLayout(column0_frame)
