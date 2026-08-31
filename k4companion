@@ -10387,7 +10387,7 @@ and everything after the & is sent.'''
         parent_frame.layout().addWidget(sidetone_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         sidetone_options = {
-            'orient': 'horizontal', 'from': 0, 'to': 60, 'length': 110,
+            'orient': 'horizontal', 'from': 0, 'to': 60, 'length': 100,
             'showvalue': False, 'evalincrement': '1',
             'evalcmd': '"ML0{:03d};".format(int(float(value)))', 'evalresponse': 'float(value[3:6])',
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
@@ -10398,7 +10398,7 @@ and everything after the & is sent.'''
         parent_frame.layout().addWidget(self.keyer_speed_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         keyer_speed_options = {
-            'orient': 'horizontal', 'from': 8, 'to': 100, 'length': 110,
+            'orient': 'horizontal', 'from': 8, 'to': 100, 'length': 100,
             'showvalue': False, 'evalincrement': '1',
             'evalcmd': '"KS{:03d};".format(int(float(value)))', 'evalresponse': 'float(value[2:5])',
             'bg': self.bg, 'fg': self.fg, 'font': self.font(),
