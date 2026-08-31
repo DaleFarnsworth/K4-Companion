@@ -9595,7 +9595,14 @@ class Antenna(Widget):
                 if not has_ATU and (i == 2 or i == 3) or mask[i] == '0':
                     values.pop(i)
 
+        self._set_dropdown_values(values)
+
+    def _set_dropdown_values(self, values):
         self.dropdown.values(values)
+        # 4px wider than Dropdown_Widget's own natural sizeHint, which
+        # is otherwise sized to just fit its widest current item.
+        combobox = self.dropdown.combobox
+        combobox.setMinimumWidth(combobox.sizeHint().width() + 8)
 
     def set_values_tx(self):
         has_ATU = 'A' in self.k4param('OM')
@@ -9609,7 +9616,7 @@ class Antenna(Widget):
         else:
             values = self.tx_short_names[1:2]
 
-        self.dropdown.values(values)
+        self._set_dropdown_values(values)
 
 class TextButtons(Widget):
     def __init__(self, config_info, container):
