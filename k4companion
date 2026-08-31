@@ -8594,11 +8594,11 @@ class AppSettings_widget(Widget):
         grid.addWidget(audio_input_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         audio_output_frame = self.audio_output_settings(frame)
         grid.addWidget(audio_output_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        audio_k4_control_frame = self.audio_k4_control_setting(frame)
+        audio_k4_control_frame = self.audio_k4_control_setting()
         grid.addWidget(audio_k4_control_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        audio_receive_latency_frame = self.audio_receive_latency_setting(frame)
+        audio_receive_latency_frame = self.audio_receive_latency_setting()
         grid.addWidget(audio_receive_latency_frame, 1, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        audio_remote_audio_latency_frame = self.audio_remote_audio_latency_setting(frame)
+        audio_remote_audio_latency_frame = self.audio_remote_audio_latency_setting()
         grid.addWidget(audio_remote_audio_latency_frame, 2, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         return frame
@@ -8645,7 +8645,7 @@ class AppSettings_widget(Widget):
         self.output_device_name(output_name)
         Audio.set_output_device_name(output_name)
 
-    def audio_k4_control_setting(self, frame):
+    def audio_k4_control_setting(self):
         setting = Server.settings.getbool('Audio', 'control_k4_audio_settings')
         if setting == None:
             setting = self.server.cat_only
@@ -8669,7 +8669,7 @@ class AppSettings_widget(Widget):
         Server.settings.put_save('Audio', 'control_k4_audio_settings', setting)
         self.server.set_control_k4_audio(setting)
 
-    def audio_receive_latency_setting(self, frame):
+    def audio_receive_latency_setting(self):
         current_value = Server.settings.getint('Audio', 'receive_latency', 0, minimum=0, maximum=1000)
         Audio.set_receive_latency(current_value)
 
@@ -8689,7 +8689,7 @@ class AppSettings_widget(Widget):
         Server.settings.put_save('Audio', 'receive_latency', current_value)
         Audio.set_receive_latency(int(current_value))
 
-    def audio_remote_audio_latency_setting(self, frame):
+    def audio_remote_audio_latency_setting(self):
         current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=1000)
 
         values = (0, 1, 2, 3, 4, 5, 6, 7)
@@ -8803,7 +8803,7 @@ class AppSettings_widget(Widget):
         self.keyer_dit_paddle_note_frame = self.keyer_dit_paddle_note_settings(note_frame)
         self.keyer_dah_paddle_note_frame = self.keyer_dah_paddle_note_settings(note_frame)
 
-        self.keyer_enable_sidetone_frame = self.keyer_enable_sidetone_setting(frame)
+        self.keyer_enable_sidetone_frame = self.keyer_enable_sidetone_setting()
         grid.addWidget(self.keyer_enable_sidetone_frame, 4, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         self.keyer_midi_device_settings(frame)
@@ -8815,7 +8815,7 @@ class AppSettings_widget(Widget):
 
         return frame
 
-    def keyer_enable_sidetone_setting(self, frame):
+    def keyer_enable_sidetone_setting(self):
         setting = Server.settings.getbool('Audio', 'keyer_enable_sidetone', True)
         Audio.enable_sidetone(setting)
 
@@ -10097,13 +10097,13 @@ class CW(TextButtons):
         controls_frame, controls_grid = qt_group_box('', self.label_font())
         cw_grid.addWidget(controls_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        weighting_frame = self.weighting_setting(controls_frame)
+        weighting_frame = self.weighting_setting()
         controls_grid.addWidget(weighting_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        auto_char_space_frame = self.auto_char_space_setting(controls_frame)
+        auto_char_space_frame = self.auto_char_space_setting()
         controls_grid.addWidget(auto_char_space_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        auto_word_space_frame = self.auto_word_space_setting(controls_frame)
+        auto_word_space_frame = self.auto_word_space_setting()
         controls_grid.addWidget(auto_word_space_frame, 0, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         decode_frame = QWidget()
@@ -10201,10 +10201,12 @@ class CW(TextButtons):
         }
         DropdownWidget(self, sub_threshold_frame, sub_threshold_options)
 
-    def auto_char_space_setting(self, frame):
+    def auto_char_space_setting(self):
         setting = Server.settings.getbool('CW', 'auto_char_space', False)
 
-        control_frame, control_grid = qt_group_box('Auto char space', self.label_font())
+        control_frame, control_grid = qt_group_box('Auto Char Space', self.label_font())
+        options_frame, options_grid = qt_group_box('', self.label_font())
+        control_grid.addWidget(options_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
 
         acs_options = {
             'initialindex': 0 if setting else 1,
@@ -10214,8 +10216,11 @@ class CW(TextButtons):
             ],
             'width': 3, 'font': self.font(),
         }
-        self.acs_toggle = ToggleWidget(self, control_frame, acs_options)
+        self.acs_toggle = ToggleWidget(self, options_frame, acs_options)
         self.acs_toggle.button.clicked.connect(self.on_auto_char_space_toggled)
+
+        acs_trigger_dits_frame = self.acs_trigger_dits_setting()
+        control_grid.addWidget(acs_trigger_dits_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         return control_frame
 
@@ -10224,10 +10229,32 @@ class CW(TextButtons):
         Server.settings.put_save('CW', 'auto_char_space', setting)
         Keyer.set_auto_char_space(setting)
 
-    def auto_word_space_setting(self, frame):
+    def acs_trigger_dits_setting(self):
+        current_value = Server.settings.getfloat('CW', 'auto_char_space_dits', 2.5, 1.50, 3.0)
+        current_value = f'{current_value:.1f}'
+
+        values = ('1.5', '1.6', '1.7', '1.8', '1.9', '2.0', '2.1', '2.2', '2.3',
+                  '2.4', '2.5', '2.6', '2.7', '2.8', '2.9', '3.0')
+
+        auto_char_space_dits_frame, auto_char_space_dits_combobox = qt_labeled_readonly_combobox(
+            'Begin Dits', self.label_font(), self.font(), values,
+            current_value, self.bg, self.fg, self.bg, self.fg,
+            self.on_auto_char_space_dits_combobox_changed, justify='right')
+
+        return auto_char_space_dits_frame
+
+    def on_auto_char_space_dits_combobox_changed(self, current_value):
+        if current_value == '':
+            return
+        Server.settings.put_save('CW', 'auto_char_space_dits', f'{float(current_value):.2f}')
+        Keyer.set_auto_char_space_dits(float(current_value))
+
+    def auto_word_space_setting(self):
         setting = Server.settings.getbool('CW', 'auto_word_space', False)
 
-        control_frame, control_grid = qt_group_box('Auto word space', self.label_font())
+        control_frame, control_grid = qt_group_box('Auto Word Space', self.label_font())
+        options_frame, options_grid = qt_group_box('', self.label_font())
+        control_grid.addWidget(options_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
 
         aws_options = {
             'initialindex': 0 if setting else 1,
@@ -10237,8 +10264,11 @@ class CW(TextButtons):
             ],
             'width': 3, 'font': self.font(),
         }
-        self.aws_toggle = ToggleWidget(self, control_frame, aws_options)
+        self.aws_toggle = ToggleWidget(self, options_frame, aws_options)
         self.aws_toggle.button.clicked.connect(self.on_auto_word_space_toggled)
+
+        aws_trigger_dits_frame = self.aws_trigger_dits_setting()
+        control_grid.addWidget(aws_trigger_dits_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         return control_frame
 
@@ -10247,14 +10277,34 @@ class CW(TextButtons):
         Server.settings.put_save('CW', 'auto_word_space', setting)
         Keyer.set_auto_word_space(setting)
 
-    def weighting_setting(self, frame):
+    def aws_trigger_dits_setting(self):
+        current_value = Server.settings.getfloat('CW', 'auto_word_space_dits', 6.0, 5.0, 7.0)
+        current_value = f'{current_value:.1f}'
+
+        values = ('5.0', '5.1', '5.2', '5.3','5.4', '5.5', '5.6', '5.7', '5.8', '5.9',
+                  '6.0', '6.1', '6.2', '6.3', '6.4', '6.6', '6.7', '6.8', '6.9', '7.0')
+
+        auto_word_space_dits_frame, auto_word_space_dits_combobox = qt_labeled_readonly_combobox(
+            'Begin Dits', self.label_font(), self.font(), values,
+            current_value, self.bg, self.fg, self.bg, self.fg,
+            self.on_auto_word_space_dits_combobox_changed, justify='right')
+
+        return auto_word_space_dits_frame
+
+    def on_auto_word_space_dits_combobox_changed(self, current_value):
+        if current_value == '':
+            return
+        Server.settings.put_save('CW', 'auto_word_space_dits', f'{float(current_value):.2f}')
+        Keyer.set_auto_word_space_dits(float(current_value))
+
+    def weighting_setting(self):
         current_value = Server.settings.getfloat('CW', 'weighting', 1.00, .90, 1.25)
         current_value = f'{current_value:.2f}'
 
         values = ('0.90', '0.95', '1.00', '1.05', '1.10', '1.15', '1.20', '1.25')
 
         weighting_frame, weighting_combobox = qt_labeled_readonly_combobox(
-            'Weighting', self.label_font(), self.font(), values,
+            'Weight', self.label_font(), self.font(), values,
             current_value, self.bg, self.fg, self.bg, self.fg,
             self.on_weighting_combobox_changed, justify='right')
 
@@ -11752,9 +11802,19 @@ class Keyer():
         self.auto_char_space = val
 
     @classmethod
+    def set_auto_char_space_dits(cls, val):
+        self = cls.singleton
+        self.auto_char_space_dits = val
+
+    @classmethod
     def set_auto_word_space(cls, val):
         self = cls.singleton
         self.auto_word_space = val
+
+    @classmethod
+    def set_auto_word_space_dits(cls, val):
+        self = cls.singleton
+        self.auto_word_space_dits = val
 
     @classmethod
     def set_weighting(cls, val):
@@ -11780,9 +11840,9 @@ class Keyer():
         self.dah_was_down = False
 
         self.auto_char_space = Server.settings.getbool('CW', 'auto_char_space', False)
+        self.auto_char_space_dits = Server.settings.getfloat('CW', 'auto_char_space_dits', 2.0)
         self.auto_word_space = Server.settings.getbool('CW', 'auto_word_space', False)
-        self.auto_char_space_dits = 2
-        self.auto_word_space_dits = 5
+        self.auto_word_space_dits = Server.settings.getfloat('CW', 'auto_word_space_dits', 5.5)
         self.weighting = 1
 
         # for straight_key handling
