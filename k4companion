@@ -2167,6 +2167,8 @@ class ToggleWidget():
             selection['hidden'] = true_values(sel_opt.get('hidden', False))
             self.selections.append(selection)
 
+        self.frame = frame
+
         self.button = QPushButton()
         self.button.setFont(font)
         if width:
@@ -2177,6 +2179,7 @@ class ToggleWidget():
         # Without this, Qt fails to generate hover/tooltip events for
         # this button on Windows once connected to a K4
         self.button.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        self.frame.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
 
         self.configure()
 
@@ -2192,6 +2195,7 @@ class ToggleWidget():
         selection = self.selections[self.index]
         self.button.setText(selection['text'])
         self.button.setToolTip(selection['tooltip'])
+        self.frame.setToolTip(selection['tooltip'])
         self.button.setStyleSheet(
             qt_button_stylesheet(selection['bg'], selection['fg'], selection['abg'], selection['afg']))
         if selection['blink']:
