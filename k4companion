@@ -3356,6 +3356,9 @@ class DropdownWidget():
         if height == 0:
             height = len(texts)
 
+        if sys.platform != 'linux':
+            width += 4 * QFontMetrics(font).averageCharWidth()
+
         self.defer_selections = False
         self.deferred_selection = False
 
@@ -9755,7 +9758,7 @@ class Antenna(Widget):
         # 4px wider than Dropdown_Widget's own natural sizeHint, which
         # is otherwise sized to just fit its widest current item.
         combobox = self.dropdown.combobox
-        combobox.setMinimumWidth(combobox.sizeHint().width() + 8)
+        combobox.setMinimumWidth(combobox.sizeHint().width() + 10)
 
     def set_values_tx(self):
         has_ATU = 'A' in self.k4param('OM')
