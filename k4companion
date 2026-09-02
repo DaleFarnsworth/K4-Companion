@@ -7430,6 +7430,10 @@ class Audio():
 
     @classmethod
     def unmute_k4(cls):
+        if not cls.k4_muted:
+            return
+
+        cls.drain_audio_output()
         cls.k4_muted = False
 
     @classmethod
