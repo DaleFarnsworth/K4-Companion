@@ -1422,19 +1422,8 @@ class Server():
                 rb = rb[end_offset:]
 
     def received_audio_packet(self, payload):
-        Audio.output_packet_counter += 1
-        while True:
-            queued_count = self.output_audio_queue.qsize()
-            queue_full = queued_count > Audio.output_packet_qlen + 1
-            if queue_full:
-                self.output_audio_queue.get_nowait()
-            else:
-                break
-
-        if queued_count == 0:
-            Audio.reset_output_packet_counter()
-
-        self.output_audio_queue.put(payload)
+        if self.output_audio_queue.qsize() < 2:
+            self.output_audio_queue.put(payload)
 
     def subscribe_response(self, cmd, callback, send=True):
         base = cmd_base(cmd)
@@ -7177,12 +7166,7 @@ class Audio():
     k4_muted = False
     server = None
 
-    output_packet_counter = 0
     output_packet_qlen = 0
-    output_dequeueing_packets = False
-
-    receive_latency = None
-    milliseconds_per_packet = 40        # default
 
     sidetone_min_packet_time = .003     # minimum packet time sending with straight key
     sidetone_rise_time = .008           # 8 ms rise time
@@ -7379,16 +7363,6 @@ class Audio():
         self = cls.get_singleton()
         if self.server and self.server.connected:
             self.server.send_str(f'SL{latency};')
-
-    @classmethod
-    def reset_output_packet_counter(cls):
-        cls.output_dequeueing_packets = False
-        cls.output_packet_counter = 1
-
-    @classmethod
-    def set_receive_latency(cls, latency):
-        cls.receive_latency = latency
-        cls.reset_output_packet_counter()
 
     @classmethod
     def start_sidetone(cls):
@@ -7706,18 +7680,11 @@ class Audio():
         warned = False
 
         while True:
-            if not cls.output_dequeueing_packets and cls.output_packet_counter < cls.output_packet_qlen:
-                time.sleep(.01)
-                continue
-
-            cls.output_dequeueing_packets = True
             packet = cls.server.output_audio_queue.get()
             if len(packet) == 0:
                 return
 
             frame_size = packet[2] << 8 | packet[1]
-            cls.milliseconds_per_packet = frame_size // self.k4_frames_per_millisecond
-            cls.output_packet_qlen = cls.receive_latency // cls.milliseconds_per_packet
 
             if current_index != self.output_device_index:
                 current_index = self.output_device_index
@@ -7926,10 +7893,6 @@ class Audio():
                 mode = server.k4_parameters.get('MD')
 
             if mode in ("1", "2", "4", "5"):        # LSB, USB, FM, AM
-                # Discard queued audio
-                while self.server.output_audio_queue.qsize() > 2:
-                    self.server.output_audio_queue.get_nowait()
-
                 if not self.transmit_audio:
                     self.transmit_audio = True
                     self.start_input_thread(server)
@@ -8602,10 +8565,8 @@ class AppSettings_widget(Widget):
         grid.addWidget(audio_output_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         audio_k4_control_frame = self.audio_k4_control_setting()
         grid.addWidget(audio_k4_control_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        audio_receive_latency_frame = self.audio_receive_latency_setting()
-        grid.addWidget(audio_receive_latency_frame, 1, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         audio_remote_audio_latency_frame = self.audio_remote_audio_latency_setting()
-        grid.addWidget(audio_remote_audio_latency_frame, 2, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        grid.addWidget(audio_remote_audio_latency_frame, 1, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         return frame
 
@@ -8674,26 +8635,6 @@ class AppSettings_widget(Widget):
 
         Server.settings.put_save('Audio', 'control_k4_audio_settings', setting)
         self.server.set_control_k4_audio(setting)
-
-    def audio_receive_latency_setting(self):
-        current_value = Server.settings.getint('Audio', 'receive_latency', 0, minimum=0, maximum=1000)
-        Audio.set_receive_latency(current_value)
-
-        values = (0, 50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800, 900, 1000)
-
-        receive_latency_frame, receive_latency_combobox = qt_labeled_readonly_combobox(
-            'Receive Latency (ms)', self.label_font(), self.font(), values,
-            current_value, self.bg, self.fg, self.selectbg, self.selectfg,
-            self.on_receive_latency_combobox_changed, justify='right')
-
-        return receive_latency_frame
-
-    def on_receive_latency_combobox_changed(self, current_value):
-        if current_value == '':
-            return
-
-        Server.settings.put_save('Audio', 'receive_latency', current_value)
-        Audio.set_receive_latency(int(current_value))
 
     def audio_remote_audio_latency_setting(self):
         current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=1000)
