@@ -1309,6 +1309,7 @@
 
 #define cw-window
 - item: cw
+  selectbg: pink
 #end
 
 #define macros-window
