@@ -7777,6 +7777,8 @@ class Audio():
                 current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
 
             pcm = opus.decode_float(bytes(packet[4:]), self.maximum_output_frame_size)
+            if self.k4_is_muted():
+                continue
 
             stereo = numpy.frombuffer(pcm, dtype=numpy.float32)
             a = stereo[0::2]                    # even samples are from the main receiver
@@ -7824,17 +7826,7 @@ class Audio():
             stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
             stereo[1::2] = right
-#            if Server.k4_server.k4_parameter('TR') == 'T':
-#                log_packet('tx_output_left', left)
-#                print_packet('received monitor', stereo)
-            # send 4 ms at a time to permit timely sidetone generation
-            millisecond_len = len(stereo) * 4 // self.milliseconds_per_packet
-            for i in range(0, len(stereo), millisecond_len):
-                if self.k4_is_muted():
-                    break
-                else:
-                    ms_samples = stereo[i:i+millisecond_len]
-                    self.output_device_queue.put(ms_samples.tobytes())
+            self.output_device_queue.put(stereo.tobytes())
 
     def averaged_left_right_volume(self):
             a = self.a_volume
