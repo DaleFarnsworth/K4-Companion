@@ -1564,9 +1564,17 @@ class Server():
         split = self.k4_parameter('FT') == '1'
         if split:
             base += '$'
-        mode_index = int(self.k4_parameter(base))
+        mode_index = self.k4_parameter(base)
+        if not mode_index or not mode_index.isdigit():
+            # The K4 hasn't reported a usable mode yet -- callers driven
+            # by a K4 response always have one, but one asking on its own
+            # schedule (KeyerWarning) can get here first, while the
+            # parameter is still missing or empty. An empty one is what a
+            # bare query stores: send_cmds() records cmd[len(base):] for
+            # anything that isn't set-only, and for 'MD;' that is ''.
+            return ''
         modes = ('', 'LSB', 'USB', 'CW', 'FM', 'AM', 'DATA', 'CW-R', '', 'DATA-R')
-        mode = modes[mode_index]
+        mode = modes[int(mode_index)]
         return mode
 
     def tx_cw(self):
@@ -11252,6 +11260,49 @@ and everything after the & is sent.'''
         if settings != previous_settings:
             Server.settings.save()
 
+class KeyerWarning():
+    # A missing or unopenable paddle/key device is only actionable while
+    # the operator is actually keying, so a warning raised in any other
+    # mode is held until CW is next entered rather than interrupting
+    # whatever they were doing at the time.
+    deferred = []
+    subscribed = False
+
+    @classmethod
+    def warning(cls, msg):
+        # These polls start running about a second after launch, so the
+        # usual case for a device that isn't there is that the K4 hasn't
+        # even been connected to yet, let alone reported its mode --
+        # tx_cw() answers False until it does. Subscribing covers both
+        # ways CW can be arrived at afterwards: the operator switching
+        # into it, and the mode simply showing up in the initial
+        # parameter dump because the K4 was already there.
+        if Server.k4_server.tx_cw():
+            Popup.warning(msg)
+            return
+
+        cls.deferred.append(msg)
+        if not cls.subscribed:
+            cls.subscribed = True
+            Server.k4_server.subscribe_tx_cw_changed(cls.on_tx_cw_changed)
+
+    @classmethod
+    def clear(cls):
+        # Whatever prompted a deferred warning has since gone away (the
+        # device turned up, or the port opened), so don't announce it on
+        # entering CW as though it were still broken.
+        cls.deferred = []
+
+    @classmethod
+    def on_tx_cw_changed(cls, response=None):
+        if not cls.deferred or not Server.k4_server.tx_cw():
+            return
+
+        deferred = cls.deferred
+        cls.deferred = []
+        for msg in deferred:
+            Popup.warning(msg)
+
 class MidiInput():
     singleton = None
     poll_interval = 1000        # check for new devices every 1 seconds
@@ -11345,10 +11396,11 @@ class MidiInput():
             cls.previous_port_serial_number = -1
             if not self.warned:
                 self.warned = True
-                Popup.warning("Midi device {name} not found".format(name=self.port_name))
+                KeyerWarning.warning("Midi device {name} not found".format(name=self.port_name))
 
         if port_index >= 0 and cls.port_serial_number != cls.previous_port_serial_number:
             self.warned = False
+            KeyerWarning.clear()
             self.midiin.close_port()
             self.midiin.open_port(port_index)
             cls.previous_port_serial_number = cls.port_serial_number
@@ -11392,7 +11444,7 @@ class VailAdapter():
                     if MidiInput.get_message():
                         break
                 return
-        Popup.warning(f'Vail Adapter {devname} not found')
+        KeyerWarning.warning(f'Vail Adapter {devname} not found')
         del cls.midiout
         cls.midiout = None
 
@@ -11544,10 +11596,11 @@ class SerialInput():
         except serial.SerialException:
             if not self.warned:
                 self.warned = True
-                Popup.warning("Serial device {name} open failed".format(name=self.port_name))
+                KeyerWarning.warning("Serial device {name} open failed".format(name=self.port_name))
                 return
 
         self.warned = False
+        KeyerWarning.clear()
         self.signal_thread = threading.Thread(target=self.signal_loop, name='serial_signal_thread')
         self.signal_thread.start()
 
@@ -11574,10 +11627,11 @@ class SerialInput():
             cls.previous_port_serial_number = -1
             if not self.warned:
                 self.warned = True
-                Popup.warning("Serial device {name} not found".format(name=self.port_name))
+                KeyerWarning.warning("Serial device {name} not found".format(name=self.port_name))
 
         if port_index >= 0 and cls.port_serial_number != cls.previous_port_serial_number:
             self.warned = False
+            KeyerWarning.clear()
             self.close_port()
             self.open_port(self.port_name)
             cls.previous_port_serial_number = cls.port_serial_number
