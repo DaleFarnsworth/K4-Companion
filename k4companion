@@ -8581,9 +8581,6 @@ class AppSettings_widget(Widget):
         frame = self.audio_settings()
         self.frame.layout().addWidget(frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        frame = self.keyer_settings()
-        self.frame.layout().addWidget(frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
     def input_device_name(self, name=None):
         if name != None:
             Settings.main().put_save('Client', 'audio_input_device_name', name)
@@ -8711,703 +8708,6 @@ class AppSettings_widget(Widget):
     def on_remote_audio_latency_combobox_changed(self, current_value):
         Server.settings.put_save('Audio', 'remote_audio_latency', current_value)
         Audio.set_remote_audio_latency(current_value)
-
-    def _show(self, parent, widget, row, col):
-        parent.layout().addWidget(widget, row, col, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        widget.show()
-
-    def _hide(self, parent, widget):
-        parent.layout().removeWidget(widget)
-        widget.hide()
-
-    def keyer_device_type(self, typ=None):
-        if typ != None:
-            Settings.main().put_save('Keyer', 'device_type', typ)
-        typ = Settings.main().get('Keyer', 'device_type', None)
-
-        Keyer.set_device_type(typ)
-        if typ == 'None':
-            typ = None
-        if not typ:
-            self.disable_midi_device_frame()
-            self.disable_serial_device_frame()
-            self._hide(self.keyer_settings_frame, self.keyer_enable_sidetone_frame)
-        else:
-            self._show(self.keyer_settings_frame, self.keyer_enable_sidetone_frame, 4, 0)
-            if Keyer.device_type_internal_keyer:
-                self.enable_keyer_controls_frame()
-            else:
-                self.disable_keyer_controls_frame()
-        if Keyer.device_type_MoMIDI:
-            self.enable_midi_device_frame()
-            self.keyer_dit_paddle_note()
-            self._show(self.keyer_settings_frame, self.midi_note_frame, 2, 0)
-            if Keyer.device_type_internal_keyer:
-                self.enable_keyer_controls_frame()
-            else:
-                self.disable_keyer_controls_frame()
-        if Keyer.device_type_serial:
-            self.enable_serial_device_frame()
-            self.keyer_dit_paddle_signal()
-
-        return typ
-
-    def keyer_dit_paddle_note(self, note=None):
-        if Keyer.device_type_vail_adapter:
-            Keyer.set_dit_paddle_notes([0, 1, 2])
-            return
-
-        setting_name = 'dit_paddle_midi_note'
-        if Keyer.device_type_straight_key:
-            setting_name = 'straight_key_midi_note'
-        if note != None:
-            Settings.main().put_save('Keyer', setting_name, note)
-        note = Settings.main().getint('Keyer', setting_name, 20)
-        self.dit_paddle_note_dropdown.value(note)
-        Keyer.set_dit_paddle_notes([note])
-
-    def keyer_dah_paddle_note(self, note=None):
-        if note != None:
-            Settings.main().put_save('Keyer', 'dah_paddle_note', note)
-        note = Settings.main().getint('Keyer', 'dah_paddle_note', 21)
-        self.dah_paddle_note_dropdown.value(note)
-        Keyer.set_dah_paddle_notes([note])
-
-    def keyer_dit_paddle_signal(self, signal=None):
-        setting_name = 'dit_paddle_serial_signal'
-        if Keyer.device_type_straight_key:
-            setting_name = 'straight_key_serial_signal'
-        if signal != None:
-            Settings.main().put_save('Keyer', setting_name, signal)
-        signal = Settings.main().get('Keyer', setting_name, 'DSR')
-        self.dit_paddle_signal_dropdown.value(signal)
-        Keyer.set_dit_paddle_signal(signal)
-        return signal
-
-    def keyer_dah_paddle_signal(self, signal=None):
-        if signal != None:
-            Settings.main().put_save('Keyer', 'dah_paddle_serial_signal', signal)
-        signal = Settings.main().get('Keyer', 'dah_paddle_serial_signal', 'DCD')
-        self.dah_paddle_signal_dropdown.value(signal)
-        Keyer.set_dah_paddle_signal(signal)
-        return signal
-
-    def keyer_dit_memory_delay_percent(self, percent=None):
-        if percent != None:
-            Settings.main().put_save('Keyer', 'dit_up_memory_delay_percent', percent)
-        percent = Settings.main().getint('Keyer', 'dit_up_memory_delay_percent', 33)
-        self.set_dit_memory_delay_percent_text(percent)
-        Keyer.set_dit_up_memory_delay_percent(percent)
-        return percent
-
-    def keyer_dah_memory_delay_percent(self, percent=None):
-        if percent != None:
-            Settings.main().put_save('Keyer', 'dah_up_memory_delay_percent', percent)
-        percent = Settings.main().getint('Keyer', 'dah_up_memory_delay_percent', 0)
-        self.set_dah_memory_delay_percent_text(percent)
-        Keyer.set_dah_up_memory_delay_percent(percent)
-        return percent
-
-    def keyer_settings(self):
-        frame, grid = qt_group_box('Keyer Settings', self.label_font())
-
-        note_frame = QWidget()
-        note_grid = QGridLayout(note_frame)
-        note_grid.setContentsMargins(0, 0, 0, 0)
-        grid.addWidget(note_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.keyer_dit_paddle_note_frame = self.keyer_dit_paddle_note_settings(note_frame)
-        self.keyer_dah_paddle_note_frame = self.keyer_dah_paddle_note_settings(note_frame)
-
-        self.keyer_enable_sidetone_frame = self.keyer_enable_sidetone_setting()
-        grid.addWidget(self.keyer_enable_sidetone_frame, 4, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        self.keyer_midi_device_settings(frame)
-        self.keyer_serial_device_settings(frame)
-        self.keyer_mode_settings(frame)
-        self.keyer_controls_settings(grid)
-
-        keyer_device_type_frame = self.keyer_device_type_settings(frame)
-        grid.addWidget(keyer_device_type_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        return frame
-
-    def keyer_controls_settings(self, grid):
-        self.keyer_controls_frame = QWidget()
-        controls_grid = QGridLayout(self.keyer_controls_frame)
-        controls_grid.setContentsMargins(0, 0, 0, 0)
-        grid.addWidget(self.keyer_controls_frame, 5, 0,  Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        weighting_frame = self.weighting_setting()
-        controls_grid.addWidget(weighting_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        auto_char_space_frame = self.auto_char_space_setting()
-        controls_grid.addWidget(auto_char_space_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        auto_word_space_frame = self.auto_word_space_setting()
-        controls_grid.addWidget(auto_word_space_frame, 0, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-    def keyer_enable_sidetone_setting(self):
-        setting = Server.settings.getbool('Audio', 'keyer_enable_sidetone', True)
-        Audio.enable_sidetone(setting)
-
-        current_value = 'Yes' if setting else 'No'
-
-        sidetone_frame, sidetone_combobox = qt_labeled_readonly_combobox(
-            'Generate Sidetone?', self.label_font(), self.font(), ('Yes', 'No'),
-            current_value, self.bg, self.fg, self.selectbg, self.selectfg,
-            self.on_enable_sidetone_combobox_changed)
-
-        return sidetone_frame
-
-    def on_enable_sidetone_combobox_changed(self, current_value):
-        if current_value == '':
-            return
-
-        setting = current_value == 'Yes'
-
-        Server.settings.put_save('Audio', 'keyer_enable_sidetone', setting)
-        Audio.enable_sidetone(setting)
-
-    def keyer_device_type_settings(self, frame):
-        keyer_device_type_frame, keyer_device_type_grid = qt_group_box('Device Type', self.label_font())
-        selectbg = self.bg
-        selectfg = self.fg
-        self.keyer_device_type_dropdown = Dropdown_Widget(keyer_device_type_frame, bd=2,
-            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
-            font=self.font(), justify='left')
-        self.keyer_device_type_dropdown.grid(row=0, column=0)
-
-        self.keyer_device_type_dropdown.select_callback(self.on_select_device_type)
-
-        device_types = (
-            'None',
-            'MoMIDI Straight Key',
-            'MoMIDI Paddles',
-            'Serial Straight Key',
-            'Serial Paddles',
-            'Vail Adapter',
-        )
-
-        self.keyer_device_type_dropdown.values(device_types)
-        device_type = self.keyer_device_type()
-        if not device_type:
-            device_type = 'None'
-        self.keyer_device_type_dropdown.value(device_type)
-        return keyer_device_type_frame
-
-    def on_select_device_type(self, event):
-        device_type = self.keyer_device_type_dropdown.value()
-        self.keyer_device_type(device_type)
-
-    def enable_midi_device_frame(self):
-        self.disable_serial_device_frame()
-
-        self._show(self.keyer_settings_frame, self.midi_device_frame, 1, 0)
-        self._show(self.keyer_settings_frame, self.midi_note_frame, 2, 0)
-        self._show(self.midi_note_frame, self.keyer_dit_paddle_note_frame, 0, 0)
-        if Keyer.device_type_straight_key:
-            self.dit_paddle_note_frame.setTitle('Straight Key Note')
-            self._hide(self.keyer_settings_frame, self.keyer_mode_frame)
-            self._hide(self.midi_note_frame, self.keyer_dah_paddle_note_frame)
-        elif Keyer.device_type_vail_adapter:
-            self._hide(self.midi_note_frame, self.keyer_dit_paddle_note_frame)
-            self.fill_keyer_modes()
-            self._show(self.keyer_settings_frame, self.keyer_mode_frame, 2, 0)
-            self._hide(self.midi_note_frame, self.keyer_dah_paddle_note_frame)
-        else:
-            self.dit_paddle_note_frame.setTitle('Dit Paddle Note')
-            self._show(self.midi_note_frame, self.keyer_dah_paddle_note_frame, 0, 1)
-            self.fill_keyer_modes()
-            self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
-        if not Keyer.device_type_vail_adapter and Keyer.keyer_mode == Keyer.MODE_IAMBIC_B:
-            self._show(self.keyer_mode_frame, self.keyer_dit_memory_delay_percent_frame, 0, 1)
-            self._show(self.keyer_mode_frame, self.keyer_dah_memory_delay_percent_frame, 0, 2)
-        else:
-            self._hide(self.keyer_mode_frame, self.keyer_dit_memory_delay_percent_frame)
-            self._hide(self.keyer_mode_frame, self.keyer_dah_memory_delay_percent_frame)
-
-    def disable_midi_device_frame(self):
-        self._hide(self.keyer_settings_frame, self.midi_device_frame)
-        self._hide(self.keyer_settings_frame, self.midi_note_frame)
-        self._hide(self.serial_signal_frame, self.keyer_dit_paddle_signal_frame)
-        self._hide(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame)
-        self._hide(self.keyer_settings_frame, self.keyer_mode_frame)
-        self._hide(self.keyer_mode_frame, self.keyer_dit_memory_delay_percent_frame)
-        self._hide(self.keyer_mode_frame, self.keyer_dah_memory_delay_percent_frame)
-
-    def enable_serial_device_frame(self):
-        self.disable_midi_device_frame()
-
-        self._show(self.keyer_settings_frame, self.serial_device_frame, 1, 0)
-        self._show(self.keyer_settings_frame, self.serial_signal_frame, 2, 0)
-        self._show(self.serial_signal_frame, self.keyer_dit_paddle_signal_frame, 0, 0)
-        if Keyer.device_type_straight_key:
-            self.dit_paddle_signal_frame.setTitle('Straight Key Signal')
-            self._hide(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame)
-        else:
-            self.dit_paddle_signal_frame.setTitle('Dit Paddle Signal')
-            self._show(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame, 0, 1)
-            self.fill_keyer_modes()
-            self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
-
-    def disable_serial_device_frame(self):
-        self._hide(self.keyer_settings_frame, self.serial_device_frame)
-        self._hide(self.keyer_settings_frame, self.serial_signal_frame)
-        self._hide(self.serial_signal_frame, self.keyer_dit_paddle_signal_frame)
-        self._hide(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame)
-
-    def enable_keyer_controls_frame(self):
-        self._show(self.keyer_settings_frame, self.keyer_controls_frame, 5, 0)
-
-    def disable_keyer_controls_frame(self):
-        self._hide(self.keyer_settings_frame, self.keyer_controls_frame)
-
-    def keyer_midi_device_settings(self, frame):
-        self.keyer_settings_frame = frame
-        self.midi_device_frame = QGroupBox('Device')
-        self.midi_device_frame.setFont(self.label_font())
-        QGridLayout(self.midi_device_frame)
-
-        self.midi_note_frame = QWidget()
-        note_grid = QGridLayout(self.midi_note_frame)
-        note_grid.setContentsMargins(0, 0, 0, 0)
-        self.keyer_dit_paddle_note_frame = self.keyer_dit_paddle_note_settings(self.midi_note_frame)
-        self.keyer_dah_paddle_note_frame = self.keyer_dah_paddle_note_settings(self.midi_note_frame)
-
-        MidiInput.set_port_updater(self.update_midi_ports)
-        self.update_midi_ports()
-        return self.midi_device_frame
-
-    def update_midi_ports(self):
-        selectbg = self.bg
-        selectfg = self.fg
-        self.midi_port_dropdown = Dropdown_Widget(self.midi_device_frame, bd=2,
-            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
-            font=self.font(), justify='left', height=20)
-        self.midi_port_dropdown.grid(row=0, column=0)
-
-        self.midi_port_dropdown.select_callback(self.on_select_midi_port)
-
-        MidiInput.open()
-        ports = MidiInput.available_ports()
-        selections = [ 'None' ]
-        if ports != None:
-            selections += ports
-
-        self.midi_port_dropdown.values(selections)
-        self.midi_port_dropdown.value(MidiInput.port_name)
-
-    def on_select_midi_port(self, event):
-        port_name = self.midi_port_dropdown.value()
-        MidiInput.set_port_name(port_name)
-
-    def keyer_dit_paddle_note_settings(self, frame):
-        text = 'Dit Paddle Note'
-        self.dit_paddle_note_frame = QGroupBox(text)
-        self.dit_paddle_note_frame.setFont(self.label_font())
-        QGridLayout(self.dit_paddle_note_frame)
-        self.update_dit_paddle_note()
-        return self.dit_paddle_note_frame
-
-    def update_dit_paddle_note(self):
-        selectbg = self.bg
-        selectfg = self.fg
-        self.dit_paddle_note_dropdown = Dropdown_Widget(self.dit_paddle_note_frame,
-            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
-            selectfg=selectfg, font=self.font(), justify='right', state='normal')
-        self.dit_paddle_note_dropdown.grid(row=0, column=0)
-
-        self.dit_paddle_note_dropdown.select_callback(self.on_select_dit_paddle_note)
-
-        selections = [ '20', '21', '30', '31', '96', '97', '98', '99' ]
-
-        self.dit_paddle_note_dropdown.values(selections)
-
-    def on_select_dit_paddle_note(self, event):
-        try:
-            note = int(self.dit_paddle_note_dropdown.value())
-            self.keyer_dit_paddle_note(note)
-        except:
-            self.keyer_dit_paddle_note()
-
-    def keyer_dah_paddle_note_settings(self, frame):
-        text = 'Dah Paddle Note'
-        self.dah_paddle_note_frame = QGroupBox(text)
-        self.dah_paddle_note_frame.setFont(self.label_font())
-        QGridLayout(self.dah_paddle_note_frame)
-        self.update_dah_paddle_note()
-        return self.dah_paddle_note_frame
-
-    def update_dah_paddle_note(self):
-        selectbg = self.bg
-        selectfg = self.fg
-        self.dah_paddle_note_dropdown = Dropdown_Widget(self.dah_paddle_note_frame,
-            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
-            selectfg=selectfg, font=self.font(), justify='right', state='normal')
-        self.dah_paddle_note_dropdown.grid(row=0, column=0)
-
-        self.dah_paddle_note_dropdown.select_callback(self.on_select_dah_paddle_note)
-
-        selections = [ '21', '20', '31', '30', '97', '96', '99', '98' ]
-
-        self.dah_paddle_note_dropdown.values(selections)
-        self.keyer_dah_paddle_note()
-
-    def on_select_dah_paddle_note(self, event):
-        try:
-            note = int(self.dah_paddle_note_dropdown.value())
-            self.keyer_dah_paddle_note(note)
-        except:
-            self.keyer_dah_paddle_note()
-
-    def keyer_serial_device_settings(self, frame):
-        self.keyer_settings_frame = frame
-        self.serial_device_frame = QGroupBox('Device')
-        self.serial_device_frame.setFont(self.label_font())
-        QGridLayout(self.serial_device_frame)
-
-        self.serial_signal_frame = QWidget()
-        signal_grid = QGridLayout(self.serial_signal_frame)
-        signal_grid.setContentsMargins(0, 0, 0, 0)
-        self.keyer_dit_paddle_signal_frame = self.keyer_dit_paddle_signal_settings(self.serial_signal_frame)
-        self.keyer_dah_paddle_signal_frame = self.keyer_dah_paddle_signal_settings(self.serial_signal_frame)
-
-        SerialInput.set_port_updater(self.update_serial_ports)
-        self.update_serial_ports()
-        return self.serial_device_frame
-
-    def update_serial_ports(self):
-        selectbg = self.bg
-        selectfg = self.fg
-        self.serial_port_dropdown = Dropdown_Widget(self.serial_device_frame, bd=2,
-            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
-            font=self.font(), justify='left', height=20)
-        self.serial_port_dropdown.grid(row=0, column=0)
-
-        self.serial_port_dropdown.select_callback(self.on_select_serial_port)
-
-        SerialInput.open()
-        ports = SerialInput.available_ports()
-        selections = [ 'None' ]
-        if ports != None:
-            selections += ports
-
-        self.serial_port_dropdown.values(selections)
-        self.serial_port_dropdown.value(SerialInput.port_name)
-
-    def on_select_serial_port(self, event):
-        port_name = self.serial_port_dropdown.value()
-        SerialInput.set_port_name(port_name)
-
-    def keyer_dit_paddle_signal_settings(self, frame):
-        self.dit_paddle_signal_frame = QGroupBox('Dit Paddle Signal')
-        self.dit_paddle_signal_frame.setFont(self.label_font())
-        QGridLayout(self.dit_paddle_signal_frame)
-        self.update_dit_paddle_signal()
-        return self.dit_paddle_signal_frame
-
-    def update_dit_paddle_signal(self):
-        selectbg = self.bg
-        selectfg = self.fg
-        self.dit_paddle_signal_dropdown = Dropdown_Widget(self.dit_paddle_signal_frame,
-            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
-            selectfg=selectfg, font=self.font(), justify='right', state='normal')
-        self.dit_paddle_signal_dropdown.grid(row=0, column=0)
-
-        self.dit_paddle_signal_dropdown.select_callback(self.on_select_dit_paddle_signal)
-
-        selections = [ 'DSR', 'DCD', 'CTS', 'RI' ]
-
-        self.dit_paddle_signal_dropdown.values(selections)
-
-    def on_select_dit_paddle_signal(self, event):
-        try:
-            signal = self.dit_paddle_signal_dropdown.value()
-            self.keyer_dit_paddle_signal(signal)
-        except:
-            self.keyer_dit_paddle_signal()
-
-    def keyer_dah_paddle_signal_settings(self, frame):
-        text = 'Dah Paddle Signal'
-        self.dah_paddle_signal_frame = QGroupBox(text)
-        self.dah_paddle_signal_frame.setFont(self.label_font())
-        QGridLayout(self.dah_paddle_signal_frame)
-        self.update_dah_paddle_signal()
-        return self.dah_paddle_signal_frame
-
-    def update_dah_paddle_signal(self):
-        selectbg = self.bg
-        selectfg = self.fg
-        self.dah_paddle_signal_dropdown = Dropdown_Widget(self.dah_paddle_signal_frame,
-            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
-            selectfg=selectfg, font=self.font(), justify='right', state='normal')
-        self.dah_paddle_signal_dropdown.grid(row=0, column=0)
-
-        self.dah_paddle_signal_dropdown.select_callback(self.on_select_dah_paddle_signal)
-
-        selections = [ 'DCD', 'DSR', 'CTS', 'RI' ]
-
-        self.dah_paddle_signal_dropdown.values(selections)
-        self.keyer_dah_paddle_signal()
-
-    def on_select_dah_paddle_signal(self, event):
-        try:
-            signal = self.dah_paddle_signal_dropdown.value()
-            self.keyer_dah_paddle_signal(signal)
-        except:
-            self.keyer_dah_paddle_signal()
-
-    def keyer_mode_settings(self, frame):
-        self.keyer_mode_frame = QWidget()
-        mode_grid = QGridLayout(self.keyer_mode_frame)
-        mode_grid.setContentsMargins(0, 0, 0, 0)
-        frame, mode_box_grid = qt_group_box('Mode', self.label_font())
-        mode_grid.addWidget(frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        selectbg = self.bg
-        selectfg = self.fg
-        self.keyer_mode_dropdown = Dropdown_Widget(frame, bd=2,
-            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
-            font=self.font(), justify='left')
-        self.keyer_mode_dropdown.grid(row=0, column=0)
-
-        self.keyer_mode_dropdown.select_callback(self.on_select_keyer_mode)
-
-        self.fill_keyer_modes()
-
-        keyer_mode = Keyer.get_keyer_mode()
-        self.keyer_mode_dropdown.value(keyer_mode)
-        self.keyer_dit_memory_delay_percent_settings(self.keyer_mode_frame)
-        self.keyer_dah_memory_delay_percent_settings(self.keyer_mode_frame)
-        return self.keyer_mode_frame
-
-    def fill_keyer_modes(self):
-        if Keyer.device_type_vail_adapter:
-            keyer_modes = VailAdapter.keyer_modes
-        else:
-            keyer_modes = (
-                Keyer.MODE_IAMBIC,
-                Keyer.MODE_IAMBIC_A,
-                Keyer.MODE_IAMBIC_B,
-                Keyer.MODE_ULTIMATIC,
-            )
-
-        self.keyer_mode_dropdown.values(keyer_modes)
-
-    def on_select_keyer_mode(self, event):
-        keyer_mode = self.keyer_mode_dropdown.value()
-        Keyer.set_keyer_mode(keyer_mode)
-        self.enable_midi_device_frame()
-
-    def keyer_dit_memory_delay_percent_settings(self, frame):
-        text = 'Dit Mem %'
-        self.keyer_dit_memory_delay_percent_frame = QGroupBox(text)
-        self.keyer_dit_memory_delay_percent_frame.setFont(self.label_font())
-        QGridLayout(self.keyer_dit_memory_delay_percent_frame)
-        self.update_keyer_dit_memory_delay_percent()
-        return self.keyer_dit_memory_delay_percent_frame
-
-    def update_keyer_dit_memory_delay_percent(self):
-        self.keyer_dit_memory_delay_percent()
-
-        self.dit_memory_delay_percent_entry = QLineEdit(str(self.keyer_dit_memory_delay_percent()))
-        self.dit_memory_delay_percent_entry.setFont(self.font())
-        self.dit_memory_delay_percent_entry.setAlignment(qt_justify('right'))
-        self.dit_memory_delay_percent_entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
-        self.dit_memory_delay_percent_entry.setFixedWidth(4 * QFontMetrics(self.font()).averageCharWidth() + 12)
-        self.keyer_dit_memory_delay_percent_frame.layout().addWidget(self.dit_memory_delay_percent_entry, 0, 0)
-        # textChanged (not editingFinished) so an emptied field is
-        # detected live, matching tk's per-keystroke StringVar trace.
-        self.dit_memory_delay_percent_entry.textChanged.connect(self.on_dit_memory_delay_percent_changed)
-        self.keyer_dit_memory_delay_percent()
-
-    def on_dit_memory_delay_percent_changed(self, text):
-        try:
-            if text == "":
-                Poll.call(5000, self.delayed_set_dit_memory_delay_percent)
-                return
-            percent = int(text)
-            if percent >= 0 and percent <= 100:
-                self.keyer_dit_memory_delay_percent(percent)
-            else:
-                self.set_dit_memory_delay_percent_text(self.keyer_dit_memory_delay_percent())
-        except ValueError:
-            self.set_dit_memory_delay_percent_text(self.keyer_dit_memory_delay_percent())
-
-    def set_dit_memory_delay_percent_text(self, value):
-        # A no-op before the entry widget exists: keyer_dit_memory_delay_percent()
-        # is called once (to apply the persisted setting) before
-        # update_keyer_dit_memory_delay_percent() creates dit_memory_delay_percent_entry.
-        entry = getattr(self, 'dit_memory_delay_percent_entry', None)
-        if entry == None:
-            return
-        entry.blockSignals(True)
-        entry.setText(str(value))
-        entry.blockSignals(False)
-
-    def delayed_set_dit_memory_delay_percent(self):
-        if self.dit_memory_delay_percent_entry.text() == "":
-            self.set_dit_memory_delay_percent_text(self.keyer_dit_memory_delay_percent())
-
-    def keyer_dah_memory_delay_percent_settings(self, frame):
-        text = 'Dah Mem %'
-        self.keyer_dah_memory_delay_percent_frame = QGroupBox(text)
-        self.keyer_dah_memory_delay_percent_frame.setFont(self.label_font())
-        QGridLayout(self.keyer_dah_memory_delay_percent_frame)
-        self.update_keyer_dah_memory_delay_percent()
-        return self.keyer_dah_memory_delay_percent_frame
-
-    def update_keyer_dah_memory_delay_percent(self):
-        self.keyer_dah_memory_delay_percent()
-
-        self.dah_memory_delay_percent_entry = QLineEdit(str(self.keyer_dah_memory_delay_percent()))
-        self.dah_memory_delay_percent_entry.setFont(self.font())
-        self.dah_memory_delay_percent_entry.setAlignment(qt_justify('right'))
-        self.dah_memory_delay_percent_entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
-        self.dah_memory_delay_percent_entry.setFixedWidth(4 * QFontMetrics(self.font()).averageCharWidth() + 12)
-        self.keyer_dah_memory_delay_percent_frame.layout().addWidget(self.dah_memory_delay_percent_entry, 0, 0)
-        self.dah_memory_delay_percent_entry.textChanged.connect(self.on_dah_memory_delay_percent_changed)
-        self.keyer_dah_memory_delay_percent()
-
-    def on_dah_memory_delay_percent_changed(self, text):
-        try:
-            if text == "":
-                Poll.call(5000, self.delayed_set_dah_memory_delay_percent)
-                return
-            percent = int(text)
-            if percent >= 0 and percent <= 100:
-                self.keyer_dah_memory_delay_percent(percent)
-            else:
-                self.set_dah_memory_delay_percent_text(self.keyer_dah_memory_delay_percent())
-        except ValueError:
-            self.set_dah_memory_delay_percent_text(self.keyer_dah_memory_delay_percent())
-
-    def set_dah_memory_delay_percent_text(self, value):
-        entry = getattr(self, 'dah_memory_delay_percent_entry', None)
-        if entry == None:
-            return
-        entry.blockSignals(True)
-        entry.setText(str(value))
-        entry.blockSignals(False)
-
-    def delayed_set_dah_memory_delay_percent(self):
-        if self.dah_memory_delay_percent_entry.text() == "":
-            self.set_dah_memory_delay_percent_text(self.keyer_dah_memory_delay_percent())
-
-    def auto_char_space_setting(self):
-        setting = Server.settings.getbool('CW', 'auto_char_space', False)
-
-        control_frame, control_grid = qt_group_box('Auto Char Space', self.label_font())
-        options_frame, options_grid = qt_group_box('', self.label_font())
-        control_grid.addWidget(options_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
-
-        acs_options = {
-            'initialindex': 0 if setting else 1,
-            'selections': [
-                {'text': 'On'},
-                {'text': 'Off'},
-            ],
-            'width': 3, 'font': self.font(),
-        }
-        self.acs_toggle = ToggleWidget(self, options_frame, acs_options)
-        self.acs_toggle.button.clicked.connect(self.on_auto_char_space_toggled)
-
-        acs_trigger_dits_frame = self.acs_trigger_dits_setting()
-        control_grid.addWidget(acs_trigger_dits_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        return control_frame
-
-    def on_auto_char_space_toggled(self):
-        setting = self.acs_toggle.selections[self.acs_toggle.index]['text'] == 'On'
-        Server.settings.put_save('CW', 'auto_char_space', setting)
-        Keyer.set_auto_char_space(setting)
-
-    def acs_trigger_dits_setting(self):
-        current_value = Server.settings.getfloat('CW', 'auto_char_space_dits', 2.5, 1.50, 3.0)
-        current_value = f'{current_value:.1f}'
-
-        values = ('1.5', '1.6', '1.7', '1.8', '1.9', '2.0', '2.1', '2.2', '2.3',
-                  '2.4', '2.5', '2.6', '2.7', '2.8', '2.9', '3.0')
-
-        auto_char_space_dits_frame, auto_char_space_dits_combobox = qt_labeled_readonly_combobox(
-            'Trigger Dits', self.label_font(), self.font(), values,
-            current_value, self.bg, self.fg, self.bg, self.fg,
-            self.on_auto_char_space_dits_combobox_changed, justify='right')
-
-        return auto_char_space_dits_frame
-
-    def on_auto_char_space_dits_combobox_changed(self, current_value):
-        if current_value == '':
-            return
-        Server.settings.put_save('CW', 'auto_char_space_dits', f'{float(current_value):.2f}')
-        Keyer.set_auto_char_space_dits(float(current_value))
-
-    def auto_word_space_setting(self):
-        setting = Server.settings.getbool('CW', 'auto_word_space', False)
-
-        control_frame, control_grid = qt_group_box('Auto Word Space', self.label_font())
-        options_frame, options_grid = qt_group_box('', self.label_font())
-        control_grid.addWidget(options_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
-
-        aws_options = {
-            'initialindex': 0 if setting else 1,
-            'selections': [
-                {'text': 'On'},
-                {'text': 'Off'},
-            ],
-            'width': 3, 'font': self.font(),
-        }
-        self.aws_toggle = ToggleWidget(self, options_frame, aws_options)
-        self.aws_toggle.button.clicked.connect(self.on_auto_word_space_toggled)
-
-        aws_trigger_dits_frame = self.aws_trigger_dits_setting()
-        control_grid.addWidget(aws_trigger_dits_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        return control_frame
-
-    def on_auto_word_space_toggled(self):
-        setting = self.aws_toggle.selections[self.aws_toggle.index]['text'] == 'On'
-        Server.settings.put_save('CW', 'auto_word_space', setting)
-        Keyer.set_auto_word_space(setting)
-
-    def aws_trigger_dits_setting(self):
-        current_value = Server.settings.getfloat('CW', 'auto_word_space_dits', 6.0, 5.0, 7.0)
-        current_value = f'{current_value:.1f}'
-
-        values = ('5.0', '5.1', '5.2', '5.3','5.4', '5.5', '5.6', '5.7', '5.8', '5.9',
-                  '6.0', '6.1', '6.2', '6.3', '6.4', '6.6', '6.7', '6.8', '6.9', '7.0')
-
-        auto_word_space_dits_frame, auto_word_space_dits_combobox = qt_labeled_readonly_combobox(
-            'Trigger Dits', self.label_font(), self.font(), values,
-            current_value, self.bg, self.fg, self.bg, self.fg,
-            self.on_auto_word_space_dits_combobox_changed, justify='right')
-
-        return auto_word_space_dits_frame
-
-    def on_auto_word_space_dits_combobox_changed(self, current_value):
-        if current_value == '':
-            return
-        Server.settings.put_save('CW', 'auto_word_space_dits', f'{float(current_value):.2f}')
-        Keyer.set_auto_word_space_dits(float(current_value))
-
-    def weighting_setting(self):
-        current_value = Server.settings.getfloat('CW', 'weighting', 1.00, .90, 1.25)
-        current_value = f'{current_value:.2f}'
-
-        values = ('0.90', '0.95', '1.00', '1.05', '1.10', '1.15', '1.20', '1.25')
-
-        weighting_frame, weighting_combobox = qt_labeled_readonly_combobox(
-            'Weight', self.label_font(), self.font(), values,
-            current_value, self.bg, self.fg, self.bg, self.fg,
-            self.on_weighting_combobox_changed, justify='left')
-
-        return weighting_frame
-
-    def on_weighting_combobox_changed(self, current_value):
-        if current_value == '':
-            return
-        Server.settings.put_save('CW', 'weighting', f'{float(current_value):.2f}')
-        Keyer.set_weighting(float(current_value))
 
 class FWversions(Text):
     def __init__(self, config_info, container):
@@ -10052,6 +9352,9 @@ class CW(TextButtons):
 
         super().__init__(config_info, container)
 
+        self.selectbg = config_info.get('selectbg', self.bg)
+        self.selectfg = config_info.get('selectfg', self.fg)
+
         self.valid_characters = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_,./?(+=%*!'
 
         self.load_settings()
@@ -10073,6 +9376,15 @@ class CW(TextButtons):
         self._key_filter = None
 
         self.delay_frame = None
+
+        # Built now rather than in add_keying_tab(), which doesn't run
+        # until the window is first opened: constructing these widgets is
+        # also what configures the keyer hardware (keyer_device_type() ->
+        # Keyer.set_device_type(), MidiInput/SerialInput.open()), and that
+        # has to happen at startup whether or not the CW window has been
+        # shown yet.
+        self.keying_settings_frame = self.keyer_settings()
+
         server = self.server
         server.subscribe_response('SDC;', self.on_qsk_changed)
 
@@ -10110,6 +9422,7 @@ class CW(TextButtons):
 
         self.add_cw_tab()
         self.add_config_tab()
+        self.add_keying_tab()
 
         self._key_filter = _CWKeyFilter(self)
         QApplication.instance().installEventFilter(self._key_filter)
@@ -10917,6 +10230,703 @@ and everything after the & is sent.'''
         settings = Server.settings.get_section(section)
         if settings != previous_settings:
             Server.settings.save()
+
+    def add_keying_tab(self):
+        self.keying_frame = QWidget()
+        keying_grid = QGridLayout(self.keying_frame)
+        self.add_tab(self.keying_frame, 'Keying')
+
+        keying_grid.addWidget(self.keying_settings_frame, 0, 0,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+    def keyer_device_type(self, typ=None):
+        if typ != None:
+            Settings.main().put_save('Keyer', 'device_type', typ)
+        typ = Settings.main().get('Keyer', 'device_type', None)
+
+        Keyer.set_device_type(typ)
+        if typ == 'None':
+            typ = None
+        if not typ:
+            self.disable_midi_device_frame()
+            self.disable_serial_device_frame()
+            self._hide(self.keyer_settings_frame, self.keyer_enable_sidetone_frame)
+        else:
+            self._show(self.keyer_settings_frame, self.keyer_enable_sidetone_frame, 4, 0)
+            if Keyer.device_type_internal_keyer:
+                self.enable_keyer_controls_frame()
+            else:
+                self.disable_keyer_controls_frame()
+        if Keyer.device_type_MoMIDI:
+            self.enable_midi_device_frame()
+            self.keyer_dit_paddle_note()
+            self._show(self.keyer_settings_frame, self.midi_note_frame, 2, 0)
+            if Keyer.device_type_internal_keyer:
+                self.enable_keyer_controls_frame()
+            else:
+                self.disable_keyer_controls_frame()
+        if Keyer.device_type_serial:
+            self.enable_serial_device_frame()
+            self.keyer_dit_paddle_signal()
+
+        return typ
+
+    def keyer_dit_paddle_note(self, note=None):
+        if Keyer.device_type_vail_adapter:
+            Keyer.set_dit_paddle_notes([0, 1, 2])
+            return
+
+        setting_name = 'dit_paddle_midi_note'
+        if Keyer.device_type_straight_key:
+            setting_name = 'straight_key_midi_note'
+        if note != None:
+            Settings.main().put_save('Keyer', setting_name, note)
+        note = Settings.main().getint('Keyer', setting_name, 20)
+        self.dit_paddle_note_dropdown.value(note)
+        Keyer.set_dit_paddle_notes([note])
+
+    def keyer_dah_paddle_note(self, note=None):
+        if note != None:
+            Settings.main().put_save('Keyer', 'dah_paddle_note', note)
+        note = Settings.main().getint('Keyer', 'dah_paddle_note', 21)
+        self.dah_paddle_note_dropdown.value(note)
+        Keyer.set_dah_paddle_notes([note])
+
+    def keyer_dit_paddle_signal(self, signal=None):
+        setting_name = 'dit_paddle_serial_signal'
+        if Keyer.device_type_straight_key:
+            setting_name = 'straight_key_serial_signal'
+        if signal != None:
+            Settings.main().put_save('Keyer', setting_name, signal)
+        signal = Settings.main().get('Keyer', setting_name, 'DSR')
+        self.dit_paddle_signal_dropdown.value(signal)
+        Keyer.set_dit_paddle_signal(signal)
+        return signal
+
+    def keyer_dah_paddle_signal(self, signal=None):
+        if signal != None:
+            Settings.main().put_save('Keyer', 'dah_paddle_serial_signal', signal)
+        signal = Settings.main().get('Keyer', 'dah_paddle_serial_signal', 'DCD')
+        self.dah_paddle_signal_dropdown.value(signal)
+        Keyer.set_dah_paddle_signal(signal)
+        return signal
+
+    def keyer_dit_memory_delay_percent(self, percent=None):
+        if percent != None:
+            Settings.main().put_save('Keyer', 'dit_up_memory_delay_percent', percent)
+        percent = Settings.main().getint('Keyer', 'dit_up_memory_delay_percent', 33)
+        self.set_dit_memory_delay_percent_text(percent)
+        Keyer.set_dit_up_memory_delay_percent(percent)
+        return percent
+
+    def keyer_dah_memory_delay_percent(self, percent=None):
+        if percent != None:
+            Settings.main().put_save('Keyer', 'dah_up_memory_delay_percent', percent)
+        percent = Settings.main().getint('Keyer', 'dah_up_memory_delay_percent', 0)
+        self.set_dah_memory_delay_percent_text(percent)
+        Keyer.set_dah_up_memory_delay_percent(percent)
+        return percent
+
+    def keyer_settings(self):
+        frame, grid = qt_group_box('Keyer Settings', self.label_font())
+
+        note_frame = QWidget()
+        note_grid = QGridLayout(note_frame)
+        note_grid.setContentsMargins(0, 0, 0, 0)
+        grid.addWidget(note_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.keyer_dit_paddle_note_frame = self.keyer_dit_paddle_note_settings(note_frame)
+        self.keyer_dah_paddle_note_frame = self.keyer_dah_paddle_note_settings(note_frame)
+
+        self.keyer_enable_sidetone_frame = self.keyer_enable_sidetone_setting()
+        grid.addWidget(self.keyer_enable_sidetone_frame, 4, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        self.keyer_midi_device_settings(frame)
+        self.keyer_serial_device_settings(frame)
+        self.keyer_mode_settings(frame)
+        self.keyer_controls_settings(grid)
+
+        keyer_device_type_frame = self.keyer_device_type_settings(frame)
+        grid.addWidget(keyer_device_type_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        return frame
+
+    def keyer_controls_settings(self, grid):
+        self.keyer_controls_frame = QWidget()
+        controls_grid = QGridLayout(self.keyer_controls_frame)
+        controls_grid.setContentsMargins(0, 0, 0, 0)
+        grid.addWidget(self.keyer_controls_frame, 5, 0,  Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        weighting_frame = self.weighting_setting()
+        controls_grid.addWidget(weighting_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        auto_char_space_frame = self.auto_char_space_setting()
+        controls_grid.addWidget(auto_char_space_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        auto_word_space_frame = self.auto_word_space_setting()
+        controls_grid.addWidget(auto_word_space_frame, 0, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+    def keyer_enable_sidetone_setting(self):
+        setting = Server.settings.getbool('Audio', 'keyer_enable_sidetone', True)
+        Audio.enable_sidetone(setting)
+
+        current_value = 'Yes' if setting else 'No'
+
+        sidetone_frame, sidetone_combobox = qt_labeled_readonly_combobox(
+            'Generate Sidetone?', self.label_font(), self.font(), ('Yes', 'No'),
+            current_value, self.bg, self.fg, self.selectbg, self.selectfg,
+            self.on_enable_sidetone_combobox_changed)
+
+        return sidetone_frame
+
+    def on_enable_sidetone_combobox_changed(self, current_value):
+        if current_value == '':
+            return
+
+        setting = current_value == 'Yes'
+
+        Server.settings.put_save('Audio', 'keyer_enable_sidetone', setting)
+        Audio.enable_sidetone(setting)
+
+    def keyer_device_type_settings(self, frame):
+        keyer_device_type_frame, keyer_device_type_grid = qt_group_box('Device Type', self.label_font())
+        selectbg = self.bg
+        selectfg = self.fg
+        self.keyer_device_type_dropdown = Dropdown_Widget(keyer_device_type_frame, bd=2,
+            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
+            font=self.font(), justify='left')
+        self.keyer_device_type_dropdown.grid(row=0, column=0)
+
+        self.keyer_device_type_dropdown.select_callback(self.on_select_device_type)
+
+        device_types = (
+            'None',
+            'MoMIDI Straight Key',
+            'MoMIDI Paddles',
+            'Serial Straight Key',
+            'Serial Paddles',
+            'Vail Adapter',
+        )
+
+        self.keyer_device_type_dropdown.values(device_types)
+        device_type = self.keyer_device_type()
+        if not device_type:
+            device_type = 'None'
+        self.keyer_device_type_dropdown.value(device_type)
+        return keyer_device_type_frame
+
+    def on_select_device_type(self, event):
+        device_type = self.keyer_device_type_dropdown.value()
+        self.keyer_device_type(device_type)
+
+    def enable_midi_device_frame(self):
+        self.disable_serial_device_frame()
+
+        self._show(self.keyer_settings_frame, self.midi_device_frame, 1, 0)
+        self._show(self.keyer_settings_frame, self.midi_note_frame, 2, 0)
+        self._show(self.midi_note_frame, self.keyer_dit_paddle_note_frame, 0, 0)
+        if Keyer.device_type_straight_key:
+            self.dit_paddle_note_frame.setTitle('Straight Key Note')
+            self._hide(self.keyer_settings_frame, self.keyer_mode_frame)
+            self._hide(self.midi_note_frame, self.keyer_dah_paddle_note_frame)
+        elif Keyer.device_type_vail_adapter:
+            self._hide(self.midi_note_frame, self.keyer_dit_paddle_note_frame)
+            self.fill_keyer_modes()
+            self._show(self.keyer_settings_frame, self.keyer_mode_frame, 2, 0)
+            self._hide(self.midi_note_frame, self.keyer_dah_paddle_note_frame)
+        else:
+            self.dit_paddle_note_frame.setTitle('Dit Paddle Note')
+            self._show(self.midi_note_frame, self.keyer_dah_paddle_note_frame, 0, 1)
+            self.fill_keyer_modes()
+            self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
+        if not Keyer.device_type_vail_adapter and Keyer.keyer_mode == Keyer.MODE_IAMBIC_B:
+            self._show(self.keyer_mode_frame, self.keyer_dit_memory_delay_percent_frame, 0, 1)
+            self._show(self.keyer_mode_frame, self.keyer_dah_memory_delay_percent_frame, 0, 2)
+        else:
+            self._hide(self.keyer_mode_frame, self.keyer_dit_memory_delay_percent_frame)
+            self._hide(self.keyer_mode_frame, self.keyer_dah_memory_delay_percent_frame)
+
+    def disable_midi_device_frame(self):
+        self._hide(self.keyer_settings_frame, self.midi_device_frame)
+        self._hide(self.keyer_settings_frame, self.midi_note_frame)
+        self._hide(self.serial_signal_frame, self.keyer_dit_paddle_signal_frame)
+        self._hide(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame)
+        self._hide(self.keyer_settings_frame, self.keyer_mode_frame)
+        self._hide(self.keyer_mode_frame, self.keyer_dit_memory_delay_percent_frame)
+        self._hide(self.keyer_mode_frame, self.keyer_dah_memory_delay_percent_frame)
+
+    def enable_serial_device_frame(self):
+        self.disable_midi_device_frame()
+
+        self._show(self.keyer_settings_frame, self.serial_device_frame, 1, 0)
+        self._show(self.keyer_settings_frame, self.serial_signal_frame, 2, 0)
+        self._show(self.serial_signal_frame, self.keyer_dit_paddle_signal_frame, 0, 0)
+        if Keyer.device_type_straight_key:
+            self.dit_paddle_signal_frame.setTitle('Straight Key Signal')
+            self._hide(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame)
+        else:
+            self.dit_paddle_signal_frame.setTitle('Dit Paddle Signal')
+            self._show(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame, 0, 1)
+            self.fill_keyer_modes()
+            self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
+
+    def disable_serial_device_frame(self):
+        self._hide(self.keyer_settings_frame, self.serial_device_frame)
+        self._hide(self.keyer_settings_frame, self.serial_signal_frame)
+        self._hide(self.serial_signal_frame, self.keyer_dit_paddle_signal_frame)
+        self._hide(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame)
+
+    def enable_keyer_controls_frame(self):
+        self._show(self.keyer_settings_frame, self.keyer_controls_frame, 5, 0)
+
+    def disable_keyer_controls_frame(self):
+        self._hide(self.keyer_settings_frame, self.keyer_controls_frame)
+
+    def keyer_midi_device_settings(self, frame):
+        self.keyer_settings_frame = frame
+        self.midi_device_frame = QGroupBox('Device')
+        self.midi_device_frame.setFont(self.label_font())
+        QGridLayout(self.midi_device_frame)
+
+        self.midi_note_frame = QWidget()
+        note_grid = QGridLayout(self.midi_note_frame)
+        note_grid.setContentsMargins(0, 0, 0, 0)
+        self.keyer_dit_paddle_note_frame = self.keyer_dit_paddle_note_settings(self.midi_note_frame)
+        self.keyer_dah_paddle_note_frame = self.keyer_dah_paddle_note_settings(self.midi_note_frame)
+
+        MidiInput.set_port_updater(self.update_midi_ports)
+        self.update_midi_ports()
+        return self.midi_device_frame
+
+    def update_midi_ports(self):
+        selectbg = self.bg
+        selectfg = self.fg
+        self.midi_port_dropdown = Dropdown_Widget(self.midi_device_frame, bd=2,
+            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
+            font=self.font(), justify='left', height=20)
+        self.midi_port_dropdown.grid(row=0, column=0)
+
+        self.midi_port_dropdown.select_callback(self.on_select_midi_port)
+
+        MidiInput.open()
+        ports = MidiInput.available_ports()
+        selections = [ 'None' ]
+        if ports != None:
+            selections += ports
+
+        self.midi_port_dropdown.values(selections)
+        self.midi_port_dropdown.value(MidiInput.port_name)
+
+    def on_select_midi_port(self, event):
+        port_name = self.midi_port_dropdown.value()
+        MidiInput.set_port_name(port_name)
+
+    def keyer_dit_paddle_note_settings(self, frame):
+        text = 'Dit Paddle Note'
+        self.dit_paddle_note_frame = QGroupBox(text)
+        self.dit_paddle_note_frame.setFont(self.label_font())
+        QGridLayout(self.dit_paddle_note_frame)
+        self.update_dit_paddle_note()
+        return self.dit_paddle_note_frame
+
+    def update_dit_paddle_note(self):
+        selectbg = self.bg
+        selectfg = self.fg
+        self.dit_paddle_note_dropdown = Dropdown_Widget(self.dit_paddle_note_frame,
+            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
+            selectfg=selectfg, font=self.font(), justify='right', state='normal')
+        self.dit_paddle_note_dropdown.grid(row=0, column=0)
+
+        self.dit_paddle_note_dropdown.select_callback(self.on_select_dit_paddle_note)
+
+        selections = [ '20', '21', '30', '31', '96', '97', '98', '99' ]
+
+        self.dit_paddle_note_dropdown.values(selections)
+
+    def on_select_dit_paddle_note(self, event):
+        try:
+            note = int(self.dit_paddle_note_dropdown.value())
+            self.keyer_dit_paddle_note(note)
+        except:
+            self.keyer_dit_paddle_note()
+
+    def keyer_dah_paddle_note_settings(self, frame):
+        text = 'Dah Paddle Note'
+        self.dah_paddle_note_frame = QGroupBox(text)
+        self.dah_paddle_note_frame.setFont(self.label_font())
+        QGridLayout(self.dah_paddle_note_frame)
+        self.update_dah_paddle_note()
+        return self.dah_paddle_note_frame
+
+    def update_dah_paddle_note(self):
+        selectbg = self.bg
+        selectfg = self.fg
+        self.dah_paddle_note_dropdown = Dropdown_Widget(self.dah_paddle_note_frame,
+            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
+            selectfg=selectfg, font=self.font(), justify='right', state='normal')
+        self.dah_paddle_note_dropdown.grid(row=0, column=0)
+
+        self.dah_paddle_note_dropdown.select_callback(self.on_select_dah_paddle_note)
+
+        selections = [ '21', '20', '31', '30', '97', '96', '99', '98' ]
+
+        self.dah_paddle_note_dropdown.values(selections)
+        self.keyer_dah_paddle_note()
+
+    def on_select_dah_paddle_note(self, event):
+        try:
+            note = int(self.dah_paddle_note_dropdown.value())
+            self.keyer_dah_paddle_note(note)
+        except:
+            self.keyer_dah_paddle_note()
+
+    def keyer_serial_device_settings(self, frame):
+        self.keyer_settings_frame = frame
+        self.serial_device_frame = QGroupBox('Device')
+        self.serial_device_frame.setFont(self.label_font())
+        QGridLayout(self.serial_device_frame)
+
+        self.serial_signal_frame = QWidget()
+        signal_grid = QGridLayout(self.serial_signal_frame)
+        signal_grid.setContentsMargins(0, 0, 0, 0)
+        self.keyer_dit_paddle_signal_frame = self.keyer_dit_paddle_signal_settings(self.serial_signal_frame)
+        self.keyer_dah_paddle_signal_frame = self.keyer_dah_paddle_signal_settings(self.serial_signal_frame)
+
+        SerialInput.set_port_updater(self.update_serial_ports)
+        self.update_serial_ports()
+        return self.serial_device_frame
+
+    def update_serial_ports(self):
+        selectbg = self.bg
+        selectfg = self.fg
+        self.serial_port_dropdown = Dropdown_Widget(self.serial_device_frame, bd=2,
+            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
+            font=self.font(), justify='left', height=20)
+        self.serial_port_dropdown.grid(row=0, column=0)
+
+        self.serial_port_dropdown.select_callback(self.on_select_serial_port)
+
+        SerialInput.open()
+        ports = SerialInput.available_ports()
+        selections = [ 'None' ]
+        if ports != None:
+            selections += ports
+
+        self.serial_port_dropdown.values(selections)
+        self.serial_port_dropdown.value(SerialInput.port_name)
+
+    def on_select_serial_port(self, event):
+        port_name = self.serial_port_dropdown.value()
+        SerialInput.set_port_name(port_name)
+
+    def keyer_dit_paddle_signal_settings(self, frame):
+        self.dit_paddle_signal_frame = QGroupBox('Dit Paddle Signal')
+        self.dit_paddle_signal_frame.setFont(self.label_font())
+        QGridLayout(self.dit_paddle_signal_frame)
+        self.update_dit_paddle_signal()
+        return self.dit_paddle_signal_frame
+
+    def update_dit_paddle_signal(self):
+        selectbg = self.bg
+        selectfg = self.fg
+        self.dit_paddle_signal_dropdown = Dropdown_Widget(self.dit_paddle_signal_frame,
+            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
+            selectfg=selectfg, font=self.font(), justify='right', state='normal')
+        self.dit_paddle_signal_dropdown.grid(row=0, column=0)
+
+        self.dit_paddle_signal_dropdown.select_callback(self.on_select_dit_paddle_signal)
+
+        selections = [ 'DSR', 'DCD', 'CTS', 'RI' ]
+
+        self.dit_paddle_signal_dropdown.values(selections)
+
+    def on_select_dit_paddle_signal(self, event):
+        try:
+            signal = self.dit_paddle_signal_dropdown.value()
+            self.keyer_dit_paddle_signal(signal)
+        except:
+            self.keyer_dit_paddle_signal()
+
+    def keyer_dah_paddle_signal_settings(self, frame):
+        text = 'Dah Paddle Signal'
+        self.dah_paddle_signal_frame = QGroupBox(text)
+        self.dah_paddle_signal_frame.setFont(self.label_font())
+        QGridLayout(self.dah_paddle_signal_frame)
+        self.update_dah_paddle_signal()
+        return self.dah_paddle_signal_frame
+
+    def update_dah_paddle_signal(self):
+        selectbg = self.bg
+        selectfg = self.fg
+        self.dah_paddle_signal_dropdown = Dropdown_Widget(self.dah_paddle_signal_frame,
+            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
+            selectfg=selectfg, font=self.font(), justify='right', state='normal')
+        self.dah_paddle_signal_dropdown.grid(row=0, column=0)
+
+        self.dah_paddle_signal_dropdown.select_callback(self.on_select_dah_paddle_signal)
+
+        selections = [ 'DCD', 'DSR', 'CTS', 'RI' ]
+
+        self.dah_paddle_signal_dropdown.values(selections)
+        self.keyer_dah_paddle_signal()
+
+    def on_select_dah_paddle_signal(self, event):
+        try:
+            signal = self.dah_paddle_signal_dropdown.value()
+            self.keyer_dah_paddle_signal(signal)
+        except:
+            self.keyer_dah_paddle_signal()
+
+    def keyer_mode_settings(self, frame):
+        self.keyer_mode_frame = QWidget()
+        mode_grid = QGridLayout(self.keyer_mode_frame)
+        mode_grid.setContentsMargins(0, 0, 0, 0)
+        frame, mode_box_grid = qt_group_box('Mode', self.label_font())
+        mode_grid.addWidget(frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        selectbg = self.bg
+        selectfg = self.fg
+        self.keyer_mode_dropdown = Dropdown_Widget(frame, bd=2,
+            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
+            font=self.font(), justify='left')
+        self.keyer_mode_dropdown.grid(row=0, column=0)
+
+        self.keyer_mode_dropdown.select_callback(self.on_select_keyer_mode)
+
+        self.fill_keyer_modes()
+
+        keyer_mode = Keyer.get_keyer_mode()
+        self.keyer_mode_dropdown.value(keyer_mode)
+        self.keyer_dit_memory_delay_percent_settings(self.keyer_mode_frame)
+        self.keyer_dah_memory_delay_percent_settings(self.keyer_mode_frame)
+        return self.keyer_mode_frame
+
+    def fill_keyer_modes(self):
+        if Keyer.device_type_vail_adapter:
+            keyer_modes = VailAdapter.keyer_modes
+        else:
+            keyer_modes = (
+                Keyer.MODE_IAMBIC,
+                Keyer.MODE_IAMBIC_A,
+                Keyer.MODE_IAMBIC_B,
+                Keyer.MODE_ULTIMATIC,
+            )
+
+        self.keyer_mode_dropdown.values(keyer_modes)
+
+    def on_select_keyer_mode(self, event):
+        keyer_mode = self.keyer_mode_dropdown.value()
+        Keyer.set_keyer_mode(keyer_mode)
+        self.enable_midi_device_frame()
+
+    def keyer_dit_memory_delay_percent_settings(self, frame):
+        text = 'Dit Mem %'
+        self.keyer_dit_memory_delay_percent_frame = QGroupBox(text)
+        self.keyer_dit_memory_delay_percent_frame.setFont(self.label_font())
+        QGridLayout(self.keyer_dit_memory_delay_percent_frame)
+        self.update_keyer_dit_memory_delay_percent()
+        return self.keyer_dit_memory_delay_percent_frame
+
+    def update_keyer_dit_memory_delay_percent(self):
+        self.keyer_dit_memory_delay_percent()
+
+        self.dit_memory_delay_percent_entry = QLineEdit(str(self.keyer_dit_memory_delay_percent()))
+        self.dit_memory_delay_percent_entry.setFont(self.font())
+        self.dit_memory_delay_percent_entry.setAlignment(qt_justify('right'))
+        self.dit_memory_delay_percent_entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
+        self.dit_memory_delay_percent_entry.setFixedWidth(4 * QFontMetrics(self.font()).averageCharWidth() + 12)
+        self.keyer_dit_memory_delay_percent_frame.layout().addWidget(self.dit_memory_delay_percent_entry, 0, 0)
+        # textChanged (not editingFinished) so an emptied field is
+        # detected live, matching tk's per-keystroke StringVar trace.
+        self.dit_memory_delay_percent_entry.textChanged.connect(self.on_dit_memory_delay_percent_changed)
+        self.keyer_dit_memory_delay_percent()
+
+    def on_dit_memory_delay_percent_changed(self, text):
+        try:
+            if text == "":
+                Poll.call(5000, self.delayed_set_dit_memory_delay_percent)
+                return
+            percent = int(text)
+            if percent >= 0 and percent <= 100:
+                self.keyer_dit_memory_delay_percent(percent)
+            else:
+                self.set_dit_memory_delay_percent_text(self.keyer_dit_memory_delay_percent())
+        except ValueError:
+            self.set_dit_memory_delay_percent_text(self.keyer_dit_memory_delay_percent())
+
+    def set_dit_memory_delay_percent_text(self, value):
+        # A no-op before the entry widget exists: keyer_dit_memory_delay_percent()
+        # is called once (to apply the persisted setting) before
+        # update_keyer_dit_memory_delay_percent() creates dit_memory_delay_percent_entry.
+        entry = getattr(self, 'dit_memory_delay_percent_entry', None)
+        if entry == None:
+            return
+        entry.blockSignals(True)
+        entry.setText(str(value))
+        entry.blockSignals(False)
+
+    def delayed_set_dit_memory_delay_percent(self):
+        if self.dit_memory_delay_percent_entry.text() == "":
+            self.set_dit_memory_delay_percent_text(self.keyer_dit_memory_delay_percent())
+
+    def keyer_dah_memory_delay_percent_settings(self, frame):
+        text = 'Dah Mem %'
+        self.keyer_dah_memory_delay_percent_frame = QGroupBox(text)
+        self.keyer_dah_memory_delay_percent_frame.setFont(self.label_font())
+        QGridLayout(self.keyer_dah_memory_delay_percent_frame)
+        self.update_keyer_dah_memory_delay_percent()
+        return self.keyer_dah_memory_delay_percent_frame
+
+    def update_keyer_dah_memory_delay_percent(self):
+        self.keyer_dah_memory_delay_percent()
+
+        self.dah_memory_delay_percent_entry = QLineEdit(str(self.keyer_dah_memory_delay_percent()))
+        self.dah_memory_delay_percent_entry.setFont(self.font())
+        self.dah_memory_delay_percent_entry.setAlignment(qt_justify('right'))
+        self.dah_memory_delay_percent_entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
+        self.dah_memory_delay_percent_entry.setFixedWidth(4 * QFontMetrics(self.font()).averageCharWidth() + 12)
+        self.keyer_dah_memory_delay_percent_frame.layout().addWidget(self.dah_memory_delay_percent_entry, 0, 0)
+        self.dah_memory_delay_percent_entry.textChanged.connect(self.on_dah_memory_delay_percent_changed)
+        self.keyer_dah_memory_delay_percent()
+
+    def on_dah_memory_delay_percent_changed(self, text):
+        try:
+            if text == "":
+                Poll.call(5000, self.delayed_set_dah_memory_delay_percent)
+                return
+            percent = int(text)
+            if percent >= 0 and percent <= 100:
+                self.keyer_dah_memory_delay_percent(percent)
+            else:
+                self.set_dah_memory_delay_percent_text(self.keyer_dah_memory_delay_percent())
+        except ValueError:
+            self.set_dah_memory_delay_percent_text(self.keyer_dah_memory_delay_percent())
+
+    def set_dah_memory_delay_percent_text(self, value):
+        entry = getattr(self, 'dah_memory_delay_percent_entry', None)
+        if entry == None:
+            return
+        entry.blockSignals(True)
+        entry.setText(str(value))
+        entry.blockSignals(False)
+
+    def delayed_set_dah_memory_delay_percent(self):
+        if self.dah_memory_delay_percent_entry.text() == "":
+            self.set_dah_memory_delay_percent_text(self.keyer_dah_memory_delay_percent())
+
+    def auto_char_space_setting(self):
+        setting = Server.settings.getbool('CW', 'auto_char_space', False)
+
+        control_frame, control_grid = qt_group_box('Auto Char Space', self.label_font())
+        options_frame, options_grid = qt_group_box('', self.label_font())
+        control_grid.addWidget(options_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+
+        acs_options = {
+            'initialindex': 0 if setting else 1,
+            'selections': [
+                {'text': 'On'},
+                {'text': 'Off'},
+            ],
+            'width': 3, 'font': self.font(),
+        }
+        self.acs_toggle = ToggleWidget(self, options_frame, acs_options)
+        self.acs_toggle.button.clicked.connect(self.on_auto_char_space_toggled)
+
+        acs_trigger_dits_frame = self.acs_trigger_dits_setting()
+        control_grid.addWidget(acs_trigger_dits_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        return control_frame
+
+    def on_auto_char_space_toggled(self):
+        setting = self.acs_toggle.selections[self.acs_toggle.index]['text'] == 'On'
+        Server.settings.put_save('CW', 'auto_char_space', setting)
+        Keyer.set_auto_char_space(setting)
+
+    def acs_trigger_dits_setting(self):
+        current_value = Server.settings.getfloat('CW', 'auto_char_space_dits', 2.5, 1.50, 3.0)
+        current_value = f'{current_value:.1f}'
+
+        values = ('1.5', '1.6', '1.7', '1.8', '1.9', '2.0', '2.1', '2.2', '2.3',
+                  '2.4', '2.5', '2.6', '2.7', '2.8', '2.9', '3.0')
+
+        auto_char_space_dits_frame, auto_char_space_dits_combobox = qt_labeled_readonly_combobox(
+            'Trigger Dits', self.label_font(), self.font(), values,
+            current_value, self.bg, self.fg, self.bg, self.fg,
+            self.on_auto_char_space_dits_combobox_changed, justify='right')
+
+        return auto_char_space_dits_frame
+
+    def on_auto_char_space_dits_combobox_changed(self, current_value):
+        if current_value == '':
+            return
+        Server.settings.put_save('CW', 'auto_char_space_dits', f'{float(current_value):.2f}')
+        Keyer.set_auto_char_space_dits(float(current_value))
+
+    def auto_word_space_setting(self):
+        setting = Server.settings.getbool('CW', 'auto_word_space', False)
+
+        control_frame, control_grid = qt_group_box('Auto Word Space', self.label_font())
+        options_frame, options_grid = qt_group_box('', self.label_font())
+        control_grid.addWidget(options_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+
+        aws_options = {
+            'initialindex': 0 if setting else 1,
+            'selections': [
+                {'text': 'On'},
+                {'text': 'Off'},
+            ],
+            'width': 3, 'font': self.font(),
+        }
+        self.aws_toggle = ToggleWidget(self, options_frame, aws_options)
+        self.aws_toggle.button.clicked.connect(self.on_auto_word_space_toggled)
+
+        aws_trigger_dits_frame = self.aws_trigger_dits_setting()
+        control_grid.addWidget(aws_trigger_dits_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        return control_frame
+
+    def on_auto_word_space_toggled(self):
+        setting = self.aws_toggle.selections[self.aws_toggle.index]['text'] == 'On'
+        Server.settings.put_save('CW', 'auto_word_space', setting)
+        Keyer.set_auto_word_space(setting)
+
+    def aws_trigger_dits_setting(self):
+        current_value = Server.settings.getfloat('CW', 'auto_word_space_dits', 6.0, 5.0, 7.0)
+        current_value = f'{current_value:.1f}'
+
+        values = ('5.0', '5.1', '5.2', '5.3','5.4', '5.5', '5.6', '5.7', '5.8', '5.9',
+                  '6.0', '6.1', '6.2', '6.3', '6.4', '6.6', '6.7', '6.8', '6.9', '7.0')
+
+        auto_word_space_dits_frame, auto_word_space_dits_combobox = qt_labeled_readonly_combobox(
+            'Trigger Dits', self.label_font(), self.font(), values,
+            current_value, self.bg, self.fg, self.bg, self.fg,
+            self.on_auto_word_space_dits_combobox_changed, justify='right')
+
+        return auto_word_space_dits_frame
+
+    def on_auto_word_space_dits_combobox_changed(self, current_value):
+        if current_value == '':
+            return
+        Server.settings.put_save('CW', 'auto_word_space_dits', f'{float(current_value):.2f}')
+        Keyer.set_auto_word_space_dits(float(current_value))
+
+    def weighting_setting(self):
+        current_value = Server.settings.getfloat('CW', 'weighting', 1.00, .90, 1.25)
+        current_value = f'{current_value:.2f}'
+
+        values = ('0.90', '0.95', '1.00', '1.05', '1.10', '1.15', '1.20', '1.25')
+
+        weighting_frame, weighting_combobox = qt_labeled_readonly_combobox(
+            'Weight', self.label_font(), self.font(), values,
+            current_value, self.bg, self.fg, self.bg, self.fg,
+            self.on_weighting_combobox_changed, justify='left')
+
+        return weighting_frame
+
+    def on_weighting_combobox_changed(self, current_value):
+        if current_value == '':
+            return
+        Server.settings.put_save('CW', 'weighting', f'{float(current_value):.2f}')
+        Keyer.set_weighting(float(current_value))
 
 class Macros(TextButtons):
     singleton = None
@@ -14284,6 +14294,7 @@ config_data = '''
 
 #define cw-window
 - item: cw
+  selectbg: pink
 #end
 
 #define macros-window
