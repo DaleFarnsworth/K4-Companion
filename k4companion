@@ -7462,11 +7462,13 @@ class Audio():
         self = cls.singleton
         seconds += self.seconds_per_sidetone_rise_packet * self.sidetone_rise_packet_perceived_ratio
         seconds += self.seconds_per_sidetone_fall_packet * self.sidetone_fall_packet_perceived_ratio
-        cycles = round(seconds / self.seconds_per_sidetone_full_amplitude_cycle)
-        if Options.debug >= 1 and cycles < 1:
-            dprint('element_lengthened')
-        for i in range(cycles):
-            self.keyer_output_queue.put(self.sidetone_full_amplitude_cycle_packet)
+        seconds_per_cycle = self.seconds_per_sidetone_full_amplitude_cycle
+        packet_cycles = math.ceil(self.sidetone_min_packet_time / seconds_per_cycle)
+        seconds_per_packet = packet_cycles * seconds_per_cycle
+        packets = round(seconds / seconds_per_packet)
+        packet = self.sidetone_full_amplitude_cycle_packet * packet_cycles
+        for i in range(packets):
+            self.keyer_output_queue.put(packet)
 
     def sd_query_hostapis(cls, index=None):
         fd = os.dup(2)
