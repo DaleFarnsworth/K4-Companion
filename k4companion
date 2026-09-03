@@ -12154,16 +12154,22 @@ class Keyer():
 
         pause_ms = None
         if first_element:
+            # Establish a baseline for timing later elements
+            # to avoid cumulative errors
+            self.element_timestamp = time.perf_counter()
+
             pause_ms = int(round(time.perf_counter() - self.previous_element_stamp - self.unweighted_dit_seconds, 3) * 1000)
             # This doesn't match the spec as I understand it, but it works!
             # From testing, I believe the worst case is actually 4500,
             # (3.5 + maximum network jitter, but use 5000 to be safe.
             if pause_ms > 5000:
                 pause_ms = None
-            
-            # Establish a baseline for timing later elements
-            # to avoid cumulative errors
-            self.element_timestamp = time.perf_counter()
+
+        if pause_ms:
+            kz_str = f'KZP{pause_ms:04d}{elt};'
+        else:
+            kz_str = f'KZ{elt};'
+        Server.k4_server.send_str(kz_str)
 
         # queue sidetone element to output device
         Audio.send_sidetone_rise_packet()
@@ -12171,12 +12177,6 @@ class Keyer():
         full_amplitude_seconds = element_seconds - Audio.sidetone_rise_time - Audio.sidetone_fall_time
         Audio.send_sidetone_full_amplitude_packets(full_amplitude_seconds)
         Audio.send_sidetone_fall_packet()
-
-        if pause_ms:
-            kz_str = f'KZP{pause_ms:04d}{elt};'
-        else:
-            kz_str = f'KZ{elt};'
-        Server.k4_server.send_str(kz_str)
 
         # calculate the time at which the sidetone ends
         self.end_sidetone_timestamp = self.element_timestamp + element_seconds
