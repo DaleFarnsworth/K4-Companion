@@ -7702,8 +7702,6 @@ class Audio():
                 def try_open_output():
                     retries = 2
                     for retry in range(retries+1):
-                        fd = os.dup(2)
-                        os.close(2)          # Close stderr because PortAudio outputs a lot of disquieting messages
                         try:
                             stream = sounddevice.RawOutputStream(
                                     samplerate=cls.output_device_sample_rate(),
@@ -7725,9 +7723,6 @@ class Audio():
                             return stream
                         except Exception:
                             continue
-                        finally:
-                            os.dup2(fd, 2)       # restore stderr
-                            os.close(fd)
                     return None
 
                 self.output_stream = try_open_output()
