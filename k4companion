@@ -3355,8 +3355,10 @@ class DropdownWidget():
         if height == 0:
             height = len(texts)
 
-        if sys.platform != 'linux':
+        if sys.platform == 'win32':
             width += 4 * QFontMetrics(font).averageCharWidth()
+        elif sys.platform == 'darwin':
+            width += 6 * QFontMetrics(font).averageCharWidth()
 
         self.defer_selections = False
         self.deferred_selection = False
