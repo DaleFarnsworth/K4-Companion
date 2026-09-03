@@ -10380,6 +10380,7 @@ and everything after the & is sent.'''
         self._show(self.midi_note_frame, self.keyer_dit_paddle_note_frame, 0, 0)
         if Keyer.device_type_straight_key:
             self.dit_paddle_note_frame.setTitle('Straight Key Note')
+            qt_size_tight_groupbox_title(self.dit_paddle_note_frame, 'Straight Key Note', self.label_font())
             self._hide(self.keyer_settings_frame, self.keyer_mode_frame)
             self._hide(self.midi_note_frame, self.keyer_dah_paddle_note_frame)
         elif Keyer.device_type_vail_adapter:
@@ -10389,6 +10390,7 @@ and everything after the & is sent.'''
             self._hide(self.midi_note_frame, self.keyer_dah_paddle_note_frame)
         else:
             self.dit_paddle_note_frame.setTitle('Dit Paddle Note')
+            qt_size_tight_groupbox_title(self.dit_paddle_note_frame, 'Dit Paddle Note', self.label_font())
             self._show(self.midi_note_frame, self.keyer_dah_paddle_note_frame, 0, 1)
             self.fill_keyer_modes()
             self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
@@ -10416,9 +10418,11 @@ and everything after the & is sent.'''
         self._show(self.serial_signal_frame, self.keyer_dit_paddle_signal_frame, 0, 0)
         if Keyer.device_type_straight_key:
             self.dit_paddle_signal_frame.setTitle('Straight Key Signal')
+            qt_size_tight_groupbox_title(self.dit_paddle_signal_frame, 'Straight Key Signal', self.label_font())
             self._hide(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame)
         else:
             self.dit_paddle_signal_frame.setTitle('Dit Paddle Signal')
+            qt_size_tight_groupbox_title(self.dit_paddle_signal_frame, 'Dit Paddle Signal', self.label_font())
             self._show(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame, 0, 1)
             self.fill_keyer_modes()
             self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
@@ -10480,6 +10484,7 @@ and everything after the & is sent.'''
         self.dit_paddle_note_frame.setFont(self.label_font())
         QGridLayout(self.dit_paddle_note_frame)
         self.update_dit_paddle_note()
+        qt_size_tight_groupbox_title(self.dit_paddle_note_frame, text, self.label_font())
         return self.dit_paddle_note_frame
 
     def update_dit_paddle_note(self):
@@ -10509,6 +10514,7 @@ and everything after the & is sent.'''
         self.dah_paddle_note_frame.setFont(self.label_font())
         QGridLayout(self.dah_paddle_note_frame)
         self.update_dah_paddle_note()
+        qt_size_tight_groupbox_title(self.dah_paddle_note_frame, text, self.label_font())
         return self.dah_paddle_note_frame
 
     def update_dah_paddle_note(self):
@@ -10573,10 +10579,12 @@ and everything after the & is sent.'''
         SerialInput.set_port_name(port_name)
 
     def keyer_dit_paddle_signal_settings(self, frame):
-        self.dit_paddle_signal_frame = QGroupBox('Dit Paddle Signal')
+        text = 'Dit Paddle Signal'
+        self.dit_paddle_signal_frame = QGroupBox(text)
         self.dit_paddle_signal_frame.setFont(self.label_font())
         QGridLayout(self.dit_paddle_signal_frame)
         self.update_dit_paddle_signal()
+        qt_size_tight_groupbox_title(self.dit_paddle_signal_frame, text, self.label_font())
         return self.dit_paddle_signal_frame
 
     def update_dit_paddle_signal(self):
@@ -10606,6 +10614,7 @@ and everything after the & is sent.'''
         self.dah_paddle_signal_frame.setFont(self.label_font())
         QGridLayout(self.dah_paddle_signal_frame)
         self.update_dah_paddle_signal()
+        qt_size_tight_groupbox_title(self.dah_paddle_signal_frame, text, self.label_font())
         return self.dah_paddle_signal_frame
 
     def update_dah_paddle_signal(self):
@@ -10678,6 +10687,7 @@ and everything after the & is sent.'''
         self.keyer_dit_memory_delay_percent_frame.setFont(self.label_font())
         QGridLayout(self.keyer_dit_memory_delay_percent_frame)
         self.update_keyer_dit_memory_delay_percent()
+        qt_size_tight_groupbox_title(self.keyer_dit_memory_delay_percent_frame, text, self.label_font())
         return self.keyer_dit_memory_delay_percent_frame
 
     def update_keyer_dit_memory_delay_percent(self):
@@ -10728,6 +10738,7 @@ and everything after the & is sent.'''
         self.keyer_dah_memory_delay_percent_frame.setFont(self.label_font())
         QGridLayout(self.keyer_dah_memory_delay_percent_frame)
         self.update_keyer_dah_memory_delay_percent()
+        qt_size_tight_groupbox_title(self.keyer_dah_memory_delay_percent_frame, text, self.label_font())
         return self.keyer_dah_memory_delay_percent_frame
 
     def update_keyer_dah_memory_delay_percent(self):
