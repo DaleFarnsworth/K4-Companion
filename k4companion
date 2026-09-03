@@ -11860,7 +11860,8 @@ class Keyer():
         if cls.sending_cw:
             return
 
-        Server.k4_server.send_cmds('TRT;')
+        if not cls.straight_keying:
+            Server.k4_server.send_cmds('TRT;')
         cls.sending_cw = True
         Audio.drain_audio_output()
 
@@ -11868,7 +11869,8 @@ class Keyer():
     def stop_sending_cw(cls):
         if not cls.sending_cw:
             return
-        Server.k4_server.send_cmds('TRR;')
+        if not cls.straight_keying:
+            Server.k4_server.send_cmds('TRR;')
         cls.sending_cw = False
 
     @classmethod
@@ -12017,7 +12019,7 @@ class Keyer():
             self.previous_key_down_timestamp = timestamp
             up_duration = timestamp - self.previous_key_up_timestamp
             milliseconds = round(up_duration * 1000)
-            if milliseconds > 2500:
+            if milliseconds > 5000:
                 milliseconds = 0
             Server.k4_server.send_str(f'KZD{milliseconds:04d};')
             Audio.start_sidetone()
