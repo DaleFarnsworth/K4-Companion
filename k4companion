@@ -7430,9 +7430,6 @@ class Audio():
 
     @classmethod
     def unmute_k4(cls):
-        if not cls.k4_muted:
-            return
-
         cls.drain_audio_output()
         cls.k4_muted = False
 
@@ -7855,7 +7852,6 @@ class Audio():
                     self.drain_audio_output(wait_for_output_buffer_to_drain=False)
                     self.output_device_queue.put(self.sidetone_fall_packet)
                     self.wait_for_audio_output_to_drain()
-                    Audio.unmute_k4()
                     self.ending_sidetone = False
                 self.sidetone_event.wait()
             if self.starting_sidetone:
@@ -7895,6 +7891,8 @@ class Audio():
 
     def on_transmit_changed(self, server, response):
         transmit = server.k4_parameters.get('TR') == 'T'
+        if not transmit:
+            self.unmute_k4()
         tune = server.k4_parameters.get('TU', "0") != '0'
         if transmit and not tune:
             split = server.k4_parameters.get('FT') == '1'
@@ -12111,7 +12109,10 @@ class Keyer():
         if elt:
             Audio.mute_k4()
         else:
-            Audio.unmute_k4()
+#            qskdelay = Server.k4_server.k4_parameter('SDC')
+#            qsk, delay = qskdelay[0] == '1', int(qskdelay[1:])
+#            if qsk or delay < 35:
+#                Audio.unmute_k4()
             return
 
         if (self.auto_char_space or self.auto_word_space) and first_element:
