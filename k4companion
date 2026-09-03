@@ -1422,8 +1422,10 @@ class Server():
                 rb = rb[end_offset:]
 
     def received_audio_packet(self, payload):
-        if self.output_audio_queue.qsize() < 2:
-            self.output_audio_queue.put(payload)
+        while self.output_audio_queue.qsize() > 1:
+            self.output_audio_queue.get_nowait()
+
+        self.output_audio_queue.put(payload)
 
     def subscribe_response(self, cmd, callback, send=True):
         base = cmd_base(cmd)
