@@ -9317,8 +9317,6 @@ class CW(TextButtons):
         self.is_open = False
         self._key_filter = None
 
-        self.delay_frame = None
-
         # Built now rather than in add_keying_tab(), which doesn't run
         # until the window is first opened: constructing these widgets is
         # also what configures the keyer hardware (keyer_device_type() ->
@@ -9328,7 +9326,6 @@ class CW(TextButtons):
         self.keying_settings_frame = self.keyer_settings()
 
         server = self.server
-        server.subscribe_response('SDC;', self.on_qsk_changed)
 
         server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
@@ -9428,12 +9425,6 @@ class CW(TextButtons):
         self.server.subscribe_response('ACN1;', self.on_transmit_ack)
         self.server.subscribe_response('KS;', self.on_keyer_speed_change)
 
-    def on_qsk_changed(self, response):
-        if not self.delay_frame:
-            return
-        qsk_enabled = response[3] == '1'
-        self.delay_frame.setEnabled(not qsk_enabled)
-
     def add_more_widgets(self, cw_grid):
         self.qsk_frame = QWidget()
         qsk_grid = QGridLayout(self.qsk_frame)
@@ -9461,10 +9452,8 @@ class CW(TextButtons):
         }
         ToggleWidget(self, qsk_onoff_frame, qsk_options)
 
-        self.delay_frame, delay_grid = qt_group_box('Delay', self.label_font())
-        qsk_grid.addWidget(self.delay_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        qsk_enabled = self.k4param('SDC')[0] == '1'
-        self.delay_frame.setEnabled(not qsk_enabled)
+        delay_frame, delay_grid = qt_group_box('Delay', self.label_font())
+        qsk_grid.addWidget(delay_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         delay_slider_frame = QWidget()
         delay_slider_grid = QGridLayout(delay_slider_frame)
