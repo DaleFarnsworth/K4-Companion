@@ -12088,7 +12088,7 @@ class Keyer():
 
             first_element = previous_elt == None
             if not dit and not dah:
-                self.send_element(None)
+                self.stop_sending_cw()
                 return paddle_event.event
 
             if dit and dah:
@@ -12098,6 +12098,8 @@ class Keyer():
             elif dah:
                 elt = '-'
 
+            if first_element:
+                self.start_sending_cw()
             self.send_element(elt, first_element)
 
             previous_elt = elt
@@ -12113,7 +12115,7 @@ class Keyer():
             dit = self.dit_down_timestamp > self.dit_up_timestamp
             dah =  self.dah_down_timestamp > self.dah_up_timestamp
             if not dit and not dah:
-                self.send_element(None)
+                self.stop_sending_cw()
                 return paddle_event.event
 
             if dit and dah:
@@ -12124,16 +12126,12 @@ class Keyer():
             elif dah:
                 elt = '-'
 
+            if first_element:
+                self.start_sending_cw()
             self.send_element(elt, first_element)
             first_element = False
 
     def send_element(self, elt, first_element=False):
-        if elt:
-            self.start_sending_cw()
-        else:
-            self.stop_sending_cw()
-            return
-
         if (self.auto_char_space or self.auto_word_space) and first_element:
             time_since_last_char = time.perf_counter() - self.end_sidetone_timestamp
             aws_min_seconds = self.auto_word_space_dits * self.dit_seconds
