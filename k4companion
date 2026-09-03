@@ -7438,14 +7438,11 @@ class Audio():
         if not cls.k4_muted:
             return
         Server.k4_server.send_cmds('TRR;')
-#        Audio.drain_audio_output()
         Audio.k4_muted = False
 
     @classmethod
     def k4_is_muted(cls):
-        if cls.k4_muted:
-            return True
-        return False
+        return cls.k4_muted
 
     @classmethod
     def enable_sidetone(cls, enable):
