@@ -7840,7 +7840,6 @@ class Audio():
         while self.enable_straight_key_sidetone_loop:
             if not self.sidetone_event.is_set():
                 if self.ending_sidetone:
-                    self.drain_audio_output(wait_for_output_buffer_to_drain=False)
                     self.output_device_queue.put(self.sidetone_fall_packet)
                     self.wait_for_audio_output_to_drain()
                     self.ending_sidetone = False
@@ -7848,6 +7847,7 @@ class Audio():
                 self.sidetone_event.wait()
             if self.starting_sidetone:
                 Keyer.start_sending_cw()
+                time.sleep(.001)
                 self.output_device_queue.put(self.sidetone_rise_packet)
                 self.starting_sidetone = False
             elif self.enable_straight_key_sidetone_loop:
