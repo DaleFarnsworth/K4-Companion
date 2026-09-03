@@ -7167,7 +7167,6 @@ class Audio():
     encode_mode_opus = 2
     encode_mode_opus_float = 3
     input_encode_mode = encode_mode_opus_float
-    k4_muted = False
     server = None
 
     output_packet_qlen = 0
@@ -7423,26 +7422,6 @@ class Audio():
         # Wait for audio already sent to the driver to drain
         wait_time = self.output_buffer_time + .001
         time.sleep(wait_time)
-
-    @classmethod
-    def mute_k4(cls):
-        if cls.k4_muted:
-            return
-
-        Server.k4_server.send_cmds('TRT;')
-        cls.k4_muted = True
-        cls.drain_audio_output()
-
-    @classmethod
-    def unmute_k4(cls):
-        if not cls.k4_muted:
-            return
-        Server.k4_server.send_cmds('TRR;')
-        Audio.k4_muted = False
-
-    @classmethod
-    def k4_is_muted(cls):
-        return cls.k4_muted
 
     @classmethod
     def enable_sidetone(cls, enable):
@@ -7764,7 +7743,7 @@ class Audio():
                 current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
 
             pcm = opus.decode_float(bytes(packet[4:]), self.maximum_output_frame_size)
-            if self.k4_is_muted():
+            if Keyer.is_sending_cw():
                 continue
 
             stereo = numpy.frombuffer(pcm, dtype=numpy.float32)
@@ -7865,10 +7844,10 @@ class Audio():
                     self.output_device_queue.put(self.sidetone_fall_packet)
                     self.wait_for_audio_output_to_drain()
                     self.ending_sidetone = False
-                    Audio.unmute_k4()
+                    Keyer.stop_sending_cw()
                 self.sidetone_event.wait()
             if self.starting_sidetone:
-                Audio.mute_k4()
+                Keyer.start_sending_cw()
                 self.output_device_queue.put(self.sidetone_rise_packet)
                 self.starting_sidetone = False
             elif self.enable_straight_key_sidetone_loop:
@@ -11711,6 +11690,7 @@ class Keyer():
     dit_down_memory_delay = 0.05  #  5 ms
     dit_up_memory_delay_percent = 0
     dah_up_memory_delay_percent = 0
+    sending_cw = False
 
     @classmethod
     def get_singleton(cls):
@@ -11885,6 +11865,26 @@ class Keyer():
         self.on_speed_change()
         kp = Server.k4_server.k4_parameter('KP')
         Server.k4_server.send_str(f'KP{kp[0:2]}{round(self.weighting*100):03d};')
+
+    @classmethod
+    def start_sending_cw(cls):
+        if cls.sending_cw:
+            return
+
+        Server.k4_server.send_cmds('TRT;')
+        cls.sending_cw = True
+        Audio.drain_audio_output()
+
+    @classmethod
+    def stop_sending_cw(cls):
+        if not cls.sending_cw:
+            return
+        Server.k4_server.send_cmds('TRR;')
+        cls.sending_cw = False
+
+    @classmethod
+    def is_sending_cw(cls):
+        return cls.sending_cw
 
     def __init__(self):
         self.DIT_DOWN_EVENT = 'dit_down'
@@ -12129,9 +12129,9 @@ class Keyer():
 
     def send_element(self, elt, first_element=False):
         if elt:
-            Audio.mute_k4()
+            self.start_sending_cw()
         else:
-            Audio.unmute_k4()
+            self.stop_sending_cw()
             return
 
         if (self.auto_char_space or self.auto_word_space) and first_element:
