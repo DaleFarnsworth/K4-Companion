@@ -7183,7 +7183,7 @@ class Audio():
     sidetone_fall_packet_perceived_ratio = .5
     sidetone_enabled = True
 
-    output_buffer_time = .010
+    output_buffer_time = .003
 
     @classmethod
     def get_singleton(cls):
