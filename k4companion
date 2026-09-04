@@ -826,7 +826,7 @@ class Server():
 
                     self.send_str('PING;')               # Trigger a response: PONG;
                 else:
-                    self.output_audio_queue = queue.Queue()
+                    self.output_audio_queue = queue.Queue(2)
 
                     if not use_tls:
                         if not self.ensure_password():
@@ -1422,10 +1422,12 @@ class Server():
                 rb = rb[end_offset:]
 
     def received_audio_packet(self, payload):
-        while self.output_audio_queue.qsize() > 1:
-            self.output_audio_queue.get_nowait()
-
-        self.output_audio_queue.put(payload)
+        while True:
+            try:
+                self.output_audio_queue.put_nowait(payload)
+                break
+            except queue.Full:
+                self.output_audio_queue.get()
 
     def subscribe_response(self, cmd, callback, send=True):
         base = cmd_base(cmd)
@@ -7169,16 +7171,17 @@ class Audio():
     input_encode_mode = encode_mode_opus_float
     server = None
 
-    output_packet_qlen = 0
-
-    sidetone_min_packet_time = .003     # minimum packet time sending with straight key
-    sidetone_rise_time = .008           # 8 ms rise time
-    sidetone_fall_time = .008           # 8 ms fall time
-    sidetone_rise_packet_perceived_ratio = .5
-    sidetone_fall_packet_perceived_ratio = .5
+    sidetone_rise_time = .004
+    sidetone_fall_time = .004
+    sidetone_rise_perceived_ratio = .5
+    sidetone_fall_perceived_ratio = .5
     sidetone_enabled = True
 
-    output_buffer_time = .003
+    output_buffer_time = .004
+
+    sending_sidetone = False
+    k4_muted = False
+    k4_mute_count = 0
 
     @classmethod
     def get_singleton(cls):
@@ -7201,15 +7204,10 @@ class Audio():
         if self.input_thread != None:
             self.input_thread.join()
 
-        if self.straight_key_sidetone_thread != None:
-            self.enable_straight_key_sidetone_loop = False
-            self.sidetone_event.set()
-            self.straight_key_sidetone_thread.join()
-
-        if self.sidetone_output_thread != None:
-            self.enable_sidetone_output_loop = False
-            self.keyer_output_queue.put(None)
-            self.sidetone_output_thread.join()
+        if self.sidetone_thread != None:
+            self.enable_sidetone_loop = False
+            self.full_output_queue.get_nowait()
+            self.sidetone_thread.join()
 
         if self.output_thread != None:
             self.server.output_audio_queue.put([])
@@ -7369,86 +7367,29 @@ class Audio():
 
     @classmethod
     def start_sidetone(cls):
-        if cls.singleton == None:
+        if cls.singleton == None or not cls.sidetone_enabled:
             return
-
-        if not cls.sidetone_enabled:
-            return
-
         self = cls.singleton
-        self.starting_sidetone = True
-        self.sidetone_event.set()
+        self.output_device_queue = self.rise_output_queue
 
     @classmethod
     def stop_sidetone(cls):
-        if cls.singleton == None:
+        if cls.singleton == None or not cls.sidetone_enabled:
             return
-
-        if not cls.sidetone_enabled:
-            return
-
         self = cls.singleton
-        self.ending_sidetone = True
-        self.sidetone_event.clear()
-
-    @classmethod
-    def drain_audio_output(cls, wait_for_output_buffer_to_drain=True):
-        # Drain the audio output queue to minimize the delay 
-        self = cls.singleton
-        while True:
-            try:
-                self.server.output_audio_queue.get_nowait()
-            except queue.Empty:
-                break
-        while True:
-            try:
-                self.output_device_queue.get_nowait()
-            except queue.Empty:
-                break
-        # Drain the leftover bytes as well
-        self.output_stream_leftover = b''
-        if wait_for_output_buffer_to_drain:
-            # Wait for audio already sent to the driver to drain
-            wait_time = self.output_buffer_time + .001
-            time.sleep(wait_time)
-
-    @classmethod
-    def wait_for_audio_output_to_drain(cls):
-        self = cls.singleton
-        while not self.server.output_audio_queue.empty():
-            time.sleep(.001)
-        while not self.output_device_queue.empty():
-            time.sleep(.001)
-        # Wait for audio already sent to the driver to drain
-        wait_time = self.output_buffer_time + .001
-        time.sleep(wait_time)
+        self.output_device_queue = self.fall_output_queue
 
     @classmethod
     def enable_sidetone(cls, enable):
         cls.sidetone_enabled = enable
 
     @classmethod
-    def send_sidetone_rise_packet(cls):
-        self = cls.singleton
-        self.keyer_output_queue.put(self.sidetone_rise_packet)
+    def mute_k4(cls):
+        cls.k4_muted = True
 
     @classmethod
-    def send_sidetone_fall_packet(cls):
-        self = cls.singleton
-        self.keyer_output_queue.put(self.sidetone_fall_packet)
-
-    @classmethod
-    def send_sidetone_full_amplitude_packets(cls, seconds):
-        self = cls.singleton
-        seconds += self.seconds_per_sidetone_rise_packet * self.sidetone_rise_packet_perceived_ratio
-        seconds += self.seconds_per_sidetone_fall_packet * self.sidetone_fall_packet_perceived_ratio
-        seconds_per_cycle = self.seconds_per_sidetone_full_amplitude_cycle
-        packet_cycles = math.ceil(self.sidetone_min_packet_time / seconds_per_cycle)
-        seconds_per_packet = packet_cycles * seconds_per_cycle
-        packets = round(seconds / seconds_per_packet)
-        packet = self.sidetone_full_amplitude_cycle_packet * packet_cycles
-        for i in range(packets):
-            self.keyer_output_queue.put(packet)
+    def unmute_k4(cls):
+        cls.k4_muted = False
 
     def sd_query_hostapis(cls, index=None):
         fd = os.dup(2)
@@ -7516,8 +7457,13 @@ class Audio():
         # panadapter-induced dropouts: during a main-thread stall
         # output_stream_callback cannot run to drain the queue either, so
         # only PortAudio's own buffer (frames_per_buffer) keeps playing.
-        self.output_device_queue = queue.Queue(8)
-        self.keyer_output_queue = queue.Queue()
+        self.k4_output_queue = queue.Queue(2)
+        self.rise_output_queue = queue.Queue(3)
+        self.full_output_queue = queue.Queue(100)
+        self.fall_output_queue = queue.Queue(3)
+        self.output_device_queue = self.k4_output_queue
+        self.output_stream_leftover_queue = self.k4_output_queue
+        self.previous_chunk = None
         self.input_device_index = -1
         self.output_device_index = -1
         self.input_device_infos = {}
@@ -7527,16 +7473,19 @@ class Audio():
         self.transmit_audio = False
         self.cw_pitch = 600
         self.sidetone_volume = 30
-        self.straight_key_sidetone_thread = None
-        self.sidetone_output_thread = None
-        self.enable_straight_key_sidetone_loop = True
-        self.enable_sidetone_output_loop = True
-        self.sidetone_event = threading.Event()
+        self.sidetone_thread = None
+        self.enable_sidetone_loop = True
         self.starting_sidetone = False
         self.ending_sidetone = False
 
         Server.k4_server.subscribe_response('CW;', self.on_cw_pitch_change)
         Server.k4_server.subscribe_response('ML0;', self.on_sidetone_volume_change)
+        self.queue_names = {
+            self.k4_output_queue: 'k4',
+            self.rise_output_queue: 'up',
+            self.full_output_queue: 'full',
+            self.fall_output_queue: 'down',
+        }
 
         a_volume = Server.settings.get('Audio', 'main_volume')
         if a_volume == None:
@@ -7658,11 +7607,8 @@ class Audio():
         if self.output_device_index < 0:
             return
 
-        self.straight_key_sidetone_thread = threading.Thread(target=self.straight_key_sidetone_loop, name='audio_straight_key_sidetone_thread')
-        self.straight_key_sidetone_thread.start()
-
-        self.sidetone_output_thread = threading.Thread(target=self.sidetone_output_loop, name='audio_sidetone_output_thread')
-        self.sidetone_output_thread.start()
+        self.sidetone_thread = threading.Thread(target=self.sidetone_loop, name='audio_sidetone_thread')
+        self.sidetone_thread.start()
 
         self.output_thread = threading.Thread(target=self.output_loop, name='audio_output_thread')
         self.output_thread.start()
@@ -7695,7 +7641,6 @@ class Audio():
                 if self.output_stream != None:
                     self.output_stream.close()
                     self.output_stream = None
-                self.output_stream_leftover = b''
 
                 resample_ratio = int(cls.output_device_sample_rate() / cls.k4_sample_rate)
 
@@ -7738,9 +7683,6 @@ class Audio():
                 current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
 
             pcm = opus.decode_float(bytes(packet[4:]), self.maximum_output_frame_size)
-            if Keyer.is_sending_cw():
-                continue
-
             stereo = numpy.frombuffer(pcm, dtype=numpy.float32)
             a = stereo[0::2]                    # even samples are from the main receiver
             b = stereo[1::2]                    # odd samples are from the sub receiver
@@ -7787,7 +7729,9 @@ class Audio():
             stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
             stereo[1::2] = right
-            self.output_device_queue.put(stereo.tobytes())
+            if self.k4_output_queue.qsize() > 1:
+                self.k4_output_queue.get()
+            self.k4_output_queue.put(stereo.tobytes())
 
     def averaged_left_right_volume(self):
             a = self.a_volume
@@ -7828,32 +7772,21 @@ class Audio():
             averaged_left_right_volume = (left + right) / 2
             return averaged_left_right_volume
 
-    def straight_key_sidetone_loop(self):
+    def sidetone_loop(self):
         self.generate_sidetone_packets()
-        elt_cycles = math.ceil(self.sidetone_min_packet_time / self.seconds_per_sidetone_full_amplitude_cycle)
 
-        while self.enable_straight_key_sidetone_loop:
-            if not self.sidetone_event.is_set():
-                if self.ending_sidetone:
-                    self.output_device_queue.put(self.sidetone_fall_packet)
-                    self.wait_for_audio_output_to_drain()
-                    self.ending_sidetone = False
-                    Keyer.stop_sending_cw()
-                self.sidetone_event.wait()
-            if self.starting_sidetone:
-                Keyer.start_sending_cw()
-                time.sleep(.001)
-                self.output_device_queue.put(self.sidetone_rise_packet)
-                self.starting_sidetone = False
-            elif self.enable_straight_key_sidetone_loop:
-                elt_packet = self.sidetone_full_amplitude_cycle_packet * elt_cycles
-                self.output_device_queue.put(elt_packet)
+        while self.enable_sidetone_loop:
+            try:
+                self.rise_output_queue.put_nowait(self.sidetone_rise_packet)
+            except queue.Full:
+                pass
 
-    def sidetone_output_loop(self):
-        while self.enable_sidetone_output_loop:
-            packet = self.keyer_output_queue.get()
-            if packet:
-                self.output_device_queue.put(packet)
+            try:
+                self.fall_output_queue.put_nowait(self.sidetone_fall_packet)
+            except queue.Full:
+                pass
+
+            self.full_output_queue.put(self.sidetone_full_cycle_packet)
 
     def output_stream_callback(self, outdata, frames, time_info, status):
         # Called on PortAudio's own thread whenever it needs more frames;
@@ -7867,14 +7800,44 @@ class Audio():
         # that assignment in the caller has actually run.
         needed = frames * self.output_channels * numpy.dtype(numpy.float32).itemsize
         data = self.output_stream_leftover
+
+        current_queue = None
         while len(data) < needed:
+            current_queue = self.output_device_queue
             try:
-                chunk = self.output_device_queue.get_nowait()
+                chunk = current_queue.get_nowait()
+                if current_queue == self.k4_output_queue:
+                    if self.k4_muted:
+                        self.k4_mute_count = 4
+                    if self.k4_mute_count > 0:
+                        self.k4_mute_count -= 1
+                        current_queue.get_nowait()
+                        break
+                elif current_queue == self.rise_output_queue:
+                    sample = self.previous_outdata[-8:]
+                    sample = numpy.frombuffer(sample, dtype=numpy.float32)
+                    left = sample[0] * self.fall_envelope
+                    right = sample[1] * self.fall_envelope
+                    stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
+                    stereo[0::2] = left
+                    stereo[1::2] = right
+                    data = stereo.tobytes()
+                    self.output_stream_leftover = data[needed:] + chunk
+                    self.output_stream_leftover_queue = current_queue
+                    outdata[:] = data[:needed].ljust(needed, b'\x00')
+                    self.previous_outdata = outdata
+                    self.output_device_queue = self.full_output_queue
+                    return
+                elif current_queue == self.fall_output_queue:
+                    self.output_device_queue = self.k4_output_queue
             except queue.Empty:
                 break
             data += chunk
+            self.previous_chunk = chunk
         self.output_stream_leftover = data[needed:]
         outdata[:] = data[:needed].ljust(needed, b'\x00')
+        self.previous_outdata = outdata
+        self.output_stream_leftover_queue = current_queue
 
     def on_transmit_changed(self, server, response):
         transmit = server.k4_parameters.get('TR') == 'T'
@@ -8021,22 +7984,28 @@ class Audio():
 
         steps = numpy.linspace(0, 1, samples_per_cycle, endpoint=False, dtype=numpy.float32)
         cycle = numpy.sin(2 * numpy.pi * steps) * volume
-        self.sidetone_full_amplitude_cycle_packet = cycle.repeat(2).tobytes()
+        self.sidetone_full_cycle_packet = cycle.repeat(2).tobytes()
+        full_cycles = round(self.output_buffer_time / seconds_per_cycle)
+        self.sidetone_full_cycle_packet *= full_cycles
 
         rise_steps = numpy.linspace(0, 1, samples_per_rise_packet, dtype=numpy.float32)
         fall_steps = numpy.linspace(1, 0, samples_per_fall_packet, dtype=numpy.float32)
         rise_sin_samples = numpy.tile(cycle, cycles_per_rise_packet)
         fall_sin_samples = numpy.tile(cycle, cycles_per_fall_packet)
         rise_envelope = .5 * (1 - numpy.cos(numpy.pi * rise_steps))
-        fall_envelope = .5 * (1 - numpy.cos(numpy.pi * fall_steps))
+        self.fall_envelope = .5 * (1 - numpy.cos(numpy.pi * fall_steps))
         rise_samples = (rise_sin_samples * rise_envelope).repeat(2)
-        fall_samples = (fall_sin_samples * fall_envelope).repeat(2)
+        fall_samples = (fall_sin_samples * self.fall_envelope).repeat(2)
         self.sidetone_rise_packet = rise_samples.tobytes()
         self.sidetone_fall_packet = fall_samples.tobytes()
 
-        self.seconds_per_sidetone_full_amplitude_cycle = seconds_per_cycle
-        self.seconds_per_sidetone_rise_packet = seconds_per_cycle * cycles_per_rise_packet
-        self.seconds_per_sidetone_fall_packet = seconds_per_cycle * cycles_per_fall_packet
+        self.full_seconds = seconds_per_cycle * full_cycles
+        self.rise_seconds = seconds_per_cycle * cycles_per_rise_packet
+        self.fall_seconds = seconds_per_cycle * cycles_per_fall_packet
+        rise_perceived = self.rise_seconds * self.sidetone_rise_perceived_ratio
+        fall_perceived = self.fall_seconds * self.sidetone_fall_perceived_ratio
+        cls = self.__class__
+        cls.minimum_sidetone_ms = round((rise_perceived + self.full_seconds + fall_perceived) * 1000)
 
     def on_cw_pitch_change(self, response):
         self.cw_pitch = int(response[2:].rstrip(';')) * 10
@@ -11674,7 +11643,6 @@ class Keyer():
     dit_down_memory_delay = 0.05  #  5 ms
     dit_up_memory_delay_percent = 0
     dah_up_memory_delay_percent = 0
-    sending_cw = False
 
     @classmethod
     def get_singleton(cls):
@@ -11850,28 +11818,6 @@ class Keyer():
         kp = Server.k4_server.k4_parameter('KP')
         Server.k4_server.send_str(f'KP{kp[0:2]}{round(self.weighting*100):03d};')
 
-    @classmethod
-    def start_sending_cw(cls):
-        if cls.sending_cw:
-            return
-
-        if not cls.straight_keying:
-            Server.k4_server.send_cmds('TRT;')
-        cls.sending_cw = True
-        Audio.drain_audio_output()
-
-    @classmethod
-    def stop_sending_cw(cls):
-        if not cls.sending_cw:
-            return
-        if not cls.straight_keying:
-            Server.k4_server.send_cmds('TRR;')
-        cls.sending_cw = False
-
-    @classmethod
-    def is_sending_cw(cls):
-        return cls.sending_cw
-
     def __init__(self):
         self.DIT_DOWN_EVENT = 'dit_down'
         self.DIT_UP_EVENT = 'dit_up'
@@ -11903,8 +11849,9 @@ class Keyer():
         self.dah_down_timestamp = 0
         self.dah_up_timestamp = 0
         self.element_timestamp = 0
-        self.end_sidetone_timestamp = 0
+        self.end_sidetone_timestamp = None
         self.previous_element_stamp = 0
+        self.mute_timer = None
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -12013,23 +11960,22 @@ class Keyer():
         if event == self.STRAIGHT_KEY_DOWN_EVENT:
             self.previous_key_down_timestamp = timestamp
             up_duration = timestamp - self.previous_key_up_timestamp
-            milliseconds = round(up_duration * 1000)
-            if milliseconds > 5000:
-                milliseconds = 0
-            Server.k4_server.send_str(f'KZD{milliseconds:04d};')
+            ms = round(up_duration * 1000)
+            if ms > 5000:
+                ms = 0
+            elif ms < Audio.minimum_sidetone_ms:
+                ms = Audio.minimum_sidetone_ms
+            Server.k4_server.send_str(f'KZD{ms:04d};')
             Audio.start_sidetone()
         elif event == self.STRAIGHT_KEY_UP_EVENT:
             self.previous_key_up_timestamp = timestamp
             down_duration = timestamp - self.previous_key_down_timestamp
-            milliseconds = round(down_duration * 1000)
-            if milliseconds > 2500:
-                milliseconds = 0
-            elif milliseconds < 20:
-# Very short key down times cause ADC overload
-# I've seen it (rarely) at 40 ms, which is 30 WPM
-# 20 milliseconds is approximately 60 WPM
-                milliseconds = 20;
-            Server.k4_server.send_str(f'KZU{milliseconds:04d};')
+            ms = round(down_duration * 1000)
+            if ms > 5000:
+                ms = 0
+            elif ms < Audio.minimum_sidetone_ms:
+                ms = Audio.minimum_sidetone_ms
+            Server.k4_server.send_str(f'KZU{ms:04d};')
             Audio.stop_sidetone()
 
         return event
@@ -12074,7 +12020,6 @@ class Keyer():
 
             first_element = previous_elt == None
             if not dit and not dah:
-                self.stop_sending_cw()
                 return paddle_event.event
 
             if dit and dah:
@@ -12084,8 +12029,6 @@ class Keyer():
             elif dah:
                 elt = '-'
 
-            if first_element:
-                self.start_sending_cw()
             self.send_element(elt, first_element)
 
             previous_elt = elt
@@ -12101,7 +12044,6 @@ class Keyer():
             dit = self.dit_down_timestamp > self.dit_up_timestamp
             dah =  self.dah_down_timestamp > self.dah_up_timestamp
             if not dit and not dah:
-                self.stop_sending_cw()
                 return paddle_event.event
 
             if dit and dah:
@@ -12112,13 +12054,12 @@ class Keyer():
             elif dah:
                 elt = '-'
 
-            if first_element:
-                self.start_sending_cw()
             self.send_element(elt, first_element)
             first_element = False
 
     def send_element(self, elt, first_element=False):
-        if (self.auto_char_space or self.auto_word_space) and first_element:
+        if (self.end_sidetone_timestamp and
+                (self.auto_char_space or self.auto_word_space) and first_element):
             time_since_last_char = time.perf_counter() - self.end_sidetone_timestamp
             aws_min_seconds = self.auto_word_space_dits * self.dit_seconds
             acs_min_seconds = self.auto_char_space_dits * self.dit_seconds
@@ -12135,42 +12076,50 @@ class Keyer():
             if time_remaining > 0:
                 time.sleep(time_remaining)
 
-        pause_ms = None
-        if first_element:
+        ms = 0
+        if self.end_sidetone_timestamp:
+            ms = round((time.perf_counter() - self.end_sidetone_timestamp) * 1000)
+            # This doesn't match the spec as I understand it, but it works!
+            # From testing, I believe the worst case is actually 4500,
+            # (3.5 + maximum network jitter, but use 5000 to be safe.
+            if ms > 5000:
+                ms = 0
+
+        if first_element or ms == 0:
             # Establish a baseline for timing later elements
             # to avoid cumulative errors
             self.element_timestamp = time.perf_counter()
 
-            pause_ms = int(round(time.perf_counter() - self.previous_element_stamp - self.unweighted_dit_seconds, 3) * 1000)
-            # This doesn't match the spec as I understand it, but it works!
-            # From testing, I believe the worst case is actually 4500,
-            # (3.5 + maximum network jitter, but use 5000 to be safe.
-            if pause_ms > 5000:
-                pause_ms = None
 
-        if pause_ms:
-            kz_str = f'KZP{pause_ms:04d}{elt};'
-        else:
-            kz_str = f'KZ{elt};'
-        Server.k4_server.send_str(kz_str)
+        time_since_first = time.perf_counter() - self.element_timestamp
+        initial_delay = int(Server.k4_server.k4_parameter('KZL')) / 1000
+        mute_seconds = initial_delay - time_since_first
+        if mute_seconds > 0:
+            if self.mute_timer:
+                self.mute_timer.cancel()
+            self.mute_timer = threading.Timer(mute_seconds, Audio.unmute_k4)
+            Audio.mute_k4()
+            self.mute_timer.start()
 
-        # queue sidetone element to output device
-        Audio.send_sidetone_rise_packet()
+        Server.k4_server.send_str(f'KZD{ms:04d};')
+
         element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
-        full_amplitude_seconds = element_seconds - Audio.sidetone_rise_time - Audio.sidetone_fall_time
-        Audio.send_sidetone_full_amplitude_packets(full_amplitude_seconds)
-        Audio.send_sidetone_fall_packet()
+        ms = round(element_seconds * 1000)
 
-        # calculate the time at which the sidetone ends
-        self.end_sidetone_timestamp = self.element_timestamp + element_seconds
+        Audio.start_sidetone()
 
-        self.previous_element_stamp = self.element_timestamp
+        time.sleep(element_seconds)
+        Server.k4_server.send_str(f'KZU{ms:04d};')
+        Audio.stop_sidetone()
+
+        now = time.perf_counter()
+        self.end_sidetone_timestamp = now
 
         # calculate the time to send the next element
         self.element_timestamp += element_seconds + self.inter_element_seconds
-        element_sleep = self.element_timestamp - time.perf_counter()
-        if element_sleep > 0:
-            time.sleep(element_sleep)
+        inter_element_sleep = self.element_timestamp - now
+        if inter_element_sleep > 0:
+            time.sleep(inter_element_sleep)
         else:
             Popup.warning(msg='Keyer error')
 
