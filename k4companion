@@ -7808,10 +7808,9 @@ class Audio():
                 chunk = current_queue.get_nowait()
                 if current_queue == self.k4_output_queue:
                     if self.k4_muted:
-                        self.k4_mute_count = 4
+                        self.k4_mute_count = 6
                     if self.k4_mute_count > 0:
                         self.k4_mute_count -= 1
-                        current_queue.get_nowait()
                         break
                 elif current_queue == self.rise_output_queue:
                     sample = self.previous_outdata[-8:]
