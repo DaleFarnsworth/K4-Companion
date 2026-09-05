@@ -7447,10 +7447,10 @@ class Audio():
         self.output_stream = None
         self.input_thread = None
         self.output_thread = None
-        # Bytes pulled from output_device_queue that didn't fit in the
+        # Samples pulled from output_device_queue that didn't fit in the
         # previous output_stream_callback() call; carried over so each
         # PortAudio-requested block gets exactly frame_count frames.
-        self.output_stream_leftover = b''
+        self.output_stream_leftover = numpy.empty(0, dtype=numpy.float32)
         # Deliberately shallow, to minimize audio delay when changing
         # frequency or going into transmit. Deepening this does not fix
         # panadapter-induced dropouts: during a main-thread stall
@@ -7462,6 +7462,10 @@ class Audio():
         self.fall_output_queue = queue.Queue(3)
         self.output_device_queue = self.k4_output_queue
         self.output_stream_leftover_queue = self.k4_output_queue
+        # The frame the rise packet fades out from, so that a
+        # start_sidetone() arriving before the first output block fades
+        # from silence rather than from an attribute that isn't set yet.
+        self.previous_output_sample = numpy.zeros(self.output_channels, dtype=numpy.float32)
         self.previous_chunk = None
         self.input_device_index = -1
         self.output_device_index = -1
@@ -7647,7 +7651,7 @@ class Audio():
                     retries = 2
                     for retry in range(retries+1):
                         try:
-                            stream = sounddevice.RawOutputStream(
+                            stream = sounddevice.OutputStream(
                                     samplerate=cls.output_device_sample_rate(),
                                     blocksize=self.frames_per_output_buffer,
                                     device=self.output_device_index,
@@ -7730,7 +7734,7 @@ class Audio():
             stereo[1::2] = right
             if self.k4_output_queue.qsize() > 1:
                 self.k4_output_queue.get()
-            self.k4_output_queue.put(stereo.tobytes())
+            self.k4_output_queue.put(stereo)
 
     def averaged_left_right_volume(self):
             a = self.a_volume
@@ -7794,10 +7798,7 @@ class Audio():
         # waiting for output_device_queue to be refilled. Unlike
         # pyaudio's callback, sounddevice's doesn't return the samples --
         # they're written directly into the outdata buffer it hands in.
-        # Uses numpy's dtype size rather than self.output_stream.samplesize
-        # -- start() (in try_open_output) can invoke this callback before
-        # that assignment in the caller has actually run.
-        needed = frames * self.output_channels * numpy.dtype(numpy.float32).itemsize
+        needed = frames * self.output_channels
         data = self.output_stream_leftover
 
         current_queue = None
@@ -7812,30 +7813,40 @@ class Audio():
                         self.k4_mute_count -= 1
                         break
                 elif current_queue == self.rise_output_queue:
-                    sample = self.previous_outdata[-8:]
-                    sample = numpy.frombuffer(sample, dtype=numpy.float32)
+                    sample = self.previous_output_sample
                     left = sample[0] * self.fall_envelope
                     right = sample[1] * self.fall_envelope
                     stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
                     stereo[0::2] = left
                     stereo[1::2] = right
-                    data = stereo.tobytes()
-                    self.output_stream_leftover = data[needed:] + chunk
+                    data = stereo
+                    self.output_stream_leftover = numpy.concatenate((data[needed:], chunk))
                     self.output_stream_leftover_queue = current_queue
-                    outdata[:] = data[:needed].ljust(needed, b'\x00')
-                    self.previous_outdata = outdata
+                    self.write_outdata(outdata, data[:needed])
                     self.output_device_queue = self.full_output_queue
                     return
                 elif current_queue == self.fall_output_queue:
                     self.output_device_queue = self.k4_output_queue
             except queue.Empty:
                 break
-            data += chunk
+            data = numpy.concatenate((data, chunk))
             self.previous_chunk = chunk
         self.output_stream_leftover = data[needed:]
-        outdata[:] = data[:needed].ljust(needed, b'\x00')
-        self.previous_outdata = outdata
+        self.write_outdata(outdata, data[:needed])
         self.output_stream_leftover_queue = current_queue
+
+    def write_outdata(self, outdata, samples):
+        # PortAudio hands in a (frames, channels) array; the queues carry
+        # those same samples interleaved and flat, the layout they arrive
+        # from the K4 in. Anything the queues came up short by is filled
+        # with silence rather than left holding the previous block.
+        frames = samples.size // self.output_channels
+        outdata[:frames] = samples.reshape(frames, self.output_channels)
+        outdata[frames:] = 0
+        # Copied, not referenced: outdata is PortAudio's own memory and
+        # is only valid for the duration of this callback, while the rise
+        # packet fades this frame out on some later one.
+        self.previous_output_sample = outdata[-1].copy()
 
     def on_transmit_changed(self, server, response):
         transmit = server.k4_parameters.get('TR') == 'T'
@@ -7888,14 +7899,14 @@ class Audio():
                     retries = 2
                     for retry in range(retries+1):
                         try:
-                            stream = sounddevice.RawInputStream(
+                            stream = sounddevice.InputStream(
                                     samplerate=Audio.input_device_sample_rate(),
                                     blocksize=Audio.input_frame_size,
                                     device=self.input_device_index,
                                     channels=Audio.input_channels,
                                     dtype='float32',
                                     # See the matching comment on
-                                    # RawOutputStream in output_loop.
+                                    # OutputStream in output_loop.
                                     latency='low',
                                     )
                             stream.start()
@@ -7917,7 +7928,7 @@ class Audio():
                 tries = 10
                 for i in range(tries):
                     sampled, overflowed = input_stream.read(Audio.input_frame_size)
-                    sampled = numpy.frombuffer(sampled, dtype=numpy.float32)
+                    sampled = sampled.reshape(-1)
                     average = sum(numpy.abs(sampled)) / len(sampled)
                     if average != 0.0:
                         break
@@ -7928,7 +7939,7 @@ class Audio():
                 resample_ratio = int(Audio.input_device_sample_rate() / Audio.k4_sample_rate)
 
             sampled, overflowed = input_stream.read(Audio.input_frame_size * resample_ratio)
-            sampled = numpy.frombuffer(sampled, dtype=numpy.float32)
+            sampled = sampled.reshape(-1)
 
             if resample_ratio == 1:
                 resampled = sampled
@@ -7982,9 +7993,8 @@ class Audio():
 
         steps = numpy.linspace(0, 1, samples_per_cycle, endpoint=False, dtype=numpy.float32)
         cycle = numpy.sin(2 * numpy.pi * steps) * volume
-        self.sidetone_full_cycle_packet = cycle.repeat(2).tobytes()
         full_cycles = round(self.output_buffer_time / seconds_per_cycle)
-        self.sidetone_full_cycle_packet *= full_cycles
+        self.sidetone_full_cycle_packet = numpy.tile(cycle.repeat(2), full_cycles)
 
         rise_steps = numpy.linspace(0, 1, samples_per_rise_packet, dtype=numpy.float32)
         fall_steps = numpy.linspace(1, 0, samples_per_fall_packet, dtype=numpy.float32)
@@ -7994,8 +8004,8 @@ class Audio():
         self.fall_envelope = .5 * (1 - numpy.cos(numpy.pi * fall_steps))
         rise_samples = (rise_sin_samples * rise_envelope).repeat(2)
         fall_samples = (fall_sin_samples * self.fall_envelope).repeat(2)
-        self.sidetone_rise_packet = rise_samples.tobytes()
-        self.sidetone_fall_packet = fall_samples.tobytes()
+        self.sidetone_rise_packet = rise_samples
+        self.sidetone_fall_packet = fall_samples
 
         self.full_seconds = seconds_per_cycle * full_cycles
         self.rise_seconds = seconds_per_cycle * cycles_per_rise_packet
@@ -12757,13 +12767,15 @@ def logt(filename, *args):
 def logb(filename, *args):
     logtb('b', filename, *args)
 
+# Both take one of the interleaved float32 arrays the output queues
+# carry, and keep the left channel of it.
 # The resultant file can be displayed in gnuplot with the command:
 # plot "filename" binary format='%float32' array= with lines
 def log_packet(filename, packet):
-    logb(filename, numpy.frombuffer(packet, dtype=numpy.float32)[::2].copy())
+    logb(filename, packet[::2].copy())
 
 def print_packet(name, packet):
-    packet = numpy.frombuffer(packet, dtype=numpy.float32)[::2].copy()
+    packet = packet[::2].copy()
     tprint(f'{name} {packet=}')
 
 logfiles = {}
