@@ -2778,7 +2778,6 @@ class RIT(Widget):
 
         self.set_step_index(step_index)
 
-#        self.server.subscribe_response(f'VT{self.suffix};', self.on_step_received)
         self.server.subscribe_response(f'RO{self.suffix};', self.on_offset_received)
         # subscribe to split and transmit on/off changes
         cmds = f'RT{self.suffix};XT;FT;TR;'
