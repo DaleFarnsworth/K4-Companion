@@ -12104,7 +12104,6 @@ class Keyer():
         self.dah_up_timestamp = 0
         self.element_timestamp = 0
         self.end_sidetone_timestamp = None
-        self.previous_element_stamp = 0
         self.mute_timer = None
 
         if self.keyer_thread:
@@ -12331,19 +12330,20 @@ class Keyer():
                 time.sleep(time_remaining)
 
         ms = 0
-        if self.end_sidetone_timestamp:
-            ms = round((time.perf_counter() - self.end_sidetone_timestamp) * 1000)
-            # This doesn't match the spec as I understand it, but it works!
-            # From testing, I believe the worst case is actually 4500,
-            # (3.5 + maximum network jitter, but use 5000 to be safe.
-            if ms > 5000:
-                ms = 0
-
-        if first_element or ms == 0:
+        if first_element:
             # Establish a baseline for timing later elements
             # to avoid cumulative errors
             self.element_timestamp = time.perf_counter()
 
+            if self.end_sidetone_timestamp:
+                ms = round((time.perf_counter() - self.end_sidetone_timestamp) * 1000)
+                # This doesn't match the spec as I understand it, but it works!
+                # From testing, I believe the worst case is actually 4500,
+                # (3.5 + maximum network jitter, but use 5000 to be safe.
+                if ms > 5000:
+                    ms = 0
+        else:
+            ms = round(self.inter_element_seconds * 1000)
 
         time_since_first = time.perf_counter() - self.element_timestamp
         initial_delay = int(Server.k4_server.k4_parameter('KZL')) / 1000
