@@ -3357,7 +3357,7 @@ class DropdownWidget():
             height = len(texts)
 
         if sys.platform == 'win32':
-            width += 4 * QFontMetrics(font).averageCharWidth()
+            width += 5 * QFontMetrics(font).averageCharWidth()
         elif sys.platform == 'darwin':
             width += 6 * QFontMetrics(font).averageCharWidth()
 
