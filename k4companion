@@ -8047,6 +8047,9 @@ class Audio():
         # Silent unless something actually went wrong, and rate limited,
         # since a device that cannot keep up would otherwise report on
         # every block.
+        if Options.debug < 1:
+            return
+
         now = time.monotonic()
         if now - self.glitch_report_time < 1:
             return
