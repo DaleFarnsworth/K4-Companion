@@ -7170,15 +7170,23 @@ class Audio():
     input_encode_mode = encode_mode_opus_float
     server = None
 
-    sidetone_rise_time = .004
-    sidetone_fall_time = .004
+    sidetone_rise_time = .006
+    sidetone_fall_time = .006
     sidetone_rise_perceived_ratio = .5
     sidetone_fall_perceived_ratio = .5
     sidetone_enabled = True
 
-    output_buffer_time = .004
+    output_buffer_time = .020
 
-    sending_sidetone = False
+    # Each burst of keying is rendered at a fixed offset behind the
+    # operator's key edges (see mix_sidetone). After this much silence
+    # that offset is dropped, so the next burst starts with the least
+    # delay the device allows rather than inheriting the old one.
+    sidetone_lag_reset_seconds = .5
+    # The shortest tone the envelope can produce, recomputed whenever the
+    # envelope is. Zero until an output device is known.
+    minimum_sidetone_ms = 0
+
     k4_muted = False
     k4_mute_count = 0
 
@@ -7203,19 +7211,15 @@ class Audio():
         if self.input_thread != None:
             self.input_thread.join()
 
-        if self.sidetone_thread != None:
-            self.enable_sidetone_loop = False
-            self.full_output_queue.get_nowait()
-            self.sidetone_thread.join()
-
         if self.output_thread != None:
             self.server.output_audio_queue.put([])
             self.output_thread.join()
 
-        if self.output_stream != None:
-            self.output_stream.stop()
-            self.output_stream.close()
-            self.output_stream = None
+        with self.output_stream_lock:
+            if self.output_stream != None:
+                self.output_stream.stop()
+                self.output_stream.close()
+                self.output_stream = None
 
     @classmethod
     def set_input_device_name(cls, name):
@@ -7322,7 +7326,7 @@ class Audio():
         elif base == 'SB':
             self.sub_on = cmd != '0'
 
-        self.generate_sidetone_packets()
+        self.generate_sidetone_envelopes()
 
     @classmethod
     def local_audio_responses(cls):
@@ -7366,17 +7370,34 @@ class Audio():
 
     @classmethod
     def start_sidetone(cls):
-        if cls.singleton == None or not cls.sidetone_enabled:
-            return
-        self = cls.singleton
-        self.output_device_queue = self.rise_output_queue
+        cls.key_sidetone(True)
 
     @classmethod
     def stop_sidetone(cls):
+        cls.key_sidetone(False)
+
+    @classmethod
+    def key_sidetone(cls, key_down):
+        # Record when the edge happened rather than acting on it here.
+        # PortAudio's clock is the one time_info reports the block's
+        # play-out time on, so output_stream_callback can work out which
+        # frame of which block this edge belongs at. Called from the
+        # keyer's thread, between which and the next callback a whole
+        # element can begin and end.
         if cls.singleton == None or not cls.sidetone_enabled:
             return
         self = cls.singleton
-        self.output_device_queue = self.fall_output_queue
+        # Held only long enough to read the clock: asking a stream that
+        # output_loop has just closed for its time reads freed memory.
+        with self.output_stream_lock:
+            stream = self.output_stream
+            if stream == None:
+                return
+            try:
+                event_time = stream.time
+            except sounddevice.PortAudioError:
+                return
+        self.key_event_queue.put((event_time, key_down))
 
     @classmethod
     def enable_sidetone(cls, enable):
@@ -7445,9 +7466,13 @@ class Audio():
     def __init__(self):
         self.input_stream = None
         self.output_stream = None
+        # Guards output_stream against being closed while the keyer's
+        # thread is reading its clock in key_sidetone(). The output
+        # callback never takes it, so closing cannot deadlock against it.
+        self.output_stream_lock = threading.Lock()
         self.input_thread = None
         self.output_thread = None
-        # Samples pulled from output_device_queue that didn't fit in the
+        # Samples pulled from k4_output_queue that didn't fit in the
         # previous output_stream_callback() call; carried over so each
         # PortAudio-requested block gets exactly frame_count frames.
         self.output_stream_leftover = numpy.empty(0, dtype=numpy.float32)
@@ -7457,16 +7482,48 @@ class Audio():
         # output_stream_callback cannot run to drain the queue either, so
         # only PortAudio's own buffer (frames_per_buffer) keeps playing.
         self.k4_output_queue = queue.Queue(2)
-        self.rise_output_queue = queue.Queue(3)
-        self.full_output_queue = queue.Queue(100)
-        self.fall_output_queue = queue.Queue(3)
-        self.output_device_queue = self.k4_output_queue
-        self.output_stream_leftover_queue = self.k4_output_queue
-        # The frame the rise packet fades out from, so that a
-        # start_sidetone() arriving before the first output block fades
-        # from silence rather than from an attribute that isn't set yet.
-        self.previous_output_sample = numpy.zeros(self.output_channels, dtype=numpy.float32)
-        self.previous_chunk = None
+        # Key edges waiting to be placed within a block, each a
+        # (PortAudio stream time, key down) pair. SimpleQueue rather than
+        # Queue because output_stream_callback reads it on PortAudio's
+        # thread, where taking a Python lock is worth avoiding.
+        self.key_event_queue = queue.SimpleQueue()
+        # An edge already taken off that queue that belongs to a later
+        # block than the one being filled.
+        self.pending_key_event = None
+        # How far behind the operator's key edges this burst is being
+        # rendered, in seconds. See next_key_edge().
+        self.sidetone_lag = 0.0
+        # Whether the last edge rendered was a key down, how far the
+        # envelope has travelled between silence (0) and full tone (1),
+        # and the tone's phase -- all carried across blocks so a rise or
+        # fall spanning a block boundary is continuous.
+        self.sidetone_keyed = False
+        self.sidetone_envelope_position = 0.0
+        self.sidetone_phase = 0.0
+        # Frames handed to PortAudio so far, and the one the most recent
+        # edge landed on: the axis key event times are resolved onto.
+        self.rendered_frames = 0
+        self.last_edge_frame = 0
+        self.sidetone_shape = None
+        self.sidetone_ramp = numpy.empty(0, dtype=numpy.float32)
+        # What a sidetone rise fades the receive audio away from: the
+        # last sample that went out before the key went down. Held until
+        # the envelope is fully up, then dropped.
+        self.sidetone_hold_sample = None
+        # The last frame of receive audio a block ended on, the sample a
+        # dropout fades away from, and how far that fade has run.
+        self.previous_k4_sample = numpy.zeros(self.output_channels, dtype=numpy.float32)
+        self.k4_fade_sample = numpy.zeros(self.output_channels, dtype=numpy.float32)
+        self.k4_fade_position = 1.0
+        # Glitch counters. The output callback only ever increments
+        # these -- printing from PortAudio's thread is itself a source of
+        # the glitches being counted -- and the audio threads report them
+        # in report_audio_glitches() below.
+        self.output_status_count = 0
+        self.output_underflow_count = 0
+        self.input_overflow_count = 0
+        self.reported_glitch_counts = (0, 0, 0)
+        self.glitch_report_time = 0.0
         self.input_device_index = -1
         self.output_device_index = -1
         self.input_device_infos = {}
@@ -7476,19 +7533,9 @@ class Audio():
         self.transmit_audio = False
         self.cw_pitch = 600
         self.sidetone_volume = 30
-        self.sidetone_thread = None
-        self.enable_sidetone_loop = True
-        self.starting_sidetone = False
-        self.ending_sidetone = False
 
         Server.k4_server.subscribe_response('CW;', self.on_cw_pitch_change)
         Server.k4_server.subscribe_response('ML0;', self.on_sidetone_volume_change)
-        self.queue_names = {
-            self.k4_output_queue: 'k4',
-            self.rise_output_queue: 'up',
-            self.full_output_queue: 'full',
-            self.fall_output_queue: 'down',
-        }
 
         a_volume = Server.settings.get('Audio', 'main_volume')
         if a_volume == None:
@@ -7610,9 +7657,6 @@ class Audio():
         if self.output_device_index < 0:
             return
 
-        self.sidetone_thread = threading.Thread(target=self.sidetone_loop, name='audio_sidetone_thread')
-        self.sidetone_thread.start()
-
         self.output_thread = threading.Thread(target=self.output_loop, name='audio_output_thread')
         self.output_thread.start()
 
@@ -7641,9 +7685,10 @@ class Audio():
 
                 opus = opuslib.Decoder(cls.k4_sample_rate, cls.output_channels)
 
-                if self.output_stream != None:
-                    self.output_stream.close()
-                    self.output_stream = None
+                with self.output_stream_lock:
+                    if self.output_stream != None:
+                        self.output_stream.close()
+                        self.output_stream = None
 
                 resample_ratio = int(cls.output_device_sample_rate() / cls.k4_sample_rate)
 
@@ -7677,6 +7722,7 @@ class Audio():
 
                 if self.output_stream != None:
                     warned = False
+                    self.reset_sidetone()
                 else:
                     if not warned:
                         Popup.warning('Failed to open: ' + self.output_device_name())
@@ -7684,6 +7730,8 @@ class Audio():
                     continue
 
                 current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
+
+            self.report_audio_glitches()
 
             pcm = opus.decode_float(bytes(packet[4:]), self.maximum_output_frame_size)
             stereo = numpy.frombuffer(pcm, dtype=numpy.float32)
@@ -7775,78 +7823,278 @@ class Audio():
             averaged_left_right_volume = (left + right) / 2
             return averaged_left_right_volume
 
-    def sidetone_loop(self):
-        self.generate_sidetone_packets()
-
-        while self.enable_sidetone_loop:
-            try:
-                self.rise_output_queue.put_nowait(self.sidetone_rise_packet)
-            except queue.Full:
-                pass
-
-            try:
-                self.fall_output_queue.put_nowait(self.sidetone_fall_packet)
-            except queue.Full:
-                pass
-
-            self.full_output_queue.put(self.sidetone_full_cycle_packet)
-
     def output_stream_callback(self, outdata, frames, time_info, status):
         # Called on PortAudio's own thread whenever it needs more frames;
         # unlike the blocking-write loop this replaced, it must never
         # block, so a queue underrun is padded with silence rather than
-        # waiting for output_device_queue to be refilled. Unlike
-        # pyaudio's callback, sounddevice's doesn't return the samples --
-        # they're written directly into the outdata buffer it hands in.
+        # waiting for k4_output_queue to be refilled. Unlike pyaudio's
+        # callback, sounddevice's doesn't return the samples -- they're
+        # written directly into the outdata buffer it hands in.
+        if status:
+            # Counted, not reported: a status flag means this thread is
+            # already late, and stderr is the last place to spend that
+            # time. report_audio_glitches() prints them from a thread
+            # where blocking costs nothing.
+            self.output_status_count += 1
+            if status.output_underflow:
+                self.output_underflow_count += 1
+
+        block_start_frame = self.rendered_frames
+        self.rendered_frames += frames
+
+        # Taken before the fill below overwrites it: the frame the
+        # previous block ended on is what a key down landing on frame 0
+        # of this one has to fade away from.
+        previous_sample = self.previous_k4_sample
+
         needed = frames * self.output_channels
         data = self.output_stream_leftover
 
-        current_queue = None
         while len(data) < needed:
-            current_queue = self.output_device_queue
             try:
-                chunk = current_queue.get_nowait()
-                if current_queue == self.k4_output_queue:
-                    if self.k4_muted:
-                        self.k4_mute_count = 6
-                    if self.k4_mute_count > 0:
-                        self.k4_mute_count -= 1
-                        break
-                elif current_queue == self.rise_output_queue:
-                    sample = self.previous_output_sample
-                    left = sample[0] * self.fall_envelope
-                    right = sample[1] * self.fall_envelope
-                    stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
-                    stereo[0::2] = left
-                    stereo[1::2] = right
-                    data = stereo
-                    self.output_stream_leftover = numpy.concatenate((data[needed:], chunk))
-                    self.output_stream_leftover_queue = current_queue
-                    self.write_outdata(outdata, data[:needed])
-                    self.output_device_queue = self.full_output_queue
-                    return
-                elif current_queue == self.fall_output_queue:
-                    self.output_device_queue = self.k4_output_queue
+                chunk = self.k4_output_queue.get_nowait()
             except queue.Empty:
                 break
+            if self.k4_muted:
+                self.k4_mute_count = 4
+            if self.k4_mute_count > 0:
+                self.k4_mute_count -= 1
+                break               # drop the chunk rather than play it
             data = numpy.concatenate((data, chunk))
-            self.previous_chunk = chunk
         self.output_stream_leftover = data[needed:]
         self.write_outdata(outdata, data[:needed])
-        self.output_stream_leftover_queue = current_queue
+
+        self.mix_sidetone(outdata, frames, block_start_frame, time_info, previous_sample)
 
     def write_outdata(self, outdata, samples):
-        # PortAudio hands in a (frames, channels) array; the queues carry
+        # PortAudio hands in a (frames, channels) array; the queue carries
         # those same samples interleaved and flat, the layout they arrive
-        # from the K4 in. Anything the queues came up short by is filled
-        # with silence rather than left holding the previous block.
+        # from the K4 in.
         frames = samples.size // self.output_channels
-        outdata[:frames] = samples.reshape(frames, self.output_channels)
-        outdata[frames:] = 0
-        # Copied, not referenced: outdata is PortAudio's own memory and
-        # is only valid for the duration of this callback, while the rise
-        # packet fades this frame out on some later one.
-        self.previous_output_sample = outdata[-1].copy()
+        if frames > 0:
+            outdata[:frames] = samples.reshape(frames, self.output_channels)
+            if self.k4_fade_position > 0:
+                self.fade_k4(outdata[:frames], True)
+            self.k4_fade_sample = outdata[frames-1].copy()
+        if frames < len(outdata):
+            self.fade_k4(outdata[frames:], False)
+        if len(outdata) > 0:
+            self.previous_k4_sample = outdata[-1].copy()
+
+    def fade_k4(self, outdata, fade_in):
+        # Receive audio does not simply stop and start. mute_k4() cuts it
+        # the moment the operator keys -- before the sidetone has risen,
+        # since the tone is rendered a block or two behind the key edge
+        # -- unmute_k4() brings it back a few milliseconds later, and a
+        # late packet leaves the queue short at any time. Stepping
+        # between audio and silence within one sample clicks at every one
+        # of those points.
+        #
+        # This walks a position from 0 (audio) to 1 (silence) and back
+        # over the envelope's fall time, carrying on across blocks rather
+        # than restarting, so a long mute decays once and then sits at
+        # silence. Fading out there is no audio left to shape, so what
+        # decays is the last sample that went out.
+        shape = self.sidetone_shape
+        if shape == None or len(outdata) == 0:
+            if not fade_in:
+                outdata[:] = 0
+            return
+        step = -shape[2] if fade_in else shape[2]
+        positions = self.k4_fade_position + step * self.sidetone_block_ramp(len(outdata))
+        numpy.clip(positions, 0.0, 1.0, out=positions)
+        self.k4_fade_position = positions[-1]
+        curve = (.5 * (1 + numpy.cos(numpy.pi * positions))).reshape(-1, 1)
+        if fade_in:
+            outdata *= curve
+        else:
+            outdata[:] = self.k4_fade_sample * curve
+
+    def mix_sidetone(self, outdata, frames, block_start_frame, time_info, previous_sample):
+        # The sidetone is generated here, a block at a time, rather than
+        # played from a queue of pre-rendered packets. A queue can only
+        # turn the tone on and off where one block ends and the next
+        # begins, which rounds every element and every gap to the
+        # blocksize: at 20ms blocks a 60ms dit comes out anywhere between
+        # 40 and 80ms, and elements shorter than a block disappear
+        # entirely. Placing each timestamped edge at its own frame within
+        # the block reproduces what the operator keyed whatever blocksize
+        # the device runs at.
+        shape = self.sidetone_shape
+        if shape == None or frames <= 0:
+            return
+        sample_rate, rise_step, fall_step, phase_step, volume = shape
+
+        idle = not self.sidetone_keyed and self.sidetone_envelope_position <= 0
+        quiet_frames = block_start_frame - self.last_edge_frame
+
+        if (idle and self.pending_key_event == None and
+                quiet_frames > sample_rate * self.sidetone_lag_reset_seconds):
+            self.sidetone_lag = 0.0
+
+        if idle and self.pending_key_event == None and self.key_event_queue.empty():
+            return                  # nothing keyed: the K4 audio stands as written
+
+        # PortAudio reports when this block reaches the DAC on the same
+        # clock key_sidetone() read, so where an edge falls within the
+        # block is just the difference between the two. Not every host
+        # API fills in outputBufferDacTime; currentTime always carries a
+        # usable time, and sidetone_lag absorbs the offset between them.
+        dac_time = time_info.outputBufferDacTime or time_info.currentTime
+
+        position = self.sidetone_envelope_position
+        positions = numpy.empty(frames, dtype=numpy.float32)
+
+        start = 0
+        while start < frames:
+            edge = self.next_key_edge(frames, dac_time, sample_rate)
+            end = frames if edge == None else edge[0]
+            if end > start:
+                if self.sidetone_hold_sample is not None:
+                    # Receive audio does not carry on into a key down --
+                    # the radio stops sending it -- so the rise fades
+                    # away from the last sample that went out rather than
+                    # from whatever the queue has. The (1 - envelope)
+                    # factor at the end of this method is the fall
+                    # envelope being applied to it.
+                    outdata[start:end] = self.sidetone_hold_sample
+                # The raised cosine below gives the envelope its shape,
+                # so this position need only travel from 0 to 1 over the
+                # rise time and back over the fall time. An edge landing
+                # part way through simply reverses it, which stays
+                # continuous however short the element was.
+                step = rise_step if self.sidetone_keyed else -fall_step
+                segment = position + step * self.sidetone_block_ramp(end - start)
+                numpy.clip(segment, 0.0, 1.0, out=segment)
+                positions[start:end] = segment
+                position = segment[-1]
+                if position >= 1:
+                    self.sidetone_hold_sample = None    # fully faded away
+            if edge == None:
+                break
+            if edge[1]:
+                # Capture what the fade starts from before the envelope
+                # touches this block.
+                self.sidetone_hold_sample = (outdata[end-1].copy() if end > 0
+                                             else previous_sample)
+            else:
+                self.sidetone_hold_sample = None
+            self.sidetone_keyed = edge[1]
+            self.last_edge_frame = block_start_frame + end
+            start = end
+
+        self.sidetone_envelope_position = position
+
+        # Phase runs free across blocks and across elements: the envelope
+        # starts and ends at zero amplitude, so where in the cycle an
+        # element begins is inaudible, and never resetting it means a
+        # key down during a fall cannot step the waveform.
+        angles = self.sidetone_phase + phase_step * self.sidetone_block_ramp(frames)
+        self.sidetone_phase = math.fmod(float(angles[-1]), 2 * math.pi)
+
+        # The sidetone replaces the K4 audio while it sounds. Crossfading
+        # the two over the envelope means the K4 audio is faded down
+        # rather than cut, which is what the old rise packet's fade of
+        # the previous sample was for.
+        envelope = (.5 * (1 - numpy.cos(numpy.pi * positions))).reshape(frames, 1)
+        outdata *= 1.0 - envelope
+        outdata += (numpy.sin(angles) * volume).reshape(frames, 1) * envelope
+
+    def next_key_edge(self, frames, dac_time, sample_rate):
+        # The next edge landing in the block being filled, as a (frame
+        # within the block, key down) pair, or None when the next one
+        # belongs to a later block.
+        event = self.pending_key_event
+        if event == None:
+            try:
+                event = self.key_event_queue.get_nowait()
+            except queue.Empty:
+                return None
+
+        event_time, key_down = event
+        offset = round((event_time + self.sidetone_lag - dac_time) * sample_rate)
+
+        if offset < 0:
+            # PortAudio fills a block well before its audio reaches the
+            # DAC, so an edge is always keyed too late for the block it
+            # ideally belongs in -- without the correction below every
+            # edge would land on frame 0 and nothing would be gained over
+            # the queue this replaced. Carry the shortfall in
+            # sidetone_lag, which shifts every later edge in the burst by
+            # the same amount, so only the burst's first tone waits and
+            # the elements and gaps after it come out exact.
+            #
+            # A block of margin goes on top. An edge is picked up by the
+            # first callback to run after it was keyed, so how late it
+            # arrives varies by up to a block depending on where between
+            # two callbacks the operator keyed it. Without the margin the
+            # lag would have to grow over the burst's first few elements
+            # to cover that, stretching them; with it the very first
+            # element is already exact, at the cost of one block of
+            # monitoring delay.
+            self.sidetone_lag += (frames - offset) / sample_rate
+            offset = frames         # i.e. the first frame of the next block
+
+        if offset >= frames:
+            self.pending_key_event = event
+            return None
+
+        self.pending_key_event = None
+        return offset, key_down
+
+    def report_audio_glitches(self):
+        # Called from the audio threads, never from the output callback.
+        # Silent unless something actually went wrong, and rate limited,
+        # since a device that cannot keep up would otherwise report on
+        # every block.
+        now = time.monotonic()
+        if now - self.glitch_report_time < 1:
+            return
+        self.glitch_report_time = now
+
+        counts = (self.output_underflow_count, self.output_status_count,
+                  self.input_overflow_count)
+        if counts == self.reported_glitch_counts:
+            return
+        underflows, statuses, overflows = (
+                new - old for new, old in zip(counts, self.reported_glitch_counts))
+        self.reported_glitch_counts = counts
+
+        report = []
+        if underflows:
+            report.append(f'{underflows} output underflow(s)')
+        if statuses - underflows:
+            report.append(f'{statuses - underflows} other output status')
+        if overflows:
+            report.append(f'{overflows} input overflow(s)')
+        dprint('audio glitches since the last report:', ', '.join(report))
+
+    def sidetone_block_ramp(self, frames):
+        # 1..frames as float32, grown once and reused afterwards: this
+        # runs on PortAudio's thread, where allocating a fresh array
+        # every block is worth avoiding.
+        if len(self.sidetone_ramp) < frames:
+            self.sidetone_ramp = numpy.arange(1, frames + 1, dtype=numpy.float32)
+        return self.sidetone_ramp[:frames]
+
+    def reset_sidetone(self):
+        # A stream time only means anything within the stream that
+        # produced it, so edges keyed against a stream that has been
+        # closed are dropped when the device changes.
+        while True:
+            try:
+                self.key_event_queue.get_nowait()
+            except queue.Empty:
+                break
+        self.pending_key_event = None
+        self.sidetone_lag = 0.0
+        self.sidetone_keyed = False
+        self.sidetone_envelope_position = 0.0
+        self.sidetone_phase = 0.0
+        self.sidetone_hold_sample = None
+        self.k4_fade_position = 1.0
+        self.last_edge_frame = 0
+        self.generate_sidetone_envelopes()
 
     def on_transmit_changed(self, server, response):
         transmit = server.k4_parameters.get('TR') == 'T'
@@ -7872,7 +8120,7 @@ class Audio():
 
     def on_mx_changed(self, server, response):
         self.ab = response[2:].lower().rstrip(';')
-        self.generate_sidetone_packets()
+        self.generate_sidetone_envelopes()
 
     def start_input_thread(self, server):
         if self.input_device_index < 0:
@@ -7912,6 +8160,8 @@ class Audio():
                             stream.start()
                             return stream
                         except Exception:
+                            # See the matching comment in output_loop.
+                            traceback.print_exc(file=stderr)
                             continue
                     return None
 
@@ -7939,6 +8189,11 @@ class Audio():
                 resample_ratio = int(Audio.input_device_sample_rate() / Audio.k4_sample_rate)
 
             sampled, overflowed = input_stream.read(Audio.input_frame_size * resample_ratio)
+            if overflowed:
+                # Samples the device dropped because this loop did not
+                # read them in time: a hole in what the K4 transmits.
+                self.input_overflow_count += 1
+            self.report_audio_glitches()
             sampled = sampled.reshape(-1)
 
             if resample_ratio == 1:
@@ -7977,52 +8232,40 @@ class Audio():
 
             server.send_audio_packet(audio_packet, self.input_encode_mode, frame_size)
 
-    def generate_sidetone_packets(self):
+    def generate_sidetone_envelopes(self):
+        # mix_sidetone needs only the rate the envelope walks at, the
+        # rate the tone's phase advances at, and the volume to scale it
+        # by; nothing here is pre-rendered, so none of it depends on the
+        # blocksize any more. They go into one tuple because a pitch or
+        # volume change rebuilds them on another thread and the callback
+        # has to take a consistent set.
         sample_rate = Audio.output_device_sample_rate()
         if sample_rate is None:
+            self.sidetone_shape = None
             return
-        samples_per_cycle = round(sample_rate / self.cw_pitch)
-        seconds_per_cycle = samples_per_cycle / sample_rate
-        samples_per_rise_time = math.ceil(sample_rate * self.sidetone_rise_time)
-        samples_per_fall_time = math.ceil(sample_rate * self.sidetone_fall_time)
-        cycles_per_rise_packet = math.ceil(samples_per_rise_time / samples_per_cycle)
-        cycles_per_fall_packet = math.ceil(samples_per_fall_time / samples_per_cycle)
-        samples_per_rise_packet = cycles_per_rise_packet * samples_per_cycle
-        samples_per_fall_packet =  cycles_per_fall_packet * samples_per_cycle
+
+        rise_step = 1 / max(1, round(sample_rate * self.sidetone_rise_time))
+        fall_step = 1 / max(1, round(sample_rate * self.sidetone_fall_time))
+        phase_step = 2 * math.pi * self.cw_pitch / sample_rate
         volume = self.sidetone_volume / 135 * self.averaged_left_right_volume()
+        self.sidetone_shape = (sample_rate, rise_step, fall_step, phase_step, volume)
 
-        steps = numpy.linspace(0, 1, samples_per_cycle, endpoint=False, dtype=numpy.float32)
-        cycle = numpy.sin(2 * numpy.pi * steps) * volume
-        full_cycles = round(self.output_buffer_time / seconds_per_cycle)
-        self.sidetone_full_cycle_packet = numpy.tile(cycle.repeat(2), full_cycles)
-
-        rise_steps = numpy.linspace(0, 1, samples_per_rise_packet, dtype=numpy.float32)
-        fall_steps = numpy.linspace(1, 0, samples_per_fall_packet, dtype=numpy.float32)
-        rise_sin_samples = numpy.tile(cycle, cycles_per_rise_packet)
-        fall_sin_samples = numpy.tile(cycle, cycles_per_fall_packet)
-        rise_envelope = .5 * (1 - numpy.cos(numpy.pi * rise_steps))
-        self.fall_envelope = .5 * (1 - numpy.cos(numpy.pi * fall_steps))
-        rise_samples = (rise_sin_samples * rise_envelope).repeat(2)
-        fall_samples = (fall_sin_samples * self.fall_envelope).repeat(2)
-        self.sidetone_rise_packet = rise_samples
-        self.sidetone_fall_packet = fall_samples
-
-        self.full_seconds = seconds_per_cycle * full_cycles
-        self.rise_seconds = seconds_per_cycle * cycles_per_rise_packet
-        self.fall_seconds = seconds_per_cycle * cycles_per_fall_packet
-        rise_perceived = self.rise_seconds * self.sidetone_rise_perceived_ratio
-        fall_perceived = self.fall_seconds * self.sidetone_fall_perceived_ratio
+        rise_perceived = self.sidetone_rise_time * self.sidetone_rise_perceived_ratio
+        fall_perceived = self.sidetone_fall_time * self.sidetone_fall_perceived_ratio
+        # The shortest tone the envelope can make. It no longer includes
+        # a whole output block: an element now ends on the frame it was
+        # keyed at rather than at the next block boundary.
         cls = self.__class__
-        cls.minimum_sidetone_ms = round((rise_perceived + self.full_seconds + fall_perceived) * 1000)
+        cls.minimum_sidetone_ms = round((rise_perceived + fall_perceived) * 1000)
 
     def on_cw_pitch_change(self, response):
         self.cw_pitch = int(response[2:].rstrip(';')) * 10
-        self.generate_sidetone_packets()
+        self.generate_sidetone_envelopes()
         VailAdapter.send_pitch()
 
     def on_sidetone_volume_change(self, response):
         self.sidetone_volume = int(response[3:].rstrip(';'))
-        self.generate_sidetone_packets()
+        self.generate_sidetone_envelopes()
 
 class Settings():
     max_servers = 25
