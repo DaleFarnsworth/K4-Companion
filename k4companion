@@ -7170,7 +7170,7 @@ class Audio():
     input_encode_mode = encode_mode_opus_float
     server = None
 
-    sidetone_rise_time = .006
+    sidetone_rise_time = .004
     sidetone_fall_time = .006
     sidetone_rise_perceived_ratio = .5
     sidetone_fall_perceived_ratio = .5
