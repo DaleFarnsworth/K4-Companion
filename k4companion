@@ -7175,6 +7175,7 @@ class Audio():
     sidetone_rise_perceived_ratio = .5
     sidetone_fall_perceived_ratio = .5
     sidetone_enabled = True
+    k4_fade_in_time = .020
 
     output_buffer_time = .004
 
@@ -7183,8 +7184,6 @@ class Audio():
     # that offset is dropped, so the next burst starts with the least
     # delay the device allows rather than inheriting the old one.
     sidetone_lag_reset_seconds = .5
-    # The shortest tone the envelope can produce, recomputed whenever the
-    # envelope is. Zero until an output device is known.
     minimum_sidetone_ms = 0
 
     k4_muted = False
@@ -7850,14 +7849,21 @@ class Audio():
         needed = frames * self.output_channels
         data = self.output_stream_leftover
 
+        if self.k4_muted:
+            # Ahead of the queue loop, and taking the samples already
+            # buffered with it. Asking inside the loop only muted once
+            # the leftover ran out, which is up to a whole K4 packet late
+            # -- and a mute shorter than that never happened at all, so
+            # neither did the fade back in on unmuting.
+            self.k4_mute_count = 6 
+            data = numpy.empty(0, dtype=numpy.float32)
+
         while len(data) < needed:
             try:
                 chunk = self.k4_output_queue.get_nowait()
             except queue.Empty:
                 break
-            if self.k4_muted:
-                self.k4_mute_count = 4
-            if self.k4_mute_count > 0:
+            if not self.k4_muted and self.k4_mute_count > 0:
                 self.k4_mute_count -= 1
                 break               # drop the chunk rather than play it
             data = numpy.concatenate((data, chunk))
@@ -7900,7 +7906,9 @@ class Audio():
             if not fade_in:
                 outdata[:] = 0
             return
-        step = -shape[2] if fade_in else shape[2]
+        # shape[5] is the unmute fade-in step; shape[2] the fall step,
+        # which the fade-out shares with the sidetone envelope.
+        step = -shape[5] if fade_in else shape[2]
         positions = self.k4_fade_position + step * self.sidetone_block_ramp(len(outdata))
         numpy.clip(positions, 0.0, 1.0, out=positions)
         self.k4_fade_position = positions[-1]
@@ -7923,7 +7931,7 @@ class Audio():
         shape = self.sidetone_shape
         if shape == None or frames <= 0:
             return
-        sample_rate, rise_step, fall_step, phase_step, volume = shape
+        sample_rate, rise_step, fall_step, phase_step, volume = shape[:5]
 
         idle = not self.sidetone_keyed and self.sidetone_envelope_position <= 0
         quiet_frames = block_start_frame - self.last_edge_frame
@@ -8251,7 +8259,9 @@ class Audio():
         fall_step = 1 / max(1, round(sample_rate * self.sidetone_fall_time))
         phase_step = 2 * math.pi * self.cw_pitch / sample_rate
         volume = self.sidetone_volume / 135 * self.averaged_left_right_volume()
-        self.sidetone_shape = (sample_rate, rise_step, fall_step, phase_step, volume)
+        k4_fade_in_step = 1 / max(1, round(sample_rate * self.k4_fade_in_time))
+        self.sidetone_shape = (sample_rate, rise_step, fall_step, phase_step, volume,
+                               k4_fade_in_step)
 
         rise_perceived = self.sidetone_rise_time * self.sidetone_rise_perceived_ratio
         fall_perceived = self.sidetone_fall_time * self.sidetone_fall_perceived_ratio
