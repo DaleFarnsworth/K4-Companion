@@ -12112,7 +12112,8 @@ class Keyer():
         self.dit_up_timestamp = 0
         self.dah_down_timestamp = 0
         self.dah_up_timestamp = 0
-        self.element_timestamp = 0
+        self.element_timestamp = None
+        self.end_element_timestamp = None
         self.end_sidetone_timestamp = None
         self.mute_timer = None
 
@@ -12345,8 +12346,8 @@ class Keyer():
             # to avoid cumulative errors
             self.element_timestamp = time.perf_counter()
 
-            if self.end_sidetone_timestamp:
-                ms = round((time.perf_counter() - self.end_sidetone_timestamp) * 1000)
+            if self.end_element_timestamp:
+                ms = round((time.perf_counter() - self.end_element_timestamp) * 1000)
                 # This doesn't match the spec as I understand it, but it works!
                 # From testing, I believe the worst case is actually 4500,
                 # (3.5 + maximum network jitter, but use 5000 to be safe.
@@ -12371,10 +12372,11 @@ class Keyer():
         ms = round(element_seconds * 1000)
 
         Audio.start_sidetone()
-
         time.sleep(element_seconds)
         Server.k4_server.send_str(f'KZU{ms:04d};')
         Audio.stop_sidetone()
+
+        self.end_element_timestamp = self.element_timestamp + element_seconds
 
         now = time.perf_counter()
         self.end_sidetone_timestamp = now
