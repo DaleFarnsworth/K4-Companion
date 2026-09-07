@@ -11492,8 +11492,34 @@ class MidiInput():
         if not cls.singleton:
             return
         Poll.remove(cls.singleton.poll_new_device)
-        cls.midiin.close_port()
+        cls.close_port()
         cls.singleton = None
+
+    @classmethod
+    def close_port(cls):
+        # Unplugging the device can leave the Windows MM port in a state
+        # where closing it fails (midiInUnprepareHeader), which is the
+        # very case every caller here is closing it for. rtmidi has let
+        # the port go either way, so the error reports nothing they could
+        # act on -- and reaching them uncaught, from a Poll callback,
+        # only prints a traceback for a device the operator removed on
+        # purpose.
+        try:
+            cls.midiin.close_port()
+        except rtmidi.RtMidiError:
+            pass
+
+    @classmethod
+    def open_port(cls, port_index):
+        # A device unplugged between poll_new_device's get_ports() and
+        # this call fails the same way closing one does. Answering False
+        # rather than raising lets the caller leave its serial number
+        # where it is, so the next poll simply tries again.
+        try:
+            cls.midiin.open_port(port_index)
+        except rtmidi.RtMidiError:
+            return False
+        return True
 
     @classmethod
     def set_port_name(cls, name):
@@ -11547,24 +11573,32 @@ class MidiInput():
 
         if self.port_name == 'None':
             cls.previous_port_serial_number = -1
-            self.midiin.close_port()
+            cls.close_port()
             return
 
         port_index = -1
         try:
             port_index = self.port_names.index(self.port_name)
         except:
-            self.midiin.close_port()
+            cls.close_port()
             cls.previous_port_serial_number = -1
             if not self.warned:
                 self.warned = True
                 KeyerWarning.warning("Midi device {name} not found".format(name=self.port_name))
 
         if port_index >= 0 and cls.port_serial_number != cls.previous_port_serial_number:
+            cls.close_port()
+            if not cls.open_port(port_index):
+                # Nothing is advanced, so the next poll comes back here
+                # and tries the same port again a second from now.
+                if not self.warned:
+                    self.warned = True
+                    KeyerWarning.warning("Midi device {name} open failed".format(name=self.port_name))
+                return
+
+            # Only once the device is really open is the fault over.
             self.warned = False
             KeyerWarning.clear()
-            self.midiin.close_port()
-            self.midiin.open_port(port_index)
             cls.previous_port_serial_number = cls.port_serial_number
 
             if Keyer.device_type_vail_adapter:
