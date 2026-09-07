@@ -7176,7 +7176,7 @@ class Audio():
     sidetone_fall_perceived_ratio = .5
     sidetone_enabled = True
 
-    output_buffer_time = .004
+    output_buffer_time = .008
 
     # Each burst of keying is rendered at a fixed offset behind the
     # operator's key edges (see mix_sidetone). After this much silence
