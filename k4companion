@@ -13201,7 +13201,21 @@ def _qt_message_handler(msg_type, context, message):
     # handler.
     if 'QThreadStorage' in message and 'destroyed before end of thread' in message:
         return
-    sys.stderr.write(message + '\n')
+    # Nothing in here may raise, and a windowed build makes this raise
+    # every time: under pythonw, and in a PyInstaller windowed bundle,
+    # sys.stderr is None. PyQt cannot propagate the exception back into
+    # C++, so it is swallowed -- and the message goes with it. Qt's own
+    # fatals (QThread destroyed while still running, and the rest) abort
+    # the process, and this handler is the only place their reason is
+    # ever written, so the app died with nothing printed at all.
+    #
+    # The module's own stderr rather than sys.stderr, for the reason it
+    # exists (see its comment): it still works with fd 2 closed.
+    try:
+        stderr.write(message + '\n')
+        stderr.flush()
+    except Exception:
+        pass
 
 def main():
     qInstallMessageHandler(_qt_message_handler)
