@@ -11597,18 +11597,18 @@ class VailAdapter():
 
         cls.midiout = rtmidi.MidiOut()
         ports = cls.midiout.get_ports()
+        best_matching_length = 0
+        best_matching_port = None
+        full_length = len(devname)
         for port, name in enumerate(ports):
-            if name == devname:
-                cls.midiout.open_port(port)
-                while True:
-                    cls.send_initial_state()
-                    time.sleep(.1)
-                    if MidiInput.get_message():
-                        break
-                return
-        KeyerWarning.warning(f'Vail Adapter {devname} not found')
-        del cls.midiout
-        cls.midiout = None
+            for alen in range(full_length, 0, -1):
+                if name.startswith(devname[:alen]):
+                    if alen > best_matching_length:
+                        best_matching_length = alen
+                        best_matching_port = port
+                    
+        cls.midiout.open_port(best_matching_port)
+        cls.send_initial_state()
 
     @classmethod
     def close_output(cls):
