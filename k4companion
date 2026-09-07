@@ -7183,6 +7183,14 @@ class Audio():
     # that offset is dropped, so the next burst starts with the least
     # delay the device allows rather than inheriting the old one.
     sidetone_lag_reset_seconds = .5
+    # The most monitoring delay sidetone_lag is allowed to take on. It
+    # absorbs a fixed offset -- the output latency plus a block -- but it
+    # only ever grows within a burst, and an output underrun slips the
+    # DAC timeline ahead of the clock the keyer thread reads, which makes
+    # it grow again. Uncapped, and with no quiet to reset it, holding a
+    # paddle down on a device that underruns walks the sidetone seconds
+    # behind the key.
+    max_sidetone_lag = .050
     minimum_sidetone_ms = 0
 
     k4_muted = False
@@ -8003,8 +8011,18 @@ class Audio():
             # to cover that, stretching them; with it the very first
             # element is already exact, at the cost of one block of
             # monitoring delay.
-            self.sidetone_lag += (frames - offset) / sample_rate
-            offset = frames         # i.e. the first frame of the next block
+            lag = self.sidetone_lag + (frames - offset) / sample_rate
+            if lag <= self.max_sidetone_lag:
+                self.sidetone_lag = lag
+                offset = frames     # i.e. the first frame of the next block
+            else:
+                # Carrying this one forward would push every element
+                # after it back as well, for as long as the operator
+                # keeps keying. Take the edge at the start of this block
+                # instead: placement is then quantized to the blocksize,
+                # off by at most one block and never accumulating.
+                self.sidetone_lag = self.max_sidetone_lag
+                offset = 0
 
         if offset >= frames:
             self.pending_key_event = event
