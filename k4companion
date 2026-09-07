@@ -7175,7 +7175,6 @@ class Audio():
     sidetone_rise_perceived_ratio = .5
     sidetone_fall_perceived_ratio = .5
     sidetone_enabled = True
-    k4_fade_in_time = .020
 
     output_buffer_time = .004
 
@@ -7369,11 +7368,13 @@ class Audio():
 
     @classmethod
     def start_sidetone(cls):
+        cls.singleton.report_audio_glitches(during_sidetone=False)
         cls.key_sidetone(True)
 
     @classmethod
     def stop_sidetone(cls):
         cls.key_sidetone(False)
+        cls.singleton.report_audio_glitches(during_sidetone=True)
 
     @classmethod
     def key_sidetone(cls, key_down):
@@ -7509,11 +7510,8 @@ class Audio():
         # last sample that went out before the key went down. Held until
         # the envelope is fully up, then dropped.
         self.sidetone_hold_sample = None
-        # The last frame of receive audio a block ended on, the sample a
-        # dropout fades away from, and how far that fade has run.
+        # The last frame of receive audio a block ended on.
         self.previous_k4_sample = numpy.zeros(self.output_channels, dtype=numpy.float32)
-        self.k4_fade_sample = numpy.zeros(self.output_channels, dtype=numpy.float32)
-        self.k4_fade_position = 1.0
         # Glitch counters. The output callback only ever increments
         # these -- printing from PortAudio's thread is itself a source of
         # the glitches being counted -- and the audio threads report them
@@ -7879,44 +7877,10 @@ class Audio():
         frames = samples.size // self.output_channels
         if frames > 0:
             outdata[:frames] = samples.reshape(frames, self.output_channels)
-            if self.k4_fade_position > 0:
-                self.fade_k4(outdata[:frames], True)
-            self.k4_fade_sample = outdata[frames-1].copy()
         if frames < len(outdata):
-            self.fade_k4(outdata[frames:], False)
+            outdata[frames:] = 0
         if len(outdata) > 0:
             self.previous_k4_sample = outdata[-1].copy()
-
-    def fade_k4(self, outdata, fade_in):
-        # Receive audio does not simply stop and start. mute_k4() cuts it
-        # the moment the operator keys -- before the sidetone has risen,
-        # since the tone is rendered a block or two behind the key edge
-        # -- unmute_k4() brings it back a few milliseconds later, and a
-        # late packet leaves the queue short at any time. Stepping
-        # between audio and silence within one sample clicks at every one
-        # of those points.
-        #
-        # This walks a position from 0 (audio) to 1 (silence) and back
-        # over the envelope's fall time, carrying on across blocks rather
-        # than restarting, so a long mute decays once and then sits at
-        # silence. Fading out there is no audio left to shape, so what
-        # decays is the last sample that went out.
-        shape = self.sidetone_shape
-        if shape == None or len(outdata) == 0:
-            if not fade_in:
-                outdata[:] = 0
-            return
-        # shape[5] is the unmute fade-in step; shape[2] the fall step,
-        # which the fade-out shares with the sidetone envelope.
-        step = -shape[5] if fade_in else shape[2]
-        positions = self.k4_fade_position + step * self.sidetone_block_ramp(len(outdata))
-        numpy.clip(positions, 0.0, 1.0, out=positions)
-        self.k4_fade_position = positions[-1]
-        curve = (.5 * (1 + numpy.cos(numpy.pi * positions))).reshape(-1, 1)
-        if fade_in:
-            outdata *= curve
-        else:
-            outdata[:] = self.k4_fade_sample * curve
 
     def mix_sidetone(self, outdata, frames, block_start_frame, time_info, previous_sample):
         # The sidetone is generated here, a block at a time, rather than
@@ -7931,7 +7895,7 @@ class Audio():
         shape = self.sidetone_shape
         if shape == None or frames <= 0:
             return
-        sample_rate, rise_step, fall_step, phase_step, volume = shape[:5]
+        sample_rate, rise_step, fall_step, phase_step, volume = shape
 
         idle = not self.sidetone_keyed and self.sidetone_envelope_position <= 0
         quiet_frames = block_start_frame - self.last_edge_frame
@@ -8050,13 +8014,15 @@ class Audio():
         self.pending_key_event = None
         return offset, key_down
 
-    def report_audio_glitches(self):
+    def report_audio_glitches(self, during_sidetone=False):
         # Called from the audio threads, never from the output callback.
         # Silent unless something actually went wrong, and rate limited,
         # since a device that cannot keep up would otherwise report on
         # every block.
         if Options.debug < 1:
             return
+
+        during_sidetone = ' during sidetone' if during_sidetone else ''
 
         now = time.monotonic()
         if now - self.glitch_report_time < 1:
@@ -8073,11 +8039,11 @@ class Audio():
 
         report = []
         if underflows:
-            report.append(f'{underflows} output underflow(s)')
+            report.append(f'{underflows} output underflow(s){during_sidetone}')
         if statuses - underflows:
-            report.append(f'{statuses - underflows} other output status')
+            report.append(f'{statuses - underflows} other output status{during_sidetone}')
         if overflows:
-            report.append(f'{overflows} input overflow(s)')
+            report.append(f'{overflows} input overflow(s){during_sidetone}')
         dprint('audio glitches since the last report:', ', '.join(report))
 
     def sidetone_block_ramp(self, frames):
@@ -8103,7 +8069,6 @@ class Audio():
         self.sidetone_envelope_position = 0.0
         self.sidetone_phase = 0.0
         self.sidetone_hold_sample = None
-        self.k4_fade_position = 1.0
         self.last_edge_frame = 0
         self.generate_sidetone_envelopes()
 
@@ -8259,9 +8224,7 @@ class Audio():
         fall_step = 1 / max(1, round(sample_rate * self.sidetone_fall_time))
         phase_step = 2 * math.pi * self.cw_pitch / sample_rate
         volume = self.sidetone_volume / 135 * self.averaged_left_right_volume()
-        k4_fade_in_step = 1 / max(1, round(sample_rate * self.k4_fade_in_time))
-        self.sidetone_shape = (sample_rate, rise_step, fall_step, phase_step, volume,
-                               k4_fade_in_step)
+        self.sidetone_shape = (sample_rate, rise_step, fall_step, phase_step, volume)
 
         rise_perceived = self.sidetone_rise_time * self.sidetone_rise_perceived_ratio
         fall_perceived = self.sidetone_fall_time * self.sidetone_fall_perceived_ratio
