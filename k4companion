@@ -7860,7 +7860,7 @@ class Audio():
             # buffered with it. Asking inside the loop only muted once
             # the leftover ran out, which is up to a whole K4 packet
             # late, and a mute shorter than that never happened at all.
-            self.k4_mute_count = 6
+            self.k4_mute_count = 4
             data = numpy.empty(0, dtype=numpy.float32)
 
         while len(data) < needed:
