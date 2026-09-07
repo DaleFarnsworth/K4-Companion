@@ -12318,6 +12318,11 @@ class Keyer():
             first_element = False
 
     def send_element(self, elt, first_element=False):
+        if not first_element:
+            time_since_end_element = time.perf_counter() - self.end_element_timestamp
+            inter_element_sleep = self.inter_element_seconds - time_since_end_element
+            time.sleep(inter_element_sleep)
+
         if (self.end_sidetone_timestamp and
                 (self.auto_char_space or self.auto_word_space) and first_element):
             time_since_last_char = time.perf_counter() - self.end_sidetone_timestamp
@@ -12352,9 +12357,9 @@ class Keyer():
         else:
             ms = round(self.inter_element_seconds * 1000)
 
-        time_since_first = time.perf_counter() - self.element_timestamp
         initial_delay = int(Server.k4_server.k4_parameter('KZL')) / 1000
-        mute_seconds = initial_delay - time_since_first
+        time_since_first_element = time.perf_counter() - self.element_timestamp
+        mute_seconds = initial_delay - time_since_first_element
         if mute_seconds > 0:
             if self.mute_timer:
                 self.mute_timer.cancel()
@@ -12371,19 +12376,11 @@ class Keyer():
         time.sleep(element_seconds)
         Server.k4_server.send_str(f'KZU{ms:04d};')
         Audio.stop_sidetone()
+        self.end_sidetone_timestamp = time.perf_counter()
 
         self.end_element_timestamp = self.element_timestamp + element_seconds
-
-        now = time.perf_counter()
-        self.end_sidetone_timestamp = now
-
         # calculate the time to send the next element
         self.element_timestamp += element_seconds + self.inter_element_seconds
-        inter_element_sleep = self.element_timestamp - now
-        if inter_element_sleep > 0:
-            time.sleep(inter_element_sleep)
-        else:
-            Popup.warning(msg='Keyer error')
 
     def on_speed_change(self, response=None):
         # The length of a dit in seconds is 1.2 / wpm,
