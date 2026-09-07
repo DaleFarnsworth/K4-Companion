@@ -6835,6 +6835,16 @@ class PanadapterProcess(QObject):
         # closing/flushing it then raises BrokenPipeError from inside a
         # finalizer ("Exception ignored while finalizing file ...").
         self._close_pipe()
+        # exited is the last thing monitor_loop does, so run() has not
+        # returned yet when this queued delivery arrives on the Qt
+        # thread. The pop below drops the last reference to this object
+        # -- writer_loop's bound method held the other one until
+        # _close_pipe() above released it -- and destroying a QThread
+        # that is still running is a Qt fatal: the process aborts, with
+        # the reason going nowhere but the Qt message handler. Waiting
+        # costs nothing here, the thread being already on its way out,
+        # and is the same wait stop() does on the parent-initiated path.
+        self.monitor_thread.wait(2000)
         PanadapterProcess.processes.pop(self.receiver, None)
         Server.settings.put_save('Window', f'Panadapter.{self.receiver}.open', False)
         # Same as close_window(): whether the other window's mini-pan
