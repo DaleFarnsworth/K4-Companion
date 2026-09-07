@@ -7412,12 +7412,26 @@ class Audio():
         cls.sidetone_enabled = enable
 
     @classmethod
-    def mute_k4(cls):
+    def mute_k4(cls, unmute_after=None):
+        # unmute_after rides the output callback's own frame counter
+        # rather than a threading.Timer. A Timer is a whole OS thread per
+        # element: about 100us of thread creation on the keyer thread
+        # every time, and 270us for the first one in the process --
+        # taken as the first sidetone begins, and contending for the GIL
+        # the output callback needs to meet its deadline.
+        if unmute_after != None:
+            self = cls.singleton
+            sample_rate = cls.output_device_sample_rate()
+            if self == None or sample_rate == None:
+                return          # no stream running: nothing to mute
+            self.unmute_at_frame = self.rendered_frames + round(unmute_after * sample_rate)
         cls.k4_muted = True
 
     @classmethod
     def unmute_k4(cls):
         cls.k4_muted = False
+        if cls.singleton != None:
+            cls.singleton.unmute_at_frame = None
 
     def sd_query_hostapis(cls, index=None):
         fd = os.dup(2)
@@ -7511,6 +7525,8 @@ class Audio():
         # Frames handed to PortAudio so far, and the one the most recent
         # edge landed on: the axis key event times are resolved onto.
         self.rendered_frames = 0
+        # Frame the output callback lifts the mute at, or None.
+        self.unmute_at_frame = None
         self.last_edge_frame = 0
         self.sidetone_shape = None
         self.sidetone_ramp = numpy.empty(0, dtype=numpy.float32)
@@ -7848,6 +7864,10 @@ class Audio():
         block_start_frame = self.rendered_frames
         self.rendered_frames += frames
 
+        if (self.unmute_at_frame != None and
+                self.rendered_frames >= self.unmute_at_frame):
+            Audio.unmute_k4()
+
         # Taken before the fill below overwrites it: the frame the
         # previous block ended on is what a key down landing on frame 0
         # of this one has to fade away from.
@@ -8118,6 +8138,9 @@ class Audio():
         self.sidetone_phase = 0.0
         self.sidetone_hold_sample = None
         self.last_edge_frame = 0
+        # The frame an unmute was waiting for belongs to the stream that
+        # has just been replaced, and would never arrive.
+        Audio.unmute_k4()
         self.generate_sidetone_envelopes()
 
     def on_transmit_changed(self, server, response):
@@ -12160,7 +12183,6 @@ class Keyer():
         self.element_timestamp = None
         self.end_element_timestamp = None
         self.end_sidetone_timestamp = None
-        self.mute_timer = None
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -12410,11 +12432,7 @@ class Keyer():
         time_since_first_element = time.perf_counter() - self.element_timestamp
         mute_seconds = initial_delay - time_since_first_element
         if mute_seconds > 0:
-            if self.mute_timer:
-                self.mute_timer.cancel()
-            self.mute_timer = threading.Timer(mute_seconds, Audio.unmute_k4)
-            Audio.mute_k4()
-            self.mute_timer.start()
+            Audio.mute_k4(mute_seconds)
 
         Server.k4_server.send_str(f'KZD{ms:04d};')
 
