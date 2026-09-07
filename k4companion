@@ -7850,10 +7850,9 @@ class Audio():
         if self.k4_muted:
             # Ahead of the queue loop, and taking the samples already
             # buffered with it. Asking inside the loop only muted once
-            # the leftover ran out, which is up to a whole K4 packet late
-            # -- and a mute shorter than that never happened at all, so
-            # neither did the fade back in on unmuting.
-            self.k4_mute_count = 6 
+            # the leftover ran out, which is up to a whole K4 packet
+            # late, and a mute shorter than that never happened at all.
+            self.k4_mute_count = 6
             data = numpy.empty(0, dtype=numpy.float32)
 
         while len(data) < needed:
@@ -7861,7 +7860,7 @@ class Audio():
                 chunk = self.k4_output_queue.get_nowait()
             except queue.Empty:
                 break
-            if not self.k4_muted and self.k4_mute_count > 0:
+            if self.k4_mute_count > 0:
                 self.k4_mute_count -= 1
                 break               # drop the chunk rather than play it
             data = numpy.concatenate((data, chunk))
