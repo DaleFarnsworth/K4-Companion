@@ -7723,6 +7723,7 @@ class Audio():
                             continue
                     return None
 
+                self.warm_sidetone()
                 self.output_stream = try_open_output()
 
                 if self.output_stream != None:
@@ -8070,6 +8071,36 @@ class Audio():
         if len(self.sidetone_ramp) < frames:
             self.sidetone_ramp = numpy.arange(1, frames + 1, dtype=numpy.float32)
         return self.sidetone_ramp[:frames]
+
+    def warm_sidetone(self):
+        # mix_sidetone does not run until something is keyed, so the
+        # first key down is the first time the output callback executes
+        # any of it: sidetone_block_ramp allocates its array there, and
+        # every numpy call below it runs cold. On a fresh process that
+        # block measures around three times the cost of a settled one,
+        # which is enough to miss a deadline on a device with little
+        # margin -- and is why the underrun only ever turned up on the
+        # first sidetone.
+        #
+        # Rendering one throwaway block here warms the real path rather
+        # than an imitation of it that could drift away from it. It runs
+        # before the stream is opened, so no callback is competing for
+        # the state it touches, and the reset_sidetone() after the open
+        # clears what it leaves behind.
+        class WarmTimeInfo():
+            outputBufferDacTime = 0.0
+            currentTime = 0.0
+
+        frames = self.frames_per_output_buffer
+        if frames <= 0:
+            return
+        self.generate_sidetone_envelopes()
+        if self.sidetone_shape == None:
+            return
+
+        block = numpy.zeros((frames, self.output_channels), dtype=numpy.float32)
+        self.key_event_queue.put((WarmTimeInfo.currentTime, True))
+        self.mix_sidetone(block, frames, 0, WarmTimeInfo(), block[0])
 
     def reset_sidetone(self):
         # A stream time only means anything within the stream that
