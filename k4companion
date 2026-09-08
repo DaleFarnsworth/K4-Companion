@@ -7186,7 +7186,7 @@ class Audio():
     sidetone_fall_perceived_ratio = .5
     sidetone_enabled = True
 
-    output_buffer_time = .0001
+    output_buffer_time = .008
 
     # Each burst of keying is rendered at a fixed offset behind the
     # operator's key edges (see mix_sidetone). After this much silence
@@ -7416,22 +7416,32 @@ class Audio():
         # monitoring delay comes from, and where the quantizing of
         # elements to the blocksize comes from once that lag is capped.
         # A keyer knows both of an element's edges before it sends it, so
-        # it need not report them late.
+        # it need not report them late. Answers the stream time the down
+        # edge was scheduled for, which the keyer measures the gap it
+        # sends to the K4 against.
         #
         # The two clocks are read together here, once per element, so
         # drift between them cannot accumulate: only their offset across
-        # a single element matters. What the K4 is told (KZD/KZU) stays
-        # on perf_counter -- what goes on the air must not follow the
-        # audio device.
+        # a single element matters. The inter-element gap the K4 is told
+        # is measured on this clock too, so that what goes on the air
+        # matches what the operator hears (see Keyer.send_element); the
+        # element length in KZU is still the intended one.
         if cls.singleton == None or not cls.sidetone_enabled:
-            return
+            return None
         stream_now = cls.stream_time()
         if stream_now == None:
-            return
+            return None
         offset = stream_now - time.perf_counter()
+        down_time = down_at + offset
         queue_ = cls.singleton.key_event_queue
-        queue_.put((down_at + offset, True))
+        queue_.put((down_time, True))
         queue_.put((up_at + offset, False))
+        return down_time
+
+    @classmethod
+    def placed_up_time(cls):
+        self = cls.singleton
+        return None if self == None else self.sidetone_placed_up_time
 
     @classmethod
     def report_glitches(cls, during_sidetone):
@@ -7586,6 +7596,9 @@ class Audio():
         self.sidetone_keyed = False
         self.sidetone_envelope_position = 0.0
         self.sidetone_phase = 0.0
+        # Stream time the output callback placed the most recent key up
+        # edge at. None until one has been rendered.
+        self.sidetone_placed_up_time = None
         # Frames handed to PortAudio so far, and the one the most recent
         # edge landed on: the axis key event times are resolved onto.
         self.rendered_frames = 0
@@ -8133,6 +8146,12 @@ class Audio():
             return None
 
         self.pending_key_event = None
+        if not key_down:
+            # Where this edge really landed, not where it was asked for:
+            # the two differ once the lag is capped and an edge has to be
+            # taken at the start of a block. The keyer measures the
+            # inter-element gap against it (see Keyer.send_element).
+            self.sidetone_placed_up_time = dac_time + offset / sample_rate
         return offset, key_down
 
     def report_audio_glitches(self, during_sidetone=False):
@@ -12473,6 +12492,7 @@ class Keyer():
 
     def send_element(self, elt, first_element=False):
         element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
+        down_time = None
 
         if not first_element:
             # Scheduled before sleeping for it, not after: element_timestamp
@@ -12480,7 +12500,7 @@ class Keyer():
             # element advanced it), so the audio side gets the whole
             # inter-element gap of notice, and the element itself for the
             # up edge. See Audio.schedule_sidetone.
-            Audio.schedule_sidetone(self.element_timestamp,
+            down_time = Audio.schedule_sidetone(self.element_timestamp,
                                     self.element_timestamp + element_seconds)
 
             time_since_end_element = time.perf_counter() - self.end_element_timestamp
@@ -12515,7 +12535,7 @@ class Keyer():
             # one edge is still as late as it ever was, and is what sets
             # sidetone_lag for the burst. Its up edge, and every edge
             # after it, are scheduled ahead.
-            Audio.schedule_sidetone(self.element_timestamp,
+            down_time = Audio.schedule_sidetone(self.element_timestamp,
                                     self.element_timestamp + element_seconds)
 
             if self.end_element_timestamp:
@@ -12526,7 +12546,21 @@ class Keyer():
                 if ms > 5000:
                     ms = 0
         else:
+            # The gap the audio device actually produced, rather than the
+            # one intended: from the previous element's up edge as the
+            # output callback placed it, to this element's down edge as
+            # scheduled. The two diverge once the lag is capped and an
+            # edge has to be taken at the start of a block, and sending
+            # what was rendered keeps what goes on the air matching what
+            # the operator hears. Falls back to the intended gap before
+            # an up edge has been rendered, or if the measurement comes
+            # out implausible.
             ms = round(self.inter_element_seconds * 1000)
+            up_time = Audio.placed_up_time()
+            if down_time != None and up_time != None:
+                measured = round((down_time - up_time) * 1000)
+                if 0 < measured <= 5000:
+                    ms = measured
 
         initial_delay = int(Server.k4_server.k4_parameter('KZL')) / 1000
         time_since_first_element = time.perf_counter() - self.element_timestamp
