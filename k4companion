@@ -11672,6 +11672,15 @@ class MidiInput():
             pass
 
     @classmethod
+    def release_port(cls):
+        # The port only, not the singleton: poll_new_device has to stay
+        # alive so the device is reopened if the operator comes back to
+        # this type. Resetting the serial number is what makes that poll
+        # treat the port as new again.
+        cls.close_port()
+        cls.previous_port_serial_number = -1
+
+    @classmethod
     def open_port(cls, port_index):
         # A device unplugged between poll_new_device's get_ports() and
         # this call fails the same way closing one does. Answering False
@@ -11901,6 +11910,14 @@ class SerialInput():
         cls.singleton = None
         Poll.remove(self.poll_new_device)
         self.close_port()
+
+    @classmethod
+    def release_port(cls):
+        # The port only, not the singleton -- see MidiInput.release_port.
+        self = cls.singleton
+        if self != None:
+            self.close_port()
+        cls.previous_port_serial_number = -1
 
     @classmethod
     def set_port_name(cls, name):
@@ -12219,6 +12236,17 @@ class Keyer():
             cls.device_type_serial = False
             cls.device_type_vail_adapter = False
             cls.cancel_message_callback()
+
+        # Whichever of these the type no longer uses has to let its
+        # device go. poll_new_device stops polling when the type changes
+        # but never closes the port, so the old device stayed open: a
+        # MoMIDI adapter that presents a serial port as well could not be
+        # opened while its serial side was still held, nor the other way
+        # round.
+        if not cls.device_type_serial:
+            SerialInput.release_port()
+        if not cls.device_type_MoMIDI:
+            MidiInput.release_port()
 
     @classmethod
     def set_dit_paddle_notes(cls, notes):
