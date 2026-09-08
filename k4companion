@@ -7186,7 +7186,7 @@ class Audio():
     sidetone_fall_perceived_ratio = .5
     sidetone_enabled = True
 
-    output_buffer_time = .008
+    output_buffer_time = .0001
 
     # Each burst of keying is rendered at a fixed offset behind the
     # operator's key edges (see mix_sidetone). After this much silence
@@ -7385,6 +7385,58 @@ class Audio():
         self = cls.get_singleton()
         if self.server and self.server.connected:
             self.server.send_str(f'SL{latency};')
+
+    @classmethod
+    def stream_time(cls):
+        # PortAudio's own clock -- the one key edges are timed against.
+        # None when no stream is open, or one has just been closed.
+        self = cls.singleton
+        if self == None:
+            return None
+        # Held only long enough to read the clock: asking a stream that
+        # output_loop has just closed for its time reads freed memory.
+        with self.output_stream_lock:
+            stream = self.output_stream
+            if stream == None:
+                return None
+            try:
+                return stream.time
+            except sounddevice.PortAudioError:
+                return None
+
+    @classmethod
+    def schedule_sidetone(cls, down_at, up_at):
+        # Both edges of one element, as perf_counter times, queued before
+        # either has happened.
+        #
+        # An edge that reaches the output callback before the block
+        # carrying it has been filled is placed on its exact frame. One
+        # reported as it happens has already missed that block, and
+        # sidetone_lag exists to drag it forward -- which is where the
+        # monitoring delay comes from, and where the quantizing of
+        # elements to the blocksize comes from once that lag is capped.
+        # A keyer knows both of an element's edges before it sends it, so
+        # it need not report them late.
+        #
+        # The two clocks are read together here, once per element, so
+        # drift between them cannot accumulate: only their offset across
+        # a single element matters. What the K4 is told (KZD/KZU) stays
+        # on perf_counter -- what goes on the air must not follow the
+        # audio device.
+        if cls.singleton == None or not cls.sidetone_enabled:
+            return
+        stream_now = cls.stream_time()
+        if stream_now == None:
+            return
+        offset = stream_now - time.perf_counter()
+        queue_ = cls.singleton.key_event_queue
+        queue_.put((down_at + offset, True))
+        queue_.put((up_at + offset, False))
+
+    @classmethod
+    def report_glitches(cls, during_sidetone):
+        if cls.singleton != None:
+            cls.singleton.report_audio_glitches(during_sidetone=during_sidetone)
 
     @classmethod
     def start_sidetone(cls):
@@ -12420,7 +12472,17 @@ class Keyer():
             first_element = False
 
     def send_element(self, elt, first_element=False):
+        element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
+
         if not first_element:
+            # Scheduled before sleeping for it, not after: element_timestamp
+            # already holds this element's intended start (the previous
+            # element advanced it), so the audio side gets the whole
+            # inter-element gap of notice, and the element itself for the
+            # up edge. See Audio.schedule_sidetone.
+            Audio.schedule_sidetone(self.element_timestamp,
+                                    self.element_timestamp + element_seconds)
+
             time_since_end_element = time.perf_counter() - self.end_element_timestamp
             inter_element_sleep = self.inter_element_seconds - time_since_end_element
             time.sleep(inter_element_sleep)
@@ -12448,6 +12510,13 @@ class Keyer():
             # Establish a baseline for timing later elements
             # to avoid cumulative errors
             self.element_timestamp = time.perf_counter()
+            # Nothing to give notice of for the first element of a burst
+            # -- when the operator starts is not ours to know -- so this
+            # one edge is still as late as it ever was, and is what sets
+            # sidetone_lag for the burst. Its up edge, and every edge
+            # after it, are scheduled ahead.
+            Audio.schedule_sidetone(self.element_timestamp,
+                                    self.element_timestamp + element_seconds)
 
             if self.end_element_timestamp:
                 ms = round((time.perf_counter() - self.end_element_timestamp) * 1000)
@@ -12467,13 +12536,12 @@ class Keyer():
 
         Server.k4_server.send_str(f'KZD{ms:04d};')
 
-        element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
         ms = round(element_seconds * 1000)
 
-        Audio.start_sidetone()
+        Audio.report_glitches(during_sidetone=False)
         time.sleep(element_seconds)
         Server.k4_server.send_str(f'KZU{ms:04d};')
-        Audio.stop_sidetone()
+        Audio.report_glitches(during_sidetone=True)
         self.end_sidetone_timestamp = time.perf_counter()
 
         self.end_element_timestamp = self.element_timestamp + element_seconds
