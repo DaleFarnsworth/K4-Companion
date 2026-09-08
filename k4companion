@@ -7200,6 +7200,8 @@ class Audio():
     # it grow again. Uncapped, and with no quiet to reset it, holding a
     # paddle down on a device that underruns walks the sidetone seconds
     # behind the key.
+    # Replaced with a figure derived from the device as soon as one is
+    # opened (see output_loop); this is only what stands in until then.
     max_sidetone_lag = .050
     minimum_sidetone_ms = 0
 
@@ -7754,6 +7756,25 @@ class Audio():
 
                 if self.output_stream != None:
                     warned = False
+                    # The lag only ever has to cover the gap between an
+                    # edge being keyed and the first block that can still
+                    # carry it: this device's own output latency, plus a
+                    # block for where between two callbacks the edge
+                    # happened to land. Capping at what the device
+                    # reports rather than at a guess matters because the
+                    # cap is what is left as monitoring delay once a slip
+                    # has pushed the lag up -- the residual heard after
+                    # keying for a long stretch.
+                    try:
+                        latency = float(self.output_stream.latency)
+                    except (TypeError, ValueError):
+                        latency = 0.0
+                    # Floored at a block: a host API reporting no latency
+                    # at all would otherwise cap below what the device
+                    # really needs, and every edge would land on a block
+                    # boundary.
+                    cls.max_sidetone_lag = (max(latency, cls.output_buffer_time) +
+                                            2 * cls.output_buffer_time)
                     self.reset_sidetone()
                 else:
                     if not warned:
