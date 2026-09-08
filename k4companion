@@ -12296,6 +12296,9 @@ class Keyer():
         self.element_timestamp = None
         self.end_element_timestamp = None
         self.end_sidetone_timestamp = None
+        # Adjustment owed to the inter-element gaps the K4 is told about,
+        # beyond the millisecond any one of them may carry.
+        self.gap_adjust_carry = 0.0
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -12545,6 +12548,10 @@ class Keyer():
             # one edge is still as late as it ever was, and is what sets
             # sidetone_lag for the burst. Its up edge, and every edge
             # after it, are scheduled ahead.
+            #
+            # A burst starts square: what was still owed belongs to gaps
+            # that have already been sent.
+            self.gap_adjust_carry = 0.0
             Audio.schedule_sidetone(self.element_timestamp,
                                     self.element_timestamp + element_seconds)
 
@@ -12562,10 +12569,18 @@ class Keyer():
             # held steady across the gap, which is nearly always -- it is
             # only a lag that moved between the two edges that stretches
             # what is heard.
-            ms = round((self.inter_element_seconds +
-                        Audio.rendered_gap_adjustment()) * 1000)
-            if not 0 < ms <= 5000:
-                ms = round(self.inter_element_seconds * 1000)
+            #
+            # Held to a millisecond either side of the ideal, with
+            # whatever is left over carried into the elements that
+            # follow, a millisecond apiece, rather than dropped. The
+            # gaps still add up to what the audio rendered, but no
+            # single one of them strays far enough from the ideal to be
+            # heard by whoever is copying it.
+            ideal_ms = round(self.inter_element_seconds * 1000)
+            wanted = Audio.rendered_gap_adjustment() + self.gap_adjust_carry
+            adjust_ms = max(-1, min(1, round(wanted * 1000)))
+            self.gap_adjust_carry = wanted - adjust_ms / 1000
+            ms = max(0, ideal_ms + adjust_ms)
 
         initial_delay = int(Server.k4_server.k4_parameter('KZL')) / 1000
         time_since_first_element = time.perf_counter() - self.element_timestamp
