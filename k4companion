@@ -12521,6 +12521,12 @@ class Keyer():
 
     def send_element(self, elt, first_element=False):
         element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
+        # element_timestamp, and the grid of element starts hanging off
+        # it, are on the heard timeline: an edge sounds this much after
+        # the time it is scheduled for, so anything wanting the keyed
+        # time takes it back off again. Read once, so that an element is
+        # consistent with itself.
+        sidetone_delay = Audio.sidetone_delay()
 
         if not first_element:
             # Scheduled before sleeping for it, not after: element_timestamp
@@ -12528,8 +12534,8 @@ class Keyer():
             # element advanced it), so the audio side gets the whole
             # inter-element gap of notice, and the element itself for the
             # up edge. See Audio.schedule_sidetone.
-            Audio.schedule_sidetone(self.element_timestamp,
-                                    self.element_timestamp + element_seconds)
+            keyed_start = self.element_timestamp - sidetone_delay
+            Audio.schedule_sidetone(keyed_start, keyed_start + element_seconds)
 
             time_since_end_element = time.perf_counter() - self.end_element_timestamp
             inter_element_sleep = self.inter_element_seconds - time_since_end_element
@@ -12557,7 +12563,10 @@ class Keyer():
         if first_element:
             # Establish a baseline for timing later elements
             # to avoid cumulative errors
-            self.element_timestamp = time.perf_counter()
+            # Keyed now, and heard a sidetone_delay() later, which is
+            # what the grid is anchored to.
+            keyed_start = time.perf_counter()
+            self.element_timestamp = keyed_start + sidetone_delay
             # Nothing to give notice of for the first element of a burst
             # -- when the operator starts is not ours to know -- so this
             # one edge is still as late as it ever was, and is what sets
@@ -12567,8 +12576,7 @@ class Keyer():
             # A burst starts square: what was still owed belongs to gaps
             # that have already been sent.
             self.gap_adjust_carry = 0.0
-            Audio.schedule_sidetone(self.element_timestamp,
-                                    self.element_timestamp + element_seconds)
+            Audio.schedule_sidetone(keyed_start, keyed_start + element_seconds)
 
             if self.end_element_timestamp:
                 ms = round((time.perf_counter() - self.end_element_timestamp) * 1000)
@@ -12598,7 +12606,10 @@ class Keyer():
             ms = max(0, ideal_ms + adjust_ms)
 
         initial_delay = int(Server.k4_server.k4_parameter('KZL')) / 1000
-        time_since_first_element = time.perf_counter() - self.element_timestamp
+        # Against the keyed start, not the heard one: this covers the
+        # K4's own key-down delay, which has nothing to do with when the
+        # sidetone reaches the operator.
+        time_since_first_element = time.perf_counter() - keyed_start
         mute_seconds = initial_delay - time_since_first_element
         if mute_seconds > 0:
             Audio.mute_k4(mute_seconds)
@@ -12611,13 +12622,11 @@ class Keyer():
         time.sleep(element_seconds)
         Server.k4_server.send_str(f'KZU{ms:04d};')
         Audio.report_glitches(during_sidetone=True)
-        # When the sidetone is heard to end, rather than when the keyer
-        # finished the element: the up edge was scheduled for the end of
-        # the element and sounds sidetone_delay() after that. Still a
-        # perf_counter time, which is what the auto character/word space
-        # above measures it against.
-        self.end_sidetone_timestamp = (self.element_timestamp + element_seconds +
-                                       Audio.sidetone_delay())
+        # When the sidetone is heard to end. element_timestamp is the
+        # heard start already, so only the element's own length goes on
+        # top: the delay is in there once, and adding it again is the
+        # double count this timeline exists to avoid.
+        self.end_sidetone_timestamp = self.element_timestamp + element_seconds
 
         self.end_element_timestamp = self.element_timestamp + element_seconds
         # calculate the time to send the next element
