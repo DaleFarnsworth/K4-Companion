@@ -7435,6 +7435,21 @@ class Audio():
         queue_.put((up_at + offset, False))
 
     @classmethod
+    def sidetone_delay(cls):
+        # How long after the time it was scheduled for an edge is
+        # actually heard. The output callback places an edge at that
+        # time plus the lag standing, and a placed frame is heard when it
+        # reaches the DAC -- so the displacement measured on the last up
+        # edge is this, and the lag itself is the estimate until one has
+        # been rendered.
+        self = cls.singleton
+        if self == None:
+            return 0.0
+        if self.sidetone_up_shift != None:
+            return self.sidetone_up_shift
+        return self.sidetone_lag
+
+    @classmethod
     def rendered_gap_adjustment(cls):
         # How much longer the gap after the last up edge is coming out
         # than it was asked for.
@@ -12596,7 +12611,13 @@ class Keyer():
         time.sleep(element_seconds)
         Server.k4_server.send_str(f'KZU{ms:04d};')
         Audio.report_glitches(during_sidetone=True)
-        self.end_sidetone_timestamp = time.perf_counter()
+        # When the sidetone is heard to end, rather than when the keyer
+        # finished the element: the up edge was scheduled for the end of
+        # the element and sounds sidetone_delay() after that. Still a
+        # perf_counter time, which is what the auto character/word space
+        # above measures it against.
+        self.end_sidetone_timestamp = (self.element_timestamp + element_seconds +
+                                       Audio.sidetone_delay())
 
         self.end_element_timestamp = self.element_timestamp + element_seconds
         # calculate the time to send the next element
