@@ -12611,7 +12611,15 @@ class Keyer():
                 # This doesn't match the spec as I understand it, but it works!
                 # From testing, I believe the worst case is actually 4500,
                 # (3.5 + maximum network jitter, but use 5000 to be safe.
-                if ms > 5000:
+                #
+                # Negative is possible too, and was being sent as such.
+                # end_element_timestamp is the previous element's
+                # intended keyed end -- keyed_start + element_seconds,
+                # with keyed_start taken off the heard grid less
+                # sidetone_delay() -- so a delay that shrank between two
+                # elements leaves it that far ahead of real time. A gap
+                # that measures negative is no gap at all.
+                if not 0 <= ms <= 5000:
                     ms = 0
         else:
             # The gap the audio device is rendering rather than the one
