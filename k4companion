@@ -12292,8 +12292,10 @@ class Keyer():
         self.end_element_timestamp = None
         self.end_sidetone_timestamp = None
         # The delay the sidetone schedule currently allows for, walked
-        # toward the audio's own delay an element at a time.
+        # toward the audio's own delay an element at a time, and the step
+        # this element's own scaling has earned the one after it.
         self.sidetone_delay_used = 0.0
+        self.sidetone_pending_step = 0.0
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -12517,38 +12519,43 @@ class Keyer():
         # taking it whole each element is what let the sidetone fall
         # further behind the paddle with every element of a long burst.
         #
-        # A step comes out of the element and the gap after it alike.
-        # Whatever the schedule moves earlier has to be taken out of the
-        # audio between here and the element before, or that audio simply
-        # stretches to fill the room: shortening the element by its own
-        # share is what leaves the gap short by the gap's share. The
-        # sidetone runs fractionally fast until it has caught up, and
+        # The element and the gap after it are scaled by the same
+        # fraction, and the schedule moves earlier by what that scaling
+        # frees up -- the two together. So the step belonging to an
+        # element is taken at the element after it, when the audio it
+        # pays for has actually been given up. Sizing the step from this
+        # element's own fraction instead left gaps stretched where tones
+        # had been trimmed, the fraction having changed between the two
+        # as the lag closed.
+        #
+        # The sidetone runs fractionally fast until it has caught up, and
         # then stops. What the K4 is told is untouched: KZU carries the
         # full element_seconds and KZD the full gap.
         #
-        # Every element of a character is trimmed, the first included, so
-        # that the tones of a character stay alike while a lag is being
-        # worked off. Only the first element's start cannot move: there
-        # is no scheduling a burst earlier than the moment it was keyed.
+        # A burst starts from no offset at all. Its first element is
+        # heard a whole sidetone_delay() late whatever happens -- there
+        # is no scheduling one earlier than the moment it was keyed -- so
+        # anchoring on the delay standing would put every bit of it into
+        # the one gap after that element. Starting from nothing spreads
+        # it over as many elements as the catch-up needs.
+        if first_element:
+            self.sidetone_delay_used = 0.0
+        else:
+            self.sidetone_delay_used += self.sidetone_pending_step
+
         behind = sidetone_delay - self.sidetone_delay_used
         fraction = min(self.max_sidetone_catchup_fraction,
                        abs(behind) * self.sidetone_catchup_per_second)
-        element_step = element_seconds * fraction
-        gap_step = self.inter_element_seconds * fraction
-        step = element_step + gap_step
-        if behind != 0:
-            if step > abs(behind):
-                # Short of a whole step: take the last of it in the same
-                # proportion, so the element and the gap stay shortened
-                # alike.
-                element_step *= abs(behind) / step
-                step = abs(behind)
-            if behind > 0:
-                self.sidetone_delay_used += step
-                sidetone_seconds -= element_step
-            else:
-                self.sidetone_delay_used -= step
-                sidetone_seconds += element_step
+        if behind < 0:
+            fraction = -fraction
+        step = (element_seconds + self.inter_element_seconds) * fraction
+        if abs(step) > abs(behind):
+            # Short of a whole step: scale the fraction back so that the
+            # element and the gap stay scaled alike.
+            fraction *= abs(behind) / abs(step)
+            step = behind
+        sidetone_seconds = element_seconds * (1 - fraction)
+        self.sidetone_pending_step = step
 
         if not first_element:
             # Scheduled before sleeping for it, not after: element_timestamp
@@ -12596,10 +12603,6 @@ class Keyer():
             keyed_start = time.perf_counter()
             self.element_timestamp = keyed_start
             sidetone_start = keyed_start
-            # A burst anchors on the delay standing now, and the elements
-            # after it walk that figure along as the audio's own delay
-            # moves.
-            self.sidetone_delay_used = sidetone_delay
             # Nothing to give notice of for the first element of a burst
             # -- when the operator starts is not ours to know -- so this
             # one edge is still as late as it ever was, and is what sets
