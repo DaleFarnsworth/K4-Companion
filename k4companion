@@ -12591,6 +12591,31 @@ class Keyer():
         self.sidetone_pending_step = step
 
         if not first_element:
+            # The gap may have gone by already. This thread can be held
+            # off for longer than a whole inter-element interval -- the
+            # Qt thread painting a panadapter, the scheduler keeping the
+            # element's sleep past its length, a collection -- and the
+            # grid start this element should have been keyed on is then
+            # in the past.
+            #
+            # The sleep below is the only place lateness is worked off,
+            # and it cannot work off more than the one gap it is. Left
+            # alone the grid would stay behind for the rest of the
+            # burst: the element sleep runs its full length whenever it
+            # starts, so nothing would ever be given back, every element
+            # after this one would want a gap shorter than nothing, and
+            # the sleep would refuse it outright.
+            #
+            # So the grid moves up to now, and does it here rather than
+            # below, before the sidetone is scheduled. Edges asked for
+            # in the past are dragged forward by sidetone_lag, which
+            # shifts every edge after them, and the stall would become
+            # the very ratchet the catch-up above exists to work off.
+            time_since_end_element = time.perf_counter() - self.end_element_timestamp
+            if time_since_end_element > self.inter_element_seconds:
+                self.element_timestamp += (time_since_end_element -
+                                           self.inter_element_seconds)
+
             # Scheduled before sleeping for it, not after: element_timestamp
             # already holds this element's intended start (the previous
             # element advanced it), so the audio side gets the whole
@@ -12606,9 +12631,15 @@ class Keyer():
             Audio.schedule_sidetone(sidetone_start,
                                     sidetone_start + sidetone_seconds)
 
+            # Read again, so that the scheduling just done comes out of
+            # the gap as it always has. What is left of the interval
+            # after a grid that has just been moved up to now is a few
+            # microseconds short of nothing, which is not something to
+            # sleep for.
             time_since_end_element = time.perf_counter() - self.end_element_timestamp
             inter_element_sleep = self.inter_element_seconds - time_since_end_element
-            time.sleep(inter_element_sleep)
+            if inter_element_sleep > 0:
+                time.sleep(inter_element_sleep)
 
         if (self.end_sidetone_timestamp and
                 (self.auto_char_space or self.auto_word_space) and first_element):
