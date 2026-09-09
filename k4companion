@@ -12611,10 +12611,23 @@ class Keyer():
             # in the past are dragged forward by sidetone_lag, which
             # shifts every edge after them, and the stall would become
             # the very ratchet the catch-up above exists to work off.
+            #
+            # Up to now plus the offset the schedule is running, at
+            # that. The sidetone goes in sidetone_delay_used ahead of
+            # the grid start, so a grid start of exactly now would put
+            # that edge the offset into the past and ratchet the lag
+            # just the same. Keying waits those few milliseconds
+            # instead, which is nothing against a gap already a whole
+            # interval long. end_element_timestamp moves with the grid,
+            # being what the sleep below measures from, and is written
+            # afresh at the end of the element either way.
             time_since_end_element = time.perf_counter() - self.end_element_timestamp
             if time_since_end_element > self.inter_element_seconds:
-                self.element_timestamp += (time_since_end_element -
-                                           self.inter_element_seconds)
+                grid_shift = (time_since_end_element -
+                              self.inter_element_seconds +
+                              max(0.0, self.sidetone_delay_used))
+                self.element_timestamp += grid_shift
+                self.end_element_timestamp += grid_shift
 
             # Scheduled before sleeping for it, not after: element_timestamp
             # already holds this element's intended start (the previous
