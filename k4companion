@@ -12292,10 +12292,13 @@ class Keyer():
         self.end_element_timestamp = None
         self.end_sidetone_timestamp = None
         # The delay the sidetone schedule currently allows for, walked
-        # toward the audio's own delay an element at a time, and the step
-        # this element's own scaling has earned the one after it.
+        # toward the audio's own delay an element at a time; the step
+        # this element's own scaling has earned the one after it; and the
+        # delay as it stood at the previous element, to tell a change in
+        # it from the lag being worked off.
         self.sidetone_delay_used = 0.0
         self.sidetone_pending_step = 0.0
+        self.sidetone_delay_seen = 0.0
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -12538,10 +12541,23 @@ class Keyer():
         # anchoring on the delay standing would put every bit of it into
         # the one gap after that element. Starting from nothing spreads
         # it over as many elements as the catch-up needs.
+        # A change in the audio's own delay is taken whole, and at once.
+        # Moving the schedule earlier by exactly what the audio got later
+        # leaves the timing where it was and costs nothing: the gap
+        # shortens by the same amount the later audio stretched it, and
+        # the two cancel. Walking a change instead put the whole of it
+        # into the one gap it happened across -- a 10 ms slip stretching
+        # a 40 ms gap to 50 -- and then started a fresh catch-up to work
+        # off a lag that need never have been taken on.
+        #
+        # What the catch-up is left with is the lag a burst starts with,
+        # which is real: its first element cannot be moved earlier.
         if first_element:
             self.sidetone_delay_used = 0.0
         else:
-            self.sidetone_delay_used += self.sidetone_pending_step
+            self.sidetone_delay_used += (self.sidetone_pending_step +
+                                         sidetone_delay - self.sidetone_delay_seen)
+        self.sidetone_delay_seen = sidetone_delay
 
         behind = sidetone_delay - self.sidetone_delay_used
         fraction = min(self.max_sidetone_catchup_fraction,
