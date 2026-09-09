@@ -12601,7 +12601,13 @@ class Keyer():
             # heard by whoever is copying it.
             ideal_ms = round(self.inter_element_seconds * 1000)
             wanted = Audio.rendered_gap_adjustment() + self.gap_adjust_carry
-            adjust_ms = max(-1, min(1, round(wanted * 1000)))
+            wanted_ms = max(-1.0, min(1.0, wanted * 1000))
+            # Truncated toward the ideal rather than rounded to nearest:
+            # the ceiling below it, the floor above it, so the value sent
+            # is always the millisecond closest to the ideal. Part of a
+            # millisecond is not worth moving for, and the part not taken
+            # stays in the carry until it has grown to a whole one.
+            adjust_ms = math.trunc(wanted_ms)
             self.gap_adjust_carry = wanted - adjust_ms / 1000
             ms = max(0, ideal_ms + adjust_ms)
 
