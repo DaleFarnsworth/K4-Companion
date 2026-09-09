@@ -12561,10 +12561,16 @@ class Keyer():
     def send_element(self, elt, first_element=False):
         element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
         # element_timestamp, and the grid of element starts hanging off
-        # it, are on the heard timeline: an edge sounds this much after
-        # the time it is scheduled for, so anything wanting the keyed
-        # time takes it back off again.
+        # it, are real time -- when the operator keyed the element. The
+        # audio's own delay belongs to the sidetone schedule alone, and
+        # is taken off there.
         sidetone_delay = Audio.sidetone_delay()
+        # What the sidetone is actually given, as against what the K4 is
+        # told. The catch-up below trims both for an element that is
+        # paying off a lag; a burst's first element cannot be moved
+        # earlier than now, so it keeps them.
+        sidetone_seconds = element_seconds
+        sidetone_start = None
 
         if not first_element:
             # The delay the schedule allows for is walked toward the
@@ -12583,7 +12589,6 @@ class Keyer():
             # fractionally fast until it has caught up, and then stops.
             # What the K4 is told is untouched: KZU carries the full
             # element_seconds and KZD the full gap.
-            sidetone_seconds = element_seconds
             behind = sidetone_delay - self.sidetone_delay_used
             fraction = min(self.max_sidetone_catchup_fraction,
                            abs(behind) * self.sidetone_catchup_per_second)
@@ -12609,8 +12614,14 @@ class Keyer():
             # element advanced it), so the audio side gets the whole
             # inter-element gap of notice, and the element itself for the
             # up edge. See Audio.schedule_sidetone.
-            keyed_start = self.element_timestamp - self.sidetone_delay_used
-            Audio.schedule_sidetone(keyed_start, keyed_start + sidetone_seconds)
+            #
+            # The sidetone goes in ahead of that start by the delay the
+            # audio will add, so it is heard when the element was keyed.
+            # Only the sidetone moves: keyed_start is the grid itself.
+            keyed_start = self.element_timestamp
+            sidetone_start = keyed_start - self.sidetone_delay_used
+            Audio.schedule_sidetone(sidetone_start,
+                                    sidetone_start + sidetone_seconds)
 
             time_since_end_element = time.perf_counter() - self.end_element_timestamp
             inter_element_sleep = self.inter_element_seconds - time_since_end_element
@@ -12641,7 +12652,8 @@ class Keyer():
             # Keyed now, and heard a sidetone_delay() later, which is
             # what the grid is anchored to.
             keyed_start = time.perf_counter()
-            self.element_timestamp = keyed_start + sidetone_delay
+            self.element_timestamp = keyed_start
+            sidetone_start = keyed_start
             # A burst anchors on the delay standing now, and the elements
             # after it walk that figure along as the audio's own delay
             # moves.
@@ -12715,19 +12727,18 @@ class Keyer():
         time.sleep(element_seconds)
         Server.k4_server.send_str(f'KZU{ms:04d};')
         Audio.report_glitches(during_sidetone=True)
-        # When the sidetone is heard to end. element_timestamp is the
-        # heard start already, so only the element's own length goes on
-        # top: the delay is in there once, and adding it again is the
-        # double count this timeline exists to avoid.
-        self.end_sidetone_timestamp = self.element_timestamp + element_seconds
+        # When the sidetone is heard to end: where its up edge was
+        # scheduled, plus the delay the audio adds. Taken from what the
+        # sidetone was really given rather than from the grid, so that it
+        # stays right for an element the catch-up shortened, and for a
+        # burst's first element, which carries the whole delay.
+        self.end_sidetone_timestamp = (sidetone_start + sidetone_seconds +
+                                       sidetone_delay)
 
         # The keyed end, not the heard one. Its two readers -- the
         # inter-element sleep and the inter-character gap sent in KZD --
-        # both measure it against time.perf_counter(), so putting it on
-        # the heard timeline paced the whole keyer a sidetone_delay()
-        # behind real time. That left the paddle, which is timestamped as
-        # it happens, being sampled that much late against what was being
-        # sent. Only the sidetone grid belongs on the heard timeline.
+        # both measure it against time.perf_counter(). The grid is real
+        # time now, so this is simply the element's own end.
         self.end_element_timestamp = keyed_start + element_seconds
         # calculate the time to send the next element
         self.element_timestamp += element_seconds + self.inter_element_seconds
