@@ -7440,23 +7440,6 @@ class Audio():
         return self.sidetone_lag
 
     @classmethod
-    def rendered_gap_adjustment(cls):
-        # How much longer the gap after the last up edge is coming out
-        # than it was asked for.
-        #
-        # Every edge is placed at the time it was scheduled for plus the
-        # lag in force, so a constant lag shifts a whole burst and leaves
-        # every gap within it exactly as intended. Only a lag that moved
-        # between two edges stretches the gap between them -- by the
-        # amount it moved, and by nothing else. The down edge has not
-        # been rendered when this is wanted, so the lag standing now is
-        # the best estimate of the shift it will get.
-        self = cls.singleton
-        if self == None or self.sidetone_up_shift == None:
-            return 0.0
-        return self.sidetone_lag - self.sidetone_up_shift
-
-    @classmethod
     def report_glitches(cls, during_sidetone):
         if cls.singleton != None:
             cls.singleton.report_audio_glitches(during_sidetone=during_sidetone)
@@ -12308,9 +12291,6 @@ class Keyer():
         self.element_timestamp = None
         self.end_element_timestamp = None
         self.end_sidetone_timestamp = None
-        # Adjustment owed to the inter-element gaps the K4 is told about,
-        # beyond the millisecond any one of them may carry.
-        self.gap_adjust_carry = 0.0
         # The delay the sidetone schedule currently allows for, walked
         # toward the audio's own delay an element at a time.
         self.sidetone_delay_used = 0.0
@@ -12624,10 +12604,6 @@ class Keyer():
             # one edge is still as late as it ever was, and is what sets
             # sidetone_lag for the burst. Its up edge, and every edge
             # after it, are scheduled ahead.
-            #
-            # A burst starts square: what was still owed belongs to gaps
-            # that have already been sent.
-            self.gap_adjust_carry = 0.0
             Audio.schedule_sidetone(keyed_start, keyed_start + element_seconds)
 
             if self.end_element_timestamp:
@@ -12646,30 +12622,11 @@ class Keyer():
                 if not 0 <= ms <= 5000:
                     ms = 0
         else:
-            # The gap the audio device is rendering rather than the one
-            # intended, so that what goes on the air matches what the
-            # operator hears. The adjustment is zero whenever the lag has
-            # held steady across the gap, which is nearly always -- it is
-            # only a lag that moved between the two edges that stretches
-            # what is heard.
-            #
-            # Held to a millisecond either side of the ideal, with
-            # whatever is left over carried into the elements that
-            # follow, a millisecond apiece, rather than dropped. The
-            # gaps still add up to what the audio rendered, but no
-            # single one of them strays far enough from the ideal to be
-            # heard by whoever is copying it.
-            ideal_ms = round(self.inter_element_seconds * 1000)
-            wanted = Audio.rendered_gap_adjustment() + self.gap_adjust_carry
-            wanted_ms = max(-1.0, min(1.0, wanted * 1000))
-            # Truncated toward the ideal rather than rounded to nearest:
-            # the ceiling below it, the floor above it, so the value sent
-            # is always the millisecond closest to the ideal. Part of a
-            # millisecond is not worth moving for, and the part not taken
-            # stays in the carry until it has grown to a whole one.
-            adjust_ms = math.trunc(wanted_ms)
-            self.gap_adjust_carry = wanted - adjust_ms / 1000
-            ms = max(0, ideal_ms + adjust_ms)
+            # The ideal, and nothing else. What the operator hears is the
+            # sidetone's business: send_element shortens tones and gaps
+            # to work off the audio's lag (see sidetone_delay_used), and
+            # none of that belongs on the air.
+            ms = round(self.inter_element_seconds * 1000)
 
         initial_delay = int(Server.k4_server.k4_parameter('KZL')) / 1000
         # Against the keyed start, not the heard one: this covers the
