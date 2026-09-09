@@ -12665,6 +12665,7 @@ class Keyer():
             # rather than try to work it off. A constant short lag is
             # not heard; one that grows is.
             self.inherent_sidetone_lag = sidetone_delay
+            dprint1(f'inherent_sidetone_lag{self.inherent_sidetone_lag}')
 
         initial_delay = int(Server.k4_server.k4_parameter('KZL')) / 1000
         # Against the keyed start, not the heard one: this covers the
