@@ -12299,6 +12299,9 @@ class Keyer():
         self.sidetone_delay_used = 0.0
         self.sidetone_pending_step = 0.0
         self.sidetone_delay_seen = 0.0
+        # The lag to hold, taken from wherever the audio had settled the
+        # last time there was no gap to measure before an element.
+        self.inherent_sidetone_lag = 0.0
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -12559,7 +12562,11 @@ class Keyer():
                                          sidetone_delay - self.sidetone_delay_seen)
         self.sidetone_delay_seen = sidetone_delay
 
-        behind = sidetone_delay - self.sidetone_delay_used
+        # Against the lag settled on at the last idle, not against
+        # nothing: the schedule is only pulled forward by however much
+        # the audio has fallen behind that.
+        behind = (sidetone_delay - self.inherent_sidetone_lag -
+                  self.sidetone_delay_used)
         fraction = min(self.max_sidetone_catchup_fraction,
                        abs(behind) * self.sidetone_catchup_per_second)
         if behind < 0:
@@ -12649,6 +12656,15 @@ class Keyer():
             # to work off the audio's lag (see sidetone_delay_used), and
             # none of that belongs on the air.
             ms = round(self.inter_element_seconds * 1000)
+
+        if ms == 0:
+            # No measurable gap before this element: the operator has
+            # been idle, or nothing has been sent yet. Whatever lag
+            # the audio has settled at with nothing to catch up is
+            # the least this device is going to manage, so hold that
+            # rather than try to work it off. A constant short lag is
+            # not heard; one that grows is.
+            self.inherent_sidetone_lag = sidetone_delay
 
         initial_delay = int(Server.k4_server.k4_parameter('KZL')) / 1000
         # Against the keyed start, not the heard one: this covers the
