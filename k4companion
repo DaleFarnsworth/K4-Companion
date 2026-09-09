@@ -12662,7 +12662,14 @@ class Keyer():
         # double count this timeline exists to avoid.
         self.end_sidetone_timestamp = self.element_timestamp + element_seconds
 
-        self.end_element_timestamp = self.element_timestamp + element_seconds
+        # The keyed end, not the heard one. Its two readers -- the
+        # inter-element sleep and the inter-character gap sent in KZD --
+        # both measure it against time.perf_counter(), so putting it on
+        # the heard timeline paced the whole keyer a sidetone_delay()
+        # behind real time. That left the paddle, which is timestamped as
+        # it happens, being sampled that much late against what was being
+        # sent. Only the sidetone grid belongs on the heard timeline.
+        self.end_element_timestamp = keyed_start + element_seconds
         # calculate the time to send the next element
         self.element_timestamp += element_seconds + self.inter_element_seconds
 
