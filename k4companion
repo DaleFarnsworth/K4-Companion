@@ -12583,6 +12583,7 @@ class Keyer():
             # The sidetone goes in ahead of that start by the delay the
             # audio will add, so it is heard when the element was keyed.
             # Only the sidetone moves: keyed_start is the grid itself.
+            dprint1(f'sidetone_ms={round((sidetone_seconds * 1000), 2)}')
             keyed_start = self.element_timestamp
             sidetone_start = keyed_start - self.sidetone_delay_used
             Audio.schedule_sidetone(sidetone_start,
