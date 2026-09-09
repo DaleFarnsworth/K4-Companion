@@ -12612,22 +12612,28 @@ class Keyer():
             # shifts every edge after them, and the stall would become
             # the very ratchet the catch-up above exists to work off.
             #
-            # Up to now plus the offset the schedule is running, at
-            # that. The sidetone goes in sidetone_delay_used ahead of
-            # the grid start, so a grid start of exactly now would put
-            # that edge the offset into the past and ratchet the lag
-            # just the same. Keying waits those few milliseconds
-            # instead, which is nothing against a gap already a whole
-            # interval long. end_element_timestamp moves with the grid,
-            # being what the sleep below measures from, and is written
-            # afresh at the end of the element either way.
+            # Up to now, and no further. The sidetone goes in
+            # sidetone_delay_used ahead of the grid start, so the offset
+            # the schedule was running has to go: this element's edge
+            # can be asked for no earlier than now, which is the grid
+            # start itself. Carrying the offset over would put the edge
+            # that far in the past and ratchet the lag just the same,
+            # and holding the grid off by it instead only lengthened a
+            # gap that is already a hole.
+            #
+            # Giving it up costs nothing at once -- the edge is at the
+            # same instant either way -- and the catch-up works it back
+            # over the elements after, which is what happens at the
+            # start of every burst. end_element_timestamp moves with the
+            # grid, being what the sleep below measures from, and is
+            # written afresh at the end of the element either way.
             time_since_end_element = time.perf_counter() - self.end_element_timestamp
             if time_since_end_element > self.inter_element_seconds:
                 grid_shift = (time_since_end_element -
-                              self.inter_element_seconds +
-                              max(0.0, self.sidetone_delay_used))
+                              self.inter_element_seconds)
                 self.element_timestamp += grid_shift
                 self.end_element_timestamp += grid_shift
+                self.sidetone_delay_used = 0.0
 
             # Scheduled before sleeping for it, not after: element_timestamp
             # already holds this element's intended start (the previous
