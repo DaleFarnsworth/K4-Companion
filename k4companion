@@ -12299,9 +12299,12 @@ class Keyer():
         self.sidetone_delay_used = 0.0
         self.sidetone_pending_step = 0.0
         self.sidetone_delay_seen = 0.0
-        # The lag to hold, taken from wherever the audio had settled the
-        # last time there was no gap to measure before an element.
+        # The lag to hold, taken from wherever the audio had settled
+        # after the last element there was no gap to measure before, and
+        # the gap the KZD most recently sent carried, which is what says
+        # whether an element was one of those.
         self.inherent_sidetone_lag = 0.0
+        self.last_kzd_ms = None
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -12565,17 +12568,24 @@ class Keyer():
         # Against the lag settled on at the last idle, not against
         # nothing: the schedule is only pulled forward by however much
         # the audio has fallen behind that.
-        behind = (sidetone_delay - self.inherent_sidetone_lag -
-                  self.sidetone_delay_used)
+        #
+        # Never less than nothing. A schedule further forward than the
+        # lag standing warrants -- the audio doing better than the
+        # inherent lag says it can, or a change absorbed just before a
+        # fresh reading of that lag -- is not a debt to be paid back by
+        # stretching elements: the operator would hear the sending slow
+        # down for no reason he can point to. Nothing to catch up is
+        # nothing to do, and the next change in the delay is absorbed
+        # from wherever the schedule happens to stand.
+        behind = max(0.0, sidetone_delay - self.inherent_sidetone_lag -
+                     self.sidetone_delay_used)
         fraction = min(self.max_sidetone_catchup_fraction,
-                       abs(behind) * self.sidetone_catchup_per_second)
-        if behind < 0:
-            fraction = -fraction
+                       behind * self.sidetone_catchup_per_second)
         step = (element_seconds + self.inter_element_seconds) * fraction
-        if abs(step) > abs(behind):
+        if step > behind:
             # Short of a whole step: scale the fraction back so that the
             # element and the gap stay scaled alike.
-            fraction *= abs(behind) / abs(step)
+            fraction *= behind / step
             step = behind
         sidetone_seconds = element_seconds * (1 - fraction)
         self.sidetone_pending_step = step
@@ -12657,16 +12667,6 @@ class Keyer():
             # none of that belongs on the air.
             ms = round(self.inter_element_seconds * 1000)
 
-        if ms == 0:
-            # No measurable gap before this element: the operator has
-            # been idle, or nothing has been sent yet. Whatever lag
-            # the audio has settled at with nothing to catch up is
-            # the least this device is going to manage, so hold that
-            # rather than try to work it off. A constant short lag is
-            # not heard; one that grows is.
-            self.inherent_sidetone_lag = sidetone_delay
-            dprint1(f'inherent_sidetone_lag{self.inherent_sidetone_lag}')
-
         initial_delay = int(Server.k4_server.k4_parameter('KZL')) / 1000
         # Against the keyed start, not the heard one: this covers the
         # K4's own key-down delay, which has nothing to do with when the
@@ -12676,6 +12676,11 @@ class Keyer():
         if mute_seconds > 0:
             Audio.mute_k4(mute_seconds)
 
+        # Kept for the sidetone this element is about to produce: a
+        # gap of zero says the operator had been idle, or that nothing
+        # had been sent yet, and it is over such an element that the lag
+        # to hold is measured. See the end of this method.
+        self.last_kzd_ms = ms
         Server.k4_server.send_str(f'KZD{ms:04d};')
 
         ms = round(element_seconds * 1000)
@@ -12684,6 +12689,25 @@ class Keyer():
         time.sleep(element_seconds)
         Server.k4_server.send_str(f'KZU{ms:04d};')
         Audio.report_glitches(during_sidetone=True)
+
+        if self.last_kzd_ms == 0:
+            # No measurable gap before this element: the operator had
+            # been idle, or nothing had been sent yet. Whatever lag the
+            # audio settles at with nothing to catch up is the least
+            # this device is going to manage, so hold that rather than
+            # try to work it off. A constant short lag is not heard; one
+            # that grows is.
+            #
+            # Read here and not where the KZD went out, because only now
+            # has this element's sidetone been sent and cost the audio
+            # the lag it needs. Before it was keyed the delay standing
+            # is the previous burst's -- or nothing at all, the first
+            # time -- and taking that pinned the inherent lag at zero,
+            # leaving the catch-up chasing a lag the device was never
+            # going to give up.
+            self.inherent_sidetone_lag = Audio.sidetone_delay()
+            dprint1(f'inherent_sidetone_lag={round(self.inherent_sidetone_lag * 1000, 2)}')
+
         # When the sidetone is heard to end: where its up edge was
         # scheduled, plus the delay the audio adds. Taken from what the
         # sidetone was really given rather than from the grid, so that it
