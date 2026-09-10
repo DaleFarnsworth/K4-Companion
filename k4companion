@@ -7168,8 +7168,8 @@ class Audio():
     k4_sample_rate = 12000
     k4_frames_per_millisecond = k4_sample_rate // 1000
     k4_sample_rate_code = 0
-    min_input_sample_rate = k4_sample_rate
-    min_output_sample_rate = k4_sample_rate * 2
+    min_input_sample_rate = 48000
+    min_output_sample_rate = 48000
     max_input_sample_rate = 48000
     max_output_sample_rate = 48000
     frames_per_output_buffer = 0    # Set when the device is opened
