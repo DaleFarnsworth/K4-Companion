@@ -12491,7 +12491,7 @@ class Keyer():
     # have moved over the interval to count as moving, and the weight
     # one element's reading carries in the average that is looked at.
     sidetone_catchup_check_seconds = 1.0
-    sidetone_catchup_change_seconds = .002
+    sidetone_catchup_change_seconds = .001
     sidetone_behind_average_weight = .1
     # The most that fraction may reach. A lag beyond 10 ms is worked off
     # over more elements rather than by cutting any one of them harder.
