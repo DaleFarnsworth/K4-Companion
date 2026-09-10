@@ -8021,7 +8021,7 @@ class Audio():
 
         start = 0
         while start < frames:
-            edge = self.next_key_edge(frames, dac_time, sample_rate)
+            edge = self.next_key_edge(start, frames, dac_time, sample_rate)
             end = frames if edge == None else edge[0]
             if end > start:
                 if self.sidetone_hold_sample is not None:
@@ -8074,10 +8074,11 @@ class Audio():
         outdata *= 1.0 - envelope
         outdata += (numpy.sin(angles) * volume).reshape(frames, 1) * envelope
 
-    def next_key_edge(self, frames, dac_time, sample_rate):
+    def next_key_edge(self, start, frames, dac_time, sample_rate):
         # The next edge landing in the block being filled, as a (frame
         # within the block, key down) pair, or None when the next one
-        # belongs to a later block.
+        # belongs to a later block. start is the first frame of the block
+        # not yet written, which is the earliest an edge can still go.
         event = self.pending_key_event
         if event == None:
             try:
@@ -8088,26 +8089,29 @@ class Audio():
         event_time, key_down = event
         offset = round((event_time + self.sidetone_lag - dac_time) * sample_rate)
 
-        if offset < 0:
+        if offset < start:
             # PortAudio fills a block well before its audio reaches the
-            # DAC, so an edge is always keyed too late for the block it
-            # ideally belongs in -- without the correction below every
-            # edge would land on frame 0 and nothing would be gained over
-            # the queue this replaced. Carry the shortfall in
+            # DAC, so an edge keyed as it happens is always too late for
+            # the block it ideally belongs in -- without the correction
+            # below every edge would land on frame 0 and nothing would be
+            # gained over the queue this replaced. Carry the shortfall in
             # sidetone_lag, which shifts every later edge in the burst by
             # the same amount, so only the burst's first tone waits and
             # the elements and gaps after it come out exact.
             #
-            # A block of margin goes on top. An edge is picked up by the
-            # first callback to run after it was keyed, so how late it
-            # arrives varies by up to a block depending on where between
-            # two callbacks the operator keyed it. Without the margin the
-            # lag would have to grow over the burst's first few elements
-            # to cover that, stretching them; with it the very first
-            # element is already exact, at the cost of one block of
-            # monitoring delay.
-            self.sidetone_lag += (frames - offset) / sample_rate
-            offset = frames         # i.e. the first frame of the next block
+            # The earliest frame this block has left, and no later. A
+            # block of margin used to go on top of the shortfall, for the
+            # first callback to run after an edge was keyed being up to a
+            # block late in picking it up: without it the lag had to grow
+            # over a burst's first few elements to cover that, stretching
+            # them. Every edge but a burst's first key down is queued a
+            # whole gap ahead now (see schedule_sidetone) and lands on
+            # its own frame, so the margin protected only the one edge
+            # that is late by definition, and the ones a stall leaves
+            # late, which the keyer's re-anchor and catch-up have. What
+            # it cost was a block of monitoring delay on every burst.
+            self.sidetone_lag += (start - offset) / sample_rate
+            offset = start
 
         if offset >= frames:
             self.pending_key_event = event
@@ -8116,10 +8120,10 @@ class Audio():
         self.pending_key_event = None
         if not key_down:
             # How far this edge was displaced from the time it was asked
-            # for -- normally exactly sidetone_lag, more when the lag was
-            # capped and it had to be taken at the start of a block. The
-            # keyer needs it to know what gap was really rendered (see
-            # Keyer.send_element).
+            # for -- normally exactly sidetone_lag, more when it arrived
+            # too late for the frame it wanted and had to take the
+            # earliest the block had left. The keyer needs it to know
+            # what gap was really rendered (see Keyer.send_element).
             self.sidetone_up_shift = dac_time + offset / sample_rate - event_time
         return offset, key_down
 
