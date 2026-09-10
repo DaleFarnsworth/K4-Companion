@@ -12992,6 +12992,8 @@ class Keyer():
 
     def send_element(self, elt, first_element=False):
         element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
+        element_seconds = round(element_seconds, 3)
+        inter_element_seconds = round(self.inter_element_seconds, 3)
         # element_timestamp, and the grid of element starts hanging off
         # it, are real time -- when the operator keyed the element. The
         # audio's own delay belongs to the sidetone schedule alone, and
@@ -13062,7 +13064,7 @@ class Keyer():
         self.update_sidetone_catchup(behind)
         fraction = min(self.max_sidetone_catchup_fraction,
                        behind * self.sidetone_catchup_per_second)
-        step = (element_seconds + self.inter_element_seconds) * fraction
+        step = (element_seconds + inter_element_seconds) * fraction
         if step > behind:
             # Short of a whole step: scale the fraction back so that the
             # element and the gap stay scaled alike.
@@ -13109,9 +13111,9 @@ class Keyer():
             # grid, being what the sleep below measures from, and is
             # written afresh at the end of the element either way.
             time_since_end_element = time.perf_counter() - self.end_element_timestamp
-            if time_since_end_element > self.inter_element_seconds:
+            if time_since_end_element > inter_element_seconds:
                 grid_shift = (time_since_end_element -
-                              self.inter_element_seconds)
+                              inter_element_seconds)
                 self.element_timestamp += grid_shift
                 self.end_element_timestamp += grid_shift
                 self.sidetone_delay_used = 0.0
@@ -13137,7 +13139,7 @@ class Keyer():
             # microseconds short of nothing, which is not something to
             # sleep for.
             time_since_end_element = time.perf_counter() - self.end_element_timestamp
-            inter_element_sleep = self.inter_element_seconds - time_since_end_element
+            inter_element_sleep = inter_element_seconds - time_since_end_element
             if inter_element_sleep > 0:
                 time.sleep(inter_element_sleep)
 
