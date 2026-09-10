@@ -7566,6 +7566,44 @@ class Audio():
             os.dup2(fd, 2)       # restore stderr
             os.close(fd)
 
+    def choose_output_sample_rate(self, extra_settings):
+        # The rate the device was enumerated at was tested in shared
+        # mode, where the Windows mixer resamples whatever it is handed.
+        # Exclusive mode has none of that: the hardware itself has to run
+        # at the rate asked for, and little of it runs at 24000, which is
+        # the first rate the enumeration tries and keeps. So test the
+        # rates again with the settings the stream is about to be opened
+        # with, and take the first that stands up.
+        #
+        # Nothing stands up, nothing changes: the open then fails on its
+        # own and there is a shared attempt behind it, which is tested
+        # here in its turn with no settings at all and so comes back to
+        # what enumeration found.
+        cls = self.__class__
+        if self.output_device_index < 0:
+            return
+        info = self.output_device_infos[self.output_device_index]
+        step = cls.min_output_sample_rate
+        for rate in range(step, cls.max_output_sample_rate + step, step):
+            if self.sd_output_format_supported(rate,
+                               device=self.output_device_index,
+                               channels=cls.output_channels,
+                               dtype='float32',
+                               extra_settings=extra_settings):
+                break
+        else:
+            return
+
+        if rate != info['output_sample_rate']:
+            dprint1(f'output sample rate {info["output_sample_rate"]} -> {rate}'
+                    f' for {"exclusive" if extra_settings != None else "shared"}'
+                    ' mode')
+        info['output_sample_rate'] = rate
+        # As the enumeration does: the block is a whole number of frames
+        # and the time it stands for follows from it.
+        cls.frames_per_output_buffer = round(rate * cls.output_buffer_time)
+        cls.output_buffer_time = cls.frames_per_output_buffer / rate
+
     def wasapi_host_api_index(cls):
         # WASAPI is Windows' modern, low-latency host API; no host API
         # here has "WASAPI" in its name elsewhere, so devices stay
@@ -7595,8 +7633,7 @@ class Audio():
         # has no settings object to carry the flag.
         if not Audio.wasapi_available():
             return None
-        if not Server.settings.getbool('Audio',
-                                       f'wasapi_exclusive_{direction}', True):
+        if not Audio.wasapi_exclusive_wanted(direction):
             return None
         wasapi_settings = getattr(sounddevice, 'WasapiSettings', None)
         if wasapi_settings == None:
@@ -7611,6 +7648,17 @@ class Audio():
         # Whether exclusive mode is a thing to offer at all: WASAPI is
         # Windows', and no other host API here answers to the name.
         return cls.get_singleton().wasapi_host_api_index() != None
+
+    @classmethod
+    def wasapi_exclusive_wanted(cls, direction):
+        # Off unless the operator has turned it on. A device that takes
+        # an exclusive open and then plays nothing has been seen, and
+        # silence is worse than the few milliseconds exclusive mode
+        # saves, so this waits on the machine in front of it rather than
+        # assuming. output_stream_playing catches that particular
+        # failure now; until one is known to work, the operator asks.
+        return Server.settings.getbool('Audio',
+                                       f'wasapi_exclusive_{direction}', False)
 
     @classmethod
     def note_exclusive_mode(cls, direction, name, opened_exclusive):
@@ -7891,8 +7939,6 @@ class Audio():
                         self.output_stream.close()
                         self.output_stream = None
 
-                resample_ratio = int(cls.output_device_sample_rate() / cls.k4_sample_rate)
-
                 def try_open_output(extra_settings):
                     retries = 2
                     for retry in range(retries+1):
@@ -7920,7 +7966,6 @@ class Audio():
                             continue
                     return None
 
-                self.warm_sidetone()
                 # Exclusive first and shared after it. A device need not
                 # take the format exclusively, and another application
                 # may be holding it that way already; shared with a
@@ -7929,6 +7974,10 @@ class Audio():
                 attempts = [exclusive, None] if exclusive != None else [None]
                 opened_exclusive = False
                 for extra_settings in attempts:
+                    # Both before the open: the rate settles the block,
+                    # and the block is what the warm-up renders.
+                    self.choose_output_sample_rate(extra_settings)
+                    self.warm_sidetone()
                     self.output_stream = try_open_output(extra_settings)
                     if self.output_stream == None:
                         continue
@@ -7950,6 +7999,11 @@ class Audio():
                             'exclusive' if opened_exclusive else 'shared',
                             f'latency={self.output_stream.latency * 1000:.2f}ms')
                     break
+
+                # After the loop, the rate being whatever the attempt
+                # that opened settled on.
+                resample_ratio = int(cls.output_device_sample_rate() /
+                                     cls.k4_sample_rate)
 
                 if self.output_stream != None and exclusive != None:
                     cls.note_exclusive_mode('output', self.output_device_name(),
@@ -9171,9 +9225,7 @@ class AppSettings_widget(Widget):
         self.server.set_control_k4_audio(setting)
 
     def audio_exclusive_setting(self, direction):
-        setting = Server.settings.getbool('Audio',
-                                          f'wasapi_exclusive_{direction}', True)
-        current_value = 'Yes' if setting else 'No'
+        current_value = 'Yes' if Audio.wasapi_exclusive_wanted(direction) else 'No'
 
         exclusive_frame, exclusive_combobox = qt_labeled_readonly_combobox(
             f'Exclusive {direction.capitalize()} Device?',
