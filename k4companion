@@ -12069,19 +12069,19 @@ class Keyer():
     # two percent per millisecond, so a tenth off at 5 ms behind and a
     # twentieth at 2.5 ms. The further behind, the harder it pulls.
     #
-    # Not a fixed rate. A device whose lag is still growing has to be
-    # chased harder than one that is merely holding a lag, and pulling
-    # hard on a lag that is already coming in shortens elements for
-    # nothing. So it starts at its gentlest and is moved between these
-    # two by what the lag is seen to do. See update_sidetone_catchup.
-    min_sidetone_catchup_per_second = 2.0
+    # Not a fixed rate. A device that is running away from the pull has
+    # to be chased harder, and pulling hard on a lag already coming in
+    # shortens elements for nothing. So it starts at its gentlest and is
+    # moved between these two by whether the catch-up is gaining on the
+    # lag or losing to it. See update_sidetone_catchup.
+    min_sidetone_catchup_per_second = 1.0
     max_sidetone_catchup_per_second = 20.0
-    # How often the lag is looked at, how far it must have moved over
-    # that interval to count as moving, and the weight one element's
-    # reading carries in the average that is looked at.
+    # How often that is looked at, how far the lag left to work off must
+    # have moved over the interval to count as moving, and the weight
+    # one element's reading carries in the average that is looked at.
     sidetone_catchup_check_seconds = 1.0
     sidetone_catchup_change_seconds = .002
-    sidetone_lag_average_weight = .1
+    sidetone_behind_average_weight = .1
     # The most that fraction may reach. A lag beyond 10 ms is worked off
     # over more elements rather than by cutting any one of them harder.
     max_sidetone_catchup_fraction = .1
@@ -12319,11 +12319,11 @@ class Keyer():
         self.inherent_sidetone_lag = 0.0
         self.last_kzd_ms = None
         # How hard the catch-up pulls at the moment, the running average
-        # of the lag over the inherent one that decides it, and what
+        # of the lag it has left to work off that decides it, and what
         # that average stood at when it was last looked at.
         self.sidetone_catchup_per_second = self.min_sidetone_catchup_per_second
-        self.sidetone_lag_average = 0.0
-        self.checked_sidetone_lag_average = None
+        self.sidetone_behind_average = 0.0
+        self.checked_sidetone_behind_average = None
         self.sidetone_catchup_checked_at = 0.0
 
         if self.keyer_thread:
@@ -12530,22 +12530,28 @@ class Keyer():
             self.send_element(elt, first_element)
             first_element = False
 
-    def update_sidetone_catchup(self, sidetone_delay):
-        # Whether to pull harder on the lag, or to ease off.
+    def update_sidetone_catchup(self, behind):
+        # Whether the catch-up is winning, and so whether to pull harder
+        # on the lag or to ease off.
         #
-        # The lag over the inherent one is what the catch-up works
-        # against, and one element's reading of it says little -- it
-        # moves with every block boundary an edge happens to land near
-        # -- so what is watched is a running average of it, and only
-        # once a second. Growing means the device is still falling
-        # behind and the pull is not keeping up with it, so double it.
-        # Coming in means the pull is winning, and easing off leaves
-        # elements their length; that is done gently, so that a device
-        # needing the harder pull does not have to earn it back from the
-        # bottom every second.
-        lag = sidetone_delay - self.inherent_sidetone_lag
-        self.sidetone_lag_average += ((lag - self.sidetone_lag_average) *
-                                      self.sidetone_lag_average_weight)
+        # behind is what it has left to work off: the lag over the
+        # inherent one, less what the schedule has already taken up.
+        # Coming in means the pull is gaining on the device, and easing
+        # off then leaves elements their length. Growing means the
+        # device is running away faster than the pull is taking in, so
+        # double it. The device's lag on its own could not tell the two
+        # apart: a lag that grows while the catch-up still gains on it
+        # wants no more pull than it already has.
+        #
+        # A running average of it, and looked at only once a second. One
+        # element's reading moves with whatever block boundary its edge
+        # lands near, and behind is sawtoothed besides -- the schedule
+        # starts from no offset at every character, so the whole lag is
+        # taken on again there and comes in across the character. Easing
+        # off is gentle, so that a device needing the harder pull does
+        # not have to earn it back from the bottom every second.
+        self.sidetone_behind_average += ((behind - self.sidetone_behind_average) *
+                                         self.sidetone_behind_average_weight)
 
         now = time.perf_counter()
         if (now - self.sidetone_catchup_checked_at <
@@ -12553,12 +12559,12 @@ class Keyer():
             return
         self.sidetone_catchup_checked_at = now
 
-        previous = self.checked_sidetone_lag_average
-        self.checked_sidetone_lag_average = self.sidetone_lag_average
+        previous = self.checked_sidetone_behind_average
+        self.checked_sidetone_behind_average = self.sidetone_behind_average
         if previous == None:
             return                  # nothing yet to have moved from
 
-        moved = self.sidetone_lag_average - previous
+        moved = self.sidetone_behind_average - previous
         if moved > self.sidetone_catchup_change_seconds:
             self.sidetone_catchup_per_second *= 2
         elif moved < -self.sidetone_catchup_change_seconds:
@@ -12578,7 +12584,6 @@ class Keyer():
         # audio's own delay belongs to the sidetone schedule alone, and
         # is taken off there.
         sidetone_delay = Audio.sidetone_delay()
-        self.update_sidetone_catchup(sidetone_delay)
         # What the sidetone is actually given, as against what the K4 is
         # told.
         sidetone_seconds = element_seconds
@@ -12641,6 +12646,7 @@ class Keyer():
         # from wherever the schedule happens to stand.
         behind = max(0.0, sidetone_delay - self.inherent_sidetone_lag -
                      self.sidetone_delay_used)
+        self.update_sidetone_catchup(behind)
         fraction = min(self.max_sidetone_catchup_fraction,
                        behind * self.sidetone_catchup_per_second)
         step = (element_seconds + self.inter_element_seconds) * fraction
