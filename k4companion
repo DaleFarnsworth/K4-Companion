@@ -7567,25 +7567,27 @@ class Audio():
                 return index
         return None
 
-    def wasapi_exclusive_settings(self):
+    def wasapi_exclusive_settings(self, direction):
         # WASAPI's shared mode mixes this stream with everything else the
-        # machine is playing, and the mixer's own engine period -- ten
-        # milliseconds or so -- is the floor on how soon a block can
-        # reach the DAC, whatever blocksize is asked for. Exclusive mode
-        # hands the device to this process alone and takes that to a few
-        # milliseconds. Every one of them comes off the delay between the
-        # operator's paddle and the sidetone he hears (see
-        # next_key_edge), which is what the keyer then has to hold or
-        # work off.
+        # machine is playing or recording, and the mixer's own engine
+        # period -- ten milliseconds or so -- is the floor on how soon a
+        # block can cross it, whatever blocksize is asked for. Exclusive
+        # mode hands the device to this process alone and takes that to a
+        # few milliseconds. On the way out every one of them comes off
+        # the delay between the operator's paddle and the sidetone he
+        # hears (see next_key_edge), which is what the keyer then has to
+        # hold or work off; on the way in they come off what the far end
+        # hears of him.
         #
         # None where there is no WASAPI to ask -- devices are enumerated
-        # under it wherever it exists, so an output device is one of its
-        # own there -- none where the operator has said no, the device
-        # being his to share or not, and none where this build of
-        # sounddevice has no settings object to carry the flag.
+        # under it wherever it exists, so a device is one of its own
+        # there -- none where the operator has said no, the device being
+        # his to share or not, and none where this build of sounddevice
+        # has no settings object to carry the flag.
         if not Audio.wasapi_available():
             return None
-        if not Server.settings.getbool('Audio', 'wasapi_exclusive', True):
+        if not Server.settings.getbool('Audio',
+                                       f'wasapi_exclusive_{direction}', True):
             return None
         wasapi_settings = getattr(sounddevice, 'WasapiSettings', None)
         if wasapi_settings == None:
@@ -7612,11 +7614,20 @@ class Audio():
         if self != None:
             self.output_stream_generation += 1
 
+    @classmethod
+    def reopen_input_stream(cls):
+        # As reopen_output_stream. input_loop comes back around on every
+        # frame it reads, so it obliges at once.
+        self = cls.singleton
+        if self != None:
+            self.input_stream_generation += 1
+
     def __init__(self):
         self.input_stream = None
         self.output_stream = None
         # Bumped where a setting the open depends on changes.
         self.output_stream_generation = 0
+        self.input_stream_generation = 0
         # Guards output_stream against being closed while the keyer's
         # thread is reading its clock in key_sidetone(). The output
         # callback never takes it, so closing cannot deadlock against it.
@@ -7881,7 +7892,7 @@ class Audio():
                 # take the format exclusively, and another application
                 # may be holding it that way already; shared with a
                 # little more delay beats no audio at all.
-                exclusive = self.wasapi_exclusive_settings()
+                exclusive = self.wasapi_exclusive_settings('output')
                 attempts = [exclusive, None] if exclusive != None else [None]
                 for extra_settings in attempts:
                     self.output_stream = try_open_output(extra_settings)
@@ -8329,11 +8340,14 @@ class Audio():
     def input_loop(self, server):
         input_stream = None
         current_index = None
+        current_generation = None
         warned = False
 
         while True:
-            if current_index != self.input_device_index:
+            if (current_index != self.input_device_index or
+                    current_generation != self.input_stream_generation):
                 current_index = self.input_device_index
+                current_generation = self.input_stream_generation
 
                 opus = opuslib.Encoder(Audio.k4_sample_rate, Audio.k4_input_channels, 'audio')
 
@@ -8341,7 +8355,7 @@ class Audio():
                     input_stream.close()
                     input_stream = None
 
-                def try_open_input():
+                def try_open_input(extra_settings):
                     retries = 2
                     for retry in range(retries+1):
                         try:
@@ -8351,6 +8365,7 @@ class Audio():
                                     device=self.input_device_index,
                                     channels=Audio.input_channels,
                                     dtype='float32',
+                                    extra_settings=extra_settings,
                                     # See the matching comment on
                                     # OutputStream in output_loop.
                                     latency='low',
@@ -8358,12 +8373,27 @@ class Audio():
                             stream.start()
                             return stream
                         except Exception:
-                            # See the matching comment in output_loop.
-                            traceback.print_exc(file=stderr)
+                            # Nothing said of a failed exclusive attempt:
+                            # falling back to shared is ordinary, and the
+                            # shared attempt is the one whose failure
+                            # means the device is not to be had.
+                            if extra_settings == None:
+                                traceback.print_exc(file=stderr)
                             continue
                     return None
 
-                input_stream = try_open_input()
+                # Exclusive first and shared after it, as in
+                # output_loop.
+                exclusive = self.wasapi_exclusive_settings('input')
+                attempts = [exclusive, None] if exclusive != None else [None]
+                input_stream = None
+                for extra_settings in attempts:
+                    input_stream = try_open_input(extra_settings)
+                    if input_stream != None:
+                        dprint1('input stream opened',
+                                'exclusive' if extra_settings != None else 'shared',
+                                f'latency={input_stream.latency * 1000:.2f}ms')
+                        break
 
                 if input_stream != None:
                     warned = False
@@ -8971,19 +9001,29 @@ class AppSettings_widget(Widget):
     def audio_settings(self):
         frame, grid = qt_group_box('Audio Settings', self.label_font())
 
+        # Each device with its own exclusive-mode setting under it, and
+        # rows counted rather than numbered: anywhere but Windows there
+        # is no exclusive mode to ask about and those rows are not there
+        # at all.
+        row = 0
         audio_input_frame = self.audio_input_settings(frame)
-        grid.addWidget(audio_input_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        grid.addWidget(audio_input_frame, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        row += 1
+        if Audio.wasapi_available():
+            audio_exclusive_input_frame = self.audio_exclusive_setting('input')
+            grid.addWidget(audio_exclusive_input_frame, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            row += 1
         audio_output_frame = self.audio_output_settings(frame)
-        grid.addWidget(audio_output_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        grid.addWidget(audio_output_frame, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        row += 1
+        if Audio.wasapi_available():
+            audio_exclusive_output_frame = self.audio_exclusive_setting('output')
+            grid.addWidget(audio_exclusive_output_frame, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
         audio_k4_control_frame = self.audio_k4_control_setting()
         grid.addWidget(audio_k4_control_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         audio_remote_audio_latency_frame = self.audio_remote_audio_latency_setting()
         grid.addWidget(audio_remote_audio_latency_frame, 1, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        if Audio.wasapi_available():
-            # Windows only: nothing else here has an exclusive mode to
-            # ask about.
-            audio_exclusive_frame = self.audio_exclusive_output_setting()
-            grid.addWidget(audio_exclusive_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         return frame
 
@@ -9053,25 +9093,31 @@ class AppSettings_widget(Widget):
         Server.settings.put_save('Audio', 'control_k4_audio_settings', setting)
         self.server.set_control_k4_audio(setting)
 
-    def audio_exclusive_output_setting(self):
-        setting = Server.settings.getbool('Audio', 'wasapi_exclusive', True)
+    def audio_exclusive_setting(self, direction):
+        setting = Server.settings.getbool('Audio',
+                                          f'wasapi_exclusive_{direction}', True)
         current_value = 'Yes' if setting else 'No'
 
         exclusive_frame, exclusive_combobox = qt_labeled_readonly_combobox(
-            'Exclusive Output Device?', self.label_font(), self.font(), ('Yes', 'No'),
+            f'Exclusive {direction.capitalize()} Device?',
+            self.label_font(), self.font(), ('Yes', 'No'),
             current_value, self.bg, self.fg, self.selectbg, self.selectfg,
-            self.on_exclusive_output_combobox_changed)
+            lambda value: self.on_exclusive_combobox_changed(direction, value))
 
         return exclusive_frame
 
-    def on_exclusive_output_combobox_changed(self, current_value):
+    def on_exclusive_combobox_changed(self, direction, current_value):
         if current_value == '':
             return
 
-        Server.settings.put_save('Audio', 'wasapi_exclusive', current_value == 'Yes')
+        Server.settings.put_save('Audio', f'wasapi_exclusive_{direction}',
+                                 current_value == 'Yes')
         # Exclusive or shared is settled when the device is opened, so
         # the stream has to be taken down and put up again for this.
-        Audio.reopen_output_stream()
+        if direction == 'input':
+            Audio.reopen_input_stream()
+        else:
+            Audio.reopen_output_stream()
 
     def audio_remote_audio_latency_setting(self):
         current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=1000)
