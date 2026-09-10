@@ -7671,6 +7671,49 @@ class Audio():
         # Windows', and no other host API here answers to the name.
         return cls.get_singleton().wasapi_host_api_index() != None
 
+    def wasapi_polling_settings(self, direction):
+        # Exclusive mode, with PortAudio driving the device from its own
+        # thread instead of waiting on an event the driver sets. Drivers
+        # exist that take an exclusive open, start, and then never signal
+        # that event -- the stream is live, the callback is never called,
+        # and nothing is heard. Polling asks nothing of the driver but
+        # the buffer.
+        #
+        # sounddevice has no argument for the flag, so it goes on the
+        # struct it builds; a build that has moved the struct is a build
+        # without this attempt in it.
+        settings = self.wasapi_exclusive_settings(direction)
+        if settings == None:
+            return None
+        try:
+            settings._streaminfo.flags |= sounddevice._lib.paWinWasapiPolling
+        except Exception:
+            return None
+        return settings
+
+    def output_open_attempts(self):
+        # How to try opening the device, in the order worth trying.
+        #
+        # Every exclusive attempt buys the same delay; they differ only
+        # in what they ask of the driver. The block asked for first is
+        # ours, then the device's own period, then the same again with
+        # the driver's event taken out of it. Each is made to prove it
+        # plays before it is kept (see output_stream_playing), so a
+        # driver that lies its way through an open is found out and the
+        # next one is tried. Shared mode is last and is not asked to
+        # prove anything, being what there is.
+        cls = self.__class__
+        exclusive = self.wasapi_exclusive_settings('output')
+        attempts = []
+        if exclusive != None:
+            attempts.append(('exclusive', exclusive, cls.exclusive_blocksize))
+            attempts.append(('exclusive, device period', exclusive, 0))
+            polling = self.wasapi_polling_settings('output')
+            if polling != None:
+                attempts.append(('exclusive, polling', polling, 0))
+        attempts.append(('shared', None, None))
+        return attempts
+
     @classmethod
     def wasapi_exclusive_wanted(cls, direction):
         # Off unless the operator has turned it on. A device that takes
@@ -7961,13 +8004,13 @@ class Audio():
                         self.output_stream.close()
                         self.output_stream = None
 
-                def try_open_output(extra_settings):
+                def try_open_output(extra_settings, blocksize):
                     retries = 2
                     for retry in range(retries+1):
                         try:
                             stream = sounddevice.OutputStream(
                                     samplerate=cls.output_device_sample_rate(),
-                                    blocksize=self.frames_per_output_buffer,
+                                    blocksize=blocksize,
                                     device=self.output_device_index,
                                     channels=cls.output_channels,
                                     dtype='float32',
@@ -7988,19 +8031,19 @@ class Audio():
                             continue
                     return None
 
-                # Exclusive first and shared after it. A device need not
-                # take the format exclusively, and another application
-                # may be holding it that way already; shared with a
-                # little more delay beats no audio at all.
-                exclusive = self.wasapi_exclusive_settings('output')
-                attempts = [exclusive, None] if exclusive != None else [None]
+                attempts = self.output_open_attempts()
+                # Exclusive attempts come first, so the first one says
+                # whether exclusive mode was asked for at all.
+                wanted_exclusive = attempts[0][1] != None
                 opened_exclusive = False
-                for extra_settings in attempts:
+                for label, extra_settings, blocksize in attempts:
                     # Both before the open: the rate settles the block,
                     # and the block is what the warm-up renders.
                     self.choose_output_sample_rate(extra_settings)
+                    if blocksize == None:
+                        blocksize = self.frames_per_output_buffer
                     self.warm_sidetone()
-                    self.output_stream = try_open_output(extra_settings)
+                    self.output_stream = try_open_output(extra_settings, blocksize)
                     if self.output_stream == None:
                         continue
                     if extra_settings != None and not self.output_stream_playing():
@@ -8010,15 +8053,15 @@ class Audio():
                         # attempt with something left to fall back to is
                         # asked to prove itself; the shared open is what
                         # there is, dead or alive.
-                        dprint1('output stream opened exclusive but never'
+                        dprint1(f'output stream opened {label} but never'
                                 ' asked for a block')
                         with self.output_stream_lock:
                             self.output_stream.close()
                             self.output_stream = None
                         continue
                     opened_exclusive = extra_settings != None
-                    dprint1('output stream opened',
-                            'exclusive' if opened_exclusive else 'shared',
+                    dprint1('output stream opened', label,
+                            f'blocksize={blocksize}',
                             f'latency={self.output_stream.latency * 1000:.2f}ms')
                     break
 
@@ -8027,7 +8070,7 @@ class Audio():
                 resample_ratio = int(cls.output_device_sample_rate() /
                                      cls.k4_sample_rate)
 
-                if self.output_stream != None and exclusive != None:
+                if self.output_stream != None and wanted_exclusive:
                     cls.note_exclusive_mode('output', self.output_device_name(),
                                             opened_exclusive)
 
