@@ -7555,6 +7555,31 @@ class Audio():
                 return index
         return None
 
+    def wasapi_exclusive_settings(self):
+        # WASAPI's shared mode mixes this stream with everything else the
+        # machine is playing, and the mixer's own engine period -- ten
+        # milliseconds or so -- is the floor on how soon a block can
+        # reach the DAC, whatever blocksize is asked for. Exclusive mode
+        # hands the device to this process alone and takes that to a few
+        # milliseconds. Every one of them comes off the delay between the
+        # operator's paddle and the sidetone he hears (see
+        # next_key_edge), which is what the keyer then has to hold or
+        # work off.
+        #
+        # None where there is no WASAPI to ask -- devices are enumerated
+        # under it wherever it exists, so an output device is one of its
+        # own there -- and none where this build of sounddevice has no
+        # settings object to carry the flag.
+        if self.wasapi_host_api_index() == None:
+            return None
+        wasapi_settings = getattr(sounddevice, 'WasapiSettings', None)
+        if wasapi_settings == None:
+            return None
+        try:
+            return wasapi_settings(exclusive=True)
+        except Exception:
+            return None
+
     def __init__(self):
         self.input_stream = None
         self.output_stream = None
@@ -7787,7 +7812,7 @@ class Audio():
 
                 resample_ratio = int(cls.output_device_sample_rate() / cls.k4_sample_rate)
 
-                def try_open_output():
+                def try_open_output(extra_settings):
                     retries = 2
                     for retry in range(retries+1):
                         try:
@@ -7797,6 +7822,7 @@ class Audio():
                                     device=self.output_device_index,
                                     channels=cls.output_channels,
                                     dtype='float32',
+                                    extra_settings=extra_settings,
                                     # blocksize alone doesn't minimize
                                     # buffering -- left unspecified, this
                                     # defaults to 'high' (PortAudio's
@@ -7814,7 +7840,19 @@ class Audio():
                     return None
 
                 self.warm_sidetone()
-                self.output_stream = try_open_output()
+                # Exclusive first and shared after it. A device need not
+                # take the format exclusively, and another application
+                # may be holding it that way already; shared with a
+                # little more delay beats no audio at all.
+                exclusive = self.wasapi_exclusive_settings()
+                attempts = [exclusive, None] if exclusive != None else [None]
+                for extra_settings in attempts:
+                    self.output_stream = try_open_output(extra_settings)
+                    if self.output_stream != None:
+                        dprint1('output stream opened',
+                                'exclusive' if extra_settings != None else 'shared',
+                                f'latency={self.output_stream.latency * 1000:.2f}ms')
+                        break
 
                 if self.output_stream != None:
                     warned = False
