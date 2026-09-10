@@ -6395,10 +6395,10 @@ class Panadapter(QDialog):
 #
 # The panadapter is drawn in its own process because a pyqtgraph repaint
 # holds the GIL on the main thread for ~5 ms typically and up to ~20 ms,
-# while the audio output path tolerates only about 8 ms (the output
-# device's low-latency figure) before it underruns. No amount of
-# buffering fixes that in-process: during the stall the audio threads
-# cannot run either, since they need the same GIL. A separate process
+# while the audio output path tolerates only about 4 ms (the block the
+# output callback fills) before it underruns. No amount of buffering
+# fixes that in-process: during the stall the audio threads cannot run
+# either, since they need the same GIL. A separate process
 # has its own GIL, so its repaints cannot touch the audio path at all,
 # and frames_per_buffer can stay low for low transmit/tuning delay.
 #
@@ -7186,7 +7186,19 @@ class Audio():
     sidetone_fall_perceived_ratio = .5
     sidetone_enabled = True
 
-    output_buffer_time = .008
+    # The block the output callback fills, and with it two thirds of
+    # what stands between the paddle and the sidetone: an edge is picked
+    # up by the first callback to run after it was keyed, so a block is
+    # what that wait can be at worst and half a block what it is on
+    # average, and the block being filled is the earliest audio still
+    # writable (see next_key_edge).
+    #
+    # Four milliseconds rather than eight for that. It is the one figure
+    # here that can cost more than it saves: the callback has this long
+    # to run and no longer, and an underrun puts far more delay into the
+    # sidetone than the block ever took out. Audio.report_glitches counts
+    # them, so a device that cannot hold it says so with debug on.
+    output_buffer_time = .004
 
     # Each burst of keying is rendered at a fixed offset behind the
     # operator's key edges (see mix_sidetone). After this much silence
