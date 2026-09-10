@@ -7210,6 +7210,11 @@ class Audio():
     k4_muted = False
     k4_mute_count = 0
 
+    # How long a newly started output stream is given to ask for its
+    # first block before it is taken for dead. See
+    # output_stream_playing.
+    stream_start_check_seconds = .25
+
     # Whether the operator has been told the device would not give him
     # exclusive mode. Once each is enough; see note_exclusive_mode.
     exclusive_warned = { 'input': False, 'output': False }
@@ -7925,12 +7930,26 @@ class Audio():
                 opened_exclusive = False
                 for extra_settings in attempts:
                     self.output_stream = try_open_output(extra_settings)
-                    if self.output_stream != None:
-                        opened_exclusive = extra_settings != None
-                        dprint1('output stream opened',
-                                'exclusive' if opened_exclusive else 'shared',
-                                f'latency={self.output_stream.latency * 1000:.2f}ms')
-                        break
+                    if self.output_stream == None:
+                        continue
+                    if extra_settings != None and not self.output_stream_playing():
+                        # Opened, started, and asking for nothing: an
+                        # exclusive open that fails this way fails
+                        # silently, in the most literal sense. Only an
+                        # attempt with something left to fall back to is
+                        # asked to prove itself; the shared open is what
+                        # there is, dead or alive.
+                        dprint1('output stream opened exclusive but never'
+                                ' asked for a block')
+                        with self.output_stream_lock:
+                            self.output_stream.close()
+                            self.output_stream = None
+                        continue
+                    opened_exclusive = extra_settings != None
+                    dprint1('output stream opened',
+                            'exclusive' if opened_exclusive else 'shared',
+                            f'latency={self.output_stream.latency * 1000:.2f}ms')
+                    break
 
                 if self.output_stream != None and exclusive != None:
                     cls.note_exclusive_mode('output', self.output_device_name(),
@@ -8286,6 +8305,24 @@ class Audio():
         if len(self.sidetone_ramp) < frames:
             self.sidetone_ramp = numpy.arange(1, frames + 1, dtype=numpy.float32)
         return self.sidetone_ramp[:frames]
+
+    def output_stream_playing(self):
+        # Whether the stream that has just been started is really asking
+        # for audio. A WASAPI device can take an exclusive open, start
+        # without complaint, and then never call back at all: the
+        # operator hears nothing and nothing anywhere says why.
+        #
+        # The callback runs whether or not the K4 is sending anything --
+        # an empty queue is filled with silence -- so one block asked for
+        # is the whole of the evidence needed, and a quarter of a second
+        # is many blocks.
+        started = self.rendered_frames
+        deadline = time.perf_counter() + self.stream_start_check_seconds
+        while time.perf_counter() < deadline:
+            if self.rendered_frames != started:
+                return True
+            time.sleep(.01)
+        return False
 
     def warm_sidetone(self):
         # mix_sidetone does not run until something is keyed, so the
