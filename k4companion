@@ -7580,9 +7580,12 @@ class Audio():
         #
         # None where there is no WASAPI to ask -- devices are enumerated
         # under it wherever it exists, so an output device is one of its
-        # own there -- and none where this build of sounddevice has no
-        # settings object to carry the flag.
-        if self.wasapi_host_api_index() == None:
+        # own there -- none where the operator has said no, the device
+        # being his to share or not, and none where this build of
+        # sounddevice has no settings object to carry the flag.
+        if not Audio.wasapi_available():
+            return None
+        if not Server.settings.getbool('Audio', 'wasapi_exclusive', True):
             return None
         wasapi_settings = getattr(sounddevice, 'WasapiSettings', None)
         if wasapi_settings == None:
@@ -7592,9 +7595,28 @@ class Audio():
         except Exception:
             return None
 
+    @classmethod
+    def wasapi_available(cls):
+        # Whether exclusive mode is a thing to offer at all: WASAPI is
+        # Windows', and no other host API here answers to the name.
+        return cls.get_singleton().wasapi_host_api_index() != None
+
+    @classmethod
+    def reopen_output_stream(cls):
+        # For a setting that only takes effect where the device is
+        # opened. The opening is left to output_loop, which owns the
+        # stream -- closing one under it from another thread is what
+        # output_stream_lock is there to prevent -- so this only marks it
+        # stale, and the loop obliges on the next packet from the K4.
+        self = cls.singleton
+        if self != None:
+            self.output_stream_generation += 1
+
     def __init__(self):
         self.input_stream = None
         self.output_stream = None
+        # Bumped where a setting the open depends on changes.
+        self.output_stream_generation = 0
         # Guards output_stream against being closed while the keyer's
         # thread is reading its clock in key_sidetone(). The output
         # callback never takes it, so closing cannot deadlock against it.
@@ -7796,6 +7818,7 @@ class Audio():
         cls = self.__class__
         self.output_stream = None
         current_index = None
+        current_generation = None
         warned = False
 
         while True:
@@ -7805,8 +7828,10 @@ class Audio():
 
             frame_size = packet[2] << 8 | packet[1]
 
-            if current_index != self.output_device_index:
+            if (current_index != self.output_device_index or
+                    current_generation != self.output_stream_generation):
                 current_index = self.output_device_index
+                current_generation = self.output_stream_generation
                 encode_mode = packet[0]
                 if encode_mode != cls.encode_mode_opus_float:
                     raise Exception('Unsupported audio encode mode:', encode_mode)
@@ -8954,6 +8979,11 @@ class AppSettings_widget(Widget):
         grid.addWidget(audio_k4_control_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         audio_remote_audio_latency_frame = self.audio_remote_audio_latency_setting()
         grid.addWidget(audio_remote_audio_latency_frame, 1, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        if Audio.wasapi_available():
+            # Windows only: nothing else here has an exclusive mode to
+            # ask about.
+            audio_exclusive_frame = self.audio_exclusive_output_setting()
+            grid.addWidget(audio_exclusive_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         return frame
 
@@ -9022,6 +9052,26 @@ class AppSettings_widget(Widget):
 
         Server.settings.put_save('Audio', 'control_k4_audio_settings', setting)
         self.server.set_control_k4_audio(setting)
+
+    def audio_exclusive_output_setting(self):
+        setting = Server.settings.getbool('Audio', 'wasapi_exclusive', True)
+        current_value = 'Yes' if setting else 'No'
+
+        exclusive_frame, exclusive_combobox = qt_labeled_readonly_combobox(
+            'Exclusive Output Device?', self.label_font(), self.font(), ('Yes', 'No'),
+            current_value, self.bg, self.fg, self.selectbg, self.selectfg,
+            self.on_exclusive_output_combobox_changed)
+
+        return exclusive_frame
+
+    def on_exclusive_output_combobox_changed(self, current_value):
+        if current_value == '':
+            return
+
+        Server.settings.put_save('Audio', 'wasapi_exclusive', current_value == 'Yes')
+        # Exclusive or shared is settled when the device is opened, so
+        # the stream has to be taken down and put up again for this.
+        Audio.reopen_output_stream()
 
     def audio_remote_audio_latency_setting(self):
         current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=1000)
