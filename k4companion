@@ -36,6 +36,7 @@
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import configparser
+import contextlib
 import ctypes
 import glob
 import hashlib
@@ -92,11 +93,35 @@ python_minor = int(python_version[1])
 python_patchlevel = int(python_version[2])
 
 try:
-    # Create our own stderr so we can print to stderr while fd 2 is closed.
+    # Create our own stderr so we can print to stderr while fd 2 is
+    # pointed elsewhere (see quiet_stderr).
     stderr = os.fdopen(os.dup(2), 'w')
 except:
     # If running in a PyInstaller bundle, fdopen of dup doesn't work.
     stderr = sys.stderr
+
+@contextlib.contextmanager
+def quiet_stderr():
+    # PortAudio has a great deal to say on stderr while it is being asked
+    # what a device supports, and none of it is for the operator. It is a
+    # C library writing to fd 2, so nothing done with sys.stderr reaches
+    # it: the descriptor itself has to be pointed elsewhere.
+    #
+    # Pointed, not closed. Closing fd 2 frees the number, and anything
+    # any other thread opens in that window can be handed it -- the pipes
+    # subprocess.Popen makes for a panadapter, say. Restoring stderr over
+    # the number then shuts a pipe that thread is still holding, and it
+    # fails with EBADF somewhere far from here. Holding /dev/null on the
+    # number instead keeps it occupied throughout.
+    saved = os.dup(2)
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull, 2)
+        yield
+    finally:
+        os.dup2(saved, 2)
+        os.close(saved)
+        os.close(devnull)
 
 _qt_font_weights = {'normal': QFont.Weight.Normal, 'bold': QFont.Weight.Bold}
 
@@ -7533,46 +7558,28 @@ class Audio():
             cls.singleton.unmute_at_frame = None
 
     def sd_query_hostapis(cls, index=None):
-        fd = os.dup(2)
-        os.close(2)              # Close stderr because PortAudio outputs a lot of disquieting messages
-        try:
+        with quiet_stderr():
             return sounddevice.query_hostapis(index)
-        finally:
-            os.dup2(fd, 2)       # restore stderr
-            os.close(fd)
 
     def sd_query_device(cls, index):
-        fd = os.dup(2)
-        os.close(2)              # Close stderr because PortAudio outputs a lot of disquieting messages
-        try:
+        with quiet_stderr():
             return sounddevice.query_devices(index)
-        finally:
-            os.dup2(fd, 2)       # restore stderr
-            os.close(fd)
 
     def sd_input_format_supported(cls, sample_rate, **kwargs):
-        fd = os.dup(2)
-        os.close(2)              # Close stderr because PortAudio outputs a lot of disquieting messages
-        try:
-            sounddevice.check_input_settings(samplerate=sample_rate, **kwargs)
-            return True
-        except Exception:
-            return False
-        finally:
-            os.dup2(fd, 2)       # restore stderr
-            os.close(fd)
+        with quiet_stderr():
+            try:
+                sounddevice.check_input_settings(samplerate=sample_rate, **kwargs)
+                return True
+            except Exception:
+                return False
 
     def sd_output_format_supported(cls, sample_rate, **kwargs):
-        fd = os.dup(2)
-        os.close(2)              # Close stderr because PortAudio outputs a lot of disquieting messages
-        try:
-            sounddevice.check_output_settings(samplerate=sample_rate, **kwargs)
-            return True
-        except Exception:
-            return False
-        finally:
-            os.dup2(fd, 2)       # restore stderr
-            os.close(fd)
+        with quiet_stderr():
+            try:
+                sounddevice.check_output_settings(samplerate=sample_rate, **kwargs)
+                return True
+            except Exception:
+                return False
 
     @classmethod
     def output_blocksize(cls, extra_settings, sample_rate):
