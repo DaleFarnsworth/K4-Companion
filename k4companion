@@ -12566,16 +12566,18 @@ class Keyer():
 
         moved = self.sidetone_behind_average - previous
         if moved > self.sidetone_catchup_change_seconds:
-            self.sidetone_catchup_per_second *= 2
+            rate = self.sidetone_catchup_per_second * 2
         elif moved < -self.sidetone_catchup_change_seconds:
-            self.sidetone_catchup_per_second *= .7
+            rate = self.sidetone_catchup_per_second * .7
         else:
             return
-        self.sidetone_catchup_per_second = min(
-                self.max_sidetone_catchup_per_second,
-                max(self.min_sidetone_catchup_per_second,
-                    self.sidetone_catchup_per_second))
-        dprint1(f'sidetone_catchup_per_second={self.sidetone_catchup_per_second}')
+        rate = min(self.max_sidetone_catchup_per_second,
+                   max(self.min_sidetone_catchup_per_second, rate))
+        if rate == self.sidetone_catchup_per_second:
+            return                  # already at the end it is heading for
+        self.sidetone_catchup_per_second = rate
+        dprint1(f'sidetone_catchup_per_second={rate:.3g}'
+                f' behind_average_ms={self.sidetone_behind_average * 1000:.2f}')
 
     def send_element(self, elt, first_element=False):
         element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
