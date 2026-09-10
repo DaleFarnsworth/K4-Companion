@@ -7210,6 +7210,10 @@ class Audio():
     k4_muted = False
     k4_mute_count = 0
 
+    # Whether the operator has been told the device would not give him
+    # exclusive mode. Once each is enough; see note_exclusive_mode.
+    exclusive_warned = { 'input': False, 'output': False }
+
     @classmethod
     def get_singleton(cls):
         if cls.singleton == None:
@@ -7604,6 +7608,30 @@ class Audio():
         return cls.get_singleton().wasapi_host_api_index() != None
 
     @classmethod
+    def note_exclusive_mode(cls, direction, name, opened_exclusive):
+        # Told once for each device direction, and only where exclusive
+        # mode was asked for. The operator can do something about it --
+        # close whatever else is holding the device, or turn the setting
+        # off and stop expecting the lower delay -- but only if he is
+        # told, and the audio itself gives nothing away: shared mode
+        # works, just further behind.
+        #
+        # An exclusive open clears it again. What he was told was about
+        # one device refusing at one moment, so the next device to refuse
+        # -- or the same one once whatever held it has let go and taken
+        # it again -- is his to hear about too.
+        if opened_exclusive:
+            cls.exclusive_warned[direction] = False
+            return
+        if cls.exclusive_warned[direction]:
+            return
+        cls.exclusive_warned[direction] = True
+        Popup.warning(f'Exclusive mode is not available for the {direction} device:\n'
+                      f'  {name}\n'
+                      'Another application may be holding it.'
+                      ' Using shared mode, at a little more delay.')
+
+    @classmethod
     def reopen_output_stream(cls):
         # For a setting that only takes effect where the device is
         # opened. The opening is left to output_loop, which owns the
@@ -7894,13 +7922,19 @@ class Audio():
                 # little more delay beats no audio at all.
                 exclusive = self.wasapi_exclusive_settings('output')
                 attempts = [exclusive, None] if exclusive != None else [None]
+                opened_exclusive = False
                 for extra_settings in attempts:
                     self.output_stream = try_open_output(extra_settings)
                     if self.output_stream != None:
+                        opened_exclusive = extra_settings != None
                         dprint1('output stream opened',
-                                'exclusive' if extra_settings != None else 'shared',
+                                'exclusive' if opened_exclusive else 'shared',
                                 f'latency={self.output_stream.latency * 1000:.2f}ms')
                         break
+
+                if self.output_stream != None and exclusive != None:
+                    cls.note_exclusive_mode('output', self.output_device_name(),
+                                            opened_exclusive)
 
                 if self.output_stream != None:
                     warned = False
@@ -8386,14 +8420,20 @@ class Audio():
                 # output_loop.
                 exclusive = self.wasapi_exclusive_settings('input')
                 attempts = [exclusive, None] if exclusive != None else [None]
+                opened_exclusive = False
                 input_stream = None
                 for extra_settings in attempts:
                     input_stream = try_open_input(extra_settings)
                     if input_stream != None:
+                        opened_exclusive = extra_settings != None
                         dprint1('input stream opened',
-                                'exclusive' if extra_settings != None else 'shared',
+                                'exclusive' if opened_exclusive else 'shared',
                                 f'latency={input_stream.latency * 1000:.2f}ms')
                         break
+
+                if input_stream != None and exclusive != None:
+                    Audio.note_exclusive_mode('input', self.input_device_name(),
+                                              opened_exclusive)
 
                 if input_stream != None:
                     warned = False
