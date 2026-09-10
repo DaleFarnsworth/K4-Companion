@@ -7691,7 +7691,7 @@ class Audio():
             return None
         return settings
 
-    def output_open_attempts(self):
+    def open_attempts(self, direction, exclusive_blocksize):
         # How to try opening the device, in the order worth trying.
         #
         # Every exclusive attempt buys the same delay; they differ only
@@ -7702,13 +7702,12 @@ class Audio():
         # driver that lies its way through an open is found out and the
         # next one is tried. Shared mode is last and is not asked to
         # prove anything, being what there is.
-        cls = self.__class__
-        exclusive = self.wasapi_exclusive_settings('output')
+        exclusive = self.wasapi_exclusive_settings(direction)
         attempts = []
         if exclusive != None:
-            attempts.append(('exclusive', exclusive, cls.exclusive_blocksize))
+            attempts.append(('exclusive', exclusive, exclusive_blocksize))
             attempts.append(('exclusive, device period', exclusive, 0))
-            polling = self.wasapi_polling_settings('output')
+            polling = self.wasapi_polling_settings(direction)
             if polling != None:
                 attempts.append(('exclusive, polling', polling, 0))
         attempts.append(('shared', None, None))
@@ -8027,11 +8026,19 @@ class Audio():
                                     )
                             stream.start()
                             return stream
-                        except Exception:
+                        except Exception as e:
+                            # Said, not raised. Every attempt but the
+                            # last has something behind it, and the last
+                            # one's failure is reported by its caller --
+                            # but which of them failed, and with what
+                            # PortAudio had to say about it, is the whole
+                            # of what there is to go on when a device
+                            # will not take exclusive mode.
+                            dprint1(f'output stream open failed: {e}')
                             continue
                     return None
 
-                attempts = self.output_open_attempts()
+                attempts = self.open_attempts('output', cls.exclusive_blocksize)
                 # Exclusive attempts come first, so the first one says
                 # whether exclusive mode was asked for at all.
                 wanted_exclusive = attempts[0][1] != None
@@ -8053,8 +8060,14 @@ class Audio():
                         # attempt with something left to fall back to is
                         # asked to prove itself; the shared open is what
                         # there is, dead or alive.
+                        stream = self.output_stream
                         dprint1(f'output stream opened {label} but never'
-                                ' asked for a block')
+                                ' asked for a block:'
+                                f' active={stream.active}'
+                                f' stopped={stream.stopped}'
+                                f' samplerate={stream.samplerate}'
+                                f' blocksize={stream.blocksize}'
+                                f' latency={stream.latency * 1000:.2f}ms')
                         with self.output_stream_lock:
                             self.output_stream.close()
                             self.output_stream = None
@@ -8438,10 +8451,47 @@ class Audio():
         started = self.rendered_frames
         deadline = time.perf_counter() + self.stream_start_check_seconds
         while time.perf_counter() < deadline:
+            if self.stream_is_dead(self.output_stream):
+                return False
             if self.rendered_frames != started:
                 return True
             time.sleep(.01)
         return False
+
+    def input_stream_capturing(self, stream):
+        # The same question of a capture stream, which has no callback to
+        # watch: frames arriving to be read are what say it is running.
+        deadline = time.perf_counter() + self.stream_start_check_seconds
+        while time.perf_counter() < deadline:
+            # Death first: frames waiting to be read are not proof of
+            # life on their own, a stream that has been stopped still
+            # holding whatever it took in before.
+            if self.stream_is_dead(stream):
+                return False
+            try:
+                if stream.read_available > 0:
+                    return True
+            except Exception:
+                return False
+            time.sleep(.01)
+        return False
+
+    def stream_is_dead(self, stream):
+        # PortAudio's own word that nothing more is coming. Its WASAPI
+        # backend can bring a stream's thread up and lose it before the
+        # first block, with Pa_StartStream having already returned
+        # success -- the stream is left stopped, which is the one thing
+        # a stream that has just been started cannot honestly be.
+        #
+        # Only ever taken as proof of death. What proves life is audio
+        # moving, so a device slow to its first block is not touched by
+        # this; it only saves waiting out the clock on a corpse.
+        if stream == None:
+            return True
+        try:
+            return stream.stopped
+        except Exception:
+            return True
 
     def warm_sidetone(self):
         # mix_sidetone does not run until something is keyed, so the
@@ -8545,15 +8595,13 @@ class Audio():
                     input_stream.close()
                     input_stream = None
 
-                def try_open_input(extra_settings):
+                def try_open_input(extra_settings, blocksize):
                     retries = 2
                     for retry in range(retries+1):
                         try:
                             stream = sounddevice.InputStream(
                                     samplerate=Audio.input_device_sample_rate(),
-                                    blocksize=(Audio.exclusive_blocksize
-                                               if extra_settings != None
-                                               else Audio.input_frame_size),
+                                    blocksize=blocksize,
                                     device=self.input_device_index,
                                     channels=Audio.input_channels,
                                     dtype='float32',
@@ -8574,22 +8622,39 @@ class Audio():
                             continue
                     return None
 
-                # Exclusive first and shared after it, as in
-                # output_loop.
-                exclusive = self.wasapi_exclusive_settings('input')
-                attempts = [exclusive, None] if exclusive != None else [None]
+                # The same ladder output_loop walks, and for the same
+                # reason: a device that takes an exclusive open and then
+                # brings nothing in would leave the operator off the air,
+                # with the no-input warning below and this thread gone,
+                # where falling back to shared would have him heard.
+                attempts = self.open_attempts('input', Audio.exclusive_blocksize)
+                wanted_exclusive = attempts[0][1] != None
                 opened_exclusive = False
                 input_stream = None
-                for extra_settings in attempts:
-                    input_stream = try_open_input(extra_settings)
-                    if input_stream != None:
-                        opened_exclusive = extra_settings != None
-                        dprint1('input stream opened',
-                                'exclusive' if opened_exclusive else 'shared',
-                                f'latency={input_stream.latency * 1000:.2f}ms')
-                        break
+                for label, extra_settings, blocksize in attempts:
+                    if blocksize == None:
+                        blocksize = Audio.input_frame_size
+                    input_stream = try_open_input(extra_settings, blocksize)
+                    if input_stream == None:
+                        continue
+                    if (extra_settings != None and
+                            not self.input_stream_capturing(input_stream)):
+                        dprint1(f'input stream opened {label} but took nothing'
+                                f' in: active={input_stream.active}'
+                                f' stopped={input_stream.stopped}'
+                                f' samplerate={input_stream.samplerate}'
+                                f' blocksize={input_stream.blocksize}'
+                                f' latency={input_stream.latency * 1000:.2f}ms')
+                        input_stream.close()
+                        input_stream = None
+                        continue
+                    opened_exclusive = extra_settings != None
+                    dprint1('input stream opened', label,
+                            f'blocksize={blocksize}',
+                            f'latency={input_stream.latency * 1000:.2f}ms')
+                    break
 
-                if input_stream != None and exclusive != None:
+                if input_stream != None and wanted_exclusive:
                     Audio.note_exclusive_mode('input', self.input_device_name(),
                                               opened_exclusive)
 
