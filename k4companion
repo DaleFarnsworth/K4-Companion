@@ -12622,9 +12622,48 @@ class Keyer():
     sidetone_catchup_check_seconds = 1.0
     sidetone_catchup_change_seconds = .001
     sidetone_behind_average_weight = .1
+
+    # The weight one measurement carries in the lag the keyer holds. A
+    # measurement is one look at a device that varies, and there are few
+    # of them -- one for each burst the operator starts after an idle --
+    # so this is far heavier than the per-element average above, and
+    # still not one.
+    inherent_sidetone_lag_weight = .25
+
     # The most that fraction may reach. A lag beyond 10 ms is worked off
     # over more elements rather than by cutting any one of them harder.
     max_sidetone_catchup_fraction = .1
+
+    # The main settings rather than the server's: the lag belongs to the
+    # audio device and the machine it is on, which is the same whichever
+    # radio is being worked.
+    #
+    # What is kept is the floor -- the lag the device wants with nothing
+    # to catch up -- and not the average of what the audio was doing. A
+    # trace across one session has the delay flat to a few microseconds
+    # within a burst and stepping between them, climbing 13, 14, 15, 16,
+    # 17ms while the sending goes on and dropping back to 12 or 13 after
+    # each idle, where mix_sidetone's reset lets the next burst's first
+    # edge ask the device afresh. The two mixed together average to
+    # whatever the operator happened to be doing when he closed the app:
+    # 17.05ms at one point in that session and 13.09 at the end of it.
+    # The floor is the half that describes the device, and the half
+    # inherent_sidetone_lag is for.
+    inherent_sidetone_lag_setting = ('Keyer', 'inherent_sidetone_lag')
+
+    @classmethod
+    def save_inherent_sidetone_lag(cls):
+        # In milliseconds, as every other sidetone figure is printed, and
+        # to a hundredth of one, which is finer than the audio moves.
+        # Nothing written where nothing was measured and nothing was
+        # restored to carry on from: an absent setting says that honestly
+        # and a zero would not.
+        self = cls.singleton
+        if self == None or not self.have_inherent_sidetone_lag:
+            return
+        section, setting = cls.inherent_sidetone_lag_setting
+        Settings.main().put_save(section, setting,
+                                 round(self.inherent_sidetone_lag * 1000, 2))
 
     @classmethod
     def get_singleton(cls):
@@ -12856,7 +12895,17 @@ class Keyer():
         # after the last element there was no gap to measure before, and
         # the gap the KZD most recently sent carried, which is what says
         # whether an element was one of those.
-        self.inherent_sidetone_lag = 0.0
+        #
+        # Seeded with where the last session left it rather than with
+        # nothing, so that the first burst of this one is already held to
+        # a floor the device has been seen to want.
+        saved_lag = self.saved_inherent_sidetone_lag()
+        self.inherent_sidetone_lag = 0.0 if saved_lag == None else saved_lag
+        # Whether that figure stands for anything. A saved one does, and
+        # the first measurement is taken whole where it does not --
+        # averaging up from a zero nobody measured would leave the
+        # catch-up chasing a lag the device never had.
+        self.have_inherent_sidetone_lag = saved_lag != None
         self.last_kzd_ms = None
         # How hard the catch-up pulls at the moment, the running average
         # of the lag it has left to work off that decides it, and what
@@ -12872,6 +12921,7 @@ class Keyer():
         self.keyer_thread = threading.Thread(target=self.keyer_loop, name='keyer_thread')
         self.keyer_thread.start()
         Server.k4_server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+        dprint1(f"{self.saved_inherent_sidetone_lag()=}")
 
     def on_received_initial_parameters(self, response):
         self.weighting = Server.settings.getfloat('CW', 'weighting', 1.0)
@@ -13128,6 +13178,7 @@ class Keyer():
         # audio's own delay belongs to the sidetone schedule alone, and
         # is taken off there.
         sidetone_delay = Audio.sidetone_delay()
+        dprint1(f'{self.inherent_sidetone_lag=} {sidetone_delay=}')
         # What the sidetone is actually given, as against what the K4 is
         # told.
         sidetone_seconds = element_seconds
@@ -13367,8 +13418,23 @@ class Keyer():
             # time -- and taking that pinned the inherent lag at zero,
             # leaving the catch-up chasing a lag the device was never
             # going to give up.
-            self.inherent_sidetone_lag = Audio.sidetone_delay()
-            dprint1(f'inherent_sidetone_lag={round(self.inherent_sidetone_lag * 1000, 2)}')
+            #
+            # Part of the way to it, not all. One measurement is a single
+            # look at a device that varies, so what it moves from is what
+            # the last session left, and a figure the device has actually
+            # managed outlives a burst that disagrees with it.
+            #
+            measured = Audio.sidetone_delay()
+            if self.have_inherent_sidetone_lag:
+                self.inherent_sidetone_lag += ((measured -
+                                                self.inherent_sidetone_lag) *
+                                               self.inherent_sidetone_lag_weight)
+            else:
+                self.have_inherent_sidetone_lag = True
+                self.inherent_sidetone_lag = measured
+            dprint1('inherent_sidetone_lag='
+                    f'{round(self.inherent_sidetone_lag * 1000, 2)}'
+                    f' measured={round(measured * 1000, 2)}')
 
         # When the sidetone is heard to end: where its up edge was
         # scheduled, plus the delay the audio adds. Taken from what the
@@ -13401,6 +13467,15 @@ class Keyer():
         self.inter_character_seconds = unweighted_dit_seconds * 3
         self.inter_word_seconds = unweighted_dit_seconds * 7
         self.unweighted_dit_seconds = unweighted_dit_seconds
+
+    def saved_inherent_sidetone_lag(self):
+        # Seconds, from the milliseconds it is written in. None where
+        # nothing has been saved.
+        section, setting = self.inherent_sidetone_lag_setting
+        milliseconds = Settings.main().getfloat(section, setting)
+        if milliseconds == None:
+            return None
+        return milliseconds / 1000
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure
@@ -13685,6 +13760,7 @@ class Options():
 
 def clean_up(exit=False):
     save_geometry()
+    Keyer.save_inherent_sidetone_lag()
     # CW/Macros close *before* the server is disconnected, not after --
     # CW.close() may still need to send a real command (stop_sending()'s
     # 'KY @;', if CW text was actively being sent when the main window
