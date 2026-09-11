@@ -649,7 +649,7 @@ class Server():
         self.recv_buffer = ''
         self.send_queue = queue.Queue()
         self.recv_queue = queue.Queue()
-        self.output_audio_queue = None
+        self.k4_raw_rx_audio_queue = None
         self.send_thread = None
         self.recv_thread = None
         self.connected = False
@@ -851,7 +851,7 @@ class Server():
 
                     self.send_str('PING;')               # Trigger a response: PONG;
                 else:
-                    self.output_audio_queue = queue.Queue(2)
+                    self.k4_raw_rx_audio_queue = queue.Queue(2)
 
                     if not use_tls:
                         if not self.ensure_password():
@@ -1449,10 +1449,10 @@ class Server():
     def received_audio_packet(self, payload):
         while True:
             try:
-                self.output_audio_queue.put_nowait(payload)
+                self.k4_raw_rx_audio_queue.put_nowait(payload)
                 break
             except queue.Full:
-                self.output_audio_queue.get()
+                self.k4_raw_rx_audio_queue.get()
 
     def subscribe_response(self, cmd, callback, send=True):
         base = cmd_base(cmd)
@@ -5719,7 +5719,7 @@ class Panadapter(QDialog):
         # HTML every frame. Skipping it when nothing moved cuts the
         # main-thread time per frame by about a third, which matters
         # because that time is held with the GIL and starves the audio
-        # output thread (see Audio.output_loop) into dropouts.
+        # output thread (see Audio.k4_rx_audio_loop) into dropouts.
         # center_hz is this frame's display center, not necessarily the
         # receiver's actual tuned frequency (they can diverge) -- kept
         # as a fallback for the frequency line/mini-pan centering below,
@@ -7270,12 +7270,12 @@ class Audio():
         Server.k4_server.unsubscribe_response('ML0;', self.on_sidetone_volume_change)
 
         self.transmit_audio = False
-        if self.input_thread != None:
-            self.input_thread.join()
+        if self.k4_tx_audio_thread != None:
+            self.k4_tx_audio_thread.join()
 
-        if self.output_thread != None:
-            self.server.output_audio_queue.put([])
-            self.output_thread.join()
+        if self.k4_rx_audio_thread != None:
+            self.server.k4_raw_rx_audio_queue.put([])
+            self.k4_rx_audio_thread.join()
 
         with self.output_stream_lock:
             if self.output_stream != None:
@@ -7422,7 +7422,7 @@ class Audio():
         self = cls.get_singleton()
         latency = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
         cls.set_remote_audio_latency(latency)
-        self.start_output_thread()
+        self.start_k4_rx_audio_thread()
 
     @classmethod
     def set_remote_audio_latency(cls, latency):
@@ -7438,7 +7438,7 @@ class Audio():
         if self == None:
             return None
         # Held only long enough to read the clock: asking a stream that
-        # output_loop has just closed for its time reads freed memory.
+        # k4_rx_audio_loop has just closed for its time reads freed memory.
         with self.output_stream_lock:
             stream = self.output_stream
             if stream == None:
@@ -7520,7 +7520,7 @@ class Audio():
             return
         self = cls.singleton
         # Held only long enough to read the clock: asking a stream that
-        # output_loop has just closed for its time reads freed memory.
+        # k4_rx_audio_loop has just closed for its time reads freed memory.
         with self.output_stream_lock:
             stream = self.output_stream
             if stream == None:
@@ -7758,7 +7758,7 @@ class Audio():
     @classmethod
     def reopen_output_stream(cls):
         # For a setting that only takes effect where the device is
-        # opened. The opening is left to output_loop, which owns the
+        # opened. The opening is left to k4_rx_audio_loop, which owns the
         # stream -- closing one under it from another thread is what
         # output_stream_lock is there to prevent -- so this only marks it
         # stale, and the loop obliges on the next packet from the K4.
@@ -7768,7 +7768,7 @@ class Audio():
 
     @classmethod
     def reopen_input_stream(cls):
-        # As reopen_output_stream. input_loop comes back around on every
+        # As reopen_output_stream. k4_tx_audio_loop comes back around on every
         # frame it reads, so it obliges at once.
         self = cls.singleton
         if self != None:
@@ -7784,9 +7784,9 @@ class Audio():
         # thread is reading its clock in key_sidetone(). The output
         # callback never takes it, so closing cannot deadlock against it.
         self.output_stream_lock = threading.Lock()
-        self.input_thread = None
-        self.output_thread = None
-        # Samples pulled from k4_output_queue that didn't fit in the
+        self.k4_tx_audio_thread = None
+        self.k4_rx_audio_thread = None
+        # Samples pulled from k4_decoded_rx_audio_queue that didn't fit in the
         # previous output_stream_callback() call; carried over so each
         # PortAudio-requested block gets exactly frame_count frames.
         self.output_stream_leftover = numpy.empty(0, dtype=numpy.float32)
@@ -7795,7 +7795,7 @@ class Audio():
         # panadapter-induced dropouts: during a main-thread stall
         # output_stream_callback cannot run to drain the queue either, so
         # only PortAudio's own buffer (frames_per_buffer) keeps playing.
-        self.k4_output_queue = queue.Queue(2)
+        self.k4_decoded_rx_audio_queue = queue.Queue(2)
         # Key edges waiting to be placed within a block, each a
         # (PortAudio stream time, key down) pair. SimpleQueue rather than
         # Queue because output_stream_callback reads it on PortAudio's
@@ -7882,7 +7882,7 @@ class Audio():
         # overall PortAudio default instead could point at a device
         # enumerated under a different host API entirely, silently
         # leaving self.input/output_device_index at -1 forever (see
-        # start_output_thread's early return on that). PortAudio uses
+        # start_k4_rx_audio_thread's early return on that). PortAudio uses
         # paNoDevice (-1) for "no default".
         default_input_device_index = info['default_input_device']
         if default_input_device_index < 0:
@@ -7970,14 +7970,14 @@ class Audio():
                 return dev_info
         return None
 
-    def start_output_thread(self):
+    def start_k4_rx_audio_thread(self):
         if self.output_device_index < 0:
             return
 
-        self.output_thread = threading.Thread(target=self.output_loop, name='audio_output_thread')
-        self.output_thread.start()
+        self.k4_rx_audio_thread = threading.Thread(target=self.k4_rx_audio_loop, name='audio_k4_rx_audio_thread')
+        self.k4_rx_audio_thread.start()
 
-    def output_loop(self):
+    def k4_rx_audio_loop(self):
         cls = self.__class__
         self.output_stream = None
         current_index = None
@@ -7985,7 +7985,7 @@ class Audio():
         warned = False
 
         while True:
-            packet = cls.server.output_audio_queue.get()
+            packet = cls.server.k4_raw_rx_audio_queue.get()
             if len(packet) == 0:
                 return
 
@@ -8154,9 +8154,9 @@ class Audio():
             stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
             stereo[1::2] = right
-            if self.k4_output_queue.qsize() > 1:
-                self.k4_output_queue.get()
-            self.k4_output_queue.put(stereo)
+            if self.k4_decoded_rx_audio_queue.qsize() > 1:
+                self.k4_decoded_rx_audio_queue.get()
+            self.k4_decoded_rx_audio_queue.put(stereo)
 
     def averaged_left_right_volume(self):
             a = self.a_volume
@@ -8201,7 +8201,7 @@ class Audio():
         # Called on PortAudio's own thread whenever it needs more frames;
         # unlike the blocking-write loop this replaced, it must never
         # block, so a queue underrun is padded with silence rather than
-        # waiting for k4_output_queue to be refilled. Unlike pyaudio's
+        # waiting for k4_decoded_rx_audio_queue to be refilled. Unlike pyaudio's
         # callback, sounddevice's doesn't return the samples -- they're
         # written directly into the outdata buffer it hands in.
         if status:
@@ -8238,7 +8238,7 @@ class Audio():
 
         while len(data) < needed:
             try:
-                chunk = self.k4_output_queue.get_nowait()
+                chunk = self.k4_decoded_rx_audio_queue.get_nowait()
             except queue.Empty:
                 break
             if self.k4_mute_count > 0:
@@ -8565,26 +8565,26 @@ class Audio():
             if mode in ("1", "2", "4", "5"):        # LSB, USB, FM, AM
                 if not self.transmit_audio:
                     self.transmit_audio = True
-                    self.start_input_thread(server)
+                    self.start_k4_tx_audio_thread(server)
 
                 return
 
         self.transmit_audio = False
-        if self.input_thread != None:
-            self.input_thread.join()
-            self.input_thread = None
+        if self.k4_tx_audio_thread != None:
+            self.k4_tx_audio_thread.join()
+            self.k4_tx_audio_thread = None
 
     def on_mx_changed(self, server, response):
         self.ab = response[2:].lower().rstrip(';')
         self.generate_sidetone_envelopes()
 
-    def start_input_thread(self, server):
+    def start_k4_tx_audio_thread(self, server):
         if self.input_device_index < 0:
             return
-        self.input_thread = threading.Thread(target=lambda: self.input_loop(server), name='audio_input_thread')
-        self.input_thread.start()
+        self.k4_tx_audio_thread = threading.Thread(target=lambda: self.k4_tx_audio_loop(server), name='audio_k4_tx_audio_thread')
+        self.k4_tx_audio_thread.start()
 
-    def input_loop(self, server):
+    def k4_tx_audio_loop(self, server):
         input_stream = None
         current_index = None
         current_generation = None
@@ -8614,7 +8614,7 @@ class Audio():
                                     dtype='float32',
                                     extra_settings=extra_settings,
                                     # See the matching comment on
-                                    # OutputStream in output_loop.
+                                    # OutputStream in k4_rx_audio_loop.
                                     latency='low',
                                     )
                             stream.start()
@@ -8629,7 +8629,7 @@ class Audio():
                             continue
                     return None
 
-                # The same ladder output_loop walks, and for the same
+                # The same ladder k4_rx_audio_loop walks, and for the same
                 # reason: a device that takes an exclusive open and then
                 # brings nothing in would leave the operator off the air,
                 # with the no-input warning below and this thread gone,
