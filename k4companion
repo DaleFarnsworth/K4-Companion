@@ -315,6 +315,7 @@ class Server():
     cat_sequence_number = 0
     control_k4_audio_cmd_bases = ( 'AG', 'AG$', 'MG' )
     audio_version_number = 1
+    k4_raw_rx_audio_queue_size = 5     # 100ms of audio
 
     k4_get_cmd_bases = [         # For future use
         '#A',
@@ -851,7 +852,7 @@ class Server():
 
                     self.send_str('PING;')               # Trigger a response: PONG;
                 else:
-                    self.k4_raw_rx_audio_queue = queue.Queue(2)
+                    self.k4_raw_rx_audio_queue = queue.Queue(self.k4_raw_rx_audio_queue_size)
 
                     if not use_tls:
                         if not self.ensure_password():
@@ -7211,6 +7212,13 @@ class Audio():
     sidetone_fall_perceived_ratio = .5
     sidetone_enabled = True
 
+    # Deliberately shallow, to minimize audio delay when changing
+    # frequency or going into transmit. Deepening this does not fix
+    # panadapter-induced dropouts: during a main-thread stall
+    # output_stream_callback cannot run to drain the queue either, so
+    # only PortAudio's own buffer (frames_per_buffer) keeps playing.
+    k4_decoded_rx_audio_queue_size = 5    # 100ms of audio
+
     # The block the output callback fills, and with it two thirds of
     # what stands between the paddle and the sidetone: an edge is picked
     # up by the first callback to run after it was keyed, so a block is
@@ -7790,12 +7798,7 @@ class Audio():
         # previous output_stream_callback() call; carried over so each
         # PortAudio-requested block gets exactly frame_count frames.
         self.output_stream_leftover = numpy.empty(0, dtype=numpy.float32)
-        # Deliberately shallow, to minimize audio delay when changing
-        # frequency or going into transmit. Deepening this does not fix
-        # panadapter-induced dropouts: during a main-thread stall
-        # output_stream_callback cannot run to drain the queue either, so
-        # only PortAudio's own buffer (frames_per_buffer) keeps playing.
-        self.k4_decoded_rx_audio_queue = queue.Queue(2)
+        self.k4_decoded_rx_audio_queue = queue.Queue()
         # Key edges waiting to be placed within a block, each a
         # (PortAudio stream time, key down) pair. SimpleQueue rather than
         # Queue because output_stream_callback reads it on PortAudio's
@@ -8154,8 +8157,8 @@ class Audio():
             stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
             stereo[1::2] = right
-            if self.k4_decoded_rx_audio_queue.qsize() > 1:
-                self.k4_decoded_rx_audio_queue.get()
+            while self.k4_decoded_rx_audio_queue.qsize() >= self.k4_decoded_rx_audio_queue_size:
+                self.k4_decoded_rx_audio_queue.get()    # Discard oldest audio
             self.k4_decoded_rx_audio_queue.put(stereo)
 
     def averaged_left_right_volume(self):
