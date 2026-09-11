@@ -7239,7 +7239,7 @@ class Audio():
     # straight back, so four is the floor there and not a round number
     # picked for the look of it. Audio.report_glitches counts them, so a
     # device that cannot hold this says so with debug on.
-    output_buffer_time = .004
+    output_buffer_time = .008
 
     # Added to the device's own low-latency figure when the output
     # stream is opened. The callback is Python and needs the GIL, and
@@ -7254,7 +7254,7 @@ class Audio():
     # late, and that is the lag inherent_sidetone_lag settles at and the
     # keyer then holds -- so every element is heard later by whatever is
     # added here, not just the first.
-    extra_output_latency = .004
+    extra_output_latency = .008
 
     # What is asked for in exclusive mode, whatever the sample rate. The
     # device period there is the driver's to fix and the buffer has to be
@@ -13059,25 +13059,30 @@ class Keyer():
         previous_elt = None
 
         while True:
+            dit_up_ts = self.dit_up_timestamp - self.inherent_sidetone_lag
+            dah_up_ts = self.dah_up_timestamp - self.inherent_sidetone_lag
+            dit_down_ts = self.dit_down_timestamp - self.inherent_sidetone_lag
+            dah_down_ts = self.dah_down_timestamp - self.inherent_sidetone_lag
+
             if (previous_elt == None or self.keyer_mode == self.MODE_IAMBIC):
                 dit_mem = False
                 dah_mem = False
             else:
                 dit_mem = (previous_elt == '-' and
-                           (self.dit_down_timestamp - previous_elt_timestamp) >
+                           (dit_down_ts - previous_elt_ts) >
                            self.dit_down_memory_delay)
                 dah_mem = False
                 if self.keyer_mode == self.MODE_IAMBIC_B:
                     dit_mem = dit_mem or ((previous_elt == '-' and
-                               (self.dit_up_timestamp - previous_elt_timestamp) >
+                               (dit_up_ts - previous_elt_ts) >
                                dit_up_memory_delay))
                     dah_mem = dah_mem or ((previous_elt == '.' and
-                               (self.dah_up_timestamp - previous_elt_timestamp) >
+                               (dah_up_ts - previous_elt_ts) >
                                dah_up_memory_delay))
-            previous_elt_timestamp = time.perf_counter()
+            previous_elt_ts = time.perf_counter()
 
-            dit_now = self.dit_down_timestamp > self.dit_up_timestamp
-            dah_now =  self.dah_down_timestamp > self.dah_up_timestamp
+            dit_now = dit_down_ts > dit_up_ts
+            dah_now =  dah_down_ts > dah_up_ts
             dit = dit_now or dit_mem
             dah = dah_now or dah_mem
 
