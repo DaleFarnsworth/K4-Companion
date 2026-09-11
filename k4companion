@@ -13121,8 +13121,8 @@ class Keyer():
 
     def send_element(self, elt, first_element=False):
         element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
-        element_seconds = round(element_seconds, 3)
-        inter_element_seconds = round(self.inter_element_seconds, 3)
+        element_seconds = math.ceil(element_seconds * 1000) / 1000
+        inter_element_seconds = math.ceil(self.inter_element_seconds * 1000) / 1000
         # element_timestamp, and the grid of element starts hanging off
         # it, are real time -- when the operator keyed the element. The
         # audio's own delay belongs to the sidetone schedule alone, and
