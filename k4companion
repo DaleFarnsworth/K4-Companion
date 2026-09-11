@@ -7987,6 +7987,10 @@ class Audio():
         current_generation = None
         warned = False
 
+        # Wait for the received audio queue to fill to avoid dropouts at startup
+        while not cls.server.k4_raw_rx_audio_queue.full():
+            time.sleep(0.1)
+
         while True:
             packet = cls.server.k4_raw_rx_audio_queue.get()
             if len(packet) == 0:
