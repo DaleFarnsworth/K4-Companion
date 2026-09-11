@@ -8235,7 +8235,7 @@ class Audio():
         needed = frames * self.output_channels
         data = self.output_stream_leftover
 
-        if self.sidetone_keyed:
+        if self.sidetone_keyed and not self.key_up_due(frames, time_info):
             # Nothing taken while the key is down. The tone stands in
             # the K4 audio's place for as long as it is (mix_sidetone
             # writes sidetone_hold_sample over whatever is here, and the
@@ -8243,11 +8243,12 @@ class Audio():
             # drawn from the queue would be dropped on the floor. What
             # the K4 sent stays where it is, to be played after.
             #
-            # Only while the key is down. Once it is up the tone falls
-            # away over several milliseconds and the crossfade brings
-            # the K4 audio back in underneath it, so that audio has to
-            # be here to come back to -- and the frames after the fall
-            # has finished are the K4's alone.
+            # Only while the key is down, and not in the block it comes
+            # up in. Once it is up the tone falls away over several
+            # milliseconds and the crossfade brings the K4 audio back in
+            # underneath it, so that audio has to be here to come back
+            # to -- and the frames after the fall has finished are the
+            # K4's alone.
             data = numpy.empty(0, dtype=numpy.float32)
         else:
             if self.k4_muted:
@@ -8272,6 +8273,35 @@ class Audio():
         self.write_outdata(outdata, data[:needed])
 
         self.mix_sidetone(outdata, frames, block_start_frame, time_info, previous_sample)
+
+    def key_up_due(self, frames, time_info):
+        # Whether the key comes up inside the block about to be filled,
+        # which has to be known before the queue is drawn on: the fall
+        # crossfades the K4 audio back in, and it can only do that with
+        # audio that was drawn.
+        #
+        # The edge is taken from the queue to look at it, and left in
+        # pending_key_event, which is where next_key_edge looks first --
+        # the same one-place lookahead it already keeps for an edge
+        # belonging to a later block.
+        if self.sidetone_shape == None:
+            return False
+        event = self.pending_key_event
+        if event == None:
+            try:
+                event = self.key_event_queue.get_nowait()
+            except queue.Empty:
+                return False
+            self.pending_key_event = event
+
+        event_time, key_down = event
+        if key_down:
+            return False
+        # As next_key_edge places it, and against the same clock.
+        sample_rate = self.sidetone_shape[0]
+        dac_time = time_info.outputBufferDacTime or time_info.currentTime
+        offset = round((event_time + self.sidetone_lag - dac_time) * sample_rate)
+        return offset < frames
 
     def write_outdata(self, outdata, samples):
         # PortAudio hands in a (frames, channels) array; the queue carries
