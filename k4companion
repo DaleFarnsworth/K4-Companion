@@ -35,6 +35,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import collections
 import configparser
 import contextlib
 import ctypes
@@ -7231,7 +7232,7 @@ class Audio():
     # to run and no longer, and an underrun puts far more delay into the
     # sidetone than the block ever took out. Audio.report_glitches counts
     # them, so a device that cannot hold it says so with debug on.
-    output_buffer_time = .004
+    output_buffer_time = .008
 
     # What is asked for in exclusive mode, whatever the sample rate. The
     # device period there is the driver's to fix and the buffer has to be
@@ -7844,6 +7845,15 @@ class Audio():
         self.input_overflow_count = 0
         self.reported_glitch_counts = (0, 0, 0)
         self.glitch_report_time = 0.0
+        # Where each underflow fell, as (block, frames since the key came
+        # up, whether the key was down), noted by the callback and
+        # printed by whoever reports next.
+        # The reporting is rate limited and the counters are only totals,
+        # so without this there is no saying whether a burst of them
+        # landed while the operator was sending or after he stopped.
+        # Bounded, since nothing guarantees anyone comes to read it.
+        self.underflow_log = collections.deque(maxlen=32)
+        self.last_key_up_frame = None
         self.input_device_index = -1
         self.output_device_index = -1
         self.input_device_infos = {}
@@ -8219,6 +8229,16 @@ class Audio():
             self.output_status_count += 1
             if status.output_underflow:
                 self.output_underflow_count += 1
+                # Noted, not printed, for the reason above: an append of
+                # a tuple, and the arithmetic done here because
+                # last_key_up_frame moves on and the report may be a
+                # second behind. rendered_frames is still this block's
+                # first frame; it is advanced just below.
+                block = self.rendered_frames
+                since_key_up = (None if self.last_key_up_frame == None
+                                else block - self.last_key_up_frame)
+                self.underflow_log.append((block, since_key_up,
+                                           self.sidetone_keyed))
 
         block_start_frame = self.rendered_frames
         self.rendered_frames += frames
@@ -8386,6 +8406,8 @@ class Audio():
                 self.sidetone_hold_sample = None
             self.sidetone_keyed = edge[1]
             self.last_edge_frame = block_start_frame + end
+            if not edge[1]:
+                self.last_key_up_frame = self.last_edge_frame
             start = end
 
         self.sidetone_envelope_position = position
@@ -8489,6 +8511,19 @@ class Audio():
         if overflows:
             report.append(f'{overflows} input overflow(s){during_sidetone}')
         dprint('audio glitches since the last report:', ', '.join(report))
+
+        sample_rate = Audio.output_device_sample_rate()
+        while self.underflow_log:
+            block, since_key_up, keyed = self.underflow_log.popleft()
+            if keyed:
+                when = 'with the key down'
+            elif since_key_up == None:
+                when = 'before any key up'
+            elif sample_rate == None:
+                when = f'{since_key_up} frames after the key came up'
+            else:
+                when = f'{since_key_up / sample_rate * 1000:.1f}ms after the key came up'
+            dprint(f'  underflow at frame {block}, {when}')
 
     def sidetone_block_ramp(self, frames):
         # 1..frames as float32, grown once and reused afterwards: this
