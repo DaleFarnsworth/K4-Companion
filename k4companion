@@ -7367,6 +7367,21 @@ class Audio():
     k4_muted = False
     k4_mute_count = 0
 
+    # How long the receive audio takes to come back up where it resumes
+    # after silence -- a mute ending, a dropped packet, a queue that ran
+    # dry. It steps from nothing to whatever the signal is at in that
+    # instant otherwise, which a loud one makes a click of. The same
+    # raised cosine the sidetone's own envelope uses, over this long.
+    #
+    # This is not the old fade of the K4 packets, which shaped every
+    # packet either side of a mute and was taken out with the mute
+    # rework; nothing is shaped here but the first few milliseconds
+    # after a silence.
+    k4_fade_in_time = .004
+    k4_fade_step = 1 / (48000 * k4_fade_in_time)
+                                  # Replaced when the device's own rate
+                                  # is known -- see choose_output_sample_rate.
+
     # How long a newly started output stream is given to ask for its
     # first block before it is taken for dead. See
     # output_stream_playing.
@@ -7768,6 +7783,7 @@ class Audio():
                     ' mode')
         info['output_sample_rate'] = rate
         cls.frames_per_output_buffer = cls.output_blocksize(extra_settings, rate)
+        cls.k4_fade_step = 1 / max(1, round(rate * cls.k4_fade_in_time))
 
     def wasapi_host_api_index(cls):
         # WASAPI is Windows' modern, low-latency host API; no host API
@@ -7954,6 +7970,10 @@ class Audio():
         self.rendered_frames = 0
         # Frame the output callback lifts the mute at, or None.
         self.unmute_at_frame = None
+        # How far up the receive audio's own fade is, nothing to one.
+        # Starts at nothing: the first audio of a session comes out of
+        # silence like any other.
+        self.k4_fade_position = 0.0
         self.last_edge_frame = 0
         self.sidetone_shape = None
         self.sidetone_ramp = numpy.empty(0, dtype=numpy.float32)
@@ -8413,7 +8433,9 @@ class Audio():
                 data = numpy.concatenate((data, chunk))
             self.output_stream_leftover = data[needed:]
 
+        written = min(frames, data[:needed].size // self.output_channels)
         self.write_outdata(outdata, data[:needed])
+        self.fade_in_k4(outdata, frames, written)
 
         self.mix_sidetone(outdata, frames, block_start_frame, time_info)
 
@@ -8445,6 +8467,27 @@ class Audio():
         dac_time = time_info.outputBufferDacTime or time_info.currentTime
         offset = round((event_time + self.sidetone_lag - dac_time) * sample_rate)
         return offset < frames
+
+    def fade_in_k4(self, outdata, frames, written):
+        # written is how many frames of the block the queue actually
+        # filled; the rest, if any, write_outdata has left silent.
+        #
+        # Silence is where the fade starts over, so that whatever
+        # resumes afterwards comes up rather than stepping in. Nothing
+        # to do at all once the fade is fully up, which is where the
+        # audio spends all but a few milliseconds of its life.
+        if written <= 0:
+            self.k4_fade_position = 0.0
+            return
+        position = self.k4_fade_position
+        if position < 1:
+            ramp = position + self.k4_fade_step * self.sidetone_block_ramp(written)
+            numpy.clip(ramp, 0.0, 1.0, out=ramp)
+            self.k4_fade_position = float(ramp[-1])
+            outdata[:written] *= (.5 * (1 - numpy.cos(numpy.pi * ramp))
+                                  ).reshape(written, 1)
+        if written < frames:
+            self.k4_fade_position = 0.0
 
     def write_outdata(self, outdata, samples):
         # PortAudio hands in a (frames, channels) array; the queue carries
