@@ -4793,6 +4793,23 @@ class Panadapter(QDialog):
                                   # steady before its waterfall marker
                                   # line is hidden -- see
                                   # freq_line_a_waterfall_timer.
+    # The S-unit scale drawn opposite the dB one (see the left axis in
+    # __init__). S9 is -73 dBm on HF by the IARU's reckoning, every
+    # S-unit below it is 6 dB down, and above it the marks are in dB over
+    # S9. The frames the K4 sends are already in dBm, so the two scales
+    # are the same numbers read two ways; a radio reporting something
+    # else would want s9_dbm moved, not the spacing.
+    s9_dbm = -73
+    s_unit_db = 6
+    s_units_over_9 = (10, 20, 30, 40, 50, 60)
+    max_s_unit_marks = 10         # Six dB apart reads well over the forty
+                                  # or so the scale usually spans, and
+                                  # smears into a band over the hundred
+                                  # and sixty it opens at. Past this many
+                                  # the S-units are marked every second
+                                  # or third instead -- see
+                                  # _update_s_unit_ticks.
+
     span_min_khz = 6              # #SPN;/#SPN$;'s own documented range
     span_max_khz = 368            # (6000 to 368000 Hz) -- see the Span
                                   # combobox and PanadapterProcess.
@@ -5409,6 +5426,20 @@ class Panadapter(QDialog):
         # Frequency scale now shown via trace_left/right/center_label
         # instead (see _update_trace_labels).
         self.trace_plot.getPlotItem().hideAxis('bottom')
+        # S-units on the left, where the eye goes first, and the dB the
+        # same signal reads in on the right. The left axis carries fixed
+        # ticks -- an S-unit stands at one dB value and stays there, and
+        # only which of them fall inside the Y range changes as the scale
+        # moves (see _update_vscale and _update_s_unit_ticks) -- while
+        # the right is left to pyqtgraph, which marks the Y values
+        # themselves.
+        #
+        # An axis at either edge squares the display up as well. Each
+        # insets the trace's plot area by its own width, and pyqtgraph
+        # keeps the waterfall's X view aligned with the trace's pixel for
+        # pixel (see setXLink below), so the waterfall shows bare ground
+        # in both strips rather than in one hanging off the left.
+        self.trace_plot.getPlotItem().showAxis('right')
         self.trace_plot.setMouseEnabled(x=False, y=False)
         # Same reasoning as minipan_plot's hideButtons() above -- the
         # trace's own axes are always set explicitly too (see
@@ -5458,6 +5489,13 @@ class Panadapter(QDialog):
         # of what caused the Y range to change.
         self.trace_plot.getPlotItem().getViewBox().sigResized.connect(
             lambda *_: self._position_trace_labels())
+        # The S-unit marks are thinned to suit the scale, so they are
+        # worked out again whenever it moves (see _update_vscale). Once
+        # here too: the Y range is set above, before this connection
+        # existed to hear about it.
+        self.trace_plot.getPlotItem().getViewBox().sigYRangeChanged.connect(
+            lambda *_: self._update_s_unit_ticks())
+        self._update_s_unit_ticks()
         # Click-to-tune -- a scene-level signal rather than an item's
         # own click handler, so it fires no matter what's drawn under
         # the cursor (bw_region, freq_line_a/freq_line_b, ...). setMouseEnabled
@@ -5570,21 +5608,56 @@ class Panadapter(QDialog):
         self._position_overlay_labels(self.minipan_plot,
             self.minipan_left_label, self.minipan_right_label)
 
+    @classmethod
+    def s_unit_ticks(cls):
+        # (dBm, label) for each mark, S1 upward and then dB over S9.
+        ticks = [(cls.s9_dbm - (9 - s) * cls.s_unit_db, f'S{s}')
+                 for s in range(1, 10)]
+        ticks += [(cls.s9_dbm + over, f'+{over}') for over in cls.s_units_over_9]
+        return ticks
+
+    def _update_s_unit_ticks(self):
+        # Which of the marks to draw at the scale the trace is showing.
+        # The S-units go every second or third where they would crowd,
+        # counted down from S9 so that it is always one of them; the
+        # marks over S9 are ten dB apart and only in view at all where
+        # the scale is stretched, so they all stay.
+        low, high = self.trace_plot.getPlotItem().getViewBox().viewRange()[1]
+        span = max(self.s_unit_db, high - low)
+        step = math.ceil(span / self.s_unit_db / self.max_s_unit_marks)
+        ticks = [tick for index, tick in enumerate(self.s_unit_ticks()[:9])
+                 if (8 - index) % step == 0]
+        ticks += self.s_unit_ticks()[9:]
+        self.trace_plot.getPlotItem().getAxis('left').setTicks([ticks, []])
+
     def _position_trace_labels(self):
         # Unlike the mini-pan (whose axes are fully hidden), the trace
-        # keeps its left (dB) axis -- so the left label sits just to the
-        # right of it, past its reserved pixel width, rather than
-        # overlapping the axis's own tick numbers.
+        # keeps an axis at either edge -- S-units on the left, dB on the
+        # right -- so each edge label sits inside the width its axis has
+        # reserved rather than over the axis's own numbers.
         margin = 2
-        left_offset = self.trace_plot.getPlotItem().getAxis('left').width()
+        # Twice that between an edge label and the axis beside it. The
+        # top row carries both -- a mark like +60 and the frequency --
+        # and two pixels between them read as touching.
+        axis_margin = margin * 2
+        item = self.trace_plot.getPlotItem()
+        left_offset = item.getAxis('left').width()
+        right_offset = item.getAxis('right').width()
         self.trace_left_label.adjustSize()
-        self.trace_left_label.move(int(left_offset) + margin, margin)
+        self.trace_left_label.move(int(left_offset) + axis_margin, margin)
         self.trace_right_label.adjustSize()
         self.trace_right_label.move(
-            self.trace_plot.width() - self.trace_right_label.width() - margin, margin)
+            self.trace_plot.width() - int(right_offset)
+            - self.trace_right_label.width() - axis_margin, margin)
         self.trace_center_label.adjustSize()
+        # Centred on the plot area rather than on the widget: it marks
+        # the middle of the trace, and the two axes need not be the same
+        # width. While only the left one was there the difference was
+        # half of it, and nothing lined up with it to show.
+        plot_left = int(left_offset)
+        plot_right = self.trace_plot.width() - int(right_offset)
         self.trace_center_label.move(
-            (self.trace_plot.width() - self.trace_center_label.width()) // 2, margin)
+            (plot_left + plot_right - self.trace_center_label.width()) // 2, margin)
 
     def set_geometry(self):
         Server.settings.load()
@@ -6199,22 +6272,42 @@ class Panadapter(QDialog):
         if freq_hz != None:
             self.request_tune(freq_hz, round_to_hz=100)
 
+    def _waterfall_tune_frequency(self, clicked_hz):
+        # Where a click on the waterfall means to tune. Within the
+        # spectrum, the frequency clicked on. Either side of it, in the
+        # bare strips the trace's axes leave in the waterfall's wider
+        # view (see setXLink), there is no pixel to have been aiming at,
+        # so it means half a display along instead -- down on the left,
+        # up on the right -- which in Track mode brings the band just
+        # beyond the edge clicked into the middle of the display.
+        left_edge, right_edge = self.trace_plot.getPlotItem().getViewBox().viewRange()[0]
+        if left_edge <= clicked_hz <= right_edge:
+            return clicked_hz
+        tuned_hz = Panadapter.rx_freq_hz[self.receiver]
+        if tuned_hz == None:
+            return None          # no frequency yet to step from
+        half_span = (right_edge - left_edge) / 2
+        return tuned_hz + (half_span if clicked_hz > right_edge else -half_span)
+
     def on_waterfall_clicked(self, event):
         freq_hz = self._clicked_frequency(self.waterfall_plot, event)
         if freq_hz != None:
-            self.request_tune(freq_hz, round_to_hz=1000)
-            # A click doesn't necessarily change the receiver's rounded
-            # frequency (e.g. landing within the same 1 kHz bin it's
-            # already on), so _update_freq_line's own change-triggered
-            # timer restart (see freq_line_a_waterfall_timer's comment)
-            # might not fire -- show the line directly here instead, so
-            # every click reveals it for a couple of seconds regardless.
-            if self.receiver == 'main':
-                self.freq_line_a_waterfall.setVisible(True)
-                self.freq_line_a_waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
-            else:
-                self.freq_line_b_waterfall.setVisible(True)
-                self.freq_line_b_waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
+            freq_hz = self._waterfall_tune_frequency(freq_hz)
+        if freq_hz == None:
+            return
+        self.request_tune(freq_hz, round_to_hz=1000)
+        # A click doesn't necessarily change the receiver's rounded
+        # frequency (e.g. landing within the same 1 kHz bin it's
+        # already on), so _update_freq_line's own change-triggered
+        # timer restart (see freq_line_a_waterfall_timer's comment)
+        # might not fire -- show the line directly here instead, so
+        # every click reveals it for a couple of seconds regardless.
+        if self.receiver == 'main':
+            self.freq_line_a_waterfall.setVisible(True)
+            self.freq_line_a_waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
+        else:
+            self.freq_line_b_waterfall.setVisible(True)
+            self.freq_line_b_waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
 
     def on_minipan_clicked(self, event):
         if not self.minipan_enabled:
