@@ -8235,24 +8235,40 @@ class Audio():
         needed = frames * self.output_channels
         data = self.output_stream_leftover
 
-        if self.k4_muted:
-            # Ahead of the queue loop, and taking the samples already
-            # buffered with it. Asking inside the loop only muted once
-            # the leftover ran out, which is up to a whole K4 packet
-            # late, and a mute shorter than that never happened at all.
-            self.k4_mute_count = 4
+        if self.sidetone_keyed:
+            # Nothing taken while the key is down. The tone stands in
+            # the K4 audio's place for as long as it is (mix_sidetone
+            # writes sidetone_hold_sample over whatever is here, and the
+            # crossfade at the end of it then covers that), so anything
+            # drawn from the queue would be dropped on the floor. What
+            # the K4 sent stays where it is, to be played after.
+            #
+            # Only while the key is down. Once it is up the tone falls
+            # away over several milliseconds and the crossfade brings
+            # the K4 audio back in underneath it, so that audio has to
+            # be here to come back to -- and the frames after the fall
+            # has finished are the K4's alone.
             data = numpy.empty(0, dtype=numpy.float32)
+        else:
+            if self.k4_muted:
+                # Ahead of the queue loop, and taking the samples already
+                # buffered with it. Asking inside the loop only muted once
+                # the leftover ran out, which is up to a whole K4 packet
+                # late, and a mute shorter than that never happened at all.
+                self.k4_mute_count = 4
+                data = numpy.empty(0, dtype=numpy.float32)
 
-        while len(data) < needed:
-            try:
-                chunk = self.k4_decoded_rx_audio_queue.get_nowait()
-            except queue.Empty:
-                break
-            if self.k4_mute_count > 0:
-                self.k4_mute_count -= 1
-                break               # drop the chunk rather than play it
-            data = numpy.concatenate((data, chunk))
-        self.output_stream_leftover = data[needed:]
+            while len(data) < needed:
+                try:
+                    chunk = self.k4_decoded_rx_audio_queue.get_nowait()
+                except queue.Empty:
+                    break
+                if self.k4_mute_count > 0:
+                    self.k4_mute_count -= 1
+                    break           # drop the chunk rather than play it
+                data = numpy.concatenate((data, chunk))
+            self.output_stream_leftover = data[needed:]
+
         self.write_outdata(outdata, data[:needed])
 
         self.mix_sidetone(outdata, frames, block_start_frame, time_info, previous_sample)
