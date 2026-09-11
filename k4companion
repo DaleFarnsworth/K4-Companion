@@ -316,7 +316,7 @@ class Server():
     cat_sequence_number = 0
     control_k4_audio_cmd_bases = ( 'AG', 'AG$', 'MG' )
     audio_version_number = 1
-    k4_raw_rx_audio_queue_size = 5     # 100ms of audio
+    k4_raw_rx_audio_queue_size = 2     # 40ms of audio
 
     k4_get_cmd_bases = [         # For future use
         '#A',
@@ -7218,7 +7218,7 @@ class Audio():
     # panadapter-induced dropouts: during a main-thread stall
     # output_stream_callback cannot run to drain the queue either, so
     # only PortAudio's own buffer (frames_per_buffer) keeps playing.
-    k4_decoded_rx_audio_queue_size = 5    # 100ms of audio
+    k4_decoded_rx_audio_queue_size = 2    # 40ms of audio
 
     # The block the output callback fills, and with it two thirds of
     # what stands between the paddle and the sidetone: an edge is picked
@@ -7239,7 +7239,7 @@ class Audio():
     # straight back, so four is the floor there and not a round number
     # picked for the look of it. Audio.report_glitches counts them, so a
     # device that cannot hold this says so with debug on.
-    output_buffer_time = .002
+    output_buffer_time = .004
 
     # Added to the device's own low-latency figure when the output
     # stream is opened. The callback is Python and needs the GIL, and
