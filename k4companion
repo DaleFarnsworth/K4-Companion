@@ -7957,12 +7957,6 @@ class Audio():
         self.last_edge_frame = 0
         self.sidetone_shape = None
         self.sidetone_ramp = numpy.empty(0, dtype=numpy.float32)
-        # What a sidetone rise fades the receive audio away from: the
-        # last sample that went out before the key went down. Held until
-        # the envelope is fully up, then dropped.
-        self.sidetone_hold_sample = None
-        # The last frame of receive audio a block ended on.
-        self.previous_k4_sample = numpy.zeros(self.output_channels, dtype=numpy.float32)
         # Glitch counters. The output callback only ever increments
         # these -- printing from PortAudio's thread is itself a source of
         # the glitches being counted -- and the audio threads report them
@@ -8374,21 +8368,23 @@ class Audio():
                 self.rendered_frames >= self.unmute_at_frame):
             Audio.unmute_k4()
 
-        # Taken before the fill below overwrites it: the frame the
-        # previous block ended on is what a key down landing on frame 0
-        # of this one has to fade away from.
-        previous_sample = self.previous_k4_sample
-
         needed = frames * self.output_channels
         data = self.output_stream_leftover
 
-        if self.sidetone_keyed and not self.key_up_due(frames, time_info):
-            # Nothing taken while the key is down. The tone stands in
-            # the K4 audio's place for as long as it is (mix_sidetone
-            # writes sidetone_hold_sample over whatever is here, and the
-            # crossfade at the end of it then covers that), so anything
-            # drawn from the queue would be dropped on the floor. What
-            # the K4 sent stays where it is, to be played after.
+        if (self.sidetone_keyed and self.sidetone_envelope_position >= 1
+                and not self.key_up_due(frames, time_info)):
+            # Nothing taken while the tone is up and covering the K4
+            # audio entirely -- the crossfade at the end of mix_sidetone
+            # has it at nothing then -- so anything drawn from the queue
+            # would be dropped on the floor. What the K4 sent stays where
+            # it is, to be played after.
+            #
+            # Not while the tone is still rising, though: the crossfade
+            # brings it up over whatever is here, and with the receive
+            # audio loud, what is here matters. Holding the last sample
+            # through the rise instead, as this did, leaves a few
+            # milliseconds of that level as flat DC under the envelope,
+            # heard as a click at the start of every element.
             #
             # Only while the key is down, and not in the block it comes
             # up in. Once it is up the tone falls away over several
@@ -8419,7 +8415,7 @@ class Audio():
 
         self.write_outdata(outdata, data[:needed])
 
-        self.mix_sidetone(outdata, frames, block_start_frame, time_info, previous_sample)
+        self.mix_sidetone(outdata, frames, block_start_frame, time_info)
 
     def key_up_due(self, frames, time_info):
         # Whether the key comes up inside the block about to be filled,
@@ -8459,10 +8455,8 @@ class Audio():
             outdata[:frames] = samples.reshape(frames, self.output_channels)
         if frames < len(outdata):
             outdata[frames:] = 0
-        if len(outdata) > 0:
-            self.previous_k4_sample = outdata[-1].copy()
 
-    def mix_sidetone(self, outdata, frames, block_start_frame, time_info, previous_sample):
+    def mix_sidetone(self, outdata, frames, block_start_frame, time_info):
         # The sidetone is generated here, a block at a time, rather than
         # played from a queue of pre-rendered packets. A queue can only
         # turn the tone on and off where one block ends and the next
@@ -8502,14 +8496,6 @@ class Audio():
             edge = self.next_key_edge(start, frames, dac_time, sample_rate)
             end = frames if edge == None else edge[0]
             if end > start:
-                if self.sidetone_hold_sample is not None:
-                    # Receive audio does not carry on into a key down --
-                    # the radio stops sending it -- so the rise fades
-                    # away from the last sample that went out rather than
-                    # from whatever the queue has. The (1 - envelope)
-                    # factor at the end of this method is the fall
-                    # envelope being applied to it.
-                    outdata[start:end] = self.sidetone_hold_sample
                 # The raised cosine below gives the envelope its shape,
                 # so this position need only travel from 0 to 1 over the
                 # rise time and back over the fall time. An edge landing
@@ -8520,17 +8506,8 @@ class Audio():
                 numpy.clip(segment, 0.0, 1.0, out=segment)
                 positions[start:end] = segment
                 position = segment[-1]
-                if position >= 1:
-                    self.sidetone_hold_sample = None    # fully faded away
             if edge == None:
                 break
-            if edge[1]:
-                # Capture what the fade starts from before the envelope
-                # touches this block.
-                self.sidetone_hold_sample = (outdata[end-1].copy() if end > 0
-                                             else previous_sample)
-            else:
-                self.sidetone_hold_sample = None
             self.sidetone_keyed = edge[1]
             self.last_edge_frame = block_start_frame + end
             if not edge[1]:
@@ -8743,7 +8720,7 @@ class Audio():
 
         block = numpy.zeros((frames, self.output_channels), dtype=numpy.float32)
         self.key_event_queue.put((WarmTimeInfo.currentTime, True))
-        self.mix_sidetone(block, frames, 0, WarmTimeInfo(), block[0])
+        self.mix_sidetone(block, frames, 0, WarmTimeInfo())
 
     def reset_sidetone(self):
         # A stream time only means anything within the stream that
@@ -8759,7 +8736,6 @@ class Audio():
         self.sidetone_keyed = False
         self.sidetone_envelope_position = 0.0
         self.sidetone_phase = 0.0
-        self.sidetone_hold_sample = None
         self.sidetone_up_shift = None
         self.last_edge_frame = 0
         # The frame an unmute was waiting for belongs to the stream that
