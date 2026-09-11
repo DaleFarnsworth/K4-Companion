@@ -7375,9 +7375,14 @@ class Audio():
     #
     # This is not the old fade of the K4 packets, which shaped every
     # packet either side of a mute and was taken out with the mute
-    # rework; nothing is shaped here but the first few milliseconds
-    # after a silence.
-    k4_fade_in_time = .004
+    # rework; nothing is shaped here but what follows a silence.
+    #
+    # Eight milliseconds finishes well inside the gap between elements
+    # at any speed the keyer sends at -- forty of gap at 30 WPM, thirty
+    # at 40, less the K4's own key down delay at the start of each, so
+    # eighteen at its tightest -- and the band is heard at full strength
+    # between elements rather than still on its way up.
+    k4_fade_in_time = .008
     k4_fade_step = 1 / (48000 * k4_fade_in_time)
                                   # Replaced when the device's own rate
                                   # is known -- see choose_output_sample_rate.
