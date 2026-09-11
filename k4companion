@@ -7227,19 +7227,39 @@ class Audio():
     # average, and the block being filled is the earliest audio still
     # writable (see next_key_edge).
     #
-    # Four milliseconds rather than eight for that. It is the one figure
-    # here that can cost more than it saves: the callback has this long
-    # to run and no longer, and an underrun puts far more delay into the
-    # sidetone than the block ever took out. Audio.report_glitches counts
-    # them, so a device that cannot hold it says so with debug on.
-    output_buffer_time = .008
+    # Two milliseconds for that, which on its own is less than the
+    # callback can be relied on to hold: it has this long to run and no
+    # longer, and an underrun puts far more delay into the sidetone than
+    # the block ever took out. What makes it hold is the depth added by
+    # extra_output_latency below, which is what a late callback is
+    # covered by. The two were settled together against a device that
+    # underran roughly once every three seconds of sending at four and
+    # at eight milliseconds, and not at all at these figures.
+    # Audio.report_glitches counts them, so a device that cannot hold
+    # this says so with debug on.
+    output_buffer_time = .002
+
+    # Added to the device's own low-latency figure when the output
+    # stream is opened. The callback is Python and needs the GIL, and
+    # anything else holding it -- the opus decode and the CAT responses
+    # that arrive together every time the radio drops back to receive
+    # between elements, with QSK -- can keep it past the deadline. Depth
+    # is the only cover for a stall longer than a block: what is already
+    # queued ahead of the DAC plays while the callback is away.
+    #
+    # It is not free, and the cost is uniform. A burst's first key down
+    # cannot be scheduled ahead, so it is heard a whole stream latency
+    # late, and that is the lag inherent_sidetone_lag settles at and the
+    # keyer then holds -- so every element is heard later by whatever is
+    # added here, not just the first.
+    extra_output_latency = .004
 
     # What is asked for in exclusive mode, whatever the sample rate. The
     # device period there is the driver's to fix and the buffer has to be
     # a whole number of them, so a duration in milliseconds is the wrong
-    # thing to ask with: this is a frame count, and 192 of them is the
-    # 4ms above at the 48000 a device that takes exclusive mode is
-    # likeliest to run at.
+    # thing to ask with: this is a frame count, and 192 of them is 4ms
+    # at the 48000 a device that takes exclusive mode is likeliest to run
+    # at.
     exclusive_blocksize = 192
 
     # Each burst of keying is rendered at a fixed offset behind the
@@ -7589,6 +7609,18 @@ class Audio():
                 return True
             except Exception:
                 return False
+
+    def output_latency(self):
+        # What to ask PortAudio to keep queued ahead of the DAC: the
+        # device's own low-latency figure -- what latency='low' asks for
+        # -- and extra_output_latency on top. 'low' itself where the
+        # device will not say.
+        cls = self.__class__
+        try:
+            info = self.sd_query_device(self.output_device_index)
+            return info['default_low_output_latency'] + cls.extra_output_latency
+        except Exception:
+            return 'low'
 
     @classmethod
     def output_blocksize(cls, extra_settings, sample_rate):
@@ -8038,14 +8070,14 @@ class Audio():
                                     channels=cls.output_channels,
                                     dtype='float32',
                                     extra_settings=extra_settings,
-                                    # blocksize alone doesn't minimize
-                                    # buffering -- left unspecified, this
-                                    # defaults to 'high' (PortAudio's
-                                    # robust-but-slower preset), which can
-                                    # negotiate several times the actual
-                                    # stream latency 'low' gets on the
-                                    # same device.
-                                    latency='low',
+                                    # Neither 'low' nor 'high': see
+                                    # output_latency. Left unspecified
+                                    # this defaults to 'high',
+                                    # PortAudio's robust-but-slower
+                                    # preset, which can negotiate several
+                                    # times what the device's own
+                                    # low-latency figure asks for.
+                                    latency=self.output_latency(),
                                     callback=self.output_stream_callback,
                                     )
                             stream.start()
