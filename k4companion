@@ -8251,7 +8251,7 @@ class Audio():
             # K4's alone.
             data = numpy.empty(0, dtype=numpy.float32)
         else:
-            if self.k4_muted:
+            if False and self.k4_muted:
                 # Ahead of the queue loop, and taking the samples already
                 # buffered with it. Asking inside the loop only muted once
                 # the leftover ran out, which is up to a whole K4 packet
