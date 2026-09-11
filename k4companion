@@ -7234,9 +7234,11 @@ class Audio():
     # extra_output_latency below, which is what a late callback is
     # covered by. The two were settled together against a device that
     # underran roughly once every three seconds of sending at four and
-    # at eight milliseconds, and not at all at these figures.
-    # Audio.report_glitches counts them, so a device that cannot hold
-    # this says so with debug on.
+    # at eight milliseconds of block, and not at all at these figures --
+    # where halving the depth to two milliseconds brings the underruns
+    # straight back, so four is the floor there and not a round number
+    # picked for the look of it. Audio.report_glitches counts them, so a
+    # device that cannot hold this says so with debug on.
     output_buffer_time = .002
 
     # Added to the device's own low-latency figure when the output
