@@ -13073,7 +13073,7 @@ class Keyer():
         self.keyer_thread = threading.Thread(target=self.keyer_loop, name='keyer_thread')
         self.keyer_thread.start()
         Server.k4_server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
-        dprint1(f"{self.saved_inherent_sidetone_lag()=}")
+        dprint1(f'self.saved_inherent_sidetone_lag={round(self.saved_inherent_sidetone_lag(), 3)}')
 
     def on_received_initial_parameters(self, response):
         self.weighting = Server.settings.getfloat('CW', 'weighting', 1.0)
@@ -13335,7 +13335,7 @@ class Keyer():
         # audio's own delay belongs to the sidetone schedule alone, and
         # is taken off there.
         sidetone_delay = Audio.sidetone_delay()
-        dprint1(f'{self.inherent_sidetone_lag=} {sidetone_delay=}')
+        dprint1(f'inherent_sidetone_lag={round(self.inherent_sidetone_lag, 4)} sidetone_delay={round(sidetone_delay, 4)}')
         # What the sidetone is actually given, as against what the K4 is
         # told.
         sidetone_seconds = element_seconds
