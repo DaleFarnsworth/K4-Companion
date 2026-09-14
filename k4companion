@@ -7758,6 +7758,20 @@ class Audio():
                 event_time = stream.time
             except sounddevice.PortAudioError:
                 return
+        # Asked for as far ahead as the block carrying it could already
+        # have been filled: the furthest lead a block has lately been
+        # filled with, and a block more for where in it the edge falls.
+        # Asked for now, an edge was too late for its frame whenever the
+        # callback had filled that block just before, and sidetone_lag
+        # grew by the shortfall -- which rendered the interval before it
+        # that much long. The lag climbed an edge at a time towards
+        # this same figure over the first elements of every burst,
+        # stretching them as it went; asking this far ahead takes it at
+        # the first edge and leaves every interval after as keyed.
+        timing = self.sidetone_block_timing
+        if timing != None:
+            dac_time, block_seconds, lead = timing
+            event_time += lead + block_seconds
         self.key_event_queue.put((event_time, key_down))
 
     @classmethod
