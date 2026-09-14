@@ -13436,22 +13436,33 @@ class Keyer():
         if self.keyer_mode != self.MODE_ULTIMATIC or event == self.CLOSE_EVENT:
             return event
 
-        first_element = True
-        while True:
+        def choose_element():
+            # The element the paddles ask for next, or None for neither.
             dit = self.dit_down_timestamp > self.dit_up_timestamp
             dah =  self.dah_down_timestamp > self.dah_up_timestamp
             if not dit and not dah:
-                return paddle_event.event
+                return None
 
             if dit and dah:
                 dah_down_last = self.dah_down_timestamp > self.dit_down_timestamp
-                elt = '-' if dah_down_last else '.'
+                return '-' if dah_down_last else '.'
             elif dit:
-                elt = '.'
-            elif dah:
-                elt = '-'
+                return '.'
+            else:
+                return '-'
 
+        first_element = True
+        while True:
+            elt = choose_element()
+            if elt == None:
+                return paddle_event.event
+
+            # Decided once it can be heard, as send_iambic does, and for
+            # the same reason; what the paddles asked for as it started
+            # stands if they have come off by then.
             self.start_element(first_element)
+            self.wait_until_sidetone_heard()
+            elt = choose_element() or elt
             self.end_element(elt)
             first_element = False
 
