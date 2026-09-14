@@ -7593,9 +7593,10 @@ class Audio():
                 return None
 
     @classmethod
-    def schedule_sidetone(cls, down_at, up_at):
-        # Both edges of one element, as perf_counter times, queued before
-        # either has happened.
+    def schedule_sidetone_down(cls, down_at):
+        # An element's key down, as a perf_counter time, queued before it
+        # has happened. schedule_sidetone_up queues its key up, once the
+        # keyer knows what the element is.
         #
         # An edge that reaches the output callback before the block
         # carrying it has been filled is placed on its exact frame. One
@@ -7603,24 +7604,41 @@ class Audio():
         # sidetone_lag exists to drag it forward -- which is where the
         # monitoring delay comes from, and where the quantizing of
         # elements to the blocksize comes from once that lag is capped.
-        # A keyer knows both of an element's edges before it sends it, so
-        # it need not report them late.
+        # A keyer knows an element's down edge a gap before it sends it,
+        # and its up edge by the time it does, so it need not report
+        # either late.
         #
-        # The two clocks are read together here, once per element, so
-        # drift between them cannot accumulate: only their offset across
-        # a single element matters. The inter-element gap the K4 is told
-        # is measured on this clock too, so that what goes on the air
-        # matches what the operator hears (see Keyer.send_element); the
-        # element length in KZU is still the intended one.
+        # The two clocks are read together here, once per element, and
+        # the up edge is put on the same reading, so drift between them
+        # cannot accumulate: only their offset across a single element
+        # matters. The inter-element gap the K4 is told is measured on
+        # this clock too, so that what goes on the air matches what the
+        # operator hears (see Keyer.start_element); the element length in
+        # KZU is still the intended one.
         if cls.singleton == None or not cls.sidetone_enabled:
             return
+        self = cls.singleton
         stream_now = cls.stream_time()
         if stream_now == None:
+            self.sidetone_schedule_offset = None
             return
-        offset = stream_now - time.perf_counter()
-        queue_ = cls.singleton.key_event_queue
-        queue_.put((down_at + offset, True))
-        queue_.put((up_at + offset, False))
+        self.sidetone_schedule_offset = stream_now - time.perf_counter()
+        self.key_event_queue.put((down_at + self.sidetone_schedule_offset, True))
+
+    @classmethod
+    def schedule_sidetone_up(cls, up_at):
+        # The key up belonging to the key down schedule_sidetone_down
+        # last queued. Queued whether or not the sidetone has been
+        # disabled since, so that a tone started is always ended, and not
+        # at all when that down edge was not queued.
+        self = cls.singleton
+        if self == None:
+            return
+        offset = self.sidetone_schedule_offset
+        if offset == None:
+            return
+        self.sidetone_schedule_offset = None
+        self.key_event_queue.put((up_at + offset, False))
 
     @classmethod
     def sidetone_delay(cls):
@@ -7953,6 +7971,10 @@ class Audio():
         # Queue because output_stream_callback reads it on PortAudio's
         # thread, where taking a Python lock is worth avoiding.
         self.key_event_queue = queue.SimpleQueue()
+        # The offset between PortAudio's clock and perf_counter that
+        # schedule_sidetone_down read for the key down it queued, kept
+        # for schedule_sidetone_up to put that element's key up on.
+        self.sidetone_schedule_offset = None
         # An edge already taken off that queue that belongs to a later
         # block than the one being filled.
         self.pending_key_event = None
@@ -8609,12 +8631,14 @@ class Audio():
             # first callback to run after an edge was keyed being up to a
             # block late in picking it up: without it the lag had to grow
             # over a burst's first few elements to cover that, stretching
-            # them. Every edge but a burst's first key down is queued a
-            # whole gap ahead now (see schedule_sidetone) and lands on
-            # its own frame, so the margin protected only the one edge
-            # that is late by definition, and the ones a stall leaves
-            # late, which the keyer's re-anchor and catch-up have. What
-            # it cost was a block of monitoring delay on every burst.
+            # them. Every edge but a burst's first key down is queued
+            # ahead now -- a key down by the gap before it, a key up by
+            # all but the start of its element (see
+            # schedule_sidetone_down) -- and lands on its own frame, so
+            # the margin protected only the one edge that is late by
+            # definition, and the ones a stall leaves late, which the
+            # keyer's re-anchor and catch-up have. What it cost was a
+            # block of monitoring delay on every burst.
             self.sidetone_lag += (start - offset) / sample_rate
             offset = start
 
@@ -8628,7 +8652,7 @@ class Audio():
             # for -- normally exactly sidetone_lag, more when it arrived
             # too late for the frame it wanted and had to take the
             # earliest the block had left. The keyer needs it to know
-            # what gap was really rendered (see Keyer.send_element).
+            # what gap was really rendered (see Keyer.start_element).
             self.sidetone_up_shift = dac_time + offset / sample_rate - event_time
         return offset, key_down
 
@@ -13043,6 +13067,16 @@ class Keyer():
         self.sidetone_delay_used = 0.0
         self.sidetone_pending_step = 0.0
         self.sidetone_delay_seen = 0.0
+        # Handed from start_element to end_element: what is behind and the
+        # catch-up fraction taken for it, the element's keyed start and
+        # its sidetone's, the delay that sidetone was scheduled against,
+        # and when the KZD went out.
+        self.sidetone_behind = 0.0
+        self.sidetone_fraction = 0.0
+        self.element_keyed_start = None
+        self.element_sidetone_start = None
+        self.element_sidetone_delay = 0.0
+        self.element_kzd_timestamp = None
         # The lag to hold, taken from wherever the audio had settled
         # after the last element there was no gap to measure before, and
         # the gap the KZD most recently sent carried, which is what says
@@ -13249,7 +13283,8 @@ class Keyer():
             elif dah:
                 elt = '-'
 
-            self.send_element(elt, first_element)
+            self.start_element(first_element)
+            self.end_element(elt)
 
             previous_elt = elt
 
@@ -13274,7 +13309,8 @@ class Keyer():
             elif dah:
                 elt = '-'
 
-            self.send_element(elt, first_element)
+            self.start_element(first_element)
+            self.end_element(elt)
             first_element = False
 
     def update_sidetone_catchup(self, behind):
@@ -13326,9 +13362,11 @@ class Keyer():
         dprint1(f'sidetone_catchup_per_second={rate:.3g}'
                 f' behind_average_ms={self.sidetone_behind_average * 1000:.2f}')
 
-    def send_element(self, elt, first_element=False):
-        element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
-        element_seconds = math.ceil(element_seconds * 1000) / 1000
+    def start_element(self, first_element=False):
+        # The first half of an element: the sidetone's key down and the
+        # KZD that starts it on the air. Whether it is to be a dit or a
+        # dah is not known yet, and nothing here needs it: end_element is
+        # told, and does the rest.
         inter_element_seconds = math.ceil(self.inter_element_seconds * 1000) / 1000
         # element_timestamp, and the grid of element starts hanging off
         # it, are real time -- when the operator keyed the element. The
@@ -13336,11 +13374,6 @@ class Keyer():
         # is taken off there.
         sidetone_delay = Audio.sidetone_delay()
         dprint1(f'inherent_sidetone_lag={round(self.inherent_sidetone_lag, 4)} sidetone_delay={round(sidetone_delay, 4)}')
-        # What the sidetone is actually given, as against what the K4 is
-        # told.
-        sidetone_seconds = element_seconds
-        sidetone_start = None
-
         # The delay the schedule allows for is walked toward the delay
         # the audio is really adding, rather than set to it outright.
         # Underruns slip the DAC clock and that delay only grows, so
@@ -13399,16 +13432,11 @@ class Keyer():
         behind = max(0.0, sidetone_delay - self.inherent_sidetone_lag -
                      self.sidetone_delay_used)
         self.update_sidetone_catchup(behind)
-        fraction = min(self.max_sidetone_catchup_fraction,
-                       behind * self.sidetone_catchup_per_second)
-        step = (element_seconds + inter_element_seconds) * fraction
-        if step > behind:
-            # Short of a whole step: scale the fraction back so that the
-            # element and the gap stay scaled alike.
-            fraction *= behind / step
-            step = behind
-        sidetone_seconds = element_seconds * (1 - fraction)
-        self.sidetone_pending_step = step
+        # The step it comes to depends on the element's length, which is
+        # end_element's to know.
+        self.sidetone_behind = behind
+        self.sidetone_fraction = min(self.max_sidetone_catchup_fraction,
+                                     behind * self.sidetone_catchup_per_second)
 
         if not first_element:
             # The gap may have gone by already. This thread can be held
@@ -13458,17 +13486,14 @@ class Keyer():
             # Scheduled before sleeping for it, not after: element_timestamp
             # already holds this element's intended start (the previous
             # element advanced it), so the audio side gets the whole
-            # inter-element gap of notice, and the element itself for the
-            # up edge. See Audio.schedule_sidetone.
+            # inter-element gap of notice. See Audio.schedule_sidetone_down.
             #
             # The sidetone goes in ahead of that start by the delay the
             # audio will add, so it is heard when the element was keyed.
             # Only the sidetone moves: keyed_start is the grid itself.
-            dprint1(f'sidetone_ms={round((sidetone_seconds * 1000), 2)}')
             keyed_start = self.element_timestamp
             sidetone_start = keyed_start - self.sidetone_delay_used
-            Audio.schedule_sidetone(sidetone_start,
-                                    sidetone_start + sidetone_seconds)
+            Audio.schedule_sidetone_down(sidetone_start)
 
             # Read again, so that the scheduling just done comes out of
             # the gap as it always has. What is left of the interval
@@ -13513,7 +13538,7 @@ class Keyer():
             # sidetone_lag for the burst. Its up edge, and every edge
             # after it, are scheduled ahead. Its length is trimmed like
             # any other element's, though: only the start is fixed.
-            Audio.schedule_sidetone(keyed_start, keyed_start + sidetone_seconds)
+            Audio.schedule_sidetone_down(keyed_start)
 
             if self.end_element_timestamp:
                 ms = round((time.perf_counter() - self.end_element_timestamp) * 1000)
@@ -13532,7 +13557,7 @@ class Keyer():
                     ms = 0
         else:
             # The ideal, and nothing else. What the operator hears is the
-            # sidetone's business: send_element shortens tones and gaps
+            # sidetone's business: the keyer shortens tones and gaps
             # to work off the audio's lag (see sidetone_delay_used), and
             # none of that belongs on the air.
             ms = round(self.inter_element_seconds * 1000)
@@ -13549,14 +13574,52 @@ class Keyer():
         # Kept for the sidetone this element is about to produce: a
         # gap of zero says the operator had been idle, or that nothing
         # had been sent yet, and it is over such an element that the lag
-        # to hold is measured. See the end of this method.
+        # to hold is measured. See end_element.
         self.last_kzd_ms = ms
         Server.k4_server.send_str(f'KZD{ms:04d};')
+        self.element_kzd_timestamp = time.perf_counter()
+
+        self.element_keyed_start = keyed_start
+        self.element_sidetone_start = sidetone_start
+        self.element_sidetone_delay = sidetone_delay
+
+        Audio.report_glitches(during_sidetone=False)
+
+    def end_element(self, elt):
+        # The second half: the sidetone's key up and the KZU, now that
+        # the element is known to be a dit or a dah.
+        element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
+        element_seconds = math.ceil(element_seconds * 1000) / 1000
+        inter_element_seconds = math.ceil(self.inter_element_seconds * 1000) / 1000
+        keyed_start = self.element_keyed_start
+        sidetone_start = self.element_sidetone_start
+        sidetone_delay = self.element_sidetone_delay
+
+        # The catch-up start_element settled on, applied to the element
+        # and the gap after it alike. What the sidetone is actually
+        # given, as against what the K4 is told.
+        behind = self.sidetone_behind
+        fraction = self.sidetone_fraction
+        step = (element_seconds + inter_element_seconds) * fraction
+        if step > behind:
+            # Short of a whole step: scale the fraction back so that the
+            # element and the gap stay scaled alike.
+            fraction *= behind / step
+            step = behind
+        sidetone_seconds = element_seconds * (1 - fraction)
+        self.sidetone_pending_step = step
+
+        dprint1(f'sidetone_ms={round((sidetone_seconds * 1000), 2)}')
+        Audio.schedule_sidetone_up(sidetone_start + sidetone_seconds)
 
         ms = round(element_seconds * 1000)
 
-        Audio.report_glitches(during_sidetone=False)
-        time.sleep(element_seconds)
+        # The element's full length from when its KZD went out, however
+        # long it took to be decided.
+        element_sleep = (self.element_kzd_timestamp + element_seconds -
+                         time.perf_counter())
+        if element_sleep > 0:
+            time.sleep(element_sleep)
         Server.k4_server.send_str(f'KZU{ms:04d};')
         Audio.report_glitches(during_sidetone=True)
 
