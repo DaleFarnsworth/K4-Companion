@@ -7362,6 +7362,11 @@ class Audio():
     # that offset is dropped, so the next burst starts with the least
     # delay the device allows rather than inheriting the old one.
     sidetone_lag_reset_seconds = .5
+
+    # The span over which note_block_timing keeps the furthest lead a
+    # block has been filled with.
+    block_lead_window_seconds = .5
+
     minimum_sidetone_ms = 0
 
     k4_muted = False
@@ -7615,15 +7620,20 @@ class Audio():
         # this clock too, so that what goes on the air matches what the
         # operator hears (see Keyer.start_element); the element length in
         # KZU is still the intended one.
+        #
+        # Whether the edge was queued: there is no sidetone to hear when
+        # it is disabled or no stream is open.
         if cls.singleton == None or not cls.sidetone_enabled:
-            return
+            return False
         self = cls.singleton
         stream_now = cls.stream_time()
         if stream_now == None:
             self.sidetone_schedule_offset = None
-            return
+            return False
         self.sidetone_schedule_offset = stream_now - time.perf_counter()
-        self.key_event_queue.put((down_at + self.sidetone_schedule_offset, True))
+        self.sidetone_down_asked = down_at + self.sidetone_schedule_offset
+        self.key_event_queue.put((self.sidetone_down_asked, True))
+        return True
 
     @classmethod
     def schedule_sidetone_up(cls, up_at):
@@ -7639,6 +7649,46 @@ class Audio():
             return
         self.sidetone_schedule_offset = None
         self.key_event_queue.put((up_at + offset, False))
+
+    @classmethod
+    def sidetone_down_heard_at(cls):
+        # When the key down schedule_sidetone_down last queued reaches
+        # the DAC, as a perf_counter time, or None while the output
+        # callback has yet to place it. Only a placed edge can say: one
+        # that arrives too late for the frame it asked for goes out on
+        # the earliest the block has left, and how much later that is
+        # is found out only there.
+        self = cls.singleton
+        if self == None:
+            return None
+        offset = self.sidetone_schedule_offset
+        placed = self.sidetone_down_placed
+        if (offset == None or placed == None or
+                placed[0] != self.sidetone_down_asked):
+            return None
+        return placed[1] - offset
+
+    @classmethod
+    def sidetone_edge_deadline(cls, heard_at):
+        # The last moment, as a perf_counter time, that an edge to be
+        # heard at heard_at can be queued and still land on its own
+        # frame: when the callback filling the block that carries it
+        # runs. None with nothing to reckon that from.
+        #
+        # Projected from the most recent callback. Blocks reach the DAC
+        # a block apart, and none is taken to be filled any further
+        # ahead of its DAC time than the furthest one lately was. See
+        # note_block_timing.
+        self = cls.singleton
+        if self == None:
+            return None
+        timing = self.sidetone_block_timing
+        offset = self.sidetone_schedule_offset
+        if timing == None or offset == None:
+            return None
+        dac_time, block_seconds, lead = timing
+        blocks = math.floor((heard_at + offset - dac_time) / block_seconds)
+        return dac_time + blocks * block_seconds - lead - offset
 
     @classmethod
     def sidetone_delay(cls):
@@ -7975,6 +8025,22 @@ class Audio():
         # schedule_sidetone_down read for the key down it queued, kept
         # for schedule_sidetone_up to put that element's key up on.
         self.sidetone_schedule_offset = None
+        # That key down's stream time, and the most recent one the output
+        # callback placed, as (stream time asked for, stream time its
+        # frame reaches the DAC): together, when the sidetone the keyer
+        # just started is heard. See sidetone_down_heard_at.
+        self.sidetone_down_asked = None
+        self.sidetone_down_placed = None
+        # The most recent block the output callback filled, as (stream
+        # time it reaches the DAC, its length in seconds, the furthest
+        # ahead of its DAC time any block has lately been filled), for
+        # projecting when later blocks will be. See note_block_timing.
+        self.sidetone_block_timing = None
+        # The furthest lead in the window running now, and in the one
+        # before it, and the stream time the one running now ends at.
+        self.block_lead_current = 0.0
+        self.block_lead_previous = 0.0
+        self.block_lead_window_end = None
         # An edge already taken off that queue that belongs to a later
         # block than the one being filled.
         self.pending_key_event = None
@@ -8541,6 +8607,15 @@ class Audio():
             return
         sample_rate, rise_step, fall_step, period, cycle = shape
 
+        # PortAudio reports when this block reaches the DAC on the same
+        # clock key_sidetone() read, so where an edge falls within the
+        # block is just the difference between the two. Not every host
+        # API fills in outputBufferDacTime; currentTime always carries a
+        # usable time, and sidetone_lag absorbs the offset between them.
+        dac_time = time_info.outputBufferDacTime or time_info.currentTime
+        self.note_block_timing(dac_time, time_info.currentTime,
+                               frames / sample_rate)
+
         idle = not self.sidetone_keyed and self.sidetone_envelope_position <= 0
         quiet_frames = block_start_frame - self.last_edge_frame
 
@@ -8550,13 +8625,6 @@ class Audio():
 
         if idle and self.pending_key_event == None and self.key_event_queue.empty():
             return                  # nothing keyed: the K4 audio stands as written
-
-        # PortAudio reports when this block reaches the DAC on the same
-        # clock key_sidetone() read, so where an edge falls within the
-        # block is just the difference between the two. Not every host
-        # API fills in outputBufferDacTime; currentTime always carries a
-        # usable time, and sidetone_lag absorbs the offset between them.
-        dac_time = time_info.outputBufferDacTime or time_info.currentTime
 
         position = self.sidetone_envelope_position
         positions = numpy.empty(frames, dtype=numpy.float32)
@@ -8600,6 +8668,40 @@ class Audio():
         envelope = (.5 * (1 - numpy.cos(numpy.pi * positions))).reshape(frames, 1)
         outdata *= 1.0 - envelope
         outdata += tone.reshape(frames, 1) * envelope
+
+    def note_block_timing(self, dac_time, current_time, block_seconds):
+        # Every block, keyed or not, so that the keyer has a lead to go
+        # on the moment it starts a burst.
+        #
+        # How far ahead of its DAC time a block is filled is not the same
+        # from one block to the next on every host. PortAudio fills a
+        # host buffer by calling back as many times as that takes, one
+        # after another and all with the same currentTime, advancing
+        # outputBufferDacTime a block each time, and what a block leaves
+        # over is kept for the next host buffer. Where the host's period
+        # is longer than a block -- WASAPI in shared mode, 10 ms against
+        # 8 -- blocks filled together go to the DAC at different
+        # distances ahead, and the ones that spill over go a whole period
+        # ahead of what the one before them did.
+        #
+        # An edge has to be in the queue before the block carrying it is
+        # filled, however far ahead that is, so the lead kept is the
+        # furthest, not the last. Over a window rather than for all
+        # time: the largest in the one running and the one before it, so
+        # that a lead that has come down stops costing anything within
+        # two windows, while each window still spans many host periods.
+        lead = dac_time - current_time
+        window_end = self.block_lead_window_end
+        if window_end == None or dac_time >= window_end:
+            self.block_lead_previous = self.block_lead_current
+            self.block_lead_current = lead
+            self.block_lead_window_end = dac_time + self.block_lead_window_seconds
+        elif lead > self.block_lead_current:
+            self.block_lead_current = lead
+        # One assignment, so the keyer's thread never sees half of it.
+        self.sidetone_block_timing = (dac_time, block_seconds,
+                                      max(self.block_lead_previous,
+                                          self.block_lead_current))
 
     def next_key_edge(self, start, frames, dac_time, sample_rate):
         # The next edge landing in the block being filled, as a (frame
@@ -8647,7 +8749,12 @@ class Audio():
             return None
 
         self.pending_key_event = None
-        if not key_down:
+        if key_down:
+            # Where it went, for the keyer to wait on hearing it. One
+            # assignment, so the keyer's thread never sees half of it.
+            self.sidetone_down_placed = (event_time,
+                                         dac_time + offset / sample_rate)
+        else:
             # How far this edge was displaced from the time it was asked
             # for -- normally exactly sidetone_lag, more when it arrived
             # too late for the frame it wanted and had to take the
@@ -8826,6 +8933,10 @@ class Audio():
         self.sidetone_envelope_position = 0.0
         self.sidetone_cycle_index = 0
         self.sidetone_up_shift = None
+        self.sidetone_block_timing = None
+        self.block_lead_current = 0.0
+        self.block_lead_previous = 0.0
+        self.block_lead_window_end = None
         self.last_edge_frame = 0
         # The frame an unmute was waiting for belongs to the stream that
         # has just been replaced, and would never arrive.
@@ -12810,6 +12921,15 @@ class Keyer():
     # over more elements rather than by cutting any one of them harder.
     max_sidetone_catchup_fraction = .1
 
+    # How often wait_until_sidetone_heard looks to see whether the output
+    # callback has placed the key down yet.
+    sidetone_heard_poll_seconds = .001
+
+    # How far ahead of the output callback's last moment for it a dit's
+    # key up is to be queued: for the keyer's sleep overrunning, and
+    # the work end_element does before it gets that far.
+    sidetone_up_margin_seconds = .002
+
     # The main settings rather than the server's: the lag belongs to the
     # audio device and the machine it is on, which is the same whichever
     # radio is being worked.
@@ -13077,6 +13197,7 @@ class Keyer():
         self.element_sidetone_start = None
         self.element_sidetone_delay = 0.0
         self.element_kzd_timestamp = None
+        self.element_sidetone_queued = False
         # The lag to hold, taken from wherever the audio had settled
         # after the last element there was no gap to measure before, and
         # the gap the KZD most recently sent carried, which is what says
@@ -13243,8 +13364,11 @@ class Keyer():
                                (self.dit_seconds + self.inter_element_seconds))
 
         previous_elt = None
+        previous_elt_ts = None
 
-        while True:
+        def choose_element():
+            # The element the paddles, and what is remembered of them, ask
+            # for next, or None for neither.
             dit_up_ts = self.dit_up_timestamp - self.inherent_sidetone_lag
             dah_up_ts = self.dah_up_timestamp - self.inherent_sidetone_lag
             dit_down_ts = self.dit_down_timestamp - self.inherent_sidetone_lag
@@ -13265,28 +13389,46 @@ class Keyer():
                     dah_mem = dah_mem or ((previous_elt == '.' and
                                (dah_up_ts - previous_elt_ts) >
                                dah_up_memory_delay))
-            previous_elt_ts = time.perf_counter()
 
             dit_now = dit_down_ts > dit_up_ts
             dah_now =  dah_down_ts > dah_up_ts
             dit = dit_now or dit_mem
             dah = dah_now or dah_mem
 
-            first_element = previous_elt == None
             if not dit and not dah:
-                return paddle_event.event
+                return None
 
             if dit and dah:
-                elt = '-' if previous_elt == '.' else '.'
+                return '-' if previous_elt == '.' else '.'
             elif dit:
-                elt = '.'
-            elif dah:
-                elt = '-'
+                return '.'
+            else:
+                return '-'
 
+        while True:
+            elt = choose_element()
+            if elt == None:
+                return paddle_event.event
+
+            first_element = previous_elt == None
+            elt_ts = time.perf_counter()
+
+            # Started before it is known what it is. The operator works
+            # the paddles to what the sidetone says, so they are read
+            # again once this element can be heard, and it is that
+            # reading that decides it -- the one above only says whether
+            # there is to be an element at all. Should the paddles have come off by
+            # then, it goes out as what they asked for when it started.
+            #
+            # What the memories are measured from is still when the
+            # element was started, as it always was.
             self.start_element(first_element)
+            self.wait_until_sidetone_heard()
+            elt = choose_element() or elt
             self.end_element(elt)
 
             previous_elt = elt
+            previous_elt_ts = elt_ts
 
     def send_ultimatic(self):
         paddle_event = self.paddle_event_queue.get()
@@ -13493,7 +13635,8 @@ class Keyer():
             # Only the sidetone moves: keyed_start is the grid itself.
             keyed_start = self.element_timestamp
             sidetone_start = keyed_start - self.sidetone_delay_used
-            Audio.schedule_sidetone_down(sidetone_start)
+            self.element_sidetone_queued = Audio.schedule_sidetone_down(
+                sidetone_start)
 
             # Read again, so that the scheduling just done comes out of
             # the gap as it always has. What is left of the interval
@@ -13538,7 +13681,8 @@ class Keyer():
             # sidetone_lag for the burst. Its up edge, and every edge
             # after it, are scheduled ahead. Its length is trimmed like
             # any other element's, though: only the start is fixed.
-            Audio.schedule_sidetone_down(keyed_start)
+            self.element_sidetone_queued = Audio.schedule_sidetone_down(
+                keyed_start)
 
             if self.end_element_timestamp:
                 ms = round((time.perf_counter() - self.end_element_timestamp) * 1000)
@@ -13585,19 +13729,12 @@ class Keyer():
 
         Audio.report_glitches(during_sidetone=False)
 
-    def end_element(self, elt):
-        # The second half: the sidetone's key up and the KZU, now that
-        # the element is known to be a dit or a dah.
-        element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
-        element_seconds = math.ceil(element_seconds * 1000) / 1000
+    def element_sidetone(self, element_seconds):
+        # The catch-up start_element settled on, applied to an element of
+        # this length and the gap after it alike: what the sidetone is
+        # actually given, as against what the K4 is told, and the step
+        # that frees up for the element after it to take.
         inter_element_seconds = math.ceil(self.inter_element_seconds * 1000) / 1000
-        keyed_start = self.element_keyed_start
-        sidetone_start = self.element_sidetone_start
-        sidetone_delay = self.element_sidetone_delay
-
-        # The catch-up start_element settled on, applied to the element
-        # and the gap after it alike. What the sidetone is actually
-        # given, as against what the K4 is told.
         behind = self.sidetone_behind
         fraction = self.sidetone_fraction
         step = (element_seconds + inter_element_seconds) * fraction
@@ -13606,8 +13743,68 @@ class Keyer():
             # element and the gap stay scaled alike.
             fraction *= behind / step
             step = behind
-        sidetone_seconds = element_seconds * (1 - fraction)
-        self.sidetone_pending_step = step
+        return element_seconds * (1 - fraction), step
+
+    def wait_until_sidetone_heard(self):
+        # Until the element start_element began can be heard: the moment
+        # the operator can react to it, and so the moment what the
+        # paddles say is about this element.
+        #
+        # Taken from where the output callback actually put the key down,
+        # not from the lag expected of it. A burst's first element sets
+        # that lag as it goes, and any edge can land later than it asked
+        # for.
+        #
+        # Nor so late that a dit's key up would miss its frame. That
+        # edge is on time only if end_element has it queued before the
+        # output callback fills the block it falls in; after that it
+        # goes on the next block's first frame, and the dit is heard
+        # that much longer. At speed a dit's tone can end sooner after it
+        # is heard than the device fills blocks ahead of the DAC, and it
+        # is decided then as late as its key up allows rather than when
+        # it is heard. A dah's key up is later still, so what is on time
+        # for a dit is on time for either.
+        #
+        # No later than a dit's end, whatever happens. The edge may never
+        # be placed -- the stream replaced under it drops its queue -- and
+        # end_element has to be reached before the shortest element it
+        # could be is over. Nothing to wait for with no sidetone at all.
+        if not self.element_sidetone_queued:
+            return
+        give_up_at = self.element_kzd_timestamp + self.dit_seconds
+        while True:
+            now = time.perf_counter()
+            heard_at = Audio.sidetone_down_heard_at()
+            if heard_at != None:
+                wait_until = min(heard_at, give_up_at)
+                # Both edges carry the same lag, so the key up is heard as
+                # long after the key down as it is scheduled after it.
+                dit_seconds = math.ceil(self.dit_seconds * 1000) / 1000
+                dit_sidetone_seconds, _ = self.element_sidetone(dit_seconds)
+                queue_by = Audio.sidetone_edge_deadline(heard_at +
+                                                        dit_sidetone_seconds)
+                if queue_by != None:
+                    wait_until = min(wait_until, queue_by -
+                                     self.sidetone_up_margin_seconds)
+                wait = wait_until - now
+                if wait > 0:
+                    time.sleep(wait)
+                return
+            if now >= give_up_at:
+                return
+            time.sleep(min(self.sidetone_heard_poll_seconds, give_up_at - now))
+
+    def end_element(self, elt):
+        # The second half: the sidetone's key up and the KZU, now that
+        # the element is known to be a dit or a dah.
+        element_seconds = self.dah_seconds if elt == '-' else self.dit_seconds
+        element_seconds = math.ceil(element_seconds * 1000) / 1000
+        keyed_start = self.element_keyed_start
+        sidetone_start = self.element_sidetone_start
+        sidetone_delay = self.element_sidetone_delay
+
+        sidetone_seconds, self.sidetone_pending_step = self.element_sidetone(
+            element_seconds)
 
         dprint1(f'sidetone_ms={round((sidetone_seconds * 1000), 2)}')
         Audio.schedule_sidetone_up(sidetone_start + sidetone_seconds)
