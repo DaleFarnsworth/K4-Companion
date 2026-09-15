@@ -7332,7 +7332,7 @@ class Audio():
     # straight back, so four is the floor there and not a round number
     # picked for the look of it. Audio.report_glitches counts them, so a
     # device that cannot hold this says so with debug on.
-    output_buffer_time = .008
+    output_buffer_time = .004
 
     # Added to the device's own low-latency figure when the output
     # stream is opened. The callback is Python and needs the GIL, and
@@ -7347,7 +7347,7 @@ class Audio():
     # late, and that is the lag inherent_sidetone_lag settles at and the
     # keyer then holds -- so every element is heard later by whatever is
     # added here, not just the first.
-    extra_output_latency = .008
+    extra_output_latency = .002
 
     # What is asked for in exclusive mode, whatever the sample rate. The
     # device period there is the driver's to fix and the buffer has to be
