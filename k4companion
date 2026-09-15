@@ -4599,16 +4599,6 @@ class Menu(Widget):
         self.lookup_definitions[md.index] = md
         self.definitions.append(md)
 
-def le_int(data, signed=False):
-    value = 0
-    for byte in reversed(data):
-        value = (value << 8) | byte
-    if signed:
-        bits = len(data) * 8
-        if value >= (1 << (bits - 1)):
-            value -= (1 << bits)
-    return value
-
 def parse_pan_frame(data, decode_offset=160):
     # PAN payload (multi-byte fields little-endian -- unlike the outer
     # packet's length field, which is explicitly big-endian per the
@@ -4638,10 +4628,10 @@ def parse_pan_frame(data, decode_offset=160):
     if len(data) < 24:
         return None
     rx = data[1]
-    pan_len = le_int(data[2:4])
-    center_hz = le_int(data[8:16], signed=True)
-    sample_rate = le_int(data[16:20], signed=True)
-    noise_floor = le_int(data[20:24], signed=True) / 10
+    pan_len = int.from_bytes(data[2:4], 'little')
+    center_hz = int.from_bytes(data[8:16], 'little', signed=True)
+    sample_rate = int.from_bytes(data[16:20], 'little', signed=True)
+    noise_floor = int.from_bytes(data[20:24], 'little', signed=True) / 10
     samples = data[24:24 + pan_len]
     if len(samples) != pan_len:
         return None
@@ -4719,31 +4709,28 @@ class _PanControlFilter(QObject):
             return 1
         return None
 
+    def _in_window(self, obj):
+        return isinstance(obj, QWidget) and (obj is self.window or
+                                             self.window.isAncestorOf(obj))
+
     def eventFilter(self, obj, event):
         event_type = event.type()
         if event_type == QEvent.Type.KeyPress:
             key = event.key()
-            if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
-                if not isinstance(obj, QWidget):
-                    return False
-                if not (obj is self.window or self.window.isAncestorOf(obj)):
-                    return False
-                return True
+            if key not in (Qt.Key.Key_Up, Qt.Key.Key_Down,
+                           Qt.Key.Key_Left, Qt.Key.Key_Right):
+                return False
+            if not self._in_window(obj):
+                return False
             if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
-                if not isinstance(obj, QWidget):
-                    return False
-                if not (obj is self.window or self.window.isAncestorOf(obj)):
-                    return False
                 delta_hz = self._nudge_size_hz()
                 if delta_hz != None:
                     if key == Qt.Key.Key_Left:
                         delta_hz = -delta_hz
                     self.window.request_vfo_action(f'nudge {delta_hz}')
-                return True
-        elif event_type == QEvent.Type.Wheel:
-            if not isinstance(obj, QWidget):
-                return False
-            if not (obj is self.window or self.window.isAncestorOf(obj)):
+            return True
+        if event_type == QEvent.Type.Wheel:
+            if not self._in_window(obj):
                 return False
             mult = mouse_wheel_mult(event)
             if mult != 0:
@@ -4888,10 +4875,15 @@ class Panadapter(QDialog):
     # main process talks to it through PanadapterProcess, which owns
     # opening, closing, and the persisted "was open" flag.
 
+    @staticmethod
+    def receiver_of(response):
+        # The receiver a response with a $ variant is for.
+        return 'sub' if cmd_base(response).endswith('$') else 'main'
+
     @classmethod
     def on_span_changed(cls, response):
         # #SPN reports the span as a plain Hz value.
-        receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
+        receiver = cls.receiver_of(response)
         try:
             new_span_hz = float(cmd_parameter(response))
         except ValueError:
@@ -4913,7 +4905,7 @@ class Panadapter(QDialog):
 
     @classmethod
     def on_mode_changed(cls, response):
-        receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
+        receiver = cls.receiver_of(response)
         # Mode changes no longer auto-reset Ref -- only span and
         # antenna changes do (see _trigger_auto_ref).
         cls.mode[receiver] = cmd_parameter(response)
@@ -4923,7 +4915,7 @@ class Panadapter(QDialog):
 
     @classmethod
     def on_antenna_changed(cls, response):
-        receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
+        receiver = cls.receiver_of(response)
         old = cls.antenna[receiver]
         cls.antenna[receiver] = cmd_parameter(response)
         cls._trigger_auto_ref(receiver, old, cls.antenna[receiver])
@@ -4994,7 +4986,7 @@ class Panadapter(QDialog):
         # BW/BW$ report bandwidth as a 4-digit string, kHz * 100 (e.g.
         # "0500" = 5.00 kHz -- see the yaml's bandwidth dropdown
         # buttons, which build/parse the same command).
-        receiver = 'sub' if cmd_base(response).endswith('$') else 'main'
+        receiver = cls.receiver_of(response)
         try:
             cls.bandwidth_hz[receiver] = int(cmd_parameter(response)) * 10
         except ValueError:
@@ -5112,7 +5104,7 @@ class Panadapter(QDialog):
         self.xs = None          # run on the first frame
         self.trace_history = [] # last up to self.avg_count frames' bin
                                   # data, averaged per bin for the trace
-                                  # display -- see _trace_average/push_frame
+                                  # display -- see _rolling_average/push_frame
 
         # "Ref" button: captures a 0.5-second average of the displayed
         # trace, then pins that average as the bottom of the trace's Y
@@ -5136,9 +5128,7 @@ class Panadapter(QDialog):
         # call so a rapid run of changes (e.g. holding an arrow key, or
         # stepping through antennas) only captures once, after things
         # stop moving.
-        self._ref_reset_timer = QTimer()
-        self._ref_reset_timer.setSingleShot(True)
-        self._ref_reset_timer.timeout.connect(self.on_ref_button)
+        self._ref_reset_timer = self._single_shot_timer(self.on_ref_button)
 
         # Vertical (dB) scale of the trace plot: averaged over a rolling
         # window rather than auto-ranged to the current frame's min/max
@@ -5159,7 +5149,7 @@ class Panadapter(QDialog):
         self.minipan_xs = None
         self.minipan_history = [] # last up to self.avg_count frames' bin
                                   # data, averaged per bin for display --
-                                  # same idea as trace_history/_trace_average
+                                  # same idea as trace_history
         self.last_center_hz = None
 
         # Receiver bandwidth (BW;/BW$;), for shading the trace -- see
@@ -5180,25 +5170,15 @@ class Panadapter(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        self.minipan_plot = pyqtgraph.PlotWidget()
-        self.minipan_plot.setBackground('k')
-        self.minipan_plot.showGrid(x=True, y=True, alpha=0.25)
-        self.minipan_plot.getPlotItem().hideAxis('left')
-        self.minipan_plot.getPlotItem().hideAxis('bottom')
-        self.minipan_plot.setMouseEnabled(x=False, y=False)
         # pyqtgraph's own auto-range ('A') button would otherwise appear
         # on hover -- pointless here since the axes are always set
         # explicitly (see the Y range below/push_minipan) and never left
-        # to pyqtgraph's auto-range.
-        self.minipan_plot.getPlotItem().hideButtons()
+        # to pyqtgraph's auto-range. See _make_plot.
+        self.minipan_plot = self._make_plot(grid=True, hide_axes=('left', 'bottom'))
         # Bandwidth shading, same as the trace's bw_region below (see
         # _update_bw_region) -- added before the curve so the
         # (translucent) shading renders behind it rather than over it.
-        self.minipan_bw_region = pyqtgraph.LinearRegionItem(values=(0, 0),
-            movable=False, brush=pyqtgraph.mkBrush(100, 180, 255, 90),
-            pen=pyqtgraph.mkPen(None))
-        self.minipan_bw_region.setVisible(False)
-        self.minipan_plot.addItem(self.minipan_bw_region)
+        self.minipan_bw_region = self._add_bw_region(self.minipan_plot)
         self.minipan_curve = self.minipan_plot.plot(pen=pyqtgraph.mkPen(color=(220, 180, 80), width=1))
         # Y range is set explicitly (see push_minipan) rather than left
         # to pyqtgraph's default per-frame auto-range, which would fit
@@ -5219,10 +5199,9 @@ class Panadapter(QDialog):
         # until the first enable/disable message arrives from the
         # parent (see set_minipan_enabled).
         self.freq_line_minipan_hz = None
-        self.freq_line_minipan = pyqtgraph.InfiniteLine(angle=90,
-            pen=pyqtgraph.mkPen(color=(60, 140, 255), width=1))
+        self.freq_line_minipan = self._add_freq_line(self.minipan_plot,
+                                                     self.vfo_a_color)
         self.freq_line_minipan.setVisible(False)
-        self.minipan_plot.addItem(self.freq_line_minipan)
         # Click to tune, same as the trace below -- the mini-pan's own
         # axis is in real Hz too (centered on _rx_freq_hz), so the same
         # scene-to-frequency mapping works unchanged. Its narrow span
@@ -5253,23 +5232,15 @@ class Panadapter(QDialog):
         # _set_span_combobox_khz. Shared between main/sub (no #SCL$
         # variant), so a change here updates every open window's
         # combobox the same way -- see on_scale_changed.
-        scale_frame, scale_grid = qt_group_box('Scale', qt_font('Helvetica', 9))
-        self.scale_combobox = QComboBox()
-        self.scale_combobox.addItems([str(v) for v in Panadapter.scale_choices_db])
+        self.scale_combobox = self._make_combobox(
+            [str(v) for v in Panadapter.scale_choices_db], self.on_scale_selected)
         # Tracks a dynamically-added item for whatever the radio's actual
         # scale is when it isn't one of the preset choices above -- same
         # reasoning as Span's _span_dynamic_khz.
         self._scale_dynamic_db = None
-        self.scale_combobox.setFont(qt_font('Helvetica', 9))
-        self.scale_combobox.view().setFont(qt_font('Helvetica', 9))
-        self.scale_combobox.activated.connect(self.on_scale_selected)
-        self.scale_combobox.setStyleSheet(
-            'QComboBox { background-color: white; color: black; }'
-            'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
-        qt_tighten_combobox_popup(self.scale_combobox)
         if Panadapter.scale_db != None:
             self._set_scale_combobox(Panadapter.scale_db)
-        scale_grid.addWidget(self.scale_combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        scale_frame = self._combobox_group('Scale', self.scale_combobox)
 
         # Span (#SPN;/#SPN$;) selector -- a plain preset-list dropdown,
         # like FPS/Fixed Tune: not editable, not steppable via Up/Down
@@ -5282,9 +5253,8 @@ class Panadapter(QDialog):
         # own request, another window, or the radio's own front panel --
         # comes back through on_span_changed/on_span_hz_changed to keep
         # the display in sync.
-        span_frame, span_grid = qt_group_box('Span', qt_font('Helvetica', 9))
-        self.span_combobox = QComboBox()
-        self.span_combobox.addItems([str(v) for v in Panadapter.span_choices_khz])
+        self.span_combobox = self._make_combobox(
+            [str(v) for v in Panadapter.span_choices_khz], self.on_span_selected)
         # Tracks the last-applied span independently of the combobox's
         # own displayed text -- see request_span for why. Starts at the
         # combobox's own initial (index-0) item; corrected immediately
@@ -5298,14 +5268,7 @@ class Panadapter(QDialog):
         # leaving stale extra entries piled up in the list).
         self._span_dynamic_khz = None
         self.span_combobox.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.span_combobox.setFont(qt_font('Helvetica', 9))
-        self.span_combobox.view().setFont(qt_font('Helvetica', 9))
-        self.span_combobox.activated.connect(self.on_span_selected)
-        self.span_combobox.setStyleSheet(
-            'QComboBox { background-color: white; color: black; }'
-            'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
-        qt_tighten_combobox_popup(self.span_combobox)
-        span_grid.addWidget(self.span_combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        span_frame = self._combobox_group('Span', self.span_combobox)
 
         # FPS (#FPS;) selector -- every valid value (1-30, per the K4
         # Programmer's Reference) enumerated, so unlike Span there's no
@@ -5313,45 +5276,28 @@ class Panadapter(QDialog):
         # a preset list. Shared between main/sub (no #FPS$ variant), so
         # a change here updates every open window's combobox the same
         # way -- see on_fps_changed/_set_fps_combobox.
-        fps_frame, fps_grid = qt_group_box('FPS', qt_font('Helvetica', 9))
-        self.fps_combobox = QComboBox()
-        self.fps_combobox.addItems([str(v) for v in range(Panadapter.fps_min, Panadapter.fps_max + 1)])
-        self.fps_combobox.setFont(qt_font('Helvetica', 9))
-        self.fps_combobox.view().setFont(qt_font('Helvetica', 9))
-        self.fps_combobox.activated.connect(self.on_fps_selected)
-        self.fps_combobox.setStyleSheet(
-            'QComboBox { background-color: white; color: black; }'
-            'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
-        qt_tighten_combobox_popup(self.fps_combobox)
+        self.fps_combobox = self._make_combobox(
+            [str(v) for v in range(Panadapter.fps_min, Panadapter.fps_max + 1)],
+            self.on_fps_selected)
         self._set_fps_combobox(Panadapter.frames_per_second)
-        fps_grid.addWidget(self.fps_combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        fps_frame = self._combobox_group('FPS', self.fps_combobox)
 
         # Avg -- a purely local display preference (no corresponding CAT
         # command, unlike Scale/Span/FPS above), so it's per-window
         # rather than shared, and persisted the same way as this
         # window's geometry/splitter (see save_geometry). Controls how
         # many frames _rolling_average smooths the trace/mini-pan over.
-        avg_frame, avg_grid = qt_group_box('Avg', qt_font('Helvetica', 9))
-        self.avg_combobox = QComboBox()
-        self.avg_combobox.addItems([str(v) for v in range(1, 11)])
-        self.avg_combobox.setFont(qt_font('Helvetica', 9))
-        self.avg_combobox.view().setFont(qt_font('Helvetica', 9))
-        self.avg_combobox.activated.connect(self.on_avg_selected)
-        self.avg_combobox.setStyleSheet(
-            'QComboBox { background-color: white; color: black; }'
-            'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
-        qt_tighten_combobox_popup(self.avg_combobox)
+        self.avg_combobox = self._make_combobox(
+            [str(v) for v in range(1, 11)], self.on_avg_selected)
         self.avg_count = Server.settings.getint('Window', f'Panadapter.{self.receiver}.avg_count', 3, minimum=1, maximum=10)
         self.avg_combobox.setCurrentText(str(self.avg_count))
-        avg_grid.addWidget(self.avg_combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        avg_frame = self._combobox_group('Avg', self.avg_combobox)
 
         span_fps_row = QWidget()
         span_fps_row_layout = QHBoxLayout(span_fps_row)
         span_fps_row_layout.setContentsMargins(0, 0, 0, 0)
-        span_fps_row_layout.addWidget(scale_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        span_fps_row_layout.addWidget(span_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        span_fps_row_layout.addWidget(fps_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        span_fps_row_layout.addWidget(avg_frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        for frame in (scale_frame, span_frame, fps_frame, avg_frame):
+            span_fps_row_layout.addWidget(frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         self.controls_frame = QWidget()
         controls_layout = QVBoxLayout(self.controls_frame)
@@ -5359,13 +5305,9 @@ class Panadapter(QDialog):
         ref_center_row = QWidget()
         ref_center_row_layout = QHBoxLayout(ref_center_row)
         ref_center_row_layout.setContentsMargins(0, 0, 0, 0)
-        self.ref_button = QPushButton('Ref')
-        self.ref_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black'))
-        self.ref_button.clicked.connect(self.on_ref_button)
+        self.ref_button = self._make_button('Ref', self.on_ref_button)
         ref_center_row_layout.addWidget(self.ref_button, 0, Qt.AlignmentFlag.AlignTop)
-        self.center_button = QPushButton('Center')
-        self.center_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black'))
-        self.center_button.clicked.connect(self.on_center_button)
+        self.center_button = self._make_button('Center', self.on_center_button)
         ref_center_row_layout.addWidget(self.center_button, 0, Qt.AlignmentFlag.AlignTop)
         # DDC Fixed Tune Mode selector (#FXA;/#FXT;) -- shared between
         # main/sub (no $ variant on either), same as FPS/#FRZ. Picking a
@@ -5375,17 +5317,10 @@ class Panadapter(QDialog):
         # "Track"; #FXT1; shows whichever item matches the current #FXA
         # value -- see request_fixed_tune/_set_fixed_tune_combobox and
         # the classmethods on_fxa_changed/on_fxt_changed.
-        self.fixed_tune_combobox = QComboBox()
-        self.fixed_tune_combobox.setFont(qt_font('Helvetica', 9))
-        self.fixed_tune_combobox.view().setFont(qt_font('Helvetica', 9))
+        self.fixed_tune_combobox = self._make_combobox((), self.on_fixed_tune_selected)
         for text, value in (('Track', 5), ('Fixed1', 0), ('Fixed2', 1),
                             ('Slide1', 2), ('Slide2', 4), ('Static', 3)):
             self.fixed_tune_combobox.addItem(text, value)
-        self.fixed_tune_combobox.activated.connect(self.on_fixed_tune_selected)
-        self.fixed_tune_combobox.setStyleSheet(
-            'QComboBox { background-color: white; color: black; }'
-            'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
-        qt_tighten_combobox_popup(self.fixed_tune_combobox)
         ref_center_row_layout.addWidget(self.fixed_tune_combobox, 0, Qt.AlignmentFlag.AlignTop)
         # Freeze/Unfreeze (#FRZ;) -- shared between main/sub (no #FRZ$
         # variant), like FPS/#SCL, so a change here is reflected on
@@ -5393,9 +5328,7 @@ class Panadapter(QDialog):
         # the action available given the current confirmed state ("Freeze"
         # while running, "Unfreeze" while frozen) -- see on_freeze_button/
         # _set_freeze_button/on_frz_changed.
-        self.freeze_button = QPushButton()
-        self.freeze_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black'))
-        self.freeze_button.clicked.connect(self.on_freeze_button)
+        self.freeze_button = self._make_button('', self.on_freeze_button)
         self._set_freeze_button(Panadapter.frozen)
         ref_center_row_layout.addWidget(self.freeze_button, 0, Qt.AlignmentFlag.AlignTop)
         # Autospot -- sends SP3;/SP$3; (main/sub) to log the receiver's
@@ -5403,10 +5336,8 @@ class Panadapter(QDialog):
         # so only enabled in those modes -- see _update_autospot_enabled,
         # called here for the initial state and from on_mode_changed for
         # every later MD;/MD$; change.
-        self.autospot_button = QPushButton('Autospot')
-        self.autospot_button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black') +
+        self.autospot_button = self._make_button('Autospot', self.on_autospot_button,
             'QPushButton:disabled { background-color: #999; color: #666; }')
-        self.autospot_button.clicked.connect(self.on_autospot_button)
         ref_center_row_layout.addWidget(self.autospot_button, 0, Qt.AlignmentFlag.AlignTop)
         self._update_autospot_enabled()
         controls_layout.addWidget(ref_center_row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -5420,12 +5351,12 @@ class Panadapter(QDialog):
         minipan_row_layout.addStretch(1)
         layout.addWidget(self.minipan_row, 1)
 
-        self.trace_plot = pyqtgraph.PlotWidget()
-        self.trace_plot.setBackground('k')
-        self.trace_plot.showGrid(x=True, y=True, alpha=0.25)
         # Frequency scale now shown via trace_left/right/center_label
-        # instead (see _update_trace_labels).
-        self.trace_plot.getPlotItem().hideAxis('bottom')
+        # instead (see _update_trace_labels) of the bottom axis. Same
+        # reasoning as minipan_plot's hidden buttons above -- the trace's
+        # own axes are always set explicitly too (see
+        # _update_vscale/push_frame), never pyqtgraph's auto-range.
+        self.trace_plot = self._make_plot(grid=True, hide_axes=('bottom',))
         # S-units on the left, where the eye goes first, and the dB the
         # same signal reads in on the right. The left axis carries fixed
         # ticks -- an S-unit stands at one dB value and stays there, and
@@ -5440,18 +5371,9 @@ class Panadapter(QDialog):
         # pixel (see setXLink below), so the waterfall shows bare ground
         # in both strips rather than in one hanging off the left.
         self.trace_plot.getPlotItem().showAxis('right')
-        self.trace_plot.setMouseEnabled(x=False, y=False)
-        # Same reasoning as minipan_plot's hideButtons() above -- the
-        # trace's own axes are always set explicitly too (see
-        # _update_vscale/push_frame), never pyqtgraph's auto-range.
-        self.trace_plot.getPlotItem().hideButtons()
         # Added before the curve, so the (translucent) shading renders
         # behind it rather than over it.
-        self.bw_region = pyqtgraph.LinearRegionItem(values=(0, 0),
-            movable=False, brush=pyqtgraph.mkBrush(100, 180, 255, 90),
-            pen=pyqtgraph.mkPen(None))
-        self.bw_region.setVisible(False)
-        self.trace_plot.addItem(self.bw_region)
+        self.bw_region = self._add_bw_region(self.trace_plot)
         self.trace_curve = self.trace_plot.plot(pen=pyqtgraph.mkPen(color=(80, 220, 120), width=1))
         # Y range is set explicitly (averaged every 5 seconds in
         # push_frame) rather than left to pyqtgraph's default per-frame
@@ -5467,12 +5389,8 @@ class Panadapter(QDialog):
         # PanadapterProcess.on_cat_response), so Panadapter.rx_freq_hz
         # has both here either way. VFO A (main receiver, FA) is blue,
         # VFO B (sub receiver, FB) is green.
-        self.freq_line_a = pyqtgraph.InfiniteLine(angle=90,
-            pen=pyqtgraph.mkPen(color=(60, 140, 255), width=1))
-        self.trace_plot.addItem(self.freq_line_a)
-        self.freq_line_b = pyqtgraph.InfiniteLine(angle=90,
-            pen=pyqtgraph.mkPen(color=(60, 200, 90), width=1))
-        self.trace_plot.addItem(self.freq_line_b)
+        self.freq_line_a = self._add_freq_line(self.trace_plot, self.vfo_a_color)
+        self.freq_line_b = self._add_freq_line(self.trace_plot, self.vfo_b_color)
         # Left/right/center frequency overlay, same idea as the
         # mini-pan's delta labels above -- see _update_trace_labels.
         self.trace_left_label = self._make_overlay_label(self.trace_plot)
@@ -5503,15 +5421,10 @@ class Panadapter(QDialog):
         # this.
         self.trace_plot.scene().sigMouseClicked.connect(self.on_trace_clicked)
 
-        self.waterfall_plot = pyqtgraph.PlotWidget()
-        self.waterfall_plot.setBackground('k')
-        self.waterfall_plot.getPlotItem().hideAxis('left')
-        self.waterfall_plot.getPlotItem().hideAxis('bottom')
-        self.waterfall_plot.setMouseEnabled(x=False, y=False)
-        # Same reasoning as minipan_plot/trace_plot's hideButtons()
+        # Buttons hidden for the same reason as minipan_plot/trace_plot's
         # above -- XLink'd to trace_plot (see setXLink below) and never
         # left to pyqtgraph's own auto-range either.
-        self.waterfall_plot.getPlotItem().hideButtons()
+        self.waterfall_plot = self._make_plot(grid=False, hide_axes=('left', 'bottom'))
         self.waterfall_img = pyqtgraph.ImageItem()
         self.waterfall_plot.addItem(self.waterfall_img)
         if Panadapter.colormap is None:
@@ -5522,25 +5435,19 @@ class Panadapter(QDialog):
         # extended down into the waterfall -- separate InfiniteLine
         # instances since one item can't be a child of two plots, kept
         # in sync with the trace's own lines in _update_freq_line.
-        self.freq_line_a_waterfall = pyqtgraph.InfiniteLine(angle=90,
-            pen=pyqtgraph.mkPen(color=(60, 140, 255), width=1))
-        self.waterfall_plot.addItem(self.freq_line_a_waterfall)
-        self.freq_line_b_waterfall = pyqtgraph.InfiniteLine(angle=90,
-            pen=pyqtgraph.mkPen(color=(60, 200, 90), width=1))
-        self.waterfall_plot.addItem(self.freq_line_b_waterfall)
+        self.freq_line_a_waterfall = self._add_freq_line(self.waterfall_plot,
+                                                         self.vfo_a_color)
+        self.freq_line_b_waterfall = self._add_freq_line(self.waterfall_plot,
+                                                         self.vfo_b_color)
         # Once a VFO's frequency holds steady for freq_line_waterfall_stable_ms,
         # hide just the waterfall's copy of its line -- the trace's own
         # freq_line_a/freq_line_b stays put -- so a stopped-on frequency
         # doesn't leave a lingering marker drawn over the waterfall's
         # history. Single-shot and restarted (not stacked) on every
         # change, same debounce pattern as _ref_reset_timer above.
-        self.freq_line_a_waterfall_timer = QTimer()
-        self.freq_line_a_waterfall_timer.setSingleShot(True)
-        self.freq_line_a_waterfall_timer.timeout.connect(
+        self.freq_line_a_waterfall_timer = self._single_shot_timer(
             lambda: self.freq_line_a_waterfall.setVisible(False))
-        self.freq_line_b_waterfall_timer = QTimer()
-        self.freq_line_b_waterfall_timer.setSingleShot(True)
-        self.freq_line_b_waterfall_timer.timeout.connect(
+        self.freq_line_b_waterfall_timer = self._single_shot_timer(
             lambda: self.freq_line_b_waterfall.setVisible(False))
         # Y range is set explicitly (see push_frame, alongside
         # waterfall_img.setRect()) rather than left to pyqtgraph's
@@ -5578,6 +5485,76 @@ class Panadapter(QDialog):
         # would be garbage collected out from under it.
         self._control_filter = _PanControlFilter(self)
         QApplication.instance().installEventFilter(self._control_filter)
+
+    # VFO A's marker lines are blue, VFO B's green.
+    vfo_a_color = (60, 140, 255)
+    vfo_b_color = (60, 200, 90)
+
+    @staticmethod
+    def _make_plot(grid, hide_axes):
+        # Black, with pan/zoom dragging and pyqtgraph's own auto-range
+        # button off: every range here is set explicitly.
+        plot = pyqtgraph.PlotWidget()
+        plot.setBackground('k')
+        if grid:
+            plot.showGrid(x=True, y=True, alpha=0.25)
+        for axis in hide_axes:
+            plot.getPlotItem().hideAxis(axis)
+        plot.setMouseEnabled(x=False, y=False)
+        plot.getPlotItem().hideButtons()
+        return plot
+
+    @staticmethod
+    def _add_bw_region(plot):
+        # Receiver bandwidth shading, hidden until there is a bandwidth
+        # to shade. See _update_bw_region.
+        region = pyqtgraph.LinearRegionItem(values=(0, 0),
+            movable=False, brush=pyqtgraph.mkBrush(100, 180, 255, 90),
+            pen=pyqtgraph.mkPen(None))
+        region.setVisible(False)
+        plot.addItem(region)
+        return region
+
+    @staticmethod
+    def _add_freq_line(plot, color):
+        line = pyqtgraph.InfiniteLine(angle=90,
+            pen=pyqtgraph.mkPen(color=color, width=1))
+        plot.addItem(line)
+        return line
+
+    @staticmethod
+    def _single_shot_timer(slot):
+        timer = QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(slot)
+        return timer
+
+    @staticmethod
+    def _make_combobox(items, on_activated):
+        combobox = QComboBox()
+        combobox.addItems(items)
+        combobox.setFont(qt_font('Helvetica', 9))
+        combobox.view().setFont(qt_font('Helvetica', 9))
+        combobox.activated.connect(on_activated)
+        combobox.setStyleSheet(
+            'QComboBox { background-color: white; color: black; }'
+            'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
+        qt_tighten_combobox_popup(combobox)
+        return combobox
+
+    @staticmethod
+    def _combobox_group(title, combobox):
+        frame, grid = qt_group_box(title, qt_font('Helvetica', 9))
+        grid.addWidget(combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        return frame
+
+    @staticmethod
+    def _make_button(text, on_clicked, extra_style=''):
+        button = QPushButton(text)
+        button.setStyleSheet(qt_button_stylesheet('white', 'black', '#ccc', 'black') +
+                             extra_style)
+        button.clicked.connect(on_clicked)
+        return button
 
     def _make_overlay_label(self, parent):
         # Plain child widget rather than a pyqtgraph item, so its screen
@@ -5625,9 +5602,10 @@ class Panadapter(QDialog):
         low, high = self.trace_plot.getPlotItem().getViewBox().viewRange()[1]
         span = max(self.s_unit_db, high - low)
         step = math.ceil(span / self.s_unit_db / self.max_s_unit_marks)
-        ticks = [tick for index, tick in enumerate(self.s_unit_ticks()[:9])
+        all_ticks = self.s_unit_ticks()
+        ticks = [tick for index, tick in enumerate(all_ticks[:9])
                  if (8 - index) % step == 0]
-        ticks += self.s_unit_ticks()[9:]
+        ticks += all_ticks[9:]
         self.trace_plot.getPlotItem().getAxis('left').setTicks([ticks, []])
 
     def _position_trace_labels(self):
@@ -5641,21 +5619,18 @@ class Panadapter(QDialog):
         # and two pixels between them read as touching.
         axis_margin = margin * 2
         item = self.trace_plot.getPlotItem()
-        left_offset = item.getAxis('left').width()
-        right_offset = item.getAxis('right').width()
+        plot_left = int(item.getAxis('left').width())
+        plot_right = self.trace_plot.width() - int(item.getAxis('right').width())
         self.trace_left_label.adjustSize()
-        self.trace_left_label.move(int(left_offset) + axis_margin, margin)
+        self.trace_left_label.move(plot_left + axis_margin, margin)
         self.trace_right_label.adjustSize()
         self.trace_right_label.move(
-            self.trace_plot.width() - int(right_offset)
-            - self.trace_right_label.width() - axis_margin, margin)
+            plot_right - self.trace_right_label.width() - axis_margin, margin)
         self.trace_center_label.adjustSize()
         # Centred on the plot area rather than on the widget: it marks
         # the middle of the trace, and the two axes need not be the same
         # width. While only the left one was there the difference was
         # half of it, and nothing lined up with it to show.
-        plot_left = int(left_offset)
-        plot_right = self.trace_plot.width() - int(right_offset)
         self.trace_center_label.move(
             (plot_left + plot_right - self.trace_center_label.width()) // 2, margin)
 
@@ -5666,17 +5641,9 @@ class Panadapter(QDialog):
             return
         w, h, x, y = split_geometry(geometry)
         screen = QApplication.primaryScreen().availableGeometry()
-        screen_width, screen_height = screen.width(), screen.height()
-        x_offset = screen_width - (x + w)
-        y_offset = screen_height - (y + h)
-        if x_offset < 0:
-            x += x_offset
-        if y_offset < 0:
-            y += y_offset
-        if x < 0:
-            x = 0
-        if y < 0:
-            y = 0
+        # Pulled back onto the screen, and never past its top left.
+        x = max(0, min(x, screen.width() - w))
+        y = max(0, min(y, screen.height() - h))
         self.resize(w, h)
         self.move(x, y)
 
@@ -5843,7 +5810,7 @@ class Panadapter(QDialog):
             # hz_per_bin apart, and forces the two outermost bins out to
             # sit exactly on the nominal edges instead of correctly
             # inset by half a bin.
-            self.xs = left_edge + (numpy.arange(self.bin_count) + 0.5) * hz_per_bin
+            self.xs = self._bin_centers(left_edge, self.bin_count, hz_per_bin)
             # The view/labels still span the full nominal edges, same
             # as before -- only the bin positions within it changed.
             self.trace_plot.setXRange(left_edge, right_edge, padding=0)
@@ -5858,7 +5825,7 @@ class Panadapter(QDialog):
         # received for it, rather than this frame's value alone -- the
         # waterfall and the Y-scale averaging below still use this
         # frame's own full-resolution data.
-        trace_data = self._trace_average(data)
+        trace_data = self._rolling_average(self.trace_history, data)
         self.trace_curve.setData(self.xs, trace_data)
         if self.ref_capturing:
             self._accumulate_ref(trace_data)
@@ -5923,17 +5890,15 @@ class Panadapter(QDialog):
         self.vscale_last_update = now
 
     @staticmethod
+    def _bin_centers(left_edge, bin_count, hz_per_bin):
+        return left_edge + (numpy.arange(bin_count) + 0.5) * hz_per_bin
+
+    @staticmethod
     def _crop_bins(bins, hz_per_bin, span_hz):
         full_bin_count = len(bins)
         crop_count = min(full_bin_count, max(1, round(span_hz / hz_per_bin)))
         start = (full_bin_count - crop_count) // 2
         return bins[start:start + crop_count]
-
-    def _trace_average(self, data):
-        return self._rolling_average(self.trace_history, data)
-
-    def _minipan_average(self, data):
-        return self._rolling_average(self.minipan_history, data)
 
     def _rolling_average(self, history, data):
         # Rolling per-bin average over the last self.avg_count frames
@@ -6090,29 +6055,41 @@ class Panadapter(QDialog):
         # that list needs to be added (once, replacing any previous
         # such addition rather than piling up) for it to be reflected
         # here at all.
-        if span_khz in Panadapter.span_choices_khz:
-            if self._span_dynamic_khz != None:
-                index = self.span_combobox.findText(str(self._span_dynamic_khz))
+        self._span_dynamic_khz = self._select_preset(self.span_combobox,
+            Panadapter.span_choices_khz, self._span_dynamic_khz, span_khz)
+
+    @staticmethod
+    def _select_preset(combobox, choices, dynamic, value):
+        # Shows value in a combobox listing choices, adding it as an item
+        # of its own where it is not one of them. dynamic is the item
+        # added last time, or None; returns the one there is now. A new
+        # value replaces the old addition rather than piling up beside it.
+        if value in choices or value != dynamic:
+            if dynamic != None:
+                index = combobox.findText(str(dynamic))
                 if index >= 0:
-                    self.span_combobox.removeItem(index)
-                self._span_dynamic_khz = None
-        elif span_khz != self._span_dynamic_khz:
-            if self._span_dynamic_khz != None:
-                index = self.span_combobox.findText(str(self._span_dynamic_khz))
-                if index >= 0:
-                    self.span_combobox.removeItem(index)
-            self.span_combobox.addItem(str(span_khz))
-            self._span_dynamic_khz = span_khz
-        text = str(span_khz)
-        if self.span_combobox.currentText() != text:
-            self.span_combobox.setCurrentText(text)
+                    combobox.removeItem(index)
+                dynamic = None
+            if value not in choices:
+                combobox.addItem(str(value))
+                dynamic = value
+        text = str(value)
+        if combobox.currentText() != text:
+            combobox.setCurrentText(text)
+        return dynamic
+
+    @staticmethod
+    def _item_int(combobox, index):
+        # The item's text as a number, or None where it is not one.
+        try:
+            return int(combobox.itemText(index))
+        except ValueError:
+            return None
 
     def on_fps_selected(self, index):
-        try:
-            fps = int(self.fps_combobox.itemText(index))
-        except ValueError:
-            return
-        self.request_fps(fps)
+        fps = self._item_int(self.fps_combobox, index)
+        if fps != None:
+            self.request_fps(fps)
 
     def request_fps(self, fps):
         fps = max(Panadapter.fps_min, min(Panadapter.fps_max, fps))
@@ -6128,19 +6105,16 @@ class Panadapter(QDialog):
             self.fps_combobox.setCurrentText(text)
 
     def on_avg_selected(self, index):
-        try:
-            avg_count = int(self.avg_combobox.itemText(index))
-        except ValueError:
+        avg_count = self._item_int(self.avg_combobox, index)
+        if avg_count == None:
             return
         self.avg_count = avg_count
         Server.settings.put_save('Window', f'Panadapter.{self.receiver}.avg_count', avg_count)
 
     def on_scale_selected(self, index):
-        try:
-            scale_db = int(self.scale_combobox.itemText(index))
-        except ValueError:
-            return
-        self.request_scale(scale_db)
+        scale_db = self._item_int(self.scale_combobox, index)
+        if scale_db != None:
+            self.request_scale(scale_db)
 
     def request_scale(self, scale_db):
         scale_db = max(Panadapter.scale_min, min(Panadapter.scale_max, scale_db))
@@ -6156,23 +6130,8 @@ class Panadapter(QDialog):
         # restricted to those, so a value outside that list needs to be
         # added (once, replacing any previous such addition rather than
         # piling up) for it to be reflected here at all.
-        scale_db = round(scale_db)
-        if scale_db in Panadapter.scale_choices_db:
-            if self._scale_dynamic_db != None:
-                index = self.scale_combobox.findText(str(self._scale_dynamic_db))
-                if index >= 0:
-                    self.scale_combobox.removeItem(index)
-                self._scale_dynamic_db = None
-        elif scale_db != self._scale_dynamic_db:
-            if self._scale_dynamic_db != None:
-                index = self.scale_combobox.findText(str(self._scale_dynamic_db))
-                if index >= 0:
-                    self.scale_combobox.removeItem(index)
-            self.scale_combobox.addItem(str(scale_db))
-            self._scale_dynamic_db = scale_db
-        text = str(scale_db)
-        if self.scale_combobox.currentText() != text:
-            self.scale_combobox.setCurrentText(text)
+        self._scale_dynamic_db = self._select_preset(self.scale_combobox,
+            Panadapter.scale_choices_db, self._scale_dynamic_db, round(scale_db))
 
     def _write_to_parent(self, line):
         try:
@@ -6245,27 +6204,30 @@ class Panadapter(QDialog):
         vfo_a_hz = Panadapter.rx_freq_hz['main']
         if vfo_a_hz != self.freq_line_a_hz:
             self.freq_line_a_hz = vfo_a_hz
-            visible = vfo_a_hz != None
-            self.freq_line_a.setVisible(visible)
-            self.freq_line_a_waterfall.setVisible(visible)
-            if visible:
-                self.freq_line_a.setPos(vfo_a_hz)
-                self.freq_line_a_waterfall.setPos(vfo_a_hz)
-                self.freq_line_a_waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
-            else:
-                self.freq_line_a_waterfall_timer.stop()
+            self._move_vfo_lines(vfo_a_hz, self.freq_line_a,
+                                 self.freq_line_a_waterfall,
+                                 self.freq_line_a_waterfall_timer)
         vfo_b_hz = Panadapter.rx_freq_hz['sub']
         if vfo_b_hz != self.freq_line_b_hz:
             self.freq_line_b_hz = vfo_b_hz
-            visible = vfo_b_hz != None
-            self.freq_line_b.setVisible(visible)
-            self.freq_line_b_waterfall.setVisible(visible)
-            if visible:
-                self.freq_line_b.setPos(vfo_b_hz)
-                self.freq_line_b_waterfall.setPos(vfo_b_hz)
-                self.freq_line_b_waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
-            else:
-                self.freq_line_b_waterfall_timer.stop()
+            self._move_vfo_lines(vfo_b_hz, self.freq_line_b,
+                                 self.freq_line_b_waterfall,
+                                 self.freq_line_b_waterfall_timer)
+
+    @staticmethod
+    def _move_vfo_lines(vfo_hz, line, waterfall_line, waterfall_timer):
+        # A VFO's marker on the trace and its copy on the waterfall, the
+        # copy shown until the frequency has held still a while. Hidden
+        # both where the frequency is not known.
+        visible = vfo_hz != None
+        line.setVisible(visible)
+        waterfall_line.setVisible(visible)
+        if visible:
+            line.setPos(vfo_hz)
+            waterfall_line.setPos(vfo_hz)
+            waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
+        else:
+            waterfall_timer.stop()
 
     def on_trace_clicked(self, event):
         freq_hz = self._clicked_frequency(self.trace_plot, event)
@@ -6303,11 +6265,11 @@ class Panadapter(QDialog):
         # might not fire -- show the line directly here instead, so
         # every click reveals it for a couple of seconds regardless.
         if self.receiver == 'main':
-            self.freq_line_a_waterfall.setVisible(True)
-            self.freq_line_a_waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
+            line, timer = self.freq_line_a_waterfall, self.freq_line_a_waterfall_timer
         else:
-            self.freq_line_b_waterfall.setVisible(True)
-            self.freq_line_b_waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
+            line, timer = self.freq_line_b_waterfall, self.freq_line_b_waterfall_timer
+        line.setVisible(True)
+        timer.start(Panadapter.freq_line_waterfall_stable_ms)
 
     def on_minipan_clicked(self, event):
         if not self.minipan_enabled:
@@ -6401,7 +6363,7 @@ class Panadapter(QDialog):
             left_edge = freq_hz - actual_span_hz / 2
             right_edge = freq_hz + actual_span_hz / 2
             # Bin centers, same fix as push_frame's -- see its comment.
-            self.minipan_xs = left_edge + (numpy.arange(bin_count) + 0.5) * hz_per_bin
+            self.minipan_xs = self._bin_centers(left_edge, bin_count, hz_per_bin)
             self.minipan_plot.setXRange(left_edge, right_edge, padding=0)
             self._update_minipan_labels(actual_span_hz)
             # bin_count changed (or this is the first frame since
@@ -6412,10 +6374,11 @@ class Panadapter(QDialog):
             self.minipan_history.clear()
 
         # Same 3-frame rolling per-bin average as the trace's own
-        # display (see _trace_average) -- the Y-range below still uses
+        # display (see _rolling_average) -- the Y-range below still uses
         # this frame's own raw data, same as the trace's waterfall/
         # vscale do.
-        self.minipan_curve.setData(self.minipan_xs, self._minipan_average(data))
+        self.minipan_curve.setData(self.minipan_xs,
+                                   self._rolling_average(self.minipan_history, data))
         self._update_minipan_yrange(data)
         self._update_minipan_freq_line(freq_hz)
 
@@ -6437,7 +6400,7 @@ class Panadapter(QDialog):
             # push_frame to recompute it, so it isn't blank for a frame
             # right after being (re-)enabled.
             self.minipan_bw_region.setRegion(self.bw_region.getRegion())
-        if not enabled:
+        else:
             # Leaves minipan_plot itself visible (still reserving its
             # layout space, so the Ref button doesn't shift -- see
             # __init__) but blank, rather than hiding the whole widget.
@@ -6535,17 +6498,16 @@ panadapter_msg_raise = 5            # no payload -- see open_window
 
 def panadapter_encode_msg(msg_type, payload):
     body = bytes((msg_type,)) + payload
-    l = len(body)
-    return bytes(((l>>24)&0xff, (l>>16)&0xff, (l>>8)&0xff, l&0xff)) + body
+    return len(body).to_bytes(4, 'big') + body
 
 def panadapter_read_msg(stream):
     # Returns (type, payload), or None at end of stream.
     header = stream.read(4)
     if len(header) < 4:
         return None
-    l = (header[0]<<24) | (header[1]<<16) | (header[2]<<8) | header[3]
-    body = stream.read(l)
-    if len(body) < l:
+    length = int.from_bytes(header, 'big')
+    body = stream.read(length)
+    if len(body) < length:
         return None
     return body[0], body[1:]
 
@@ -6628,7 +6590,7 @@ class PanadapterProcess(QObject):
     scale_requested = pyqtSignal(str)
 
     # Relayed to a newly opened window below, from whatever's already
-    # cached, since the subscriptions just below only ever fire their
+    # cached, since open_window's subscriptions only ever fire their
     # "here's the current value" callback once, for the very first
     # window opened in the app's lifetime (see the cls.subscribed guard)
     # -- and even that one delivery is too early to help, since it runs
@@ -6640,7 +6602,31 @@ class PanadapterProcess(QObject):
     # session. Each subprocess keeps this state in its own memory (see
     # Panadapter.bandwidth_hz etc), so every newly opened window needs
     # its own explicit seed, not just the first one.
-    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#FRZ', '#FXA', '#FXT', '#SCL', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', 'AR', 'AR$', 'AN', 'SB')
+    #
+    # The responses themselves are subscribed to, in this order, the
+    # first time a window is opened (see open_window):
+    #
+    #   #SPN/#SPN$  span, per receiver.
+    #   #FPS, #SCL, #FRZ, #FXA/#FXT  frame rate, vertical scale, freeze,
+    #       and DDC fixed tune mode/toggle -- none with a per-receiver ($)
+    #       variant, so shared by both windows.
+    #   MD/MD$  receiver mode, for the mini-pan's bandwidth (2 kHz in CW
+    #       mode, 10 kHz otherwise).
+    #   BW/BW$  receiver bandwidth, to shade the trace around center_hz.
+    #   FA/FB  VFO A/B -- main/sub receiver frequency -- for the frequency
+    #       line and the mini-pan's centering, neither of which can be
+    #       trusted to always equal center_hz (the PAN stream's own
+    #       display center).
+    #   AR/AR$  RX antenna, to trigger an automatic Ref capture on change
+    #       -- see Panadapter.on_antenna_changed -- and AN (TX antenna)
+    #       for the same reason -- see Panadapter.on_tx_antenna_changed.
+    #   SB  sub receiver on/off, which decides, together with which
+    #       panadapter windows are open, whether a window's mini-pan has
+    #       real data to show -- see _update_dpm_state. Also relayed to
+    #       trigger an automatic Ref capture on the sub panadapter when
+    #       the sub receiver is turned on/off -- see
+    #       Panadapter.on_sub_receiver_changed.
+    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#SCL', '#FRZ', '#FXA', '#FXT', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', 'AR', 'AR$', 'AN', 'SB')
 
     @classmethod
     def open_window(cls, receiver):
@@ -6654,55 +6640,13 @@ class PanadapterProcess(QObject):
         # left open from a previous session) funnel through, so it
         # covers both -- for the click, it is a harmless re-affirmation
         # of what next_selection() already set locally.
-        wpan_base = 'WPAN$!' if receiver == 'sub' else 'WPAN!'
-        Server.k4_server.update_k4_parameter(wpan_base, '1')
+        cls.set_pan_togglebutton(receiver, '1')
         if not cls.subscribed:
             cls.subscribed = True
-            Server.k4_server.subscribe_response('#SPN;', cls.on_cat_response)
-            Server.k4_server.subscribe_response('#SPN$;', cls.on_cat_response)
-            Server.k4_server.subscribe_response('#FPS;', cls.on_cat_response)
-            # #SCL (panadapter vertical scale) has no per-receiver ($)
-            # variant, same as #FPS -- shared by both windows.
-            Server.k4_server.subscribe_response('#SCL;', cls.on_cat_response)
-            # #FRZ (panadapter/waterfall freeze) likewise has no
-            # per-receiver ($) variant -- shared by both windows, for
-            # the Freeze/Unfreeze button (see Panadapter.on_frz_changed).
-            Server.k4_server.subscribe_response('#FRZ;', cls.on_cat_response)
-            # #FXA/#FXT (DDC Fixed Tune mode/toggle) likewise have no
-            # per-receiver ($) variant -- shared by both windows, for
-            # the Fixed Tune combobox (see Panadapter.on_fxa_changed/
-            # on_fxt_changed).
-            Server.k4_server.subscribe_response('#FXA;', cls.on_cat_response)
-            Server.k4_server.subscribe_response('#FXT;', cls.on_cat_response)
-            # MD/MD$ (receiver mode) is relayed for the mini-pan's
-            # bandwidth (2 kHz in CW mode, 10 kHz otherwise).
-            Server.k4_server.subscribe_response('MD;', cls.on_cat_response)
-            Server.k4_server.subscribe_response('MD$;', cls.on_cat_response)
-            # BW/BW$ (receiver bandwidth) is relayed to shade the trace
-            # around center_hz.
-            Server.k4_server.subscribe_response('BW;', cls.on_cat_response)
-            Server.k4_server.subscribe_response('BW$;', cls.on_cat_response)
-            # FA/FB (VFO A/B -- main/sub receiver frequency) is relayed
-            # for the frequency line and the mini-pan's centering,
-            # neither of which can be trusted to always equal center_hz
-            # (the PAN stream's own display center).
-            Server.k4_server.subscribe_response('FA;', cls.on_cat_response)
-            Server.k4_server.subscribe_response('FB;', cls.on_cat_response)
-            # AR/AR$ (RX antenna) is relayed to trigger an automatic Ref
-            # capture on change -- see Panadapter.on_antenna_changed. AN
-            # (TX antenna) is relayed alongside it for the same reason
-            # -- see Panadapter.on_tx_antenna_changed.
-            Server.k4_server.subscribe_response('AR;', cls.on_cat_response)
-            Server.k4_server.subscribe_response('AR$;', cls.on_cat_response)
-            Server.k4_server.subscribe_response('AN;', cls.on_cat_response)
-            # SB (sub receiver on/off) decides, together with which
-            # panadapter windows are open, whether a window's mini-pan
-            # has real data to show -- see _update_dpm_state. Also
-            # relayed to trigger an automatic Ref capture on the sub
-            # panadapter when the sub receiver is turned on/off -- see
-            # Panadapter.on_sub_receiver_changed.
-            Server.k4_server.subscribe_response('SB;', cls.on_sb_changed)
-            Server.k4_server.subscribe_response('SB;', cls.on_cat_response)
+            for base in cls.relayed_cat_bases:
+                if base == 'SB':
+                    Server.k4_server.subscribe_response('SB;', cls.on_sb_changed)
+                Server.k4_server.subscribe_response(base + ';', cls.on_cat_response)
 
         process = cls.processes.get(receiver)
         if process != None:
@@ -6721,6 +6665,13 @@ class PanadapterProcess(QObject):
                 process.send(panadapter_msg_cat, (base + value + ';').encode())
         Server.settings.put_save('Window', f'Panadapter.{receiver}.open', True)
         cls._update_dpm_state()
+
+    @staticmethod
+    def set_pan_togglebutton(receiver, value):
+        # The Main/Sub tab's Pan togglebutton, '1' for open and '0' for
+        # closed -- see open_window and on_exited.
+        wpan_base = 'WPAN$!' if receiver == 'sub' else 'WPAN!'
+        Server.k4_server.update_k4_parameter(wpan_base, value)
 
     @classmethod
     def close_window(cls, receiver):
@@ -6796,15 +6747,17 @@ class PanadapterProcess(QObject):
 
     @classmethod
     def received_pan(cls, receiver, payload):
-        process = cls.processes.get(receiver)
-        if process != None:
-            process.send(panadapter_msg_pan, payload)
+        cls._send_to(receiver, panadapter_msg_pan, payload)
 
     @classmethod
     def received_minipan(cls, receiver, payload):
+        cls._send_to(receiver, panadapter_msg_minipan, payload)
+
+    @classmethod
+    def _send_to(cls, receiver, msg_type, payload):
         process = cls.processes.get(receiver)
         if process != None:
-            process.send(panadapter_msg_minipan, payload)
+            process.send(msg_type, payload)
 
     def __init__(self, receiver):
         super().__init__()
@@ -6889,31 +6842,34 @@ class PanadapterProcess(QObject):
         # window gets back to us.
         geometry = None
         splitter_sizes = None
+        # The requests carrying an argument after a space, and the ones
+        # that are the whole line.
+        with_argument = {
+            '#PANTUNE': self.tuned,
+            '#PANVFO': self.vfo_action,
+            '#PANSPAN': self.span_requested,
+            '#PANFPS': self.fps_requested,
+            '#PANFRZ': self.frz_requested,
+            '#PANFXA': self.fxa_requested,
+            '#PANSCL': self.scale_requested,
+        }
+        alone = {
+            '#PANCENTER': self.centered,
+            '#PANSPOT': self.spot_requested,
+        }
         try:
             for line in self.process.stdout:
                 line = line.decode(errors='replace').strip()
-                if line.startswith('#PANGEOM '):
-                    geometry = line[len('#PANGEOM '):]
-                elif line.startswith('#PANSPLIT '):
-                    splitter_sizes = line[len('#PANSPLIT '):]
-                elif line.startswith('#PANTUNE '):
-                    self.tuned.emit(line[len('#PANTUNE '):])
-                elif line == '#PANCENTER':
-                    self.centered.emit()
-                elif line == '#PANSPOT':
-                    self.spot_requested.emit()
-                elif line.startswith('#PANVFO '):
-                    self.vfo_action.emit(line[len('#PANVFO '):])
-                elif line.startswith('#PANSPAN '):
-                    self.span_requested.emit(line[len('#PANSPAN '):])
-                elif line.startswith('#PANFPS '):
-                    self.fps_requested.emit(line[len('#PANFPS '):])
-                elif line.startswith('#PANFRZ '):
-                    self.frz_requested.emit(line[len('#PANFRZ '):])
-                elif line.startswith('#PANFXA '):
-                    self.fxa_requested.emit(line[len('#PANFXA '):])
-                elif line.startswith('#PANSCL '):
-                    self.scale_requested.emit(line[len('#PANSCL '):])
+                command, space, argument = line.partition(' ')
+                if not space:
+                    if command in alone:
+                        alone[command].emit()
+                elif command == '#PANGEOM':
+                    geometry = argument
+                elif command == '#PANSPLIT':
+                    splitter_sizes = argument
+                elif command in with_argument:
+                    with_argument[command].emit(argument)
         except (ValueError, OSError):
             pass
         self.process.wait()
@@ -6940,8 +6896,7 @@ class PanadapterProcess(QObject):
         # it was asked to close, e.g. by clicking the togglebutton
         # itself (self.stopping True, and already "Off" locally from
         # that click -- this just re-affirms the same state).
-        wpan_base = 'WPAN$!' if self.receiver == 'sub' else 'WPAN!'
-        Server.k4_server.update_k4_parameter(wpan_base, '0')
+        PanadapterProcess.set_pan_togglebutton(self.receiver, '0')
         if self.stopping:
             return
         # Not stopping, so the child went away on its own -- the user
@@ -7034,11 +6989,18 @@ class PanadapterProcess(QObject):
                 return
             vfo.nudge_frequency(delta_hz)
 
+    @staticmethod
+    def _int_argument(arg):
+        # A request's argument as a number, or None where it is not one.
+        try:
+            return int(arg)
+        except ValueError:
+            return None
+
     def on_span_requested(self, arg):
         # "<span_khz>" -- see Panadapter.request_span/_PanControlFilter.
-        try:
-            span_khz = int(arg)
-        except ValueError:
+        span_khz = self._int_argument(arg)
+        if span_khz == None:
             return
         span_khz = max(Panadapter.span_min_khz, min(Panadapter.span_max_khz, span_khz))
         base = '#SPN$' if self.receiver == 'sub' else '#SPN'
@@ -7048,9 +7010,8 @@ class PanadapterProcess(QObject):
         # "<fps>" -- see Panadapter.request_fps. #FPS has no per-receiver
         # ($) variant -- it's one shared setting -- so this doesn't
         # branch on self.receiver the way on_span_requested does.
-        try:
-            fps = int(arg)
-        except ValueError:
+        fps = self._int_argument(arg)
+        if fps == None:
             return
         fps = max(Panadapter.fps_min, min(Panadapter.fps_max, fps))
         Server.k4_server.send_cmds(f'#FPS{fps:02d};')
@@ -7068,9 +7029,8 @@ class PanadapterProcess(QObject):
         # ("Track") disengages fixed tune (#FXT0;) instead, with no
         # #FXA needed for that direction. Neither has a per-receiver
         # ($) variant, same reason as #FRZ/#FPS.
-        try:
-            value = int(arg)
-        except ValueError:
+        value = self._int_argument(arg)
+        if value == None:
             return
         if value == 5:
             Server.k4_server.send_cmds('#FXT0;')
@@ -7080,9 +7040,8 @@ class PanadapterProcess(QObject):
     def on_scale_requested(self, arg):
         # "<scale_db>" -- see Panadapter.request_scale. #SCL has no
         # per-receiver ($) variant either, same reason as #FRZ/#FPS.
-        try:
-            scale_db = int(arg)
-        except ValueError:
+        scale_db = self._int_argument(arg)
+        if scale_db == None:
             return
         scale_db = max(Panadapter.scale_min, min(Panadapter.scale_max, scale_db))
         Server.k4_server.send_cmds(f'#SCL{scale_db};')
@@ -7165,53 +7124,50 @@ class PanadapterChannel(QObject):
         # Parent closed the pipe (it is shutting us down, or it died).
         self.finished.emit()
 
+    # The Panadapter classmethod each relayed response goes to.
+    cat_handlers = {
+        '#FPS': Panadapter.on_fps_changed,
+        '#FRZ': Panadapter.on_frz_changed,
+        '#FXA': Panadapter.on_fxa_changed,
+        '#FXT': Panadapter.on_fxt_changed,
+        '#SCL': Panadapter.on_scale_changed,
+        '#SPN': Panadapter.on_span_changed,
+        '#SPN$': Panadapter.on_span_changed,
+        'MD': Panadapter.on_mode_changed,
+        'MD$': Panadapter.on_mode_changed,
+        'BW': Panadapter.on_bandwidth_changed,
+        'BW$': Panadapter.on_bandwidth_changed,
+        'FA': Panadapter.on_frequency_changed,
+        'FB': Panadapter.on_frequency_changed,
+        'AR': Panadapter.on_antenna_changed,
+        'AR$': Panadapter.on_antenna_changed,
+        'AN': Panadapter.on_tx_antenna_changed,
+        'SB': Panadapter.on_sub_receiver_changed,
+    }
+
     def on_message(self, msg_type, payload):
         try:
-            if msg_type == panadapter_msg_pan:
-                parsed = parse_pan_frame(payload)
+            if msg_type in (panadapter_msg_pan, panadapter_msg_minipan):
+                if msg_type == panadapter_msg_pan:
+                    parsed = parse_pan_frame(payload)
+                    push = self.window.push_frame
+                else:
+                    parsed = parse_minipan_frame(payload)
+                    push = self.window.push_minipan
                 if parsed == None:
                     return
                 receiver, center_hz, sample_rate, noise_floor, bins = parsed
                 if receiver == self.window.receiver:
-                    self.window.push_frame(center_hz, sample_rate, bins)
-            elif msg_type == panadapter_msg_minipan:
-                parsed = parse_minipan_frame(payload)
-                if parsed == None:
-                    return
-                receiver, center_hz, sample_rate, noise_floor, bins = parsed
-                if receiver == self.window.receiver:
-                    self.window.push_minipan(center_hz, sample_rate, bins)
+                    push(center_hz, sample_rate, bins)
             elif msg_type == panadapter_msg_minipan_enabled:
                 self.window.set_minipan_enabled(payload[0] != 0)
             elif msg_type == panadapter_msg_raise:
                 self.window.raise_to_front()
             elif msg_type == panadapter_msg_cat:
                 response = payload.decode(errors='replace')
-                base = cmd_base(response)
-                if base == '#FPS':
-                    Panadapter.on_fps_changed(response)
-                elif base == '#FRZ':
-                    Panadapter.on_frz_changed(response)
-                elif base == '#FXA':
-                    Panadapter.on_fxa_changed(response)
-                elif base == '#FXT':
-                    Panadapter.on_fxt_changed(response)
-                elif base == '#SCL':
-                    Panadapter.on_scale_changed(response)
-                elif base in ('#SPN', '#SPN$'):
-                    Panadapter.on_span_changed(response)
-                elif base in ('MD', 'MD$'):
-                    Panadapter.on_mode_changed(response)
-                elif base in ('BW', 'BW$'):
-                    Panadapter.on_bandwidth_changed(response)
-                elif base in ('FA', 'FB'):
-                    Panadapter.on_frequency_changed(response)
-                elif base in ('AR', 'AR$'):
-                    Panadapter.on_antenna_changed(response)
-                elif base == 'AN':
-                    Panadapter.on_tx_antenna_changed(response)
-                elif base == 'SB':
-                    Panadapter.on_sub_receiver_changed(response)
+                handler = self.cat_handlers.get(cmd_base(response))
+                if handler != None:
+                    handler(response)
         except Exception:
             traceback.print_exc(file=stderr)
 
@@ -7250,17 +7206,13 @@ def panadapter_child_main(receiver):
 
     app.exec()
 
-    if Panadapter.child_geometry != None:
-        try:
-            sys.stdout.write(f'#PANGEOM {Panadapter.child_geometry}\n')
-        except (BrokenPipeError, ValueError, OSError):
-            pass
-
-    if Panadapter.child_splitter_sizes != None:
-        try:
-            sys.stdout.write(f'#PANSPLIT {Panadapter.child_splitter_sizes}\n')
-        except (BrokenPipeError, ValueError, OSError):
-            pass
+    for command, value in (('#PANGEOM', Panadapter.child_geometry),
+                           ('#PANSPLIT', Panadapter.child_splitter_sizes)):
+        if value != None:
+            try:
+                sys.stdout.write(f'{command} {value}\n')
+            except (BrokenPipeError, ValueError, OSError):
+                pass
 
     # os._exit(), not a plain return: when the window is closed by the
     # user (rather than by the parent closing the pipe) the reader thread
