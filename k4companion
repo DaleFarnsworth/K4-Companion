@@ -10306,6 +10306,163 @@ class TextButtons(Widget):
                 row += 1
                 column = 0
 
+    @staticmethod
+    def _plain_frame():
+        # A bare frame to group widgets in, with no margins of its own.
+        frame = QWidget()
+        grid = QGridLayout(frame)
+        grid.setContentsMargins(0, 0, 0, 0)
+        return frame, grid
+
+    def _config_button(self, text, on_clicked):
+        button = QPushButton(text)
+        button.setFont(self.font())
+        button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.bg, self.fg))
+        button.clicked.connect(on_clicked)
+        return button
+
+    def open_dialog(self, title):
+        # The window itself, with a notebook ready for its tabs.
+        #
+        # Qt.WindowType.Window overrides QDialog's default Dialog type,
+        # which most window managers treat as transient-for-parent and
+        # force to stay above Page.top -- this lets the main window come
+        # to the front instead. On Windows, though, giving it a parent at
+        # all makes it a native "owned window", which Windows always
+        # keeps above its owner in Z-order regardless of Qt window type
+        # -- so there, only dropping the parent avoids the same
+        # always-on-top behavior (see qt_top_level_parent).
+        #
+        # Closing it hides it rather than destroying it.
+        self.top_level = QDialog(qt_top_level_parent(), Qt.WindowType.Window)
+        self.top_level.setWindowTitle(f'{Page.top.windowTitle()} {title}')
+
+        def _close_event(event):
+            self.hide()
+            event.ignore()
+        self.top_level.closeEvent = _close_event
+
+        self.frame = QWidget()
+        frame_grid = QGridLayout(self.frame)
+        dialog_layout = QVBoxLayout(self.top_level)
+        dialog_layout.setContentsMargins(4, 4, 4, 4)
+        dialog_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
+        dialog_layout.addWidget(self.frame)
+
+        self.notebook = self.notebook_frame(self.frame)
+        frame_grid.addWidget(self.notebook, 0, 0)
+
+    def add_config_tab(self):
+        # The Configure tab: Save and Cancel, what the & in a value
+        # means, the buttons as editable fields, and whatever settings of
+        # its own the tab adds in add_config_vars.
+        self.config_frame = QWidget()
+        config_grid = QGridLayout(self.config_frame)
+        self.add_tab(self.config_frame, 'Configure')
+
+        top_frame, top_grid = self._plain_frame()
+        config_grid.addWidget(top_frame, 0, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        self.cancel_button = self._config_button('Cancel', self.on_cancel_button)
+        top_grid.addWidget(self.cancel_button, 0, 0)
+
+        self.save_button = self._config_button('Save', self.on_save_button)
+        top_grid.addWidget(self.save_button, 0, 1)
+
+        info_frame, info_grid = self._plain_frame()
+        config_grid.addWidget(info_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        text = '''The first 12 values are bound to function keys.
+
+If a value contains &, everything before the & is displayed
+and everything after the & is sent.'''
+        info = QLabel(text)
+        info.setFont(self.font())
+        info.setStyleSheet(f'background-color: {self.bg};')
+        info_grid.addWidget(info, 0, 0)
+
+        self.config_buttons_frame, config_buttons_grid = self._plain_frame()
+        config_grid.addWidget(self.config_buttons_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
+
+        config_vars_frame, config_vars_grid = self._plain_frame()
+        config_grid.addWidget(config_vars_frame, 3, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.add_config_vars(config_vars_frame)
+
+    def set_geometry(self):
+        # Where the window was left, pulled back onto the screen and
+        # never past its top left.
+        Server.settings.load()
+        geometry = Server.settings.get('Window', f'{self.settings_section}.geometry')
+        if geometry == None:
+            return
+        w, h, x, y = split_geometry(geometry)
+        screen = QApplication.primaryScreen().availableGeometry()
+        x = max(0, min(x, screen.width() - w))
+        y = max(0, min(y, screen.height() - h))
+        self.top_level.move(x, y)
+
+    def save_geometry(self):
+        top = self.top_level
+        geometry = f'{top.width()}x{top.height()}{top.x():+}{top.y():+}'
+        Server.settings.put_save('Window', f'{self.settings_section}.geometry', geometry)
+
+    def load_button_grid_settings(self, rows, columns, button_width):
+        # The shape of the button grid, and how wide a button is.
+        section = self.settings_section
+        self.rows = Server.settings.getint(section, 'button_rows', rows, minimum=1, maximum=20)
+        self.columns = Server.settings.getint(section, 'button_columns', columns, minimum=1, maximum=20)
+        self.button_width = Server.settings.getint(section, 'button_width', button_width, minimum=5, maximum=60)
+
+    def load_button_settings(self, defaults):
+        # The buttons themselves, as 'label & value' lines, padded out
+        # with empty ones to fill the grid.
+        self.button_values = []
+        self.button_labels = []
+        buttons = Server.settings.get(self.settings_section, 'buttons')
+        values = buttons.split('\n') if buttons != None else defaults
+        for value in values:
+            label, value = self.split_button_value(value)
+            self.button_values.append(value)
+            self.button_labels.append(label)
+        while len(self.button_values) < self.rows * self.columns:
+            self.button_values.append('')
+            self.button_labels.append('')
+
+    def save_settings_section(self, settings):
+        # The tab's own settings and its buttons, written together, and
+        # the file saved only where something actually changed.
+        section = self.settings_section
+        previous_settings = Server.settings.get_section(section)
+        Server.settings.clear_section(section)
+
+        for key, value in settings:
+            Server.settings.put(section, key, value)
+
+        # The empty buttons at the end are left out rather than written
+        # as blank lines.
+        values = []
+        for label, value in zip(self.button_labels, self.button_values):
+            values.append(f'{label} & {value}' if label != '' else value)
+        while values and values[-1] == '':
+            values.pop()
+        Server.settings.put(section, 'buttons', '\n '.join(values))
+
+        if Server.settings.get_section(section) != previous_settings:
+            Server.settings.save()
+
+    def _read_entry_ints(self, names):
+        # Each entry's number into the setting of the same name, or that
+        # setting back into the entry where what was typed is not one.
+        for name in names:
+            entry = getattr(self, f'{name}_entry')
+            try:
+                setattr(self, name, int(entry.text()))
+            except:
+                entry.setText(str(getattr(self, name)))
+
+    def _write_entry_ints(self, names):
+        for name in names:
+            getattr(self, f'{name}_entry').setText(str(getattr(self, name)))
+
     def _show(self, parent, widget, row, col):
         parent.layout().addWidget(widget, row, col, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         widget.show()
@@ -10353,15 +10510,16 @@ class TextButtons(Widget):
             button.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def button_label_value(self, button):
-        value = button.text().strip()
+        return self.split_button_value(button.text())
+
+    @staticmethod
+    def split_button_value(text):
+        # 'label & value', or a value with no label of its own.
+        value = text.strip()
         fields = value.split('&', 1)
         if len(fields) == 2:
-            label, value = fields
-            label = label.strip()
-            value = value.strip()
-        else:
-            label = ''
-        return label, value
+            return fields[0].strip(), fields[1].strip()
+        return '', value
 
     def store_button_value(self, buttons, index):
         button = buttons[index]
@@ -10398,18 +10556,7 @@ class TextButtons(Widget):
             return
         for i, button in enumerate(self.config_buttons):
             self.store_button_value(self.config_buttons, i)
-        try:
-            self.rows = int(self.rows_entry.text())
-        except:
-            self.rows_entry.setText(str(self.rows))
-        try:
-            self.columns = int(self.columns_entry.text())
-        except:
-            self.columns_entry.setText(str(self.columns))
-        try:
-            self.button_width = int(self.button_width_entry.text())
-        except:
-            self.button_width_entry.setText(str(self.button_width))
+        self._read_entry_ints(('rows', 'columns', 'button_width'))
 
         self.add_buttons(self.buttons, self.buttons_frame, edit=False)
         self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
@@ -10417,9 +10564,7 @@ class TextButtons(Widget):
     def on_cancel_button(self):
         for i, button in enumerate(self.config_buttons):
             self.load_button_value(self.config_buttons, i, edit=True)
-        self.rows_entry.setText(str(self.rows))
-        self.columns_entry.setText(str(self.columns))
-        self.button_width_entry.setText(str(self.button_width))
+        self._write_entry_ints(('rows', 'columns', 'button_width'))
         self.add_buttons(self.buttons, self.buttons_frame, edit=False)
         self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
 
@@ -10511,6 +10656,7 @@ class CW(TextButtons):
     tx_queue_max = 9
     tx_queue_low = 8
     singleton = None
+    settings_section = 'CW'
 
     # The responses the CW tab listens to while it is open.
     cw_subscriptions = (
@@ -10526,14 +10672,6 @@ class CW(TextButtons):
     def close_window(cls):
         if cls.singleton != None:
             cls.singleton.close()
-
-    @staticmethod
-    def _plain_frame():
-        # A bare frame to group widgets in, with no margins of its own.
-        frame = QWidget()
-        grid = QGridLayout(frame)
-        grid.setContentsMargins(0, 0, 0, 0)
-        return frame, grid
 
     def _dropdown(self, parent, on_select, justify, **options):
         dropdown = Dropdown_Widget(parent, bd=2, bg=self.bg, fg=self.fg,
@@ -10633,31 +10771,7 @@ class CW(TextButtons):
         if self.is_open:
             return
         self.is_open = True
-        # Qt.WindowType.Window overrides QDialog's default Dialog type,
-        # which most window managers treat as transient-for-parent and
-        # force to stay above Page.top -- this lets the main window come
-        # to the front instead. On Windows, though, giving it a parent at
-        # all makes it a native "owned window", which Windows always
-        # keeps above its owner in Z-order regardless of Qt window type
-        # -- so there, only dropping the parent avoids the same
-        # always-on-top behavior.
-        self.top_level = QDialog(qt_top_level_parent(), Qt.WindowType.Window)
-        self.top_level.setWindowTitle(Page.top.windowTitle() + ' CW')
-
-        def _close_event(event):
-            self.hide()
-            event.ignore()
-        self.top_level.closeEvent = _close_event
-
-        self.frame = QWidget()
-        frame_grid = QGridLayout(self.frame)
-        dialog_layout = QVBoxLayout(self.top_level)
-        dialog_layout.setContentsMargins(4, 4, 4, 4)
-        dialog_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
-        dialog_layout.addWidget(self.frame)
-
-        self.notebook = self.notebook_frame(self.frame)
-        frame_grid.addWidget(self.notebook, 0, 0)
+        self.open_dialog('CW')
 
         self.add_cw_tab()
         self.add_config_tab()
@@ -10820,57 +10934,6 @@ class CW(TextButtons):
                                                 for digit in range(1, 10)]
         ]
         return wpm, threshold
-
-    def add_config_tab(self):
-        self.config_frame = QWidget()
-        config_grid = QGridLayout(self.config_frame)
-        self.add_tab(self.config_frame, 'Configure')
-
-        top_frame, top_grid = self._plain_frame()
-        config_grid.addWidget(top_frame, 0, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-        self.cancel_button = self._config_button('Cancel', self.on_cancel_button)
-        top_grid.addWidget(self.cancel_button, 0, 0)
-
-        self.save_button = self._config_button('Save', self.on_save_button)
-        top_grid.addWidget(self.save_button, 0, 1)
-
-        info_frame, info_grid = self._plain_frame()
-        config_grid.addWidget(info_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        text = '''The first 12 values are bound to function keys.
-
-If a value contains &, everything before the & is displayed
-and everything after the & is sent.'''
-        info = QLabel(text)
-        info.setFont(self.font())
-        info.setStyleSheet(f'background-color: {self.bg};')
-        info_grid.addWidget(info, 0, 0)
-
-        self.config_buttons_frame, config_buttons_grid = self._plain_frame()
-        config_grid.addWidget(self.config_buttons_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
-
-        config_vars_frame, config_vars_grid = self._plain_frame()
-        config_grid.addWidget(config_vars_frame, 3, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.add_config_vars(config_vars_frame)
-
-    def _config_button(self, text, on_clicked):
-        button = QPushButton(text)
-        button.setFont(self.font())
-        button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.bg, self.fg))
-        button.clicked.connect(on_clicked)
-        return button
-
-    def set_geometry(self):
-        Server.settings.load()
-        geometry = Server.settings.get('Window', 'CW.geometry')
-        if geometry == None:
-            return
-        w, h, x, y = split_geometry(geometry)
-        screen = QApplication.primaryScreen().availableGeometry()
-        # Pulled back onto the screen, and never past its top left.
-        x = max(0, min(x, screen.width() - w))
-        y = max(0, min(y, screen.height() - h))
-        self.top_level.move(x, y)
 
     def add_cw_controls(self, parent_frame):
         sidetone_frame, sidetone_grid = qt_group_box('Sidetone Volume', self.label_font())
@@ -11036,11 +11099,6 @@ and everything after the & is sent.'''
         if self._key_filter != None:
             QApplication.instance().removeEventFilter(self._key_filter)
             self._key_filter = None
-
-    def save_geometry(self):
-        top = self.top_level
-        geometry = f'{top.width()}x{top.height()}{top.x():+}{top.y():+}'
-        Server.settings.put_save('Window', 'CW.geometry', geometry)
 
     def load_button_value(self, buttons, index, edit=False):
         super().load_button_value(buttons, index, edit=edit)
@@ -11255,12 +11313,7 @@ and everything after the & is sent.'''
     def on_save_button(self):
         super().on_save_button()
 
-        for name in ('text_width', 'entry_height', 'tx_height', 'rx_height'):
-            entry = getattr(self, f'{name}_entry')
-            try:
-                setattr(self, name, int(entry.text()))
-            except:
-                entry.setText(str(getattr(self, name)))
+        self._read_entry_ints(('text_width', 'entry_height', 'tx_height', 'rx_height'))
         self.save_settings()
         self.config_cw_fields()
         self.select_tab('CW')
@@ -11268,77 +11321,29 @@ and everything after the & is sent.'''
     def on_cancel_button(self):
         super().on_cancel_button()
 
-        for name in ('entry_height', 'tx_height', 'rx_height'):
-            getattr(self, f'{name}_entry').setText(str(getattr(self, name)))
+        self._write_entry_ints(('entry_height', 'tx_height', 'rx_height'))
         self.config_cw_fields()
         self.select_tab('CW')
 
     def load_settings(self):
-        section = 'CW'
-
-        self.rows = Server.settings.getint(section, 'button_rows', 5, minimum=1, maximum=20)
-        self.columns = Server.settings.getint(section, 'button_columns', 4, minimum=1, maximum=20)
-        self.button_width = Server.settings.getint(section, 'button_width', 15, minimum=5, maximum=60)
+        section = self.settings_section
+        self.load_button_grid_settings(5, 4, 15)
         self.text_width = Server.settings.getint(section, 'text_width', 65, minimum=10, maximum=150)
         self.entry_height = Server.settings.getint(section, 'entry_height', 3, minimum=1, maximum=20)
         self.tx_height = Server.settings.getint(section, 'tx_height', 3, minimum=1, maximum=20)
         self.rx_height = Server.settings.getint(section, 'rx_height', 3, minimum=1, maximum=20)
-
-        self.button_values = []
-        self.button_labels = []
-        buttons = Server.settings.get(section, 'buttons')
-        if buttons != None:
-            values = buttons.split('\n')
-        else:
-            values = ('<KN>&(', '<AR>&+', '<BT>&=', '<AS>&%', '<SK>&*', '<VE>&!')
-        for value in values:
-            value = value.strip()
-            fields = value.split('&', 1)
-            if len(fields) == 2:
-                label, value = fields
-                label = label.strip()
-                value = value.strip()
-            else:
-                label = ''
-            self.button_values.append(value)
-            self.button_labels.append(label)
-        total_buttons = self.rows * self.columns
-        while len(self.button_values) < total_buttons:
-            self.button_values.append('')
-            self.button_labels.append('')
+        self.load_button_settings(('<KN>&(', '<AR>&+', '<BT>&=', '<AS>&%', '<SK>&*', '<VE>&!'))
 
     def save_settings(self):
-        section = 'CW'
-        previous_settings = Server.settings.get_section(section)
-        Server.settings.clear_section(section)
-
-        Server.settings.put(section, 'button_rows', self.rows)
-        Server.settings.put(section, 'button_columns', self.columns)
-        Server.settings.put(section, 'button_width', self.button_width)
-        Server.settings.put(section, 'text_width', self.text_width)
-        Server.settings.put(section, 'entry_height', self.entry_height)
-        Server.settings.put(section, 'tx_height', self.tx_height)
-        Server.settings.put(section, 'rx_height', self.rx_height)
-
-        values = []
-        for i, value in enumerate(self.button_values):
-            label = self.button_labels[i]
-            if label != '':
-                value = f'{label} & {value}'
-            values.append(value)
-        while True:
-            ln = len(values)
-            if ln <= 0:
-                break
-            if values[ln-1] != '':
-                break
-            values.pop()
-        buttons = '\n '.join(values)
-        Server.settings.put(section, 'buttons', buttons)
-
-        settings = Server.settings.get_section(section)
-        if settings != previous_settings:
-            Server.settings.save()
+        self.save_settings_section((
+            ('button_rows', self.rows),
+            ('button_columns', self.columns),
+            ('button_width', self.button_width),
+            ('text_width', self.text_width),
+            ('entry_height', self.entry_height),
+            ('tx_height', self.tx_height),
+            ('rx_height', self.rx_height),
+        ))
 
     def add_keying_tab(self):
         self.keying_frame = QWidget()
@@ -11879,6 +11884,7 @@ and everything after the & is sent.'''
 
 class Macros(TextButtons):
     singleton = None
+    settings_section = 'Macros'
 
     @classmethod
     def close_window(cls):
@@ -11894,7 +11900,6 @@ class Macros(TextButtons):
 
         self.valid_characters = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890$;-_,./?(+=%*!#){}\\&^~`[]|<>:"' + "'"
 
-        self.section = 'Macros'
         self.load_settings()
 
         Macros.singleton = self
@@ -11917,34 +11922,14 @@ class Macros(TextButtons):
 
     def on_macros_cmd(self, response):
         self.enabled = cmd_parameter(response) == 'ENABLE'
-        Server.settings.put_save(self.section, 'enabled', self.enabled)
+        Server.settings.put_save(self.settings_section, 'enabled', self.enabled)
         self.show_or_hide()
 
     def open(self):
         if self.is_open:
             return
         self.is_open = True
-        # See the matching comment in CW.open(): Qt.WindowType.Window
-        # keeps this from being forced to stay above Page.top, and
-        # qt_top_level_parent() drops the parent on Windows to avoid its
-        # native owned-window always-above-owner Z-order behavior.
-        self.top_level = QDialog(qt_top_level_parent(), Qt.WindowType.Window)
-        self.top_level.setWindowTitle(Page.top.windowTitle() + ' Macros')
-
-        def _close_event(event):
-            self.hide()
-            event.ignore()
-        self.top_level.closeEvent = _close_event
-
-        self.frame = QWidget()
-        frame_grid = QGridLayout(self.frame)
-        dialog_layout = QVBoxLayout(self.top_level)
-        dialog_layout.setContentsMargins(4, 4, 4, 4)
-        dialog_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
-        dialog_layout.addWidget(self.frame)
-
-        self.notebook = self.notebook_frame(self.frame)
-        frame_grid.addWidget(self.notebook, 0, 0)
+        self.open_dialog('Macros')
 
         self.add_macros_tab()
         self.add_config_tab()
@@ -11971,62 +11956,12 @@ class Macros(TextButtons):
         macros_grid = QGridLayout(self.macros_frame)
         self.add_tab(self.macros_frame, 'Macros')
 
-        self.buttons_and_text_frame = QWidget()
-        bat_grid = QGridLayout(self.buttons_and_text_frame)
-        bat_grid.setContentsMargins(0, 0, 0, 0)
+        self.buttons_and_text_frame, bat_grid = self._plain_frame()
         macros_grid.addWidget(self.buttons_and_text_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        self.buttons_frame = QWidget()
-        buttons_grid = QGridLayout(self.buttons_frame)
-        buttons_grid.setContentsMargins(0, 0, 0, 0)
+        self.buttons_frame, buttons_grid = self._plain_frame()
         bat_grid.addWidget(self.buttons_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.add_buttons(self.buttons, self.buttons_frame, edit=False)
-
-    def add_config_tab(self):
-        self.config_frame = QWidget()
-        config_grid = QGridLayout(self.config_frame)
-        self.add_tab(self.config_frame, 'Configure')
-
-        top_frame = QWidget()
-        top_grid = QGridLayout(top_frame)
-        top_grid.setContentsMargins(0, 0, 0, 0)
-        config_grid.addWidget(top_frame, 0, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-        self.cancel_button = QPushButton('Cancel')
-        self.cancel_button.setFont(self.font())
-        self.cancel_button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.bg, self.fg))
-        self.cancel_button.clicked.connect(self.on_cancel_button)
-        top_grid.addWidget(self.cancel_button, 0, 0)
-
-        self.save_button = QPushButton('Save')
-        self.save_button.setFont(self.font())
-        self.save_button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.bg, self.fg))
-        self.save_button.clicked.connect(self.on_save_button)
-        top_grid.addWidget(self.save_button, 0, 1)
-
-        info_frame = QWidget()
-        info_grid = QGridLayout(info_frame)
-        info_grid.setContentsMargins(0, 0, 0, 0)
-        config_grid.addWidget(info_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        text = '''The first 12 values are bound to function keys.
-
-If a value contains &, everything before the & is displayed
-and everything after the & is sent.'''
-        info = QLabel(text)
-        info.setFont(self.font())
-        info.setStyleSheet(f'background-color: {self.bg};')
-        info_grid.addWidget(info, 0, 0)
-
-        self.config_buttons_frame = QWidget()
-        config_buttons_grid = QGridLayout(self.config_buttons_frame)
-        config_buttons_grid.setContentsMargins(0, 0, 0, 0)
-        config_grid.addWidget(self.config_buttons_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
-
-        config_vars_frame = QWidget()
-        config_vars_grid = QGridLayout(config_vars_frame)
-        config_vars_grid.setContentsMargins(0, 0, 0, 0)
-        config_grid.addWidget(config_vars_frame, 3, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.add_config_vars(config_vars_frame)
 
     def on_tab_changed(self, index):
         super().on_tab_changed(index)
@@ -12034,26 +11969,6 @@ and everything after the & is sent.'''
             self.save_geometry()
             self.set_geometry()
         self.previous_tabname = self.current_tabname
-
-    def set_geometry(self):
-        Server.settings.load()
-        geometry = Server.settings.get('Window', 'Macros.geometry')
-        if geometry == None:
-            return
-        w, h, x, y = split_geometry(geometry)
-        screen = QApplication.primaryScreen().availableGeometry()
-        screen_width, screen_height = screen.width(), screen.height()
-        x_offset = screen_width - (x + w)
-        y_offset = screen_height - (y + h)
-        if x_offset < 0:
-            x += x_offset
-        if y_offset < 0:
-            y += y_offset
-        if x < 0:
-            x = 0
-        if y < 0:
-            y = 0
-        self.top_level.move(x, y)
 
     def hide(self):
         if self.is_open:
@@ -12090,11 +12005,6 @@ and everything after the & is sent.'''
         self.is_open = False
         self.save_geometry()
         self.top_level.deleteLater()
-
-    def save_geometry(self):
-        top = self.top_level
-        geometry = f'{top.width()}x{top.height()}{top.x():+}{top.y():+}'
-        Server.settings.put_save('Window', 'Macros.geometry', geometry)
 
     def add_buttons(self, buttons, parent_frame, edit):
         if not edit:
@@ -12144,62 +12054,17 @@ and everything after the & is sent.'''
         self.select_tab('Macros')
 
     def load_settings(self):
-        self.enabled = Server.settings.getbool(self.section, 'enabled', True)
-
-        self.rows = Server.settings.getint(self.section, 'button_rows', 3, minimum=1, maximum=20)
-        self.columns = Server.settings.getint(self.section, 'button_columns', 4, minimum=1, maximum=20)
-        self.button_width = Server.settings.getint(self.section, 'button_width', 15, minimum=5, maximum=60)
-
-        self.button_values = []
-        self.button_labels = []
-        buttons = Server.settings.get(self.section, 'buttons')
-        if buttons != None:
-            values = buttons.split('\n')
-        else:
-            values = ('Clear RIT/XIT & RC;RT0;XT0;', 'XIT +5 kHz & XT1;RO+5000;')
-        for value in values:
-            value = value.strip()
-            fields = value.split('&', 1)
-            if len(fields) == 2:
-                label, value = fields
-                label = label.strip()
-                value = value.strip()
-            else:
-                label = ''
-            self.button_values.append(value)
-            self.button_labels.append(label)
-        total_buttons = self.rows * self.columns
-        while len(self.button_values) < total_buttons:
-            self.button_values.append('')
-            self.button_labels.append('')
+        self.enabled = Server.settings.getbool(self.settings_section, 'enabled', True)
+        self.load_button_grid_settings(3, 4, 15)
+        self.load_button_settings(('Clear RIT/XIT & RC;RT0;XT0;',
+                                   'XIT +5 kHz & XT1;RO+5000;'))
 
     def save_settings(self):
-        previous_settings = Server.settings.get_section(self.section)
-        Server.settings.clear_section(self.section)
-
-        Server.settings.put(self.section, 'button_rows', self.rows)
-        Server.settings.put(self.section, 'button_columns', self.columns)
-        Server.settings.put(self.section, 'button_width', self.button_width)
-
-        values = []
-        for i, value in enumerate(self.button_values):
-            label = self.button_labels[i]
-            if label != '':
-                value = f'{label} & {value}'
-            values.append(value)
-        while True:
-            ln = len(values)
-            if ln <= 0:
-                break
-            if values[ln-1] != '':
-                break
-            values.pop()
-        buttons = '\n '.join(values)
-        Server.settings.put(self.section, 'buttons', buttons)
-
-        settings = Server.settings.get_section(self.section)
-        if settings != previous_settings:
-            Server.settings.save()
+        self.save_settings_section((
+            ('button_rows', self.rows),
+            ('button_columns', self.columns),
+            ('button_width', self.button_width),
+        ))
 
 class KeyerWarning():
     # A missing or unopenable paddle/key device is only actionable while
