@@ -8457,8 +8457,8 @@ class Audio():
             a = stereo[0::2]                    # even samples are from the main receiver
             b = stereo[1::2]                    # odd samples are from the sub receiver
 
-            a = a * self.a_volume * 32          # apply some amplification
-            b = b * self.b_volume * 32
+            a = a * self.a_volume * 300          # apply some amplification
+            b = b * self.b_volume * 300
 
             if not self.sub_on:
                 b = a                           # take all audio from main
@@ -9238,7 +9238,7 @@ class Audio():
 
         rise_step = 1 / max(1, round(sample_rate * self.sidetone_rise_time))
         fall_step = 1 / max(1, round(sample_rate * self.sidetone_fall_time))
-        volume = self.sidetone_volume / 135 * self.averaged_left_right_volume()
+        volume = self.sidetone_volume / 16 * self.averaged_left_right_volume()
 
         # One whole repeat of the tone, at the output rate, volume
         # already in it. Not one cycle: a cycle is a whole number of
