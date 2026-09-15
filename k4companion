@@ -7393,92 +7393,99 @@ class Audio():
                 self.output_stream = None
 
     @classmethod
-    def set_input_device_name(cls, name):
+    def set_device_name(cls, direction, name):
+        # The device to use in that direction, by the name enumeration
+        # gave it. A name that is not among them is left alone: the
+        # device it stands for is not there to be opened.
         self = cls.get_singleton()
-        dev_info = self.input_device_info_by_name(name)
-        if dev_info != None:
-            self.input_device_index = dev_info['index']
+        device_info = self.device_info_by_name(direction, name)
+        if device_info != None:
+            setattr(self, f'{direction}_device_index', device_info['index'])
+
+    @classmethod
+    def set_input_device_name(cls, name):
+        cls.set_device_name('input', name)
 
     @classmethod
     def set_output_device_name(cls, name):
-        self = cls.get_singleton()
-        dev_info = self.output_device_info_by_name(name)
-        if dev_info != None:
-            self.output_device_index = dev_info['index']
+        cls.set_device_name('output', name)
 
     @classmethod
-    def input_device_name(cls):
+    def device_info(cls, direction):
+        # What enumeration found out about the device in use, or None
+        # where there is none to use. The index is an instance attribute
+        # of the same name as the classmethod below it -- the instance's
+        # own wins -- which is what the getattr here is for.
         self = cls.get_singleton()
-        if self.input_device_index < 0:
-            return "None available"
-        dev_info = self.input_device_infos[self.input_device_index]
-        return dev_info['name']
-
-    @classmethod
-    def output_device_name(cls):
-        self = cls.get_singleton()
-        if self.output_device_index < 0:
-            return "None available"
-        dev_info = self.output_device_infos[self.output_device_index]
-        return dev_info['name']
+        index = getattr(self, f'{direction}_device_index')
+        if index < 0:
+            return None
+        return getattr(self, f'{direction}_device_infos')[index]
 
     @classmethod
     def input_device_info(cls):
-        self = cls.get_singleton()
-        if self.input_device_index < 0:
-            return None
-        return self.input_device_infos[self.input_device_index]
+        return cls.device_info('input')
 
     @classmethod
     def output_device_info(cls):
-        self = cls.get_singleton()
-        if self.output_device_index < 0:
-            return None
-        return self.output_device_infos[self.output_device_index]
+        return cls.device_info('output')
+
+    @classmethod
+    def device_name(cls, direction):
+        device_info = cls.device_info(direction)
+        if device_info == None:
+            return "None available"
+        return device_info['name']
+
+    @classmethod
+    def input_device_name(cls):
+        return cls.device_name('input')
+
+    @classmethod
+    def output_device_name(cls):
+        return cls.device_name('output')
+
+    @classmethod
+    def device_index(cls, direction):
+        return getattr(cls.get_singleton(), f'{direction}_device_index')
 
     @classmethod
     def input_device_index(cls):
-        self = cls.get_singleton()
-        return self.input_device_index
+        return cls.device_index('input')
 
     @classmethod
     def output_device_index(cls):
-        self = cls.get_singleton()
-        return self.output_device_index
+        return cls.device_index('output')
+
+    @classmethod
+    def device_names(cls, direction):
+        infos = getattr(cls.get_singleton(), f'{direction}_device_infos')
+        return [device_info['name'] for device_info in infos.values()]
 
     @classmethod
     def input_device_names(cls):
-        self = cls.get_singleton()
-        names = []
-        for index in self.input_device_infos:
-            device_info = self.input_device_infos[index]
-            names.append(device_info['name'])
-        return names
+        return cls.device_names('input')
 
     @classmethod
     def output_device_names(cls):
-        self = cls.get_singleton()
-        names = []
-        for index in self.output_device_infos:
-            device_info = self.output_device_infos[index]
-            names.append(device_info['name'])
-        return names
+        return cls.device_names('output')
+
+    @classmethod
+    def device_sample_rate(cls, direction):
+        # The rate this device was enumerated at, which is the one it is
+        # opened at. None where there is no device.
+        device_info = cls.device_info(direction)
+        if device_info == None:
+            return None
+        return device_info[f'{direction}_sample_rate']
 
     @classmethod
     def input_device_sample_rate(cls):
-        self = cls.get_singleton()
-        if self.input_device_index < 0:
-            return None
-        info = self.input_device_infos[self.input_device_index]
-        return info['input_sample_rate']
+        return cls.device_sample_rate('input')
 
     @classmethod
     def output_device_sample_rate(cls):
-        self = cls.get_singleton()
-        if self.output_device_index < 0:
-            return None
-        info = self.output_device_infos[self.output_device_index]
-        return info['output_sample_rate']
+        return cls.device_sample_rate('output')
 
     @classmethod
     def control_k4_cmd(cls, base, cmd):
@@ -7818,18 +7825,12 @@ class Audio():
         with quiet_stderr():
             return sounddevice.query_devices(index)
 
-    def sd_input_format_supported(cls, sample_rate, **kwargs):
+    def sd_format_supported(cls, direction, sample_rate, **kwargs):
+        check_settings = (sounddevice.check_input_settings if direction == 'input'
+                          else sounddevice.check_output_settings)
         with quiet_stderr():
             try:
-                sounddevice.check_input_settings(samplerate=sample_rate, **kwargs)
-                return True
-            except Exception:
-                return False
-
-    def sd_output_format_supported(cls, sample_rate, **kwargs):
-        with quiet_stderr():
-            try:
-                sounddevice.check_output_settings(samplerate=sample_rate, **kwargs)
+                check_settings(samplerate=sample_rate, **kwargs)
                 return True
             except Exception:
                 return False
@@ -7880,7 +7881,7 @@ class Audio():
         info = self.output_device_infos[self.output_device_index]
         step = cls.min_output_sample_rate
         for rate in range(step, cls.max_output_sample_rate + step, step):
-            if self.sd_output_format_supported(rate,
+            if self.sd_format_supported('output', rate,
                                device=self.output_device_index,
                                channels=cls.output_channels,
                                dtype='float32',
@@ -8022,23 +8023,26 @@ class Audio():
                       ' Using shared mode, at a little more delay.')
 
     @classmethod
-    def reopen_output_stream(cls):
+    def reopen_stream(cls, direction):
         # For a setting that only takes effect where the device is
-        # opened. The opening is left to k4_rx_audio_loop, which owns the
-        # stream -- closing one under it from another thread is what
+        # opened. The opening is left to the loop that owns the stream --
+        # closing one under it from another thread is what
         # output_stream_lock is there to prevent -- so this only marks it
-        # stale, and the loop obliges on the next packet from the K4.
+        # stale. k4_rx_audio_loop obliges on the next packet from the K4;
+        # k4_tx_audio_loop comes back around on every frame it reads, so
+        # it obliges at once.
         self = cls.singleton
         if self != None:
-            self.output_stream_generation += 1
+            name = f'{direction}_stream_generation'
+            setattr(self, name, getattr(self, name) + 1)
+
+    @classmethod
+    def reopen_output_stream(cls):
+        cls.reopen_stream('output')
 
     @classmethod
     def reopen_input_stream(cls):
-        # As reopen_output_stream. k4_tx_audio_loop comes back around on every
-        # frame it reads, so it obliges at once.
-        self = cls.singleton
-        if self != None:
-            self.input_stream_generation += 1
+        cls.reopen_stream('input')
 
     def __init__(self):
         self.input_stream = None
@@ -8156,79 +8160,62 @@ class Audio():
             device_info = self.sd_query_device(device_index)
             if device_info['name'] in [ 'dmix', 'lavrate', 'samplerate', 'speexrate', 'pulse', 'speex', 'upmix', 'vdownmix' ]:
                 continue
-            default_sample_rate = device_info['default_samplerate']
 
-            input_device_info = { 'default_sample_rate': int(default_sample_rate), 'input_channels': 0 }
+            for direction, default_index in (('input', default_input_device_index),
+                                             ('output', default_output_device_index)):
+                sample_rate = self.enumerate_device(direction, device_info, default_index)
 
-            begin_rate = Audio.min_input_sample_rate
-            end_rate = Audio.max_input_sample_rate + begin_rate
-            step = begin_rate
-            for input_sample_rate in range(begin_rate, end_rate, step):
-                if self.sd_input_format_supported(input_sample_rate,
-                               device=device_info['index'],
-                               channels=Audio.input_channels,
-                               dtype='float32'):
-                    input_device_info['index'] = device_info['index']
-                    input_device_info['name'] = device_info['name']
-                    input_device_info['input_channels'] = device_info['max_input_channels']
-                    input_device_info['input_sample_rate'] = input_sample_rate
-                    if device_info['index'] == default_input_device_index or default_input_device_index == None:
-                        self.input_device_index = device_info['index']
-                    break
-
-            if 'index' in input_device_info:
-                self.input_device_infos[input_device_info['index']] = input_device_info
-            elif Options.debug > 0:
-                if self.sd_input_format_supported(default_sample_rate,
-                             device=device_info['index'],
-                             channels=Audio.input_channels,
-                             dtype='float32'):
-                    dprint('Info:', device_info['name'], 'does not support multiple of K4 sample rate. supported rate:', default_sample_rate)
-
-            output_device_info = { 'default_sample_rate': int(default_sample_rate), 'output_channels': 0 }
-
-            begin_rate = Audio.min_output_sample_rate
-            end_rate = Audio.max_output_sample_rate + begin_rate
-            step = begin_rate
-            for output_sample_rate in range(begin_rate, end_rate, step):
-                if self.sd_output_format_supported(output_sample_rate,
-                                   device=device_info['index'],
-                                   channels=Audio.output_channels,
-                                   dtype='float32'):
-                    output_device_info['index'] = device_info['index']
-                    output_device_info['name'] = device_info['name']
-                    output_device_info['output_channels'] = device_info['max_output_channels']
-                    output_device_info['output_sample_rate'] = output_sample_rate
-                    if device_info['index'] == default_output_device_index or default_output_device_index == None:
-                        self.output_device_index = device_info['index']
-                    break
-
-            if 'index' in output_device_info:
-                self.output_device_infos[output_device_info['index']] = output_device_info
-            elif Options.debug > 0:
-                if self.sd_output_format_supported(default_sample_rate,
-                             device=device_info['index'],
-                             channels=Audio.output_channels,
-                             dtype='float32'):
-                    dprint('Info:', device_info['name'], 'does not support multiple of K4 sample rate. supported rate:', default_sample_rate)
-
+            # The output rate this device came to, the output being the
+            # direction looked at last.
             cls = self.__class__
-            cls.frames_per_output_buffer = cls.output_blocksize(None,
-                                                                output_sample_rate)
+            cls.frames_per_output_buffer = cls.output_blocksize(None, sample_rate)
+
+    def enumerate_device(self, direction, device_info, default_index):
+        # What one device can do in one direction, at the lowest multiple
+        # of the K4's own rate it will take -- which is the rate it is
+        # then used at. Kept in <direction>_device_infos, and taken as
+        # the device to use where it is the host API's own default one,
+        # or where the host API names no default at all.
+        #
+        # Returns the last rate tried, for the caller to size the output
+        # block with.
+        cls = self.__class__
+        channels = getattr(cls, f'{direction}_channels')
+        default_sample_rate = device_info['default_samplerate']
+        found = {'default_sample_rate': int(default_sample_rate),
+                 f'{direction}_channels': 0}
+
+        step = getattr(cls, f'min_{direction}_sample_rate')
+        end_rate = getattr(cls, f'max_{direction}_sample_rate') + step
+        for sample_rate in range(step, end_rate, step):
+            if self.sd_format_supported(direction, sample_rate,
+                           device=device_info['index'],
+                           channels=channels,
+                           dtype='float32'):
+                found['index'] = device_info['index']
+                found['name'] = device_info['name']
+                found[f'{direction}_channels'] = device_info[f'max_{direction}_channels']
+                found[f'{direction}_sample_rate'] = sample_rate
+                if device_info['index'] == default_index or default_index == None:
+                    setattr(self, f'{direction}_device_index', device_info['index'])
+                break
+
+        if 'index' in found:
+            getattr(self, f'{direction}_device_infos')[found['index']] = found
+        elif Options.debug > 0:
+            if self.sd_format_supported(direction, default_sample_rate,
+                         device=device_info['index'],
+                         channels=channels,
+                         dtype='float32'):
+                dprint('Info:', device_info['name'], 'does not support multiple of K4 sample rate. supported rate:', default_sample_rate)
+        return sample_rate
 
 
-    def input_device_info_by_name(self, name):
-        for index in self.input_device_infos:
-            dev_info = self.input_device_infos[index]
-            if dev_info['name'] == name:
-                return dev_info
-        return None
-
-    def output_device_info_by_name(self, name):
-        for index in self.output_device_infos:
-            dev_info = self.output_device_infos[index]
-            if dev_info['name'] == name:
-                return dev_info
+    def device_info_by_name(self, direction, name):
+        infos = getattr(self, f'{direction}_device_infos')
+        for device_info in infos.values():
+            if device_info['name'] == name:
+                return device_info
         return None
 
     def start_k4_rx_audio_thread(self):
