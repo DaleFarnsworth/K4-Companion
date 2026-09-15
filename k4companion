@@ -7828,7 +7828,7 @@ class Audio():
         # the first edge and leaves every interval after as keyed.
         timing = self.sidetone_block_timing
         if timing != None:
-            dac_time, block_seconds, lead = timing
+            _, block_seconds, lead = timing
             event_time += lead + block_seconds
         self.key_event_queue.put((event_time, key_down))
 
@@ -8120,40 +8120,9 @@ class Audio():
         # just started is heard. See sidetone_down_heard_at.
         self.sidetone_down_asked = None
         self.sidetone_down_placed = None
-        # A key down the keyer has taken back, and the most recent one
-        # the output callback dropped for it, each by the stream time it
-        # was asked for. See cancel_sidetone_down.
-        self.sidetone_down_cancelled = None
-        self.sidetone_down_dropped = None
-        # The most recent block the output callback filled, as (stream
-        # time it reaches the DAC, its length in seconds, the furthest
-        # ahead of its DAC time any block has lately been filled), for
-        # projecting when later blocks will be. See note_block_timing.
-        self.sidetone_block_timing = None
-        # The furthest lead in the window running now, and in the one
-        # before it, and the stream time the one running now ends at.
-        self.block_lead_current = 0.0
-        self.block_lead_previous = 0.0
-        self.block_lead_window_end = None
-        # An edge already taken off that queue that belongs to a later
-        # block than the one being filled.
-        self.pending_key_event = None
-        # How far behind the operator's key edges this burst is being
-        # rendered, in seconds. See next_key_edge().
-        self.sidetone_lag = 0.0
-        # Whether the last edge rendered was a key down, how far the
-        # envelope has travelled between silence (0) and full tone (1),
-        # and the tone's phase -- all carried across blocks so a rise or
-        # fall spanning a block boundary is continuous.
-        self.sidetone_keyed = False
-        self.sidetone_envelope_position = 0.0
-        self.sidetone_cycle_index = 0
-        # How far the output callback displaced the most recent edge
-        # from the time it was scheduled for. None until one has been
-        # rendered.
-        self.sidetone_edge_shift = None
-        # Frames handed to PortAudio so far, and the one the most recent
-        # edge landed on: the axis key event times are resolved onto.
+        self.clear_sidetone_state()
+        # Frames handed to PortAudio so far; the most recent edge's frame
+        # is kept on the same axis (see clear_sidetone_state).
         self.rendered_frames = 0
         # Frame the output callback lifts the mute at, or None.
         self.unmute_at_frame = None
@@ -8161,7 +8130,6 @@ class Audio():
         # Starts at nothing: the first audio of a session comes out of
         # silence like any other.
         self.k4_fade_position = 0.0
-        self.last_edge_frame = 0
         self.sidetone_shape = None
         self.sidetone_ramp = numpy.empty(0, dtype=numpy.float32)
         # Glitch counters. The output callback only ever increments
@@ -8638,22 +8606,41 @@ class Audio():
         # belonging to a later block.
         if self.sidetone_shape == None:
             return False
-        event = self.pending_key_event
+        event = self.peek_key_event()
         if event == None:
-            try:
-                event = self.key_event_queue.get_nowait()
-            except queue.Empty:
-                return False
-            self.pending_key_event = event
-
+            return False
         event_time, key_down = event
         if key_down:
             return False
         # As next_key_edge places it, and against the same clock.
-        sample_rate = self.sidetone_shape[0]
-        dac_time = time_info.outputBufferDacTime or time_info.currentTime
-        offset = round((event_time + self.sidetone_lag - dac_time) * sample_rate)
+        offset = self.key_edge_offset(event_time, self.block_dac_time(time_info),
+                                      self.sidetone_shape[0])
         return offset < frames
+
+    def peek_key_event(self):
+        # The next edge, left in pending_key_event until something takes
+        # it from there, or None with nothing queued.
+        if self.pending_key_event == None:
+            try:
+                self.pending_key_event = self.key_event_queue.get_nowait()
+            except queue.Empty:
+                pass
+        return self.pending_key_event
+
+    def key_edge_offset(self, event_time, dac_time, sample_rate):
+        # The frame an edge asked for at event_time goes on, counted from
+        # the start of the block reaching the DAC at dac_time, with the
+        # lag standing.
+        return round((event_time + self.sidetone_lag - dac_time) * sample_rate)
+
+    @staticmethod
+    def block_dac_time(time_info):
+        # PortAudio reports when a block reaches the DAC on the same
+        # clock key edges are asked for on, so where an edge falls within
+        # the block is just the difference between the two. Not every host
+        # API fills in outputBufferDacTime; currentTime always carries a
+        # usable time, and sidetone_lag absorbs the offset between them.
+        return time_info.outputBufferDacTime or time_info.currentTime
 
     def fade_in_k4(self, outdata, frames, written):
         # written is how many frames of the block the queue actually
@@ -8668,11 +8655,9 @@ class Audio():
             return
         position = self.k4_fade_position
         if position < 1:
-            ramp = position + self.k4_fade_step * self.sidetone_block_ramp(written)
-            numpy.clip(ramp, 0.0, 1.0, out=ramp)
+            ramp = self.envelope_ramp(position, self.k4_fade_step, written)
             self.k4_fade_position = float(ramp[-1])
-            outdata[:written] *= (.5 * (1 - numpy.cos(numpy.pi * ramp))
-                                  ).reshape(written, 1)
+            outdata[:written] *= self.raised_cosine(ramp).reshape(written, 1)
         if written < frames:
             self.k4_fade_position = 0.0
 
@@ -8701,23 +8686,18 @@ class Audio():
             return
         sample_rate, rise_step, fall_step, period, cycle = shape
 
-        # PortAudio reports when this block reaches the DAC on the same
-        # clock key_sidetone() read, so where an edge falls within the
-        # block is just the difference between the two. Not every host
-        # API fills in outputBufferDacTime; currentTime always carries a
-        # usable time, and sidetone_lag absorbs the offset between them.
-        dac_time = time_info.outputBufferDacTime or time_info.currentTime
+        dac_time = self.block_dac_time(time_info)
         self.note_block_timing(dac_time, time_info.currentTime,
                                frames / sample_rate)
 
-        idle = not self.sidetone_keyed and self.sidetone_envelope_position <= 0
+        idle = (not self.sidetone_keyed and self.sidetone_envelope_position <= 0
+                and self.pending_key_event == None)
         quiet_frames = block_start_frame - self.last_edge_frame
 
-        if (idle and self.pending_key_event == None and
-                quiet_frames > sample_rate * self.sidetone_lag_reset_seconds):
+        if idle and quiet_frames > sample_rate * self.sidetone_lag_reset_seconds:
             self.sidetone_lag = 0.0
 
-        if idle and self.pending_key_event == None and self.key_event_queue.empty():
+        if idle and self.key_event_queue.empty():
             return                  # nothing keyed: the K4 audio stands as written
 
         position = self.sidetone_envelope_position
@@ -8734,8 +8714,7 @@ class Audio():
                 # part way through simply reverses it, which stays
                 # continuous however short the element was.
                 step = rise_step if self.sidetone_keyed else -fall_step
-                segment = position + step * self.sidetone_block_ramp(end - start)
-                numpy.clip(segment, 0.0, 1.0, out=segment)
+                segment = self.envelope_ramp(position, step, end - start)
                 positions[start:end] = segment
                 position = segment[-1]
             if edge == None:
@@ -8759,7 +8738,7 @@ class Audio():
         # the two over the envelope means the K4 audio is faded down
         # rather than cut, which is what the old rise packet's fade of
         # the previous sample was for.
-        envelope = (.5 * (1 - numpy.cos(numpy.pi * positions))).reshape(frames, 1)
+        envelope = self.raised_cosine(positions).reshape(frames, 1)
         outdata *= 1.0 - envelope
         outdata += tone.reshape(frames, 1) * envelope
 
@@ -8803,19 +8782,13 @@ class Audio():
         # belongs to a later block. start is the first frame of the block
         # not yet written, which is the earliest an edge can still go.
         while True:
-            event = self.pending_key_event
+            event = self.peek_key_event()
             if event == None:
-                try:
-                    event = self.key_event_queue.get_nowait()
-                except queue.Empty:
-                    return None
-
-            event_time, key_down = event
-            offset = round((event_time + self.sidetone_lag - dac_time) * sample_rate)
-
-            if offset >= frames:
-                self.pending_key_event = event
                 return None
+            event_time, key_down = event
+            offset = self.key_edge_offset(event_time, dac_time, sample_rate)
+            if offset >= frames:
+                return None         # left pending, for a later block
 
             self.pending_key_event = None
             if not key_down or event_time != self.sidetone_down_cancelled:
@@ -8935,6 +8908,19 @@ class Audio():
             self.sidetone_ramp = numpy.arange(1, frames + 1, dtype=numpy.float32)
         return self.sidetone_ramp[:frames]
 
+    def envelope_ramp(self, position, step, frames):
+        # frames of an envelope moving on from position by step a frame,
+        # held between nothing (0) and full (1).
+        ramp = position + step * self.sidetone_block_ramp(frames)
+        numpy.clip(ramp, 0.0, 1.0, out=ramp)
+        return ramp
+
+    @staticmethod
+    def raised_cosine(positions):
+        # The gain for an envelope position: the shape both the sidetone
+        # and the receive audio's fade rise and fall with.
+        return .5 * (1 - numpy.cos(numpy.pi * positions))
+
     def output_stream_playing(self):
         # Whether the stream that has just been started is really asking
         # for audio. A WASAPI device can take an exclusive open, start
@@ -9029,23 +9015,51 @@ class Audio():
                 self.key_event_queue.get_nowait()
             except queue.Empty:
                 break
-        self.pending_key_event = None
-        self.sidetone_down_cancelled = None
-        self.sidetone_down_dropped = None
-        self.sidetone_lag = 0.0
-        self.sidetone_keyed = False
-        self.sidetone_envelope_position = 0.0
-        self.sidetone_cycle_index = 0
-        self.sidetone_edge_shift = None
-        self.sidetone_block_timing = None
-        self.block_lead_current = 0.0
-        self.block_lead_previous = 0.0
-        self.block_lead_window_end = None
-        self.last_edge_frame = 0
+        self.clear_sidetone_state()
         # The frame an unmute was waiting for belongs to the stream that
         # has just been replaced, and would never arrive.
         Audio.unmute_k4()
         self.generate_sidetone_envelopes()
+
+    def clear_sidetone_state(self):
+        # What the output callback carries from one block to the next
+        # about the sidetone, as a stream starts it.
+        #
+        # An edge already taken off key_event_queue that belongs to a
+        # later block than the one being filled.
+        self.pending_key_event = None
+        # A key down the keyer has taken back, and the most recent one
+        # the output callback dropped for it, each by the stream time it
+        # was asked for. See cancel_sidetone_down.
+        self.sidetone_down_cancelled = None
+        self.sidetone_down_dropped = None
+        # How far behind the operator's key edges this burst is being
+        # rendered, in seconds. See next_key_edge().
+        self.sidetone_lag = 0.0
+        # Whether the last edge rendered was a key down, how far the
+        # envelope has travelled between silence (0) and full tone (1),
+        # and the tone's phase -- all carried across blocks so a rise or
+        # fall spanning a block boundary is continuous.
+        self.sidetone_keyed = False
+        self.sidetone_envelope_position = 0.0
+        self.sidetone_cycle_index = 0
+        # How far the output callback displaced the most recent edge
+        # from the time it was scheduled for. None until one has been
+        # rendered.
+        self.sidetone_edge_shift = None
+        # The most recent block the output callback filled, as (stream
+        # time it reaches the DAC, its length in seconds, the furthest
+        # ahead of its DAC time any block has lately been filled), for
+        # projecting when later blocks will be. See note_block_timing.
+        self.sidetone_block_timing = None
+        # The furthest lead in the window running now, and in the one
+        # before it, and the stream time the one running now ends at.
+        self.block_lead_current = 0.0
+        self.block_lead_previous = 0.0
+        self.block_lead_window_end = None
+        # The frame, on rendered_frames' axis, the most recent edge
+        # landed on.
+        self.last_edge_frame = 0
 
     def on_transmit_changed(self, server, response):
         transmit = server.k4_parameters.get('TR') == 'T'
