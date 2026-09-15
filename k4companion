@@ -9328,7 +9328,7 @@ class Settings():
             else:
                 config_dir = os.path.join(home_dir, '.' + appname)
         else:
-            raise exception(f'{sys.platform} not supported.')
+            raise Exception(f'{sys.platform} not supported.')
 
         if not os.path.isdir(config_dir):
             os.mkdir(config_dir, 0o755)
@@ -9406,34 +9406,30 @@ class Settings():
         return true_values(self.get(section, setting, default))
 
     def getint(self, section, setting, default=None, minimum=None, maximum=None):
-        val = self.get(section, setting, default)
-        if val != None:
-            val = int(val)
-            if minimum != None and val < minimum:
-                val = minimum
-            if maximum != None and val > maximum:
-                val = maximum
-        return val
+        return self.get_number(int, section, setting, default, minimum, maximum)
 
     def getfloat(self, section, setting, default=None, minimum=None, maximum=None):
-        val = self.get(section, setting, default)
-        if val != None:
-            val = float(val)
-            if minimum != None and val < minimum:
-                val = minimum
-            if maximum != None and val > maximum:
-                val = maximum
-        return val
+        return self.get_number(float, section, setting, default, minimum, maximum)
+
+    def get_number(self, number, section, setting, default, minimum, maximum):
+        # The setting as a number of the kind asked for, held between
+        # whatever bounds were given. None where there is none and no
+        # default to fall back on.
+        value = self.get(section, setting, default)
+        if value == None:
+            return None
+        value = number(value)
+        if minimum != None and value < minimum:
+            value = minimum
+        if maximum != None and value > maximum:
+            value = maximum
+        return value
 
     def get_section(self, section):
         self.load()
-        settings = {}
-        try:
-            for k, v in self.settings[section].items():
-                settings[k] = v
-        except:
-            pass
-        return settings
+        if section not in self.settings:
+            return {}
+        return dict(self.settings[section])
 
     def clear(self):
         for section in self.settings.sections():
@@ -9458,25 +9454,25 @@ class Settings():
         self.settings.read(self.pathname)
         self.settings_loaded = True
 
-        # rename or remove obsolete options
+        # The audio devices moved from a server's own settings to the
+        # main ones, where they belong: they are the machine's, not a
+        # particular radio's. Carried over here, once, from whichever
+        # server's file still has them.
         if self.index != 'main':
             main = Settings.main()
-            name =  self.get('Audio', 'output_device_name')
-            if name != None and not main.settings.has_option('Client', 'audio_output_device_name'):
-                main.put_save('Client', 'audio_output_device_name', name)
-            name =  self.get('Audio', 'input_device_name')
-            if name != None and not main.settings.has_option('Client', 'audio_input_device_name'):
-                main.put_save('Client', 'audio_input_device_name', name)
+            for setting, main_setting in (('output_device_name', 'audio_output_device_name'),
+                                          ('input_device_name', 'audio_input_device_name')):
+                name = self.get('Audio', setting)
+                if name != None and not main.settings.has_option('Client', main_setting):
+                    main.put_save('Client', main_setting, name)
 
-        if self.settings.has_option('Audio', 'output_device_name'):
-            self.settings.remove_option('Audio', 'output_device_name')
-            self.settings_changed = True
-        if self.settings.has_option('Audio', 'input_device_name'):
-            self.settings.remove_option('Audio', 'input_device_name')
-            self.settings_changed = True
-        if self.settings.has_option('Remote', 'restart'):
-            self.settings.remove_option('Remote', 'restart')
-            self.settings_changed = True
+        # rename or remove obsolete options
+        for section, option in (('Audio', 'output_device_name'),
+                                ('Audio', 'input_device_name'),
+                                ('Remote', 'restart')):
+            if self.settings.has_option(section, option):
+                self.settings.remove_option(section, option)
+                self.settings_changed = True
         if self.settings.has_section('command'):
             for option in self.settings.options('command'):
                 value = self.get('command', option)
@@ -9528,27 +9524,33 @@ class ServerSettings_widget(Widget):
         frame = QGroupBox('')
         grid = QGridLayout(frame)
 
-        server_frame = self.select_server(frame)
-        grid.addWidget(server_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        name_frame = self.k4_name(frame)
-        grid.addWidget(name_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        address_frame = self.k4_address_settings(frame)
-        grid.addWidget(address_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        password_frame = self.k4_password_settings(frame)
-        grid.addWidget(password_frame, 3, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        proxy_frame = self.k4_proxy_settings(frame)
-        grid.addWidget(proxy_frame, 4, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        for row, build in enumerate((self.select_server, self.k4_name,
+                                     self.k4_address_settings,
+                                     self.k4_password_settings,
+                                     self.k4_proxy_settings)):
+            grid.addWidget(build(frame), row, 0,
+                           Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         return frame
 
-    def select_server(self, remote_frame):
-        frame = QGroupBox('Remote K4')
+    def _titled_grid(self, title):
+        # A group box to put one setting in.
+        frame = QGroupBox(title)
         frame.setFont(self.label_font())
-        grid = QGridLayout(frame)
+        return frame, QGridLayout(frame)
+
+    def _settings_entry(self, value, on_editing_finished, password=False):
+        # A field holding one setting, saved as soon as it is left.
+        entry = QLineEdit(value)
+        if password:
+            entry.setEchoMode(QLineEdit.EchoMode.Password)
+        entry.setFont(self.font())
+        entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
+        entry.editingFinished.connect(on_editing_finished)
+        return entry
+
+    def select_server(self, remote_frame):
+        frame, grid = self._titled_grid('Remote K4')
 
         self.dropdown = Dropdown_Widget(frame, bd=2, bg=self.bg,
             fg=self.fg, abg=self.abg, selectbg=self.selectbg, selectfg=self.selectfg,
@@ -9581,9 +9583,7 @@ class ServerSettings_widget(Widget):
         restart()
 
     def k4_name(self, remote_frame):
-        frame = QGroupBox('Name')
-        frame.setFont(self.label_font())
-        grid = QGridLayout(frame)
+        frame, grid = self._titled_grid('Name')
 
         name = Server.settings.get(Server.k4_section, 'name', '')
 
@@ -9592,11 +9592,8 @@ class ServerSettings_widget(Widget):
         self.dropdown.values(names)
         self.dropdown.value(name)
 
-        self.k4_name_entry = QLineEdit(name)
-        self.k4_name_entry.setFont(self.font())
-        self.k4_name_entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
+        self.k4_name_entry = self._settings_entry(name, self.set_k4_name)
         grid.addWidget(self.k4_name_entry, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.k4_name_entry.editingFinished.connect(self.set_k4_name)
 
         label = QLabel('(Erase name to remove.)')
         label.setFont(self.font())
@@ -9645,17 +9642,12 @@ class ServerSettings_widget(Widget):
         return self.k4_name_entry.text()
 
     def k4_address_settings(self, remote_frame):
-        frame = QGroupBox('Address[:Port]')
-        frame.setFont(self.label_font())
-        grid = QGridLayout(frame)
+        frame, grid = self._titled_grid('Address[:Port]')
 
         k4_address = Server.settings.get(Server.k4_section, 'address', '')
-
-        self.k4_address_entry = QLineEdit(k4_address)
-        self.k4_address_entry.setFont(self.font())
-        self.k4_address_entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
+        self.k4_address_entry = self._settings_entry(k4_address,
+                                                     self.set_k4_server_address)
         grid.addWidget(self.k4_address_entry, 0, 0)
-        self.k4_address_entry.editingFinished.connect(self.set_k4_server_address)
 
         self.set_k4_server_address()
 
@@ -9667,20 +9659,15 @@ class ServerSettings_widget(Widget):
         self.server.set_address(address)
 
     def k4_password_settings(self, remote_frame):
-        frame = QGroupBox('Password')
-        frame.setFont(self.label_font())
-        grid = QGridLayout(frame)
+        frame, grid = self._titled_grid('Password')
 
         pw = self.server.password_from_settings()
         if pw != '':
             self.server.set_password(pw)
 
-        self.password_entry = QLineEdit(pw)
-        self.password_entry.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_entry.setFont(self.font())
-        self.password_entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
+        self.password_entry = self._settings_entry(pw, self.set_k4_password,
+                                                   password=True)
         grid.addWidget(self.password_entry, 0, 0)
-        self.password_entry.editingFinished.connect(self.set_k4_password)
 
         return frame
 
@@ -9691,19 +9678,14 @@ class ServerSettings_widget(Widget):
         self.server.set_new_password(pw)
 
     def k4_proxy_settings(self, remote_frame):
-        frame = QGroupBox('SOCKS5 Address:Port')
-        frame.setFont(self.label_font())
-        grid = QGridLayout(frame)
+        frame, grid = self._titled_grid('SOCKS5 Address:Port')
 
         k4_proxy = Server.settings.get(Server.k4_section, 'proxy_address')
         if k4_proxy == None:
             k4_proxy = ''
 
-        self.k4_proxy_entry = QLineEdit(k4_proxy)
-        self.k4_proxy_entry.setFont(self.font())
-        self.k4_proxy_entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
+        self.k4_proxy_entry = self._settings_entry(k4_proxy, self.set_k4_server_proxy)
         grid.addWidget(self.k4_proxy_entry, 0, 0)
-        self.k4_proxy_entry.editingFinished.connect(self.set_k4_server_proxy)
 
         self.set_k4_server_proxy()
 
@@ -9737,15 +9719,28 @@ class AppSettings_widget(Widget):
         frame = self.audio_settings()
         self.frame.layout().addWidget(frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-    def input_device_name(self, name=None):
+    @staticmethod
+    def device_name_setting(direction, name=None):
+        # The device to use, saved first where a new one is being set.
+        # The main settings and not a server's: the device belongs to
+        # this machine, not to a particular radio.
+        setting = f'audio_{direction}_device_name'
         if name != None:
-            Settings.main().put_save('Client', 'audio_input_device_name', name)
-        return Settings.main().get('Client', 'audio_input_device_name')
+            Settings.main().put_save('Client', setting, name)
+        return Settings.main().get('Client', setting)
+
+    def input_device_name(self, name=None):
+        return self.device_name_setting('input', name)
 
     def output_device_name(self, name=None):
-        if name != None:
-            Settings.main().put_save('Client', 'audio_output_device_name', name)
-        return Settings.main().get('Client', 'audio_output_device_name')
+        return self.device_name_setting('output', name)
+
+    def _labeled_combobox(self, label, values, current_value, on_changed, justify='left'):
+        frame, combobox = qt_labeled_readonly_combobox(
+            label, self.label_font(), self.font(), values, current_value,
+            self.bg, self.fg, self.selectbg, self.selectfg, on_changed,
+            justify=justify)
+        return frame
 
     def audio_settings(self):
         frame, grid = qt_group_box('Audio Settings', self.label_font())
@@ -9755,19 +9750,14 @@ class AppSettings_widget(Widget):
         # is no exclusive mode to ask about and those rows are not there
         # at all.
         row = 0
-        audio_input_frame = self.audio_input_settings(frame)
-        grid.addWidget(audio_input_frame, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        row += 1
-        if Audio.wasapi_available():
-            audio_exclusive_input_frame = self.audio_exclusive_setting('input')
-            grid.addWidget(audio_exclusive_input_frame, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        for direction in ('input', 'output'):
+            grid.addWidget(self.audio_device_settings(direction), row, 0,
+                           Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
             row += 1
-        audio_output_frame = self.audio_output_settings(frame)
-        grid.addWidget(audio_output_frame, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        row += 1
-        if Audio.wasapi_available():
-            audio_exclusive_output_frame = self.audio_exclusive_setting('output')
-            grid.addWidget(audio_exclusive_output_frame, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            if Audio.wasapi_available():
+                grid.addWidget(self.audio_exclusive_setting(direction), row, 0,
+                               Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+                row += 1
 
         audio_k4_control_frame = self.audio_k4_control_setting()
         grid.addWidget(audio_k4_control_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -9776,47 +9766,27 @@ class AppSettings_widget(Widget):
 
         return frame
 
-    def audio_input_settings(self, frame):
-        input_device_name = self.input_device_name()
-        if input_device_name == None or Audio.input_device_index() < 0:
-            input_device_name = Audio.input_device_name()
+    def audio_device_settings(self, direction):
+        # Input and output alike, each asking Audio about its own
+        # direction. The device named in the settings, unless there is
+        # no such device to be had, in which case whichever one Audio
+        # settled on instead.
+        device_name = self.device_name_setting(direction)
+        if device_name == None or getattr(Audio, f'{direction}_device_index')() < 0:
+            device_name = getattr(Audio, f'{direction}_device_name')()
 
-        input_names = Audio.input_device_names()
+        names = getattr(Audio, f'{direction}_device_names')()
 
-        input_frame, input_combobox = qt_labeled_readonly_combobox(
-            'Current Input Device', self.label_font(), self.font(), input_names,
-            input_device_name, self.bg, self.fg, self.selectbg, self.selectfg,
-            self.on_input_combobox_changed)
+        return self._labeled_combobox(f'Current {direction.capitalize()} Device',
+            names, device_name,
+            lambda name: self.on_device_combobox_changed(direction, name))
 
-        return input_frame
-
-    def on_input_combobox_changed(self, input_name):
-        if input_name == '':
+    def on_device_combobox_changed(self, direction, name):
+        if name == '':
             return
 
-        self.input_device_name(input_name)
-        Audio.set_input_device_name(input_name)
-
-    def audio_output_settings(self, frame):
-        output_device_name = self.output_device_name()
-        if output_device_name == None or Audio.output_device_index() < 0:
-            output_device_name = Audio.output_device_name()
-
-        output_names = Audio.output_device_names()
-
-        output_frame, output_combobox = qt_labeled_readonly_combobox(
-            'Current Output Device', self.label_font(), self.font(), output_names,
-            output_device_name, self.bg, self.fg, self.selectbg, self.selectfg,
-            self.on_output_combobox_changed)
-
-        return output_frame
-
-    def on_output_combobox_changed(self, output_name):
-        if output_name == '':
-            return
-
-        self.output_device_name(output_name)
-        Audio.set_output_device_name(output_name)
+        self.device_name_setting(direction, name)
+        getattr(Audio, f'set_{direction}_device_name')(name)
 
     def audio_k4_control_setting(self):
         setting = Server.settings.getbool('Audio', 'control_k4_audio_settings')
@@ -9826,12 +9796,8 @@ class AppSettings_widget(Widget):
 
         current_value = 'Yes' if setting else 'No'
 
-        control_frame, control_combobox = qt_labeled_readonly_combobox(
-            'Control K4 Audio Settings?', self.label_font(), self.font(), ('Yes', 'No'),
-            current_value, self.bg, self.fg, self.selectbg, self.selectfg,
-            self.on_k4_control_audio_combobox_changed)
-
-        return control_frame
+        return self._labeled_combobox('Control K4 Audio Settings?', ('Yes', 'No'),
+            current_value, self.on_k4_control_audio_combobox_changed)
 
     def on_k4_control_audio_combobox_changed(self, current_value):
         if current_value == '':
@@ -9845,13 +9811,9 @@ class AppSettings_widget(Widget):
     def audio_exclusive_setting(self, direction):
         current_value = 'Yes' if Audio.wasapi_exclusive_wanted(direction) else 'No'
 
-        exclusive_frame, exclusive_combobox = qt_labeled_readonly_combobox(
-            f'Exclusive {direction.capitalize()} Device?',
-            self.label_font(), self.font(), ('Yes', 'No'),
-            current_value, self.bg, self.fg, self.selectbg, self.selectfg,
+        return self._labeled_combobox(f'Exclusive {direction.capitalize()} Device?',
+            ('Yes', 'No'), current_value,
             lambda value: self.on_exclusive_combobox_changed(direction, value))
-
-        return exclusive_frame
 
     def on_exclusive_combobox_changed(self, direction, current_value):
         if current_value == '':
@@ -9871,12 +9833,8 @@ class AppSettings_widget(Widget):
 
         values = (0, 1, 2, 3, 4, 5, 6, 7)
 
-        remote_audio_latency_frame, remote_audio_latency_combobox = qt_labeled_readonly_combobox(
-            'Remote Audio Latency', self.label_font(), self.font(), values,
-            current_value, self.bg, self.fg, self.selectbg, self.selectfg,
+        return self._labeled_combobox('Remote Audio Latency', values, current_value,
             self.on_remote_audio_latency_combobox_changed, justify='right')
-
-        return remote_audio_latency_frame
 
     def on_remote_audio_latency_combobox_changed(self, current_value):
         Server.settings.put_save('Audio', 'remote_audio_latency', current_value)
