@@ -10512,10 +10512,73 @@ class CW(TextButtons):
     tx_queue_low = 8
     singleton = None
 
+    # The responses the CW tab listens to while it is open.
+    cw_subscriptions = (
+        ('TD;', 'on_main_text_decode'),
+        ('TD$;', 'on_sub_text_decode'),
+        ('TB;', 'on_main_text_buffer'),
+        ('TB$;', 'on_sub_text_buffer'),
+        ('ACN1;', 'on_transmit_ack'),
+        ('KS;', 'on_keyer_speed_change'),
+    )
+
     @classmethod
     def close_window(cls):
         if cls.singleton != None:
             cls.singleton.close()
+
+    @staticmethod
+    def _plain_frame():
+        # A bare frame to group widgets in, with no margins of its own.
+        frame = QWidget()
+        grid = QGridLayout(frame)
+        grid.setContentsMargins(0, 0, 0, 0)
+        return frame, grid
+
+    def _dropdown(self, parent, on_select, justify, **options):
+        dropdown = Dropdown_Widget(parent, bd=2, bg=self.bg, fg=self.fg,
+            abg=self.abg, selectbg=self.bg, selectfg=self.fg, font=self.font(),
+            justify=justify, **options)
+        dropdown.grid(row=0, column=0)
+        dropdown.select_callback(on_select)
+        return dropdown
+
+    def _dropdown_frame(self, name, title, values, on_select, apply_value=None):
+        # A group box holding one dropdown, its title sized tight to its
+        # text, kept as <name>_frame and <name>_dropdown. apply_value,
+        # where given, is called once the dropdown has its values, to
+        # give the keyer the setting it starts with.
+        frame = QGroupBox(title)
+        frame.setFont(self.label_font())
+        QGridLayout(frame)
+        setattr(self, f'{name}_frame', frame)
+        setattr(self, f'{name}_dropdown',
+                self._dropdown(frame, on_select, 'right', state='normal'))
+        getattr(self, f'{name}_dropdown').values(values)
+        if apply_value != None:
+            apply_value()
+        qt_size_tight_groupbox_title(frame, title, self.label_font())
+        return frame
+
+    @staticmethod
+    def _selected_value(dropdown, apply_value, convert=None):
+        # What the dropdown now shows, to the keyer -- and the keyer's own
+        # value back to the dropdown where it does not take it.
+        try:
+            value = dropdown.value()
+            apply_value(convert(value) if convert != None else value)
+        except:
+            apply_value()
+
+    def _labeled_combobox(self, label, values, current_value, on_changed,
+                          justify, select_colors=False):
+        frame, combobox = qt_labeled_readonly_combobox(
+            label, self.label_font(), self.font(), values, current_value,
+            self.bg, self.fg,
+            self.selectbg if select_colors else self.bg,
+            self.selectfg if select_colors else self.fg,
+            on_changed, justify=justify)
+        return frame
 
     def __init__(self, config_info, container):
         required = ['item']
@@ -10547,6 +10610,12 @@ class CW(TextButtons):
         CW.singleton = self
         self.is_open = False
         self._key_filter = None
+
+        # The dit and dah halves of the paddle settings, each built by
+        # the same code and told apart by these.
+        self.memory_delay_percent_frame = {}
+        self.memory_delay_percent_entry = {}
+        self.auto_space = {}
 
         # Built now rather than in add_keying_tab(), which doesn't run
         # until the window is first opened: constructing these widgets is
@@ -10620,28 +10689,20 @@ class CW(TextButtons):
         self.main_enabled = False
         self.sub_enabled = False
 
-        self.cw_controls_frame = QWidget()
-        controls_grid = QGridLayout(self.cw_controls_frame)
-        controls_grid.setContentsMargins(0, 0, 0, 0)
+        self.cw_controls_frame, controls_grid = self._plain_frame()
         cw_grid.addWidget(self.cw_controls_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.add_cw_controls(self.cw_controls_frame)
 
         self.add_more_widgets(cw_grid)
 
-        self.buttons_and_text_frame = QWidget()
-        bat_grid = QGridLayout(self.buttons_and_text_frame)
-        bat_grid.setContentsMargins(0, 0, 0, 0)
+        self.buttons_and_text_frame, bat_grid = self._plain_frame()
         cw_grid.addWidget(self.buttons_and_text_frame, 4, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        self.buttons_frame = QWidget()
-        buttons_grid = QGridLayout(self.buttons_frame)
-        buttons_grid.setContentsMargins(0, 0, 0, 0)
+        self.buttons_frame, buttons_grid = self._plain_frame()
         bat_grid.addWidget(self.buttons_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.add_buttons(self.buttons, self.buttons_frame, edit=False)
 
-        self.text_fields_frame = QWidget()
-        text_fields_grid = QGridLayout(self.text_fields_frame)
-        text_fields_grid.setContentsMargins(0, 0, 0, 0)
+        self.text_fields_frame, text_fields_grid = self._plain_frame()
         bat_grid.addWidget(self.text_fields_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.add_text_fields(self.text_fields_frame)
 
@@ -10649,17 +10710,11 @@ class CW(TextButtons):
         self.tx_remaining_count = 0
         self.sending = False
 
-        self.server.subscribe_response('TD;', self.on_main_text_decode)
-        self.server.subscribe_response('TD$;', self.on_sub_text_decode)
-        self.server.subscribe_response('TB;', self.on_main_text_buffer)
-        self.server.subscribe_response('TB$;', self.on_sub_text_buffer)
-        self.server.subscribe_response('ACN1;', self.on_transmit_ack)
-        self.server.subscribe_response('KS;', self.on_keyer_speed_change)
+        for response, handler in self.cw_subscriptions:
+            self.server.subscribe_response(response, getattr(self, handler))
 
     def add_more_widgets(self, cw_grid):
-        self.qsk_frame = QWidget()
-        qsk_grid = QGridLayout(self.qsk_frame)
-        qsk_grid.setContentsMargins(0, 0, 0, 0)
+        self.qsk_frame, qsk_grid = self._plain_frame()
         cw_grid.addWidget(self.qsk_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         qsk_onoff_frame, qsk_onoff_grid = qt_group_box('QSK', self.label_font())
         qsk_grid.addWidget(qsk_onoff_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -10686,9 +10741,7 @@ class CW(TextButtons):
         delay_frame, delay_grid = qt_group_box('Delay', self.label_font())
         qsk_grid.addWidget(delay_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        delay_slider_frame = QWidget()
-        delay_slider_grid = QGridLayout(delay_slider_frame)
-        delay_slider_grid.setContentsMargins(0, 0, 0, 0)
+        delay_slider_frame, delay_slider_grid = self._plain_frame()
         delay_grid.addWidget(delay_slider_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         delay_slider_options = {
             'orient': 'horizontal', 'from': 0, 'to': 2.55, 'length': 110,
@@ -10721,125 +10774,67 @@ class CW(TextButtons):
         }
         self.key_down_delay = SliderWidget(self, key_down_delay_frame, key_down_delay_options)
 
-        decode_frame = QWidget()
-        decode_grid = QGridLayout(decode_frame)
-        decode_grid.setContentsMargins(0, 0, 0, 0)
+        decode_frame, decode_grid = self._plain_frame()
         cw_grid.addWidget(decode_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        main_decode_frame, main_decode_grid = qt_group_box('Main Decode', self.label_font())
-        decode_grid.addWidget(main_decode_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        main_wpm_frame, main_wpm_grid = qt_group_box('WPM', self.label_font())
-        main_decode_grid.addWidget(main_wpm_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        main_wpm_options = {
-            'selections': [
-                { 'text': ' Off', 'cmd': 'TD0;', 'evalcmd': '"TD0{v};".format(v=self.k4param("TD")[1:3])', 'evalresponse': 'value[0:3]+";"' },
-                { 'text': '8-45', 'cmd': 'TD2;', 'evalcmd': '"TD2{v};".format(v=self.k4param("TD")[1:3])', 'evalresponse': 'value[0:3]+";"' },
-                { 'text': '8-60', 'cmd': 'TD3;', 'evalcmd': '"TD3{v};".format(v=self.k4param("TD")[1:3])', 'evalresponse': 'value[0:3]+";"' },
-                { 'text': '8-90', 'cmd': 'TD4;', 'evalcmd': '"TD4{v};".format(v=self.k4param("TD")[1:3])', 'evalresponse': 'value[0:3]+";"' },
-            ],
-            'width': 4, 'bg': self.bg, 'fg': self.fg, 'selectbg': self.bg, 'selectfg': self.fg, 'font': self.font(),
-        }
+        for column, (title, base) in enumerate((('Main Decode', 'TD'),
+                                                ('Sub Decode', 'TD$'))):
+            receiver_frame, receiver_grid = qt_group_box(title, self.label_font())
+            decode_grid.addWidget(receiver_frame, 0, column, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            wpm_selections, threshold_selections = self.decode_selections(base)
+            for sub_column, (sub_title, selections) in enumerate(
+                    (('WPM', wpm_selections), ('THR', threshold_selections))):
+                frame, grid = qt_group_box(sub_title, self.label_font())
+                receiver_grid.addWidget(frame, 0, sub_column, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+                options = {
+                    'selections': selections,
+                    'width': 4, 'bg': self.bg, 'fg': self.fg,
+                    'selectbg': self.bg, 'selectfg': self.fg, 'font': self.font(),
+                }
+                DropdownWidget(self, frame, options)
 
-        DropdownWidget(self, main_wpm_frame, main_wpm_options)
-
-        main_threshold_frame, main_threshold_grid = qt_group_box('THR', self.label_font())
-        main_decode_grid.addWidget(main_threshold_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        main_threshold_options = {
-            'selections': [
-                { 'text': 'Auto', 'cmd': 'TD0;', 'evalcmd': '"TD{m}0{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])',
-                    'evalresponse': 'value[0:2]+value[3]+";"' },
-                { 'text': '   1', 'cmd': 'TD1;', 'evalcmd': '"TD{m}1{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])',
-                    'evalresponse': 'value[0:2]+value[3]+";"' },
-                { 'text': '   2', 'cmd': 'TD2;', 'evalcmd': '"TD{m}2{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])',
-                    'evalresponse': 'value[0:2]+value[3]+";"' },
-                { 'text': '   3', 'cmd': 'TD3;', 'evalcmd': '"TD{m}3{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])',
-                    'evalresponse': 'value[0:2]+value[3]+";"' },
-                { 'text': '   4', 'cmd': 'TD4;', 'evalcmd': '"TD{m}4{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])',
-                    'evalresponse': 'value[0:2]+value[3]+";"' },
-                { 'text': '   5', 'cmd': 'TD5;', 'evalcmd': '"TD{m}5{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])',
-                    'evalresponse': 'value[0:2]+value[3]+";"' },
-                { 'text': '   6', 'cmd': 'TD6;', 'evalcmd': '"TD{m}6{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])',
-                    'evalresponse': 'value[0:2]+value[3]+";"' },
-                { 'text': '   7', 'cmd': 'TD7;', 'evalcmd': '"TD{m}7{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])',
-                    'evalresponse': 'value[0:2]+value[3]+";"' },
-                { 'text': '   8', 'cmd': 'TD8;', 'evalcmd': '"TD{m}8{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])',
-                    'evalresponse': 'value[0:2]+value[3]+";"' },
-                { 'text': '   9', 'cmd': 'TD9;', 'evalcmd': '"TD{m}9{v};".format(m=self.k4param("TD")[0], v=self.k4param("TD")[2])',
-                    'evalresponse': 'value[0:2]+value[3]+";"' },
-            ],
-            'width': 4, 'bg': self.bg, 'fg': self.fg, 'selectbg': self.bg, 'selectfg': self.fg, 'font': self.font(),
-        }
-        DropdownWidget(self, main_threshold_frame, main_threshold_options)
-
-        sub_decode_frame, sub_decode_grid = qt_group_box('Sub Decode', self.label_font())
-        decode_grid.addWidget(sub_decode_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        sub_wpm_frame, sub_wpm_grid = qt_group_box('WPM', self.label_font())
-        sub_decode_grid.addWidget(sub_wpm_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        sub_wpm_options = {
-            'selections': [
-                { 'text': ' Off', 'cmd': 'TD$0;', 'evalcmd': '"TD$0{v};".format(v=self.k4param("TD$")[1:3])', 'evalresponse': 'value[0:4]+";"' },
-                { 'text': '8-45', 'cmd': 'TD$2;', 'evalcmd': '"TD$2{v};".format(v=self.k4param("TD$")[1:3])', 'evalresponse': 'value[0:4]+";"' },
-                { 'text': '8-60', 'cmd': 'TD$3;', 'evalcmd': '"TD$3{v};".format(v=self.k4param("TD$")[1:3])', 'evalresponse': 'value[0:4]+";"' },
-                { 'text': '8-90', 'cmd': 'TD$4;', 'evalcmd': '"TD$4{v};".format(v=self.k4param("TD$")[1:3])', 'evalresponse': 'value[0:4]+";"' },
-            ],
-            'width': 4, 'bg': self.bg, 'fg': self.fg, 'selectbg': self.bg, 'selectfg': self.fg, 'font': self.font(),
-        }
-
-        DropdownWidget(self, sub_wpm_frame, sub_wpm_options)
-
-        sub_threshold_frame, sub_threshold_grid = qt_group_box('THR', self.label_font())
-        sub_decode_grid.addWidget(sub_threshold_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        sub_threshold_options = {
-            'selections': [
-                { 'text': 'Auto', 'cmd': 'TD$0;', 'evalcmd': '"TD${m}0{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])',
-                    'evalresponse': 'value[0:3]+value[4]+";"' },
-                { 'text': '   1', 'cmd': 'TD$1;', 'evalcmd': '"TD${m}1{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])',
-                    'evalresponse': 'value[0:3]+value[4]+";"' },
-                { 'text': '   2', 'cmd': 'TD$2;', 'evalcmd': '"TD${m}2{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])',
-                    'evalresponse': 'value[0:3]+value[4]+";"' },
-                { 'text': '   3', 'cmd': 'TD$3;', 'evalcmd': '"TD${m}3{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])',
-                    'evalresponse': 'value[0:3]+value[4]+";"' },
-                { 'text': '   4', 'cmd': 'TD$4;', 'evalcmd': '"TD${m}4{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])',
-                    'evalresponse': 'value[0:3]+value[4]+";"' },
-                { 'text': '   5', 'cmd': 'TD$5;', 'evalcmd': '"TD${m}5{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])',
-                    'evalresponse': 'value[0:3]+value[4]+";"' },
-                { 'text': '   6', 'cmd': 'TD$6;', 'evalcmd': '"TD${m}6{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])',
-                    'evalresponse': 'value[0:3]+value[4]+";"' },
-                { 'text': '   7', 'cmd': 'TD$7;', 'evalcmd': '"TD${m}7{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])',
-                    'evalresponse': 'value[0:3]+value[4]+";"' },
-                { 'text': '   8', 'cmd': 'TD$8;', 'evalcmd': '"TD${m}8{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])',
-                    'evalresponse': 'value[0:3]+value[4]+";"' },
-                { 'text': '   9', 'cmd': 'TD$9;', 'evalcmd': '"TD${m}9{v};".format(m=self.k4param("TD$")[0], v=self.k4param("TD$")[2])',
-                    'evalresponse': 'value[0:3]+value[4]+";"' },
-            ],
-            'width': 4, 'bg': self.bg, 'fg': self.fg, 'selectbg': self.bg, 'selectfg': self.fg, 'font': self.font(),
-        }
-        DropdownWidget(self, sub_threshold_frame, sub_threshold_options)
+    @staticmethod
+    def decode_selections(base):
+        # The decode dropdowns' selections, for TD (main) or TD$ (sub).
+        # The two differ only in that base -- and so in where in the
+        # response's own text each digit falls.
+        digits = len(base)
+        wpm = [
+            {
+                'text': text,
+                'cmd': f'{base}{digit};',
+                'evalcmd': f'"{base}{digit}{{v}};".format(v=self.k4param("{base}")[1:3])',
+                'evalresponse': f'value[0:{digits + 1}]+";"',
+            }
+            for text, digit in ((' Off', 0), ('8-45', 2), ('8-60', 3), ('8-90', 4))
+        ]
+        threshold = [
+            {
+                'text': text,
+                'cmd': f'{base}{digit};',
+                'evalcmd': f'"{base}{{m}}{digit}{{v}};".format('
+                           f'm=self.k4param("{base}")[0], v=self.k4param("{base}")[2])',
+                'evalresponse': f'value[0:{digits}]+value[{digits + 1}]+";"',
+            }
+            for text, digit in [('Auto', 0)] + [(f'{digit:>4}', digit)
+                                                for digit in range(1, 10)]
+        ]
+        return wpm, threshold
 
     def add_config_tab(self):
         self.config_frame = QWidget()
         config_grid = QGridLayout(self.config_frame)
         self.add_tab(self.config_frame, 'Configure')
 
-        top_frame = QWidget()
-        top_grid = QGridLayout(top_frame)
-        top_grid.setContentsMargins(0, 0, 0, 0)
+        top_frame, top_grid = self._plain_frame()
         config_grid.addWidget(top_frame, 0, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-        self.cancel_button = QPushButton('Cancel')
-        self.cancel_button.setFont(self.font())
-        self.cancel_button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.bg, self.fg))
-        self.cancel_button.clicked.connect(self.on_cancel_button)
+        self.cancel_button = self._config_button('Cancel', self.on_cancel_button)
         top_grid.addWidget(self.cancel_button, 0, 0)
 
-        self.save_button = QPushButton('Save')
-        self.save_button.setFont(self.font())
-        self.save_button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.bg, self.fg))
-        self.save_button.clicked.connect(self.on_save_button)
+        self.save_button = self._config_button('Save', self.on_save_button)
         top_grid.addWidget(self.save_button, 0, 1)
 
-        info_frame = QWidget()
-        info_grid = QGridLayout(info_frame)
-        info_grid.setContentsMargins(0, 0, 0, 0)
+        info_frame, info_grid = self._plain_frame()
         config_grid.addWidget(info_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         text = '''The first 12 values are bound to function keys.
 
@@ -10850,17 +10845,20 @@ and everything after the & is sent.'''
         info.setStyleSheet(f'background-color: {self.bg};')
         info_grid.addWidget(info, 0, 0)
 
-        self.config_buttons_frame = QWidget()
-        config_buttons_grid = QGridLayout(self.config_buttons_frame)
-        config_buttons_grid.setContentsMargins(0, 0, 0, 0)
+        self.config_buttons_frame, config_buttons_grid = self._plain_frame()
         config_grid.addWidget(self.config_buttons_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
 
-        config_vars_frame = QWidget()
-        config_vars_grid = QGridLayout(config_vars_frame)
-        config_vars_grid.setContentsMargins(0, 0, 0, 0)
+        config_vars_frame, config_vars_grid = self._plain_frame()
         config_grid.addWidget(config_vars_frame, 3, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.add_config_vars(config_vars_frame)
+
+    def _config_button(self, text, on_clicked):
+        button = QPushButton(text)
+        button.setFont(self.font())
+        button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.bg, self.fg))
+        button.clicked.connect(on_clicked)
+        return button
 
     def set_geometry(self):
         Server.settings.load()
@@ -10869,17 +10867,9 @@ and everything after the & is sent.'''
             return
         w, h, x, y = split_geometry(geometry)
         screen = QApplication.primaryScreen().availableGeometry()
-        screen_width, screen_height = screen.width(), screen.height()
-        x_offset = screen_width - (x + w)
-        y_offset = screen_height - (y + h)
-        if x_offset < 0:
-            x += x_offset
-        if y_offset < 0:
-            y += y_offset
-        if x < 0:
-            x = 0
-        if y < 0:
-            y = 0
+        # Pulled back onto the screen, and never past its top left.
+        x = max(0, min(x, screen.width() - w))
+        y = max(0, min(y, screen.height() - h))
         self.top_level.move(x, y)
 
     def add_cw_controls(self, parent_frame):
@@ -10905,53 +10895,38 @@ and everything after the & is sent.'''
         }
         self.keyer_speed = SliderWidget(self, self.keyer_speed_frame, keyer_speed_options)
 
-        self.apf_frame = QWidget()
-        apf_grid = QGridLayout(self.apf_frame)
-        apf_grid.setContentsMargins(0, 0, 0, 0)
+        self.apf_frame, apf_grid = self._plain_frame()
         parent_frame.layout().addWidget(self.apf_frame, 0, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        main_apf_frame, main_apf_grid = qt_group_box('Main APF', self.label_font())
-        apf_grid.addWidget(main_apf_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        main_apf_options = {
-            'selections': [
-                { 'text':    'Off', 'cmd': 'AP00;' },
-                { 'text':  '30 Hz', 'cmd': 'AP10;', 'bg': 'yellow' },
-                { 'text':  '50 Hz', 'cmd': 'AP11;', 'bg': 'yellow' },
-                { 'text': '150 Hz', 'cmd': 'AP12;', 'bg': 'yellow' },
-            ],
-            'width': 6, 'bg': self.bg, 'fg': self.fg, 'font': self.font(),
-        }
-        ToggleWidget(self, main_apf_frame, main_apf_options)
-
-        sub_apf_frame, sub_apf_grid = qt_group_box('Sub APF', self.label_font())
-        apf_grid.addWidget(sub_apf_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        sub_apf_options = {
-            'selections': [
-                { 'text':    'Off', 'cmd': 'AP$00;' },
-                { 'text':  '30 Hz', 'cmd': 'AP$10;', 'bg': 'yellow' },
-                { 'text':  '50 Hz', 'cmd': 'AP$11;', 'bg': 'yellow' },
-                { 'text': '150 Hz', 'cmd': 'AP$12;', 'bg': 'yellow' },
-            ],
-            'width': 6, 'bg': self.bg, 'fg': self.fg, 'font': self.font(),
-        }
-        ToggleWidget(self, sub_apf_frame, sub_apf_options)
+        # Main and sub alike, differing only in the AP/AP$ base. Off is
+        # the plain state; every filter width is marked.
+        for column, (title, base) in enumerate((('Main APF', 'AP'), ('Sub APF', 'AP$'))):
+            apf_frame, apf_frame_grid = qt_group_box(title, self.label_font())
+            apf_grid.addWidget(apf_frame, 0, column, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            selections = []
+            for text, code in (('Off', '00'), ('30 Hz', '10'),
+                               ('50 Hz', '11'), ('150 Hz', '12')):
+                selection = {'text': text, 'cmd': f'{base}{code};'}
+                if code != '00':
+                    selection['bg'] = 'yellow'
+                selections.append(selection)
+            apf_options = {
+                'selections': selections,
+                'width': 6, 'bg': self.bg, 'fg': self.fg, 'font': self.font(),
+            }
+            ToggleWidget(self, apf_frame, apf_options)
 
         self.autospot_frame, autospot_grid = qt_group_box('Autospot', self.label_font())
         parent_frame.layout().addWidget(self.autospot_frame, 0, 3, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        self.main_spot_button = QPushButton('Main')
-        self.main_spot_button.setFont(self.font())
-        self.main_spot_button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.abg, self.afg))
-        self.main_spot_button.setMinimumWidth(5 * QFontMetrics(self.font()).averageCharWidth())
-        self.main_spot_button.clicked.connect(lambda: self.server.send_cmds('SP3;'))
-        autospot_grid.addWidget(self.main_spot_button, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        self.sub_spot_button = QPushButton('Sub')
-        self.sub_spot_button.setFont(self.font())
-        self.sub_spot_button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.abg, self.afg))
-        self.sub_spot_button.setMinimumWidth(5 * QFontMetrics(self.font()).averageCharWidth())
-        self.sub_spot_button.clicked.connect(lambda: self.server.send_cmds('SP$3;'))
-        autospot_grid.addWidget(self.sub_spot_button, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        for column, (text, cmd) in enumerate((('Main', 'SP3;'), ('Sub', 'SP$3;'))):
+            button = QPushButton(text)
+            button.setFont(self.font())
+            button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.abg, self.afg))
+            button.setMinimumWidth(5 * QFontMetrics(self.font()).averageCharWidth())
+            button.clicked.connect(lambda checked=False, cmd=cmd: self.server.send_cmds(cmd))
+            autospot_grid.addWidget(button, 0, column, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            setattr(self, f'{text.lower()}_spot_button', button)
 
     def _size_cw_text(self, cw_text, height_lines):
         cw_text.max_lines = height_lines
@@ -10991,39 +10966,30 @@ and everything after the & is sent.'''
         self.entry_frame, entry_grid = qt_group_box(
             'Delayed Tx (Press Enter key to send, Delete key to clear)', self.label_font())
         parent_frame.layout().addWidget(self.entry_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.entry_text = CWText()
-        self.entry_text.setFont(self.monospaced_font)
-        self.entry_text.setStyleSheet(f'QPlainTextEdit {{ background-color: {self.bg}; color: {self.fg}; }}')
-        self._size_cw_text(self.entry_text, self.entry_height)
-        entry_grid.addWidget(self.entry_text, 0, 0)
+        self.entry_text = self._add_cw_text(entry_grid, self.entry_height)
 
         self.tx_frame, tx_grid = qt_group_box(
             'Immediate Tx (Press Escape key to stop sending.)', self.label_font())
         parent_frame.layout().addWidget(self.tx_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.tx_text = CWText()
-        self.tx_text.setReadOnly(True)
-        self.tx_text.setFont(self.monospaced_font)
-        self.tx_text.setStyleSheet(f'QPlainTextEdit {{ background-color: {self.bg}; color: {self.fg}; }}')
-        self._size_cw_text(self.tx_text, self.tx_height)
-        tx_grid.addWidget(self.tx_text, 0, 0)
+        self.tx_text = self._add_cw_text(tx_grid, self.tx_height, read_only=True)
 
         self.main_frame, main_grid = qt_group_box('Main Rx', self.label_font())
-        self.main_text = CWText()
-        self.main_text.setReadOnly(True)
-        self.main_text.setFont(self.monospaced_font)
-        self.main_text.setStyleSheet(f'QPlainTextEdit {{ background-color: {self.bg}; color: {self.fg}; }}')
-        self._size_cw_text(self.main_text, self.rx_height)
-        main_grid.addWidget(self.main_text, 0, 0)
+        self.main_text = self._add_cw_text(main_grid, self.rx_height, read_only=True)
 
         self.sub_frame, sub_grid = qt_group_box('Sub Rx', self.label_font())
-        self.sub_text = CWText()
-        self.sub_text.setReadOnly(True)
-        self.sub_text.setFont(self.monospaced_font)
-        self.sub_text.setStyleSheet(f'QPlainTextEdit {{ background-color: {self.bg}; color: {self.fg}; }}')
-        self._size_cw_text(self.sub_text, self.rx_height)
-        sub_grid.addWidget(self.sub_text, 0, 0)
+        self.sub_text = self._add_cw_text(sub_grid, self.rx_height, read_only=True)
 
         self.config_cw_fields()
+
+    def _add_cw_text(self, grid, height_lines, read_only=False):
+        cw_text = CWText()
+        if read_only:
+            cw_text.setReadOnly(True)
+        cw_text.setFont(self.monospaced_font)
+        cw_text.setStyleSheet(f'QPlainTextEdit {{ background-color: {self.bg}; color: {self.fg}; }}')
+        self._size_cw_text(cw_text, height_lines)
+        grid.addWidget(cw_text, 0, 0)
+        return cw_text
 
     def add_config_vars(self, parent_frame):
         super().add_config_vars(parent_frame)
@@ -11060,12 +11026,8 @@ and everything after the & is sent.'''
         if self.tx_remaining_count > 0:
             self.stop_sending()
         Poll.remove(self.send_cw)
-        self.server.unsubscribe_response('TD;', self.on_main_text_decode)
-        self.server.unsubscribe_response('TD$;', self.on_sub_text_decode)
-        self.server.unsubscribe_response('TB;', self.on_main_text_buffer)
-        self.server.unsubscribe_response('TB$;', self.on_sub_text_buffer)
-        self.server.unsubscribe_response('ACN1;', self.on_transmit_ack)
-        self.server.unsubscribe_response('KS;', self.on_keyer_speed_change)
+        for response, handler in self.cw_subscriptions:
+            self.server.unsubscribe_response(response, getattr(self, handler))
 
         self.is_open = False
         self.top_level.deleteLater()
@@ -11142,21 +11104,17 @@ and everything after the & is sent.'''
             self.update_sending_offset()
 
     def on_main_text_decode(self, response):
-        previous = self.main_enabled
-        if self.k4param('TD')[0] == '0':
-            self.main_enabled = False
-        else:
-            self.main_enabled = True
-        if self.main_enabled != previous:
-            self.config_cw_fields()
+        self._text_decode_changed('main_enabled', 'TD')
 
     def on_sub_text_decode(self, response):
-        previous = self.sub_enabled
-        if self.k4param('TD$')[0] == '0':
-            self.sub_enabled = False
-        else:
-            self.sub_enabled = True
-        if self.sub_enabled != previous:
+        self._text_decode_changed('sub_enabled', 'TD$')
+
+    def _text_decode_changed(self, attribute, base):
+        # Whether that receiver is decoding at all, which decides whether
+        # its text field is shown.
+        enabled = self.k4param(base)[0] != '0'
+        if enabled != getattr(self, attribute):
+            setattr(self, attribute, enabled)
             self.config_cw_fields()
 
     def config_cw_fields(self):
@@ -11297,22 +11255,12 @@ and everything after the & is sent.'''
     def on_save_button(self):
         super().on_save_button()
 
-        try:
-            self.text_width = int(self.text_width_entry.text())
-        except:
-            self.text_width_entry.setText(str(self.text_width))
-        try:
-            self.entry_height = int(self.entry_height_entry.text())
-        except:
-            self.entry_height_entry.setText(str(self.entry_height))
-        try:
-            self.tx_height = int(self.tx_height_entry.text())
-        except:
-            self.tx_height_entry.setText(str(self.tx_height))
-        try:
-            self.rx_height = int(self.rx_height_entry.text())
-        except:
-            self.rx_height_entry.setText(str(self.rx_height))
+        for name in ('text_width', 'entry_height', 'tx_height', 'rx_height'):
+            entry = getattr(self, f'{name}_entry')
+            try:
+                setattr(self, name, int(entry.text()))
+            except:
+                entry.setText(str(getattr(self, name)))
         self.save_settings()
         self.config_cw_fields()
         self.select_tab('CW')
@@ -11320,9 +11268,8 @@ and everything after the & is sent.'''
     def on_cancel_button(self):
         super().on_cancel_button()
 
-        self.entry_height_entry.setText(str(self.entry_height))
-        self.tx_height_entry.setText(str(self.tx_height))
-        self.rx_height_entry.setText(str(self.rx_height))
+        for name in ('entry_height', 'tx_height', 'rx_height'):
+            getattr(self, f'{name}_entry').setText(str(getattr(self, name)))
         self.config_cw_fields()
         self.select_tab('CW')
 
@@ -11441,16 +11388,12 @@ and everything after the & is sent.'''
         setting_name = 'dit_paddle_midi_note'
         if Keyer.device_type_straight_key:
             setting_name = 'straight_key_midi_note'
-        if note != None:
-            Settings.main().put_save('Keyer', setting_name, note)
-        note = Settings.main().getint('Keyer', setting_name, 20)
+        note = self._keyer_setting(setting_name, 20, note, integer=True)
         self.dit_paddle_note_dropdown.value(note)
         Keyer.set_dit_paddle_notes([note])
 
     def keyer_dah_paddle_note(self, note=None):
-        if note != None:
-            Settings.main().put_save('Keyer', 'dah_paddle_note', note)
-        note = Settings.main().getint('Keyer', 'dah_paddle_note', 21)
+        note = self._keyer_setting('dah_paddle_note', 21, note, integer=True)
         self.dah_paddle_note_dropdown.value(note)
         Keyer.set_dah_paddle_notes([note])
 
@@ -11458,43 +11401,54 @@ and everything after the & is sent.'''
         setting_name = 'dit_paddle_serial_signal'
         if Keyer.device_type_straight_key:
             setting_name = 'straight_key_serial_signal'
-        if signal != None:
-            Settings.main().put_save('Keyer', setting_name, signal)
-        signal = Settings.main().get('Keyer', setting_name, 'DSR')
+        signal = self._keyer_setting(setting_name, 'DSR', signal)
         self.dit_paddle_signal_dropdown.value(signal)
         Keyer.set_dit_paddle_signal(signal)
         return signal
 
     def keyer_dah_paddle_signal(self, signal=None):
-        if signal != None:
-            Settings.main().put_save('Keyer', 'dah_paddle_serial_signal', signal)
-        signal = Settings.main().get('Keyer', 'dah_paddle_serial_signal', 'DCD')
+        signal = self._keyer_setting('dah_paddle_serial_signal', 'DCD', signal)
         self.dah_paddle_signal_dropdown.value(signal)
         Keyer.set_dah_paddle_signal(signal)
         return signal
 
-    def keyer_dit_memory_delay_percent(self, percent=None):
-        if percent != None:
-            Settings.main().put_save('Keyer', 'dit_up_memory_delay_percent', percent)
-        percent = Settings.main().getint('Keyer', 'dit_up_memory_delay_percent', 33)
-        self.set_dit_memory_delay_percent_text(percent)
-        Keyer.set_dit_up_memory_delay_percent(percent)
+    @staticmethod
+    def _keyer_setting(name, default, value=None, integer=False):
+        # A keyer setting in the main settings file: saved first where a
+        # new value is being set, and read back either way.
+        if value != None:
+            Settings.main().put_save('Keyer', name, value)
+        if integer:
+            return Settings.main().getint('Keyer', name, default)
+        return Settings.main().get('Keyer', name, default)
+
+    # The dit and dah memory delays: the group box's title, the setting
+    # kept in the main settings file, and what it holds until one is.
+    memory_delay_percent_settings = {
+        'dit': ('Dit Mem %', 'dit_up_memory_delay_percent', 33),
+        'dah': ('Dah Mem %', 'dah_up_memory_delay_percent', 0),
+    }
+
+    def keyer_memory_delay_percent(self, side, percent=None):
+        title, name, default = self.memory_delay_percent_settings[side]
+        percent = self._keyer_setting(name, default, percent, integer=True)
+        self.set_memory_delay_percent_text(side, percent)
+        if side == 'dit':
+            Keyer.set_dit_up_memory_delay_percent(percent)
+        else:
+            Keyer.set_dah_up_memory_delay_percent(percent)
         return percent
 
+    def keyer_dit_memory_delay_percent(self, percent=None):
+        return self.keyer_memory_delay_percent('dit', percent)
+
     def keyer_dah_memory_delay_percent(self, percent=None):
-        if percent != None:
-            Settings.main().put_save('Keyer', 'dah_up_memory_delay_percent', percent)
-        percent = Settings.main().getint('Keyer', 'dah_up_memory_delay_percent', 0)
-        self.set_dah_memory_delay_percent_text(percent)
-        Keyer.set_dah_up_memory_delay_percent(percent)
-        return percent
+        return self.keyer_memory_delay_percent('dah', percent)
 
     def keyer_settings(self):
         frame, grid = qt_group_box('Keyer Settings', self.label_font())
 
-        note_frame = QWidget()
-        note_grid = QGridLayout(note_frame)
-        note_grid.setContentsMargins(0, 0, 0, 0)
+        note_frame, note_grid = self._plain_frame()
         grid.addWidget(note_frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.keyer_dit_paddle_note_frame = self.keyer_dit_paddle_note_settings(note_frame)
         self.keyer_dah_paddle_note_frame = self.keyer_dah_paddle_note_settings(note_frame)
@@ -11513,9 +11467,7 @@ and everything after the & is sent.'''
         return frame
 
     def keyer_controls_settings(self, grid):
-        self.keyer_controls_frame = QWidget()
-        controls_grid = QGridLayout(self.keyer_controls_frame)
-        controls_grid.setContentsMargins(0, 0, 0, 0)
+        self.keyer_controls_frame, controls_grid = self._plain_frame()
         grid.addWidget(self.keyer_controls_frame, 5, 0,  Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         weighting_frame = self.weighting_setting()
@@ -11533,12 +11485,9 @@ and everything after the & is sent.'''
 
         current_value = 'Yes' if setting else 'No'
 
-        sidetone_frame, sidetone_combobox = qt_labeled_readonly_combobox(
-            'Generate Sidetone?', self.label_font(), self.font(), ('Yes', 'No'),
-            current_value, self.bg, self.fg, self.selectbg, self.selectfg,
-            self.on_enable_sidetone_combobox_changed)
-
-        return sidetone_frame
+        return self._labeled_combobox('Generate Sidetone?', ('Yes', 'No'),
+            current_value, self.on_enable_sidetone_combobox_changed,
+            justify='left', select_colors=True)
 
     def on_enable_sidetone_combobox_changed(self, current_value):
         if current_value == '':
@@ -11551,14 +11500,8 @@ and everything after the & is sent.'''
 
     def keyer_device_type_settings(self, frame):
         keyer_device_type_frame, keyer_device_type_grid = qt_group_box('Device Type', self.label_font())
-        selectbg = self.bg
-        selectfg = self.fg
-        self.keyer_device_type_dropdown = Dropdown_Widget(keyer_device_type_frame, bd=2,
-            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
-            font=self.font(), justify='left')
-        self.keyer_device_type_dropdown.grid(row=0, column=0)
-
-        self.keyer_device_type_dropdown.select_callback(self.on_select_device_type)
+        self.keyer_device_type_dropdown = self._dropdown(keyer_device_type_frame,
+            self.on_select_device_type, 'left')
 
         device_types = (
             'None',
@@ -11603,11 +11546,11 @@ and everything after the & is sent.'''
             self.fill_keyer_modes()
             self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
         if not Keyer.device_type_vail_adapter and Keyer.keyer_mode == Keyer.MODE_IAMBIC_B:
-            self._show(self.keyer_mode_frame, self.keyer_dit_memory_delay_percent_frame, 0, 1)
-            self._show(self.keyer_mode_frame, self.keyer_dah_memory_delay_percent_frame, 0, 2)
+            self._show(self.keyer_mode_frame, self.memory_delay_percent_frame['dit'], 0, 1)
+            self._show(self.keyer_mode_frame, self.memory_delay_percent_frame['dah'], 0, 2)
         else:
-            self._hide(self.keyer_mode_frame, self.keyer_dit_memory_delay_percent_frame)
-            self._hide(self.keyer_mode_frame, self.keyer_dah_memory_delay_percent_frame)
+            self._hide(self.keyer_mode_frame, self.memory_delay_percent_frame['dit'])
+            self._hide(self.keyer_mode_frame, self.memory_delay_percent_frame['dah'])
 
     def disable_midi_device_frame(self):
         self._hide(self.keyer_settings_frame, self.midi_device_frame)
@@ -11615,8 +11558,8 @@ and everything after the & is sent.'''
         self._hide(self.serial_signal_frame, self.keyer_dit_paddle_signal_frame)
         self._hide(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame)
         self._hide(self.keyer_settings_frame, self.keyer_mode_frame)
-        self._hide(self.keyer_mode_frame, self.keyer_dit_memory_delay_percent_frame)
-        self._hide(self.keyer_mode_frame, self.keyer_dah_memory_delay_percent_frame)
+        self._hide(self.keyer_mode_frame, self.memory_delay_percent_frame['dit'])
+        self._hide(self.keyer_mode_frame, self.memory_delay_percent_frame['dah'])
 
     def enable_serial_device_frame(self):
         self.disable_midi_device_frame()
@@ -11653,9 +11596,7 @@ and everything after the & is sent.'''
         self.midi_device_frame.setFont(self.label_font())
         QGridLayout(self.midi_device_frame)
 
-        self.midi_note_frame = QWidget()
-        note_grid = QGridLayout(self.midi_note_frame)
-        note_grid.setContentsMargins(0, 0, 0, 0)
+        self.midi_note_frame, note_grid = self._plain_frame()
         self.keyer_dit_paddle_note_frame = self.keyer_dit_paddle_note_settings(self.midi_note_frame)
         self.keyer_dah_paddle_note_frame = self.keyer_dah_paddle_note_settings(self.midi_note_frame)
 
@@ -11664,88 +11605,42 @@ and everything after the & is sent.'''
         return self.midi_device_frame
 
     def update_midi_ports(self):
-        selectbg = self.bg
-        selectfg = self.fg
-        self.midi_port_dropdown = Dropdown_Widget(self.midi_device_frame, bd=2,
-            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
-            font=self.font(), justify='left', height=20)
-        self.midi_port_dropdown.grid(row=0, column=0)
-
-        self.midi_port_dropdown.select_callback(self.on_select_midi_port)
+        self.midi_port_dropdown = self._dropdown(self.midi_device_frame,
+            self.on_select_midi_port, 'left', height=20)
 
         MidiInput.open()
-        ports = MidiInput.available_ports()
+        self.midi_port_dropdown.values(self._port_selections(MidiInput.available_ports()))
+        self.midi_port_dropdown.value(MidiInput.port_name)
+
+    @staticmethod
+    def _port_selections(ports):
+        # None first, so there is always something to pick.
         selections = [ 'None' ]
         if ports != None:
             selections += ports
-
-        self.midi_port_dropdown.values(selections)
-        self.midi_port_dropdown.value(MidiInput.port_name)
+        return selections
 
     def on_select_midi_port(self, event):
         port_name = self.midi_port_dropdown.value()
         MidiInput.set_port_name(port_name)
 
     def keyer_dit_paddle_note_settings(self, frame):
-        text = 'Dit Paddle Note'
-        self.dit_paddle_note_frame = QGroupBox(text)
-        self.dit_paddle_note_frame.setFont(self.label_font())
-        QGridLayout(self.dit_paddle_note_frame)
-        self.update_dit_paddle_note()
-        qt_size_tight_groupbox_title(self.dit_paddle_note_frame, text, self.label_font())
-        return self.dit_paddle_note_frame
-
-    def update_dit_paddle_note(self):
-        selectbg = self.bg
-        selectfg = self.fg
-        self.dit_paddle_note_dropdown = Dropdown_Widget(self.dit_paddle_note_frame,
-            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
-            selectfg=selectfg, font=self.font(), justify='right', state='normal')
-        self.dit_paddle_note_dropdown.grid(row=0, column=0)
-
-        self.dit_paddle_note_dropdown.select_callback(self.on_select_dit_paddle_note)
-
-        selections = [ '20', '21', '30', '31', '96', '97', '98', '99' ]
-
-        self.dit_paddle_note_dropdown.values(selections)
+        return self._dropdown_frame('dit_paddle_note', 'Dit Paddle Note',
+            [ '20', '21', '30', '31', '96', '97', '98', '99' ],
+            self.on_select_dit_paddle_note)
 
     def on_select_dit_paddle_note(self, event):
-        try:
-            note = int(self.dit_paddle_note_dropdown.value())
-            self.keyer_dit_paddle_note(note)
-        except:
-            self.keyer_dit_paddle_note()
+        self._selected_value(self.dit_paddle_note_dropdown,
+                             self.keyer_dit_paddle_note, int)
 
     def keyer_dah_paddle_note_settings(self, frame):
-        text = 'Dah Paddle Note'
-        self.dah_paddle_note_frame = QGroupBox(text)
-        self.dah_paddle_note_frame.setFont(self.label_font())
-        QGridLayout(self.dah_paddle_note_frame)
-        self.update_dah_paddle_note()
-        qt_size_tight_groupbox_title(self.dah_paddle_note_frame, text, self.label_font())
-        return self.dah_paddle_note_frame
-
-    def update_dah_paddle_note(self):
-        selectbg = self.bg
-        selectfg = self.fg
-        self.dah_paddle_note_dropdown = Dropdown_Widget(self.dah_paddle_note_frame,
-            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
-            selectfg=selectfg, font=self.font(), justify='right', state='normal')
-        self.dah_paddle_note_dropdown.grid(row=0, column=0)
-
-        self.dah_paddle_note_dropdown.select_callback(self.on_select_dah_paddle_note)
-
-        selections = [ '21', '20', '31', '30', '97', '96', '99', '98' ]
-
-        self.dah_paddle_note_dropdown.values(selections)
-        self.keyer_dah_paddle_note()
+        return self._dropdown_frame('dah_paddle_note', 'Dah Paddle Note',
+            [ '21', '20', '31', '30', '97', '96', '99', '98' ],
+            self.on_select_dah_paddle_note, self.keyer_dah_paddle_note)
 
     def on_select_dah_paddle_note(self, event):
-        try:
-            note = int(self.dah_paddle_note_dropdown.value())
-            self.keyer_dah_paddle_note(note)
-        except:
-            self.keyer_dah_paddle_note()
+        self._selected_value(self.dah_paddle_note_dropdown,
+                             self.keyer_dah_paddle_note, int)
 
     def keyer_serial_device_settings(self, frame):
         self.keyer_settings_frame = frame
@@ -11753,9 +11648,7 @@ and everything after the & is sent.'''
         self.serial_device_frame.setFont(self.label_font())
         QGridLayout(self.serial_device_frame)
 
-        self.serial_signal_frame = QWidget()
-        signal_grid = QGridLayout(self.serial_signal_frame)
-        signal_grid.setContentsMargins(0, 0, 0, 0)
+        self.serial_signal_frame, signal_grid = self._plain_frame()
         self.keyer_dit_paddle_signal_frame = self.keyer_dit_paddle_signal_settings(self.serial_signal_frame)
         self.keyer_dah_paddle_signal_frame = self.keyer_dah_paddle_signal_settings(self.serial_signal_frame)
 
@@ -11764,22 +11657,11 @@ and everything after the & is sent.'''
         return self.serial_device_frame
 
     def update_serial_ports(self):
-        selectbg = self.bg
-        selectfg = self.fg
-        self.serial_port_dropdown = Dropdown_Widget(self.serial_device_frame, bd=2,
-            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
-            font=self.font(), justify='left', height=20)
-        self.serial_port_dropdown.grid(row=0, column=0)
-
-        self.serial_port_dropdown.select_callback(self.on_select_serial_port)
+        self.serial_port_dropdown = self._dropdown(self.serial_device_frame,
+            self.on_select_serial_port, 'left', height=20)
 
         SerialInput.open()
-        ports = SerialInput.available_ports()
-        selections = [ 'None' ]
-        if ports != None:
-            selections += ports
-
-        self.serial_port_dropdown.values(selections)
+        self.serial_port_dropdown.values(self._port_selections(SerialInput.available_ports()))
         self.serial_port_dropdown.value(SerialInput.port_name)
 
     def on_select_serial_port(self, event):
@@ -11787,88 +11669,37 @@ and everything after the & is sent.'''
         SerialInput.set_port_name(port_name)
 
     def keyer_dit_paddle_signal_settings(self, frame):
-        text = 'Dit Paddle Signal'
-        self.dit_paddle_signal_frame = QGroupBox(text)
-        self.dit_paddle_signal_frame.setFont(self.label_font())
-        QGridLayout(self.dit_paddle_signal_frame)
-        self.update_dit_paddle_signal()
-        qt_size_tight_groupbox_title(self.dit_paddle_signal_frame, text, self.label_font())
-        return self.dit_paddle_signal_frame
-
-    def update_dit_paddle_signal(self):
-        selectbg = self.bg
-        selectfg = self.fg
-        self.dit_paddle_signal_dropdown = Dropdown_Widget(self.dit_paddle_signal_frame,
-            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
-            selectfg=selectfg, font=self.font(), justify='right', state='normal')
-        self.dit_paddle_signal_dropdown.grid(row=0, column=0)
-
-        self.dit_paddle_signal_dropdown.select_callback(self.on_select_dit_paddle_signal)
-
-        selections = [ 'DSR', 'DCD', 'CTS', 'RI' ]
-
-        self.dit_paddle_signal_dropdown.values(selections)
+        return self._dropdown_frame('dit_paddle_signal', 'Dit Paddle Signal',
+            [ 'DSR', 'DCD', 'CTS', 'RI' ],
+            self.on_select_dit_paddle_signal)
 
     def on_select_dit_paddle_signal(self, event):
-        try:
-            signal = self.dit_paddle_signal_dropdown.value()
-            self.keyer_dit_paddle_signal(signal)
-        except:
-            self.keyer_dit_paddle_signal()
+        self._selected_value(self.dit_paddle_signal_dropdown,
+                             self.keyer_dit_paddle_signal)
 
     def keyer_dah_paddle_signal_settings(self, frame):
-        text = 'Dah Paddle Signal'
-        self.dah_paddle_signal_frame = QGroupBox(text)
-        self.dah_paddle_signal_frame.setFont(self.label_font())
-        QGridLayout(self.dah_paddle_signal_frame)
-        self.update_dah_paddle_signal()
-        qt_size_tight_groupbox_title(self.dah_paddle_signal_frame, text, self.label_font())
-        return self.dah_paddle_signal_frame
-
-    def update_dah_paddle_signal(self):
-        selectbg = self.bg
-        selectfg = self.fg
-        self.dah_paddle_signal_dropdown = Dropdown_Widget(self.dah_paddle_signal_frame,
-            bd=2, bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg,
-            selectfg=selectfg, font=self.font(), justify='right', state='normal')
-        self.dah_paddle_signal_dropdown.grid(row=0, column=0)
-
-        self.dah_paddle_signal_dropdown.select_callback(self.on_select_dah_paddle_signal)
-
-        selections = [ 'DCD', 'DSR', 'CTS', 'RI' ]
-
-        self.dah_paddle_signal_dropdown.values(selections)
-        self.keyer_dah_paddle_signal()
+        return self._dropdown_frame('dah_paddle_signal', 'Dah Paddle Signal',
+            [ 'DCD', 'DSR', 'CTS', 'RI' ],
+            self.on_select_dah_paddle_signal, self.keyer_dah_paddle_signal)
 
     def on_select_dah_paddle_signal(self, event):
-        try:
-            signal = self.dah_paddle_signal_dropdown.value()
-            self.keyer_dah_paddle_signal(signal)
-        except:
-            self.keyer_dah_paddle_signal()
+        self._selected_value(self.dah_paddle_signal_dropdown,
+                             self.keyer_dah_paddle_signal)
 
     def keyer_mode_settings(self, frame):
-        self.keyer_mode_frame = QWidget()
-        mode_grid = QGridLayout(self.keyer_mode_frame)
-        mode_grid.setContentsMargins(0, 0, 0, 0)
+        self.keyer_mode_frame, mode_grid = self._plain_frame()
         frame, mode_box_grid = qt_group_box('Mode', self.label_font())
         mode_grid.addWidget(frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        selectbg = self.bg
-        selectfg = self.fg
-        self.keyer_mode_dropdown = Dropdown_Widget(frame, bd=2,
-            bg=self.bg, fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
-            font=self.font(), justify='left')
-        self.keyer_mode_dropdown.grid(row=0, column=0)
-
-        self.keyer_mode_dropdown.select_callback(self.on_select_keyer_mode)
+        self.keyer_mode_dropdown = self._dropdown(frame, self.on_select_keyer_mode,
+                                                  'left')
 
         self.fill_keyer_modes()
 
         keyer_mode = Keyer.get_keyer_mode()
         self.keyer_mode_dropdown.value(keyer_mode)
-        self.keyer_dit_memory_delay_percent_settings(self.keyer_mode_frame)
-        self.keyer_dah_memory_delay_percent_settings(self.keyer_mode_frame)
+        self.keyer_memory_delay_percent_settings('dit')
+        self.keyer_memory_delay_percent_settings('dah')
         return self.keyer_mode_frame
 
     def fill_keyer_modes(self):
@@ -11889,111 +11720,105 @@ and everything after the & is sent.'''
         Keyer.set_keyer_mode(keyer_mode)
         self.enable_midi_device_frame()
 
-    def keyer_dit_memory_delay_percent_settings(self, frame):
-        text = 'Dit Mem %'
-        self.keyer_dit_memory_delay_percent_frame = QGroupBox(text)
-        self.keyer_dit_memory_delay_percent_frame.setFont(self.label_font())
-        QGridLayout(self.keyer_dit_memory_delay_percent_frame)
-        self.update_keyer_dit_memory_delay_percent()
-        qt_size_tight_groupbox_title(self.keyer_dit_memory_delay_percent_frame, text, self.label_font())
-        return self.keyer_dit_memory_delay_percent_frame
+    def keyer_memory_delay_percent_settings(self, side):
+        # The group box the percentage is typed into. Its own widget
+        # rather than a dropdown: any percentage is allowed.
+        title = self.memory_delay_percent_settings[side][0]
+        frame = QGroupBox(title)
+        frame.setFont(self.label_font())
+        QGridLayout(frame)
+        self.memory_delay_percent_frame[side] = frame
 
-    def update_keyer_dit_memory_delay_percent(self):
-        self.keyer_dit_memory_delay_percent()
-
-        self.dit_memory_delay_percent_entry = QLineEdit(str(self.keyer_dit_memory_delay_percent()))
-        self.dit_memory_delay_percent_entry.setFont(self.font())
-        self.dit_memory_delay_percent_entry.setAlignment(qt_justify('right'))
-        self.dit_memory_delay_percent_entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
-        self.dit_memory_delay_percent_entry.setFixedWidth(4 * QFontMetrics(self.font()).averageCharWidth() + 12)
-        self.keyer_dit_memory_delay_percent_frame.layout().addWidget(self.dit_memory_delay_percent_entry, 0, 0)
+        self.keyer_memory_delay_percent(side)
+        entry = QLineEdit(str(self.keyer_memory_delay_percent(side)))
+        entry.setFont(self.font())
+        entry.setAlignment(qt_justify('right'))
+        entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
+        entry.setFixedWidth(4 * QFontMetrics(self.font()).averageCharWidth() + 12)
+        frame.layout().addWidget(entry, 0, 0)
+        self.memory_delay_percent_entry[side] = entry
         # textChanged (not editingFinished) so an emptied field is
         # detected live, matching tk's per-keystroke StringVar trace.
-        self.dit_memory_delay_percent_entry.textChanged.connect(self.on_dit_memory_delay_percent_changed)
-        self.keyer_dit_memory_delay_percent()
+        entry.textChanged.connect(lambda text, side=side:
+                                  self.on_memory_delay_percent_changed(side, text))
+        self.keyer_memory_delay_percent(side)
 
-    def on_dit_memory_delay_percent_changed(self, text):
+        qt_size_tight_groupbox_title(frame, title, self.label_font())
+        return frame
+
+    def on_memory_delay_percent_changed(self, side, text):
+        delayed = (self.delayed_set_dit_memory_delay_percent if side == 'dit'
+                   else self.delayed_set_dah_memory_delay_percent)
         try:
             if text == "":
-                Poll.call(5000, self.delayed_set_dit_memory_delay_percent)
+                Poll.call(5000, delayed)
                 return
             percent = int(text)
             if percent >= 0 and percent <= 100:
-                self.keyer_dit_memory_delay_percent(percent)
+                self.keyer_memory_delay_percent(side, percent)
             else:
-                self.set_dit_memory_delay_percent_text(self.keyer_dit_memory_delay_percent())
+                self.set_memory_delay_percent_text(side, self.keyer_memory_delay_percent(side))
         except ValueError:
-            self.set_dit_memory_delay_percent_text(self.keyer_dit_memory_delay_percent())
+            self.set_memory_delay_percent_text(side, self.keyer_memory_delay_percent(side))
 
-    def set_dit_memory_delay_percent_text(self, value):
-        # A no-op before the entry widget exists: keyer_dit_memory_delay_percent()
+    def set_memory_delay_percent_text(self, side, value):
+        # A no-op before the entry widget exists: keyer_memory_delay_percent()
         # is called once (to apply the persisted setting) before
-        # update_keyer_dit_memory_delay_percent() creates dit_memory_delay_percent_entry.
-        entry = getattr(self, 'dit_memory_delay_percent_entry', None)
+        # keyer_memory_delay_percent_settings() creates the entry.
+        entry = self.memory_delay_percent_entry.get(side)
         if entry == None:
             return
         entry.blockSignals(True)
         entry.setText(str(value))
         entry.blockSignals(False)
 
+    # Two of their own, rather than one taking the side: Poll.call is
+    # given a bound method, and these are what a later Poll.remove would
+    # have to match.
     def delayed_set_dit_memory_delay_percent(self):
-        if self.dit_memory_delay_percent_entry.text() == "":
-            self.set_dit_memory_delay_percent_text(self.keyer_dit_memory_delay_percent())
-
-    def keyer_dah_memory_delay_percent_settings(self, frame):
-        text = 'Dah Mem %'
-        self.keyer_dah_memory_delay_percent_frame = QGroupBox(text)
-        self.keyer_dah_memory_delay_percent_frame.setFont(self.label_font())
-        QGridLayout(self.keyer_dah_memory_delay_percent_frame)
-        self.update_keyer_dah_memory_delay_percent()
-        qt_size_tight_groupbox_title(self.keyer_dah_memory_delay_percent_frame, text, self.label_font())
-        return self.keyer_dah_memory_delay_percent_frame
-
-    def update_keyer_dah_memory_delay_percent(self):
-        self.keyer_dah_memory_delay_percent()
-
-        self.dah_memory_delay_percent_entry = QLineEdit(str(self.keyer_dah_memory_delay_percent()))
-        self.dah_memory_delay_percent_entry.setFont(self.font())
-        self.dah_memory_delay_percent_entry.setAlignment(qt_justify('right'))
-        self.dah_memory_delay_percent_entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
-        self.dah_memory_delay_percent_entry.setFixedWidth(4 * QFontMetrics(self.font()).averageCharWidth() + 12)
-        self.keyer_dah_memory_delay_percent_frame.layout().addWidget(self.dah_memory_delay_percent_entry, 0, 0)
-        self.dah_memory_delay_percent_entry.textChanged.connect(self.on_dah_memory_delay_percent_changed)
-        self.keyer_dah_memory_delay_percent()
-
-    def on_dah_memory_delay_percent_changed(self, text):
-        try:
-            if text == "":
-                Poll.call(5000, self.delayed_set_dah_memory_delay_percent)
-                return
-            percent = int(text)
-            if percent >= 0 and percent <= 100:
-                self.keyer_dah_memory_delay_percent(percent)
-            else:
-                self.set_dah_memory_delay_percent_text(self.keyer_dah_memory_delay_percent())
-        except ValueError:
-            self.set_dah_memory_delay_percent_text(self.keyer_dah_memory_delay_percent())
-
-    def set_dah_memory_delay_percent_text(self, value):
-        entry = getattr(self, 'dah_memory_delay_percent_entry', None)
-        if entry == None:
-            return
-        entry.blockSignals(True)
-        entry.setText(str(value))
-        entry.blockSignals(False)
+        self.delayed_set_memory_delay_percent('dit')
 
     def delayed_set_dah_memory_delay_percent(self):
-        if self.dah_memory_delay_percent_entry.text() == "":
-            self.set_dah_memory_delay_percent_text(self.keyer_dah_memory_delay_percent())
+        self.delayed_set_memory_delay_percent('dah')
+
+    def delayed_set_memory_delay_percent(self, side):
+        if self.memory_delay_percent_entry[side].text() == "":
+            self.set_memory_delay_percent_text(side, self.keyer_memory_delay_percent(side))
 
     def auto_char_space_setting(self):
-        setting = Server.settings.getbool('CW', 'auto_char_space', False)
+        return self.auto_space_setting('char')
 
-        control_frame, control_grid = qt_group_box('Auto Char Space', self.label_font())
+    def auto_word_space_setting(self):
+        return self.auto_space_setting('word')
+
+    def auto_space_setting(self, kind):
+        # Auto character and auto word spacing are the same control
+        # twice over: a switch, and the gap in dits that triggers it.
+        if kind == 'char':
+            title, name = 'Auto Char Space', 'auto_char_space'
+            default, low, high = 2.5, 1.50, 3.0
+            values = ('1.5', '1.6', '1.7', '1.8', '1.9', '2.0', '2.1', '2.2', '2.3',
+                      '2.4', '2.5', '2.6', '2.7', '2.8', '2.9', '3.0')
+            on_toggled = self.on_auto_char_space_toggled
+            on_dits_changed = self.on_auto_char_space_dits_combobox_changed
+            set_enabled, set_dits = Keyer.set_auto_char_space, Keyer.set_auto_char_space_dits
+        else:
+            title, name = 'Auto Word Space', 'auto_word_space'
+            default, low, high = 6.0, 5.0, 7.0
+            values = ('5.0', '5.1', '5.2', '5.3','5.4', '5.5', '5.6', '5.7', '5.8', '5.9',
+                      '6.0', '6.1', '6.2', '6.3', '6.4', '6.6', '6.7', '6.8', '6.9', '7.0')
+            on_toggled = self.on_auto_word_space_toggled
+            on_dits_changed = self.on_auto_word_space_dits_combobox_changed
+            set_enabled, set_dits = Keyer.set_auto_word_space, Keyer.set_auto_word_space_dits
+        dits_name = f'{name}_dits'
+
+        setting = Server.settings.getbool('CW', name, False)
+
+        control_frame, control_grid = qt_group_box(title, self.label_font())
         options_frame, options_grid = qt_group_box('', self.label_font())
         control_grid.addWidget(options_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
 
-        acs_options = {
+        toggle_options = {
             'initialindex': 0 if setting else 1,
             'selections': [
                 {'text': 'On'},
@@ -12001,99 +11826,50 @@ and everything after the & is sent.'''
             ],
             'width': 3, 'font': self.font(),
         }
-        self.acs_toggle = ToggleWidget(self, options_frame, acs_options)
-        self.acs_toggle.button.clicked.connect(self.on_auto_char_space_toggled)
+        toggle = ToggleWidget(self, options_frame, toggle_options)
+        toggle.button.clicked.connect(on_toggled)
+        self.auto_space[kind] = {'toggle': toggle, 'setting': name,
+                                 'dits_setting': dits_name,
+                                 'set_enabled': set_enabled, 'set_dits': set_dits}
 
-        acs_trigger_dits_frame = self.acs_trigger_dits_setting()
-        control_grid.addWidget(acs_trigger_dits_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        current_value = Server.settings.getfloat('CW', dits_name, default, low, high)
+        dits_frame = self._labeled_combobox('Trigger Dits', values,
+            f'{current_value:.1f}', on_dits_changed, justify='right')
+        control_grid.addWidget(dits_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         return control_frame
 
     def on_auto_char_space_toggled(self):
-        setting = self.acs_toggle.selections[self.acs_toggle.index]['text'] == 'On'
-        Server.settings.put_save('CW', 'auto_char_space', setting)
-        Keyer.set_auto_char_space(setting)
-
-    def acs_trigger_dits_setting(self):
-        current_value = Server.settings.getfloat('CW', 'auto_char_space_dits', 2.5, 1.50, 3.0)
-        current_value = f'{current_value:.1f}'
-
-        values = ('1.5', '1.6', '1.7', '1.8', '1.9', '2.0', '2.1', '2.2', '2.3',
-                  '2.4', '2.5', '2.6', '2.7', '2.8', '2.9', '3.0')
-
-        auto_char_space_dits_frame, auto_char_space_dits_combobox = qt_labeled_readonly_combobox(
-            'Trigger Dits', self.label_font(), self.font(), values,
-            current_value, self.bg, self.fg, self.bg, self.fg,
-            self.on_auto_char_space_dits_combobox_changed, justify='right')
-
-        return auto_char_space_dits_frame
-
-    def on_auto_char_space_dits_combobox_changed(self, current_value):
-        if current_value == '':
-            return
-        Server.settings.put_save('CW', 'auto_char_space_dits', f'{float(current_value):.2f}')
-        Keyer.set_auto_char_space_dits(float(current_value))
-
-    def auto_word_space_setting(self):
-        setting = Server.settings.getbool('CW', 'auto_word_space', False)
-
-        control_frame, control_grid = qt_group_box('Auto Word Space', self.label_font())
-        options_frame, options_grid = qt_group_box('', self.label_font())
-        control_grid.addWidget(options_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
-
-        aws_options = {
-            'initialindex': 0 if setting else 1,
-            'selections': [
-                {'text': 'On'},
-                {'text': 'Off'},
-            ],
-            'width': 3, 'font': self.font(),
-        }
-        self.aws_toggle = ToggleWidget(self, options_frame, aws_options)
-        self.aws_toggle.button.clicked.connect(self.on_auto_word_space_toggled)
-
-        aws_trigger_dits_frame = self.aws_trigger_dits_setting()
-        control_grid.addWidget(aws_trigger_dits_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        return control_frame
+        self.on_auto_space_toggled('char')
 
     def on_auto_word_space_toggled(self):
-        setting = self.aws_toggle.selections[self.aws_toggle.index]['text'] == 'On'
-        Server.settings.put_save('CW', 'auto_word_space', setting)
-        Keyer.set_auto_word_space(setting)
+        self.on_auto_space_toggled('word')
 
-    def aws_trigger_dits_setting(self):
-        current_value = Server.settings.getfloat('CW', 'auto_word_space_dits', 6.0, 5.0, 7.0)
-        current_value = f'{current_value:.1f}'
+    def on_auto_space_toggled(self, kind):
+        state = self.auto_space[kind]
+        toggle = state['toggle']
+        setting = toggle.selections[toggle.index]['text'] == 'On'
+        Server.settings.put_save('CW', state['setting'], setting)
+        state['set_enabled'](setting)
 
-        values = ('5.0', '5.1', '5.2', '5.3','5.4', '5.5', '5.6', '5.7', '5.8', '5.9',
-                  '6.0', '6.1', '6.2', '6.3', '6.4', '6.6', '6.7', '6.8', '6.9', '7.0')
-
-        auto_word_space_dits_frame, auto_word_space_dits_combobox = qt_labeled_readonly_combobox(
-            'Trigger Dits', self.label_font(), self.font(), values,
-            current_value, self.bg, self.fg, self.bg, self.fg,
-            self.on_auto_word_space_dits_combobox_changed, justify='right')
-
-        return auto_word_space_dits_frame
+    def on_auto_char_space_dits_combobox_changed(self, current_value):
+        self.on_auto_space_dits_changed('char', current_value)
 
     def on_auto_word_space_dits_combobox_changed(self, current_value):
+        self.on_auto_space_dits_changed('word', current_value)
+
+    def on_auto_space_dits_changed(self, kind, current_value):
         if current_value == '':
             return
-        Server.settings.put_save('CW', 'auto_word_space_dits', f'{float(current_value):.2f}')
-        Keyer.set_auto_word_space_dits(float(current_value))
+        state = self.auto_space[kind]
+        Server.settings.put_save('CW', state['dits_setting'], f'{float(current_value):.2f}')
+        state['set_dits'](float(current_value))
 
     def weighting_setting(self):
         current_value = Server.settings.getfloat('CW', 'weighting', 1.00, .90, 1.25)
-        current_value = f'{current_value:.2f}'
-
         values = ('0.90', '0.95', '1.00', '1.05', '1.10', '1.15', '1.20', '1.25')
-
-        weighting_frame, weighting_combobox = qt_labeled_readonly_combobox(
-            'Weight', self.label_font(), self.font(), values,
-            current_value, self.bg, self.fg, self.bg, self.fg,
+        return self._labeled_combobox('Weight', values, f'{current_value:.2f}',
             self.on_weighting_combobox_changed, justify='left')
-
-        return weighting_frame
 
     def on_weighting_combobox_changed(self, current_value):
         if current_value == '':
