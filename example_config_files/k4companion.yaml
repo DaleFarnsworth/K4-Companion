@@ -311,12 +311,14 @@
 #define app-version
 - item: text
   label: "K4-Companion Version"
+  leading: 0
   evaltext: version
 #end
 
 #define startup-cmds
 - item: startup_cmds
   label: Startup Commands
+  leading: 0
 #end
 
 #define exit-cmds
