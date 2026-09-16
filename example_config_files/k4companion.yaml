@@ -348,19 +348,13 @@
 
 #define rx-a-controls-group
 - item: group
-  columns: 1
-  contains: #{
-    #include rx-a-controls-row1
-    #include rx-a-controls-row2
-    #include rx-a-controls-row3
-  #}
-#end
-
-#define rx-a-controls-row1
-- item: group
+  columns: 2
   contains: #{
     #include rx-a-controls-row1-column1
     #include rx-a-controls-row1-column2
+    #include rx-a-controls-row2
+    #include xit-togglebutton
+    #include rx-a-controls-row3
   #}
 #end
 
@@ -403,12 +397,12 @@
     #include atten-a-dropdown-button
     #include preamp-a-dropdown-button
     #include rfgain-a-dropdown-button
-    #include xit-togglebutton
   #}
 #end
 
 #define rx-a-controls-row3
 - item: group
+  columnspan: 2
   contains: #{
     #include main-ssnr-group
     #include main-lmsnr-group
@@ -1675,8 +1669,7 @@
 #define xit-togglebutton
 - item: togglebutton
   label: XIT
-  padx: 4
-  width: 3
+  width: 5
   selections: #{
     - { text: "On",  cmd: XT1;, bg: LightBlue, abg: LightBlue } 
     - { text: "Off", cmd: XT0; }
