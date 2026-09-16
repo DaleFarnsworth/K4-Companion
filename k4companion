@@ -13082,10 +13082,28 @@ class Keyer():
         def choose_element(previous_elt, previous_elt_ts):
             # The element the paddles, and what is remembered of them, ask
             # for next, or None for neither.
-            dit_up_ts = self.dit_up_timestamp - self.inherent_sidetone_lag
-            dah_up_ts = self.dah_up_timestamp - self.inherent_sidetone_lag
-            dit_down_ts = self.dit_down_timestamp - self.inherent_sidetone_lag
-            dah_down_ts = self.dah_down_timestamp - self.inherent_sidetone_lag
+            #
+            # The lag goes on the element's side rather than the
+            # paddles'. Only the memories below need it at all -- they
+            # measure a paddle against when the previous element was
+            # started, and the two are on different clocks. The paddle
+            # timestamps are real time, when the operator's hand moved;
+            # previous_elt_ts is when the keyer began the element, which
+            # is not heard until a lag later, and it is what is heard
+            # that the operator works the paddles to. Carrying it here
+            # puts both on that one timebase and leaves the paddles as
+            # the device reported them.
+            #
+            # The comparisons of one paddle against another take no
+            # notice of it either way: a shift applied to all four
+            # cancels between them. That is why it has to be here, where
+            # only one side of the comparison moves.
+            dit_up_ts = self.dit_up_timestamp
+            dah_up_ts = self.dah_up_timestamp
+            dit_down_ts = self.dit_down_timestamp
+            dah_down_ts = self.dah_down_timestamp
+            if previous_elt_ts != None:
+                previous_elt_ts += self.inherent_sidetone_lag
 
             dit = dit_down_ts > dit_up_ts
             dah = dah_down_ts > dah_up_ts
