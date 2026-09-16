@@ -12786,6 +12786,15 @@ class Keyer():
         self.element_sidetone_queued = False
         # Whether the element most recently started was a burst's first.
         self.element_first = False
+        # A burst's first key down, queued by the paddle's own thread
+        # before the keyer's has been woken with it, as (when the paddle
+        # closed, which paddle) or None; whether the keyer is in a burst,
+        # which is when that thread leaves the scheduling alone; and the
+        # lock the two threads settle both across. See
+        # start_burst_sidetone.
+        self.first_element_scheduled = None
+        self.in_burst = False
+        self.first_element_lock = threading.Lock()
         # The lag to hold, taken from wherever the audio had settled
         # after the last element there was no gap to measure before, and
         # the gap the KZD most recently sent carried, which is what says
@@ -12915,6 +12924,7 @@ class Keyer():
             timestamp = self.paddle_timestamp
         else:
             timestamp = time.perf_counter()
+            self.start_burst_sidetone(event, timestamp)
             if event == self.DIT_DOWN_EVENT:
                 self.dit_down_timestamp = timestamp
             elif event == self.DIT_UP_EVENT:
@@ -12925,6 +12935,57 @@ class Keyer():
                 self.dah_up_timestamp = timestamp
         paddle_event = PaddleEvent(event, timestamp)
         self.paddle_event_queue.put(paddle_event)
+
+    def start_burst_sidetone(self, event, timestamp):
+        # A burst's first key down, queued here on the thread the
+        # paddle's device reports on rather than after the hop to the
+        # keyer's, for the same reason a straight key's edges are (see
+        # send_paddle_event).
+        #
+        # It is the one edge in a burst that cannot be scheduled ahead:
+        # every element after it is queued a gap before it is due and
+        # lands on its own frame, while this one is asked for the moment
+        # it is keyed and the output callback drags it to the earliest
+        # frame it has left. What that drag comes to is sidetone_lag,
+        # which shifts every later edge in the burst and is what the
+        # catch-up then spends the burst working off -- so queuing this
+        # edge sooner is not worth one edge's delay but the whole
+        # burst's, and it lowers the inherent lag measured from it too.
+        #
+        # Only where the keyer is between bursts. A paddle closing
+        # inside one is the keyer's own to schedule, and a second
+        # closing before the keyer has taken the first would queue a
+        # second key down against the one key up that is coming.
+        #
+        # Nor where auto spacing is to hold the element off: the element
+        # is not due yet, and a tone queued now would be heard before
+        # the space it is waiting out. Settled here, against the instant
+        # the paddle closed, and start_element then leaves it alone.
+        if event == self.DIT_DOWN_EVENT:
+            elt = '.'
+        elif event == self.DAH_DOWN_EVENT:
+            elt = '-'
+        else:
+            return
+        # The lock is against start_element and placed_first_element
+        # taking what is put here. Held across the scheduling, so that a
+        # burst starting in that window cannot queue an edge of its own
+        # as well, and never held long: nothing under it waits.
+        with self.first_element_lock:
+            if (self.in_burst or self.first_element_scheduled != None or
+                    self.auto_space_until(timestamp) != None):
+                return
+            if Audio.schedule_sidetone_down(timestamp):
+                self.first_element_scheduled = (timestamp, elt)
+
+    def take_first_element(self):
+        # What start_burst_sidetone queued for a burst's first element,
+        # as (when the paddle closed, which paddle), or None where it
+        # queued nothing. Cleared as it is taken.
+        with self.first_element_lock:
+            scheduled = self.first_element_scheduled
+            self.first_element_scheduled = None
+            return scheduled
 
     def keyer_loop(self):
         event = None
@@ -13054,20 +13115,54 @@ class Keyer():
         #
         # What the iambic memories are measured from is still when the
         # element was started.
-        previous_elt = None
-        previous_elt_ts = None
-        while True:
-            elt = choose_element(previous_elt, previous_elt_ts)
-            if elt == None:
-                return
-            elt_ts = time.perf_counter()
-            wanted = lambda: choose_element(previous_elt, previous_elt_ts) != None
-            if not self.start_element(previous_elt == None, wanted):
-                return
-            self.wait_until_sidetone_heard()
-            elt = choose_element(previous_elt, previous_elt_ts) or elt
-            self.end_element(elt)
-            previous_elt, previous_elt_ts = elt, elt_ts
+        #
+        # in_burst is for start_burst_sidetone, which queues a burst's
+        # first key down only while this is not running. Set before the
+        # first reading of the paddles and cleared after the last, so
+        # that the keyer is idle to that thread only where it is idle
+        # here.
+        self.in_burst = True
+        try:
+            previous_elt = None
+            previous_elt_ts = None
+            while True:
+                elt = choose_element(previous_elt, previous_elt_ts)
+                if elt == None and previous_elt == None:
+                    elt = self.placed_first_element()
+                if elt == None:
+                    return
+                elt_ts = time.perf_counter()
+                wanted = lambda: choose_element(previous_elt, previous_elt_ts) != None
+                if not self.start_element(previous_elt == None, wanted):
+                    return
+                self.wait_until_sidetone_heard()
+                elt = choose_element(previous_elt, previous_elt_ts) or elt
+                self.end_element(elt)
+                previous_elt, previous_elt_ts = elt, elt_ts
+        finally:
+            self.in_burst = False
+
+    def placed_first_element(self):
+        # Nothing is wanted of a burst's first element, but its key down
+        # may already be queued: start_burst_sidetone puts it in when
+        # the paddle closes, before this thread has looked at the
+        # paddles at all. What gets here is a contact that was over
+        # again by the time it did, which is a bounce more often than a
+        # keystroke.
+        #
+        # Taken back where it still can be, and nothing is sent. Where
+        # it cannot -- the output callback having placed it already --
+        # the tone is on its way to the DAC whatever is decided here, so
+        # the element it started goes out whole and the K4 is sent it
+        # too. That is the rule confirm_element follows for the elements
+        # after a first, and what it leaves alone start_element takes.
+        scheduled = self.first_element_scheduled
+        if scheduled == None:
+            return None
+        if not Audio.cancel_sidetone_down():
+            return scheduled[1]
+        self.take_first_element()
+        return None
 
     @staticmethod
     def whole_ms(seconds):
@@ -13145,26 +13240,46 @@ class Keyer():
         sidetone_delay = self.plan_sidetone_catchup(first_element)
 
         if first_element:
-            self.wait_for_auto_space()
-            # Establish a baseline for timing later elements
-            # to avoid cumulative errors
-            # Keyed now, and heard a sidetone_delay() later, which is
-            # what the grid is anchored to.
-            keyed_start = time.perf_counter()
-            self.element_timestamp = keyed_start
-            sidetone_start = keyed_start
             # Nothing to give notice of for the first element of a burst
             # -- when the operator starts is not ours to know -- so this
             # one edge is still as late as it ever was, and is what sets
             # sidetone_lag for the burst. Its up edge, and every edge
             # after it, are scheduled ahead. Its length is trimmed like
             # any other element's, though: only the start is fixed.
-            self.element_sidetone_queued = Audio.schedule_sidetone_down(
-                keyed_start)
+            #
+            # Queued already where the paddle's own thread got to it
+            # first, which is the usual way of it (see
+            # start_burst_sidetone). The grid then anchors on the
+            # instant the paddle closed and not on this thread's own
+            # clock: the tone and the grid have to be struck from the
+            # same instant, or the element is rendered longer than it
+            # was keyed by however long this thread took to wake. The
+            # auto space was settled there too, against that same
+            # instant, so it is not asked about again here.
+            #
+            # Establish a baseline for timing later elements
+            # to avoid cumulative errors
+            # Keyed then, and heard a sidetone_delay() later, which is
+            # what the grid is anchored to.
+            scheduled = self.take_first_element()
+            if scheduled != None:
+                keyed_start = scheduled[0]
+                self.element_sidetone_queued = True
+            else:
+                self.wait_for_auto_space()
+                keyed_start = time.perf_counter()
+                self.element_sidetone_queued = Audio.schedule_sidetone_down(
+                    keyed_start)
+            self.element_timestamp = keyed_start
+            sidetone_start = keyed_start
 
             ms = 0
             if self.end_element_timestamp:
-                ms = round((time.perf_counter() - self.end_element_timestamp) * 1000)
+                # From the keyed start, which is when the paddle closed,
+                # and not from now: the gap the K4 is told is the one
+                # the operator left, not that gap plus however long this
+                # thread took to be woken with it.
+                ms = round((keyed_start - self.end_element_timestamp) * 1000)
                 # This doesn't match the spec as I understand it, but it works!
                 # From testing, I believe the worst case is actually 4500,
                 # (3.5 + maximum network jitter, but use 5000 to be safe.
@@ -13365,15 +13480,20 @@ class Keyer():
                                      behind * self.sidetone_catchup_per_second)
         return sidetone_delay
 
-    def wait_for_auto_space(self):
+    def auto_space_until(self, now):
         # Before a burst's first element: where auto spacing is on and
         # the gap since the sidetone was last heard to end is already
-        # long enough to be taken for a word or a character space, it is
-        # made up to a whole one.
+        # long enough to be taken for a word or a character space, when
+        # the element is held off until so that the gap comes to a whole
+        # one. None where it is not held off at all.
+        #
+        # Asked of an instant rather than of the clock, so that the
+        # paddle's own thread can settle it against the moment the
+        # paddle closed. See start_burst_sidetone.
         if (not self.end_sidetone_timestamp or
                 not (self.auto_char_space or self.auto_word_space)):
-            return
-        time_since_last_char = time.perf_counter() - self.end_sidetone_timestamp
+            return None
+        time_since_last_char = now - self.end_sidetone_timestamp
         if (self.auto_word_space and time_since_last_char >
                 self.auto_word_space_dits * self.dit_seconds):
             space_seconds = self.inter_word_seconds
@@ -13381,8 +13501,13 @@ class Keyer():
                 self.auto_char_space_dits * self.dit_seconds):
             space_seconds = self.inter_character_seconds
         else:
-            return
-        self.sleep_until(self.end_sidetone_timestamp + space_seconds)
+            return None
+        return self.end_sidetone_timestamp + space_seconds
+
+    def wait_for_auto_space(self):
+        until = self.auto_space_until(time.perf_counter())
+        if until != None:
+            self.sleep_until(until)
 
     def confirm_element(self, wanted):
         # Whether an element after a burst's first is still to be sent,
