@@ -215,7 +215,7 @@ def qt_combobox_stylesheet(bg, fg, selectbg, selectfg):
         'QComboBox::drop-down { width: 12px; }'
         f'QComboBox QAbstractItemView {{ background-color: {selectbg}; color: {selectfg}; }}')
 
-def qt_tight_groupbox_stylesheet(title, font):
+def qt_tight_groupbox_stylesheet(title, font, selector='QGroupBox'):
     # QGroupBox's native title area reserves far more vertical space than
     # the title text needs (independent of the layout's own
     # contentsMargins -- it comes from the style's own subControlRect
@@ -240,11 +240,39 @@ def qt_tight_groupbox_stylesheet(title, font):
     title_height = QFontMetrics(font).height() if title else 0
     margin_top = max(2, title_height)
     return (
-        'QGroupBox { border: 1px solid palette(mid); border-radius: 3px; '
+        f'{selector} {{ border: 1px solid palette(mid); border-radius: 3px; '
         f'margin-top: {margin_top}px; padding-top: 0px; }}'
-        'QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; '
+        f'{selector}::title {{ subcontrol-origin: margin; subcontrol-position: top left; '
         'left: 4px; top: 0px; padding: 2px 2px; }'
     )
+
+_tight_groupbox_serial = 0
+
+def qt_tighten_groupbox(frame, title, font):
+    # The treatment above, applied to this one box and no other.
+    #
+    # A stylesheet set on a widget reaches its children as well, so an
+    # unqualified "QGroupBox { margin-top: ... }" here would style every
+    # group box nested anywhere inside this one. The ones built without
+    # a stylesheet of their own -- ServerSettings_widget._titled_grid's,
+    # the Device boxes, the menu's -- would then take a margin measured
+    # for somebody else's title, and there is no reason theirs would fit
+    # in it. A group written label: '' reserves room for no title at
+    # all, which left the settings boxes under it with their titles
+    # painted over by their own contents.
+    #
+    # Qualifying the selector with this box's own object name keeps it
+    # where it was meant. Nothing else in the app sets an object name,
+    # so the serial number only has to be unique among these.
+    global _tight_groupbox_serial
+    _tight_groupbox_serial += 1
+    name = f'tightgroupbox{_tight_groupbox_serial}'
+    style = qt_tight_groupbox_stylesheet(title, font, f'QGroupBox#{name}')
+    if not style:
+        return                  # multi-line title: left to Qt's own
+    frame.setObjectName(name)
+    frame.setStyleSheet(style)
+    qt_size_tight_groupbox_title(frame, title, font)
 
 def qt_size_tight_groupbox_title(frame, title, font):
     # Once qt_tight_groupbox_stylesheet() switches a QGroupBox to the CSS
@@ -277,10 +305,7 @@ def qt_group_box(title, font):
     # AppSettings_widget.
     frame = QGroupBox(title)
     frame.setFont(font)
-    style = qt_tight_groupbox_stylesheet(title, font)
-    if style:
-        frame.setStyleSheet(style)
-        qt_size_tight_groupbox_title(frame, title, font)
+    qt_tighten_groupbox(frame, title, font)
     grid = QGridLayout(frame)
     grid.setContentsMargins(0, 0, 0, 0)
     grid.setSpacing(0)
@@ -1798,10 +1823,7 @@ class Widget():
         else:
             inner_frame = QGroupBox(label)
             inner_frame.setFont(self.label_font())
-            style = qt_tight_groupbox_stylesheet(label, self.label_font())
-            if style:
-                inner_frame.setStyleSheet(style)
-                qt_size_tight_groupbox_title(inner_frame, label, self.label_font())
+            qt_tighten_groupbox(inner_frame, label, self.label_font())
         inner_grid = QGridLayout(inner_frame)
         inner_grid.setContentsMargins(0, 0, 0, 0)
         inner_grid.setSpacing(0)
@@ -4066,6 +4088,7 @@ class Menu_definition():
 
         self.frame = QGroupBox(self.desc)
         self.frame.setFont(self.menu.label_font())
+        qt_tighten_groupbox(self.frame, self.desc, self.menu.label_font())
         self.frame_grid = QGridLayout(self.frame)
 
         if len(self.values) > 0:
@@ -9475,6 +9498,7 @@ class ServerSettings_widget(Widget):
 
     def remote_settings(self):
         frame = QGroupBox('')
+        qt_tighten_groupbox(frame, '', self.label_font())
         grid = QGridLayout(frame)
 
         for row, build in enumerate((self.select_server, self.k4_name,
@@ -9490,6 +9514,7 @@ class ServerSettings_widget(Widget):
         # A group box to put one setting in.
         frame = QGroupBox(title)
         frame.setFont(self.label_font())
+        qt_tighten_groupbox(frame, title, self.label_font())
         return frame, QGridLayout(frame)
 
     def _settings_entry(self, value, on_editing_finished, password=False):
@@ -10598,6 +10623,7 @@ class CW(TextButtons):
         # give the keyer the setting it starts with.
         frame = QGroupBox(title)
         frame.setFont(self.label_font())
+        qt_tighten_groupbox(frame, title, self.label_font())
         QGridLayout(frame)
         setattr(self, f'{name}_frame', frame)
         setattr(self, f'{name}_dropdown',
@@ -11509,6 +11535,7 @@ class CW(TextButtons):
         self.keyer_settings_frame = frame
         self.midi_device_frame = QGroupBox('Device')
         self.midi_device_frame.setFont(self.label_font())
+        qt_tighten_groupbox(self.midi_device_frame, 'Device', self.label_font())
         QGridLayout(self.midi_device_frame)
 
         self.midi_note_frame, note_grid = self._plain_frame()
@@ -11561,6 +11588,7 @@ class CW(TextButtons):
         self.keyer_settings_frame = frame
         self.serial_device_frame = QGroupBox('Device')
         self.serial_device_frame.setFont(self.label_font())
+        qt_tighten_groupbox(self.serial_device_frame, 'Device', self.label_font())
         QGridLayout(self.serial_device_frame)
 
         self.serial_signal_frame, signal_grid = self._plain_frame()
@@ -11641,6 +11669,7 @@ class CW(TextButtons):
         title = self.memory_delay_percent_settings[side][0]
         frame = QGroupBox(title)
         frame.setFont(self.label_font())
+        qt_tighten_groupbox(frame, title, self.label_font())
         QGridLayout(frame)
         self.memory_delay_percent_frame[side] = frame
 
