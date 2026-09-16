@@ -12135,6 +12135,12 @@ class MidiInput():
 
     @classmethod
     def cancel_message_callback(cls):
+        # Forgotten as well as detached, as SerialInput's does. What is
+        # kept here is what poll_new_device reinstalls on a port it has
+        # just opened, so a callback left behind came back the next time
+        # the device was replaced -- and a cancelled one belongs to a
+        # keyer that has closed (see Keyer.close).
+        cls.message_callback = None
         self = cls.get_singleton()
         if self:
             self.midiin.cancel_callback()
@@ -12198,7 +12204,8 @@ class MidiInput():
             else:
                 VailAdapter.close_output()
 
-            self.midiin.set_callback(self.message_callback)
+            if self.message_callback:
+                self.midiin.set_callback(self.message_callback)
 
 class VailAdapter():
     midiout = None
@@ -12650,7 +12657,54 @@ class Keyer():
         if self.keyer_thread:
             self.send_paddle_event(self.CLOSE_EVENT, 0)
             self.keyer_thread.join()
+
+        # The paddles' own devices let go of. Their callbacks are bound
+        # to this instance and key the sidetone themselves -- a straight
+        # key's two edges as they happen, a burst's first key down as
+        # the paddle closes (see send_paddle_event) -- so one left
+        # installed goes on sounding the paddles after the keyer that
+        # ends their elements has gone. What that was heard as, on
+        # leaving CW mode and touching a paddle, was a tone that never
+        # stopped: the key down went in on the device's own thread, and
+        # the key up belonged to a keyer thread that was no longer there
+        # to send it.
+        #
+        # After the join above and not before it. A burst runs for as
+        # long as the paddle is held, and it is this same callback that
+        # brings the release that ends it -- cancelled first, the burst
+        # would have nothing left to end it and the join would wait for
+        # ever.
+        cls.cancel_message_callback()
+        self.stop_keying()
         cls.singleton = None
+
+    def stop_keying(self):
+        # The paddles' side shut for good, and any tone their thread
+        # started that the keyer thread is not going to end ended: a
+        # first element queued in the moment before the callback was
+        # cancelled, or a straight key still held down as the keyer
+        # closed. Nothing to end in the ordinary way of it -- the keyer
+        # thread ends every element it starts before it returns, and
+        # takes whatever was queued ahead of the close event first.
+        #
+        # closed is what a callback already in flight finds: cancelling
+        # one does not reach into a call that has begun, and an edge
+        # keyed after this has looked would be left sounding with
+        # nothing to end it. Settled under the lock the paddles' thread
+        # keys under, so that the two cannot pass each other.
+        with self.first_element_lock:
+            self.closed = True
+            straight_key_down = self.straight_key_down
+            self.straight_key_down = False
+            scheduled = self.first_element_scheduled
+            self.first_element_scheduled = None
+
+        if straight_key_down:
+            Audio.key_sidetone(False)
+        elif scheduled != None and not Audio.cancel_sidetone_down():
+            # Too late to take back: the tone is on its way to the DAC,
+            # and only an up edge ends it.
+            Audio.key_sidetone(False)
 
     @classmethod
     def get_keyer_mode(cls):
@@ -12859,6 +12913,12 @@ class Keyer():
         self.first_element_scheduled = None
         self.in_burst = False
         self.first_element_lock = threading.Lock()
+        # Whether a straight key is being held down, as the edges keyed
+        # for it say, and whether this keyer has been closed and is to
+        # key nothing further. Both settled under the lock above -- see
+        # stop_keying.
+        self.straight_key_down = False
+        self.closed = False
         # The lag to hold, taken from wherever the audio had settled
         # after the last element there was no gap to measure before, and
         # the gap the KZD most recently sent carried, which is what says
@@ -12980,10 +13040,20 @@ class Keyer():
             # What goes on the air is untouched. KZD and KZU carry
             # intervals measured from the device's own deltas below, not
             # from when either thread ran.
-            if event == self.STRAIGHT_KEY_DOWN_EVENT:
-                Audio.key_sidetone(True)
-            elif event == self.STRAIGHT_KEY_UP_EVENT:
-                Audio.key_sidetone(False)
+            #
+            # Under the lock, which costs nothing uncontended and is
+            # what stop_keying settles against: the key's state and its
+            # edge have to move together, or a keyer closing between the
+            # two leaves a tone sounding with nothing left to end it.
+            # Nothing is keyed at all once it has closed.
+            with self.first_element_lock:
+                if not self.closed:
+                    if event == self.STRAIGHT_KEY_DOWN_EVENT:
+                        Audio.key_sidetone(True)
+                        self.straight_key_down = True
+                    elif event == self.STRAIGHT_KEY_UP_EVENT:
+                        Audio.key_sidetone(False)
+                        self.straight_key_down = False
             self.paddle_timestamp += delta_time
             timestamp = self.paddle_timestamp
         else:
@@ -13035,8 +13105,12 @@ class Keyer():
         # taking what is put here. Held across the scheduling, so that a
         # burst starting in that window cannot queue an edge of its own
         # as well, and never held long: nothing under it waits.
+        #
+        # Nor once the keyer has closed: there is no thread left to end
+        # what this would start. See stop_keying.
         with self.first_element_lock:
-            if (self.in_burst or self.first_element_scheduled != None or
+            if (self.closed or self.in_burst or
+                    self.first_element_scheduled != None or
                     self.auto_space_until(timestamp) != None):
                 return
             if Audio.schedule_sidetone_down(timestamp):
