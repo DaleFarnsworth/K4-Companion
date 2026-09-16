@@ -230,7 +230,14 @@ def qt_tight_groupbox_stylesheet(title, font):
     # but reliably uncropped) title rendering instead.
     if '\n' in title:
         return ''
-    title_height = QFontMetrics(font).height()
+    # Nothing to make room for where there is no title. A group written
+    # with label: '' is asking for the box and not for a name on it, and
+    # reserving a whole line of title height above such a box left a
+    # band of empty space over its contents that nothing was ever
+    # painted into. The Server tab's Connect/Restart and Power Off/Exit
+    # rows are what this shows on, those being the groups in the config
+    # that ask for a box that way.
+    title_height = QFontMetrics(font).height() if title else 0
     margin_top = max(2, title_height)
     return (
         'QGroupBox { border: 1px solid palette(mid); border-radius: 3px; '
@@ -1762,7 +1769,11 @@ class Widget():
 
         label = config_info.get('label', None)
 
-        if 'label' in config_info:
+        # The extra leading a label brings with it is there to give the
+        # title a little air above it, so an empty label earns none of
+        # it -- the same reason qt_tight_groupbox_stylesheet reserves no
+        # title height for one. What label: '' asks for is the box.
+        if 'label' in config_info and label != '':
             default_leading = Widget.default_label_leading
         else:
             default_leading = Widget.default_leading
@@ -14845,12 +14856,14 @@ config_data = '''
 #define app-version
 - item: text
   label: "K4-Companion Version"
+  leading: 0
   evaltext: version
 #end
 
 #define startup-cmds
 - item: startup_cmds
   label: Startup Commands
+  leading: 0
 #end
 
 #define exit-cmds
