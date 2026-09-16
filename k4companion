@@ -12723,10 +12723,42 @@ class Keyer():
 
         if straight_key_down:
             Audio.key_sidetone(False)
+            self.end_straight_key_on_air()
         elif scheduled != None and not Audio.cancel_sidetone_down():
             # Too late to take back: the tone is on its way to the DAC,
             # and only an up edge ends it.
             Audio.key_sidetone(False)
+
+    def end_straight_key_on_air(self):
+        # The KZU that ends what the key's KZD began, for a key that is
+        # never going to report its own release.
+        #
+        # Silencing the sidetone is not the half of it. What KZD starts
+        # only KZU ends, so the K4 is left keyed -- transmitting, and
+        # with nothing to be heard, the tone having just been stopped --
+        # until something else keys it. A Vail Adapter meets this oftener
+        # than any other device: its own keyer sends the elements, and
+        # reports each of them as a key down and a key up, so a change
+        # arriving mid element finds the key down.
+        #
+        # Only where a KZD is really outstanding: send_straight_key
+        # sends one as it takes the key down event, and may never have
+        # taken one. k4_keyed is what it says so with -- the timestamps
+        # it keeps cannot, a session's first key down being reported at
+        # the very zero they start from.
+        #
+        # Measured in real time, the device's own clock having stopped
+        # with the device, and that clock is moved on by as much so that
+        # what it reports next still follows what it reported last.
+        if not self.k4_keyed:
+            return
+        self.k4_keyed = False
+        seconds = time.perf_counter() - self.straight_key_down_at
+        self.previous_key_up_timestamp = (self.previous_key_down_timestamp +
+                                          seconds)
+        self.paddle_timestamp = max(self.paddle_timestamp,
+                                    self.previous_key_up_timestamp)
+        Server.k4_server.send_str(f'KZU{self.straight_key_ms(seconds):04d};')
 
     @classmethod
     def get_keyer_mode(cls):
@@ -12943,11 +12975,15 @@ class Keyer():
         self.in_burst = False
         self.first_element_lock = threading.Lock()
         # Whether a straight key is being held down, as the edges keyed
-        # for it say, and whether this keyer has been closed and is to
-        # key nothing further. Both settled under the lock above -- see
-        # stop_keying.
+        # for it say, when it went down, and whether this keyer has been
+        # closed and is to key nothing further. Settled under the lock
+        # above -- see release_paddles.
         self.straight_key_down = False
+        self.straight_key_down_at = 0.0
         self.closed = False
+        # Whether the K4 has been sent a KZD that no KZU has ended yet.
+        # See end_straight_key_on_air.
+        self.k4_keyed = False
         # The lag to hold, taken from wherever the audio had settled
         # after the last element there was no gap to measure before, and
         # the gap the KZD most recently sent carried, which is what says
@@ -13071,15 +13107,20 @@ class Keyer():
             # from when either thread ran.
             #
             # Under the lock, which costs nothing uncontended and is
-            # what stop_keying settles against: the key's state and its
-            # edge have to move together, or a keyer closing between the
-            # two leaves a tone sounding with nothing left to end it.
+            # what release_paddles settles against: the key's state and
+            # its edge have to move together, or a keyer closing between
+            # the two leaves a tone sounding with nothing left to end it.
             # Nothing is keyed at all once it has closed.
             with self.first_element_lock:
                 if not self.closed:
                     if event == self.STRAIGHT_KEY_DOWN_EVENT:
                         Audio.key_sidetone(True)
                         self.straight_key_down = True
+                        # Real time, for release_paddles to measure the
+                        # key down with should no release ever come. The
+                        # timestamps below are the device's own clock,
+                        # which stops with the device.
+                        self.straight_key_down_at = time.perf_counter()
                     elif event == self.STRAIGHT_KEY_UP_EVENT:
                         Audio.key_sidetone(False)
                         self.straight_key_down = False
@@ -13136,7 +13177,7 @@ class Keyer():
         # as well, and never held long: nothing under it waits.
         #
         # Nor once the keyer has closed: there is no thread left to end
-        # what this would start. See stop_keying.
+        # what this would start. See release_paddles.
         with self.first_element_lock:
             if (self.closed or self.in_burst or
                     self.first_element_scheduled != None or
@@ -13179,12 +13220,21 @@ class Keyer():
         if event == self.STRAIGHT_KEY_DOWN_EVENT:
             ms = self.straight_key_ms(timestamp - self.previous_key_up_timestamp)
             self.previous_key_down_timestamp = timestamp
+            self.k4_keyed = True
             Server.k4_server.send_str(f'KZD{ms:04d};')
             Audio.report_glitches(during_sidetone=False)
         elif event == self.STRAIGHT_KEY_UP_EVENT:
             ms = self.straight_key_ms(timestamp - self.previous_key_down_timestamp)
             self.previous_key_up_timestamp = timestamp
-            Server.k4_server.send_str(f'KZU{ms:04d};')
+            # Only where the K4 is still keyed. release_paddles ends a
+            # key that was left down when its device was let go of, and
+            # a device given back while the key is still held -- the
+            # settings page rebuilt under it, say -- then reports the
+            # release as well. The first KZU is the one that counts; a
+            # second keys up what is already up.
+            if self.k4_keyed:
+                self.k4_keyed = False
+                Server.k4_server.send_str(f'KZU{ms:04d};')
             Audio.report_glitches(during_sidetone=True)
 
         return event
