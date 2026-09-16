@@ -1,16 +1,16 @@
 """A sweep of keying simulations at 30 WPM.
 
-Two scenarios, chosen by the third argument:
+Three scenarios, chosen by the third argument:
 
-  tap    the dit paddle is held closed throughout and the dah paddle is
-         tapped for 5ms
-  swap   the dit paddle is released at the same instant the dah paddle
-         is closed, and the dah is then held
+  tap      the dit paddle is held closed throughout and the dah paddle
+           is tapped for 5ms
+  dit-tap  the mirror of it: the dah paddle held and the dit tapped
+  swap     the dit paddle is released at the same instant the dah
+           paddle is closed, and the dah is then held
 
-Either way the moment in question moves 4ms per run, from 84ms to 164ms
-after the dit paddle closed. Each run drives the real Keyer over a
-virtual clock and writes a plot of what the operator did, what they
-heard, and what the K4 was sent.
+The moment in question moves 4ms per run. Each run drives the real
+Keyer over a virtual clock and writes a plot of what the operator did,
+what they heard, and what the K4 was sent.
 """
 import os, sys, importlib.util, types, queue, contextlib, threading, json
 import matplotlib
@@ -21,7 +21,7 @@ from matplotlib.patches import Rectangle
 MOD = sys.argv[1]
 OUTDIR = sys.argv[2]
 SCENARIO = sys.argv[3] if len(sys.argv) > 3 else 'tap'
-assert SCENARIO in ('tap', 'swap'), SCENARIO
+assert SCENARIO in ('tap', 'dit-tap', 'swap'), SCENARIO
 spec = importlib.util.spec_from_file_location('k4mod', MOD)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
@@ -30,10 +30,20 @@ RATE, U = 48000, 384
 BLOCK = U / RATE
 WPM = 30
 DIT = 1.2 / WPM                 # 40ms
-T0 = 100.1                      # when the dit paddle closes
-HOLD = .400                     # tap: how long the dit paddle is held
-SWAP_END = .520                 # swap: when the dah paddle is released
-WINDOW = (HOLD if SCENARIO == 'tap' else SWAP_END) + .12
+T0 = 100.1                      # when the first paddle closes
+
+# Which paddle is closed at time zero and held, how long it is held for,
+# and the range the tapped paddle's moment moves over. dit-tap runs
+# further than the others because a dah is three times a dit: 80 to
+# 300ms spans nearly five dah element periods, where 84 to 164 spans
+# four dit ones.
+HELD = {'tap': 'dit', 'dit-tap': 'dah', 'swap': 'dit'}[SCENARIO]
+HOLD = {'tap': .400, 'dit-tap': .760, 'swap': .520}[SCENARIO]
+TAPS = {'tap': (84, 164), 'dit-tap': (80, 300), 'swap': (84, 164)}[SCENARIO]
+WINDOW = HOLD + .12
+MARK = '#2b7bba' if HELD == 'dah' else '#c2410c'
+                                # the tapped paddle's colour, for the
+                                # marker carried down the panels
 HOP = .0001                     # device thread to keyer thread
 LEAD = .016                     # how far ahead of its DAC time a block is filled
 
@@ -90,12 +100,14 @@ def sim(tap_at, tap_length=.005):
             placed.append((dac + e[0] / RATE - 1000.0, e[1]))
             start = e[0]
 
-    if SCENARIO == 'tap':
+    if SCENARIO in ('tap', 'dit-tap'):
+        # One paddle held throughout and the other tapped during it.
+        tapped = 'dah' if HELD == 'dit' else 'dit'
         script = sorted([
-            (T0, 'dit_down'),
-            (T0 + tap_at, 'dah_down'),
-            (T0 + tap_at + tap_length, 'dah_up'),
-            (T0 + HOLD, 'dit_up'),
+            (T0, f'{HELD}_down'),
+            (T0 + tap_at, f'{tapped}_down'),
+            (T0 + tap_at + tap_length, f'{tapped}_up'),
+            (T0 + HOLD, f'{HELD}_up'),
         ])
     else:
         # The dit released and the dah closed in the same instant. The
@@ -105,7 +117,7 @@ def sim(tap_at, tap_length=.005):
             (T0, 'dit_down'),
             (T0 + tap_at, 'dit_up'),
             (T0 + tap_at, 'dah_down'),
-            (T0 + SWAP_END, 'dah_up'),
+            (T0 + HOLD, 'dah_up'),
         ]
     pending = list(script)
     wake = [None]
@@ -208,8 +220,9 @@ def plot(result, tap_at, path):
     xmax = WINDOW * 1000
     for ax in axes:
         ax.set_axisbelow(True)          # bars over the grid, not under it
-        # Where the tap landed, carried down all three panels.
-        ax.axvline(tap_at * 1000, color='#c2410c', lw=1, ls=(0, (4, 3)),
+        # Where the tap landed, carried down all three panels, in the
+        # colour of the paddle that made it.
+        ax.axvline(tap_at * 1000, color=MARK, lw=1, ls=(0, (4, 3)),
                    alpha=.55, zorder=1)
 
     # What the operator did.
@@ -233,13 +246,15 @@ def plot(result, tap_at, path):
     ax.set_yticks([.5, 1.5])
     ax.set_yticklabels(['dit paddle', 'dah paddle'])
     ax.set_ylim(0, 2)
-    what = ('dit paddle held, dah paddle tapped for 5 ms'
-            if SCENARIO == 'tap' else
-            'dit paddle released and dah paddle closed')
+    what = {
+        'tap': 'dit paddle held, dah paddle tapped for 5 ms',
+        'dit-tap': 'dah paddle held, dit paddle tapped for 5 ms',
+        'swap': 'dit paddle released and dah paddle closed',
+    }[SCENARIO]
     ax.set_title(f'{WPM} WPM iambic B — {what} at {tap_at * 1000:.0f} ms',
                  fontsize=12.5, pad=16)
     ax.text(tap_at * 1000, 2.06, f'{tap_at * 1000:.0f} ms', ha='center',
-            va='bottom', fontsize=9.5, color='#c2410c', weight='bold')
+            va='bottom', fontsize=9.5, color=MARK, weight='bold')
 
     # What the operator heard. Each tone is filled and named, so a dit
     # can be told from a dah at a glance, with its length beside it.
@@ -287,7 +302,7 @@ def plot(result, tap_at, path):
     ax.set_ylim(-1.35, 1.35)
     ax.set_yticks([])
     ax.set_ylabel('K4 commands', fontsize=10)
-    ax.set_xlabel('milliseconds after the dit paddle closed', fontsize=10)
+    ax.set_xlabel(f'milliseconds after the {HELD} paddle closed', fontsize=10)
 
     for ax in axes:
         ax.set_xlim(-8, xmax)
@@ -301,7 +316,7 @@ def plot(result, tap_at, path):
 
 os.makedirs(OUTDIR, exist_ok=True)
 summary = []
-for tap_ms in range(84, 165, 4):
+for tap_ms in range(TAPS[0], TAPS[1] + 1, 4):
     tap_at = tap_ms / 1000
     result = sim(tap_at)
     path = os.path.join(
@@ -314,4 +329,5 @@ for tap_ms in range(84, 165, 4):
     print(f'{tap_ms:3d} ms  {elements:24s}  {len(result["edges"]):2d} sidetone edges  '
           f'-> {os.path.basename(path)}')
 
-json.dump(summary, open(os.path.join(OUTDIR, 'summary.json'), 'w'), indent=1)
+json.dump(summary, open(os.path.join(OUTDIR, f'summary_{SCENARIO}.json'), 'w'),
+          indent=1)
