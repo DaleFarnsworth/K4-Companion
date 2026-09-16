@@ -12675,29 +12675,51 @@ class Keyer():
         # would have nothing left to end it and the join would wait for
         # ever.
         cls.cancel_message_callback()
-        self.stop_keying()
+        cls.release_paddles(closing=True)
         cls.singleton = None
 
-    def stop_keying(self):
-        # The paddles' side shut for good, and any tone their thread
-        # started that the keyer thread is not going to end ended: a
-        # first element queued in the moment before the callback was
-        # cancelled, or a straight key still held down as the keyer
-        # closed. Nothing to end in the ordinary way of it -- the keyer
-        # thread ends every element it starts before it returns, and
-        # takes whatever was queued ahead of the close event first.
+    @classmethod
+    def release_paddles(cls, closing=False):
+        # Whatever the paddles' device last reported closed, taken as
+        # open from now, and any tone it started that nothing else is
+        # going to end, ended.
         #
-        # closed is what a callback already in flight finds: cancelling
-        # one does not reach into a call that has begun, and an edge
-        # keyed after this has looked would be left sounding with
-        # nothing to end it. Settled under the lock the paddles' thread
-        # keys under, so that the two cannot pass each other.
+        # The device has just been let go of, so the edge that would
+        # have reported a paddle open is never coming. The internal
+        # keyer reads the paddles afresh at every element and sends for
+        # as long as one of them reads closed, so one left closed here
+        # is a keyer that never stops: elements, and the KZD and KZU for
+        # each of them, going out for as long as the app runs. Straight
+        # keying has no such loop -- send_straight_key takes one event
+        # and returns -- and shows the same thing as a tone left
+        # sounding instead.
+        #
+        # Read as open rather than the thread being stopped, so that the
+        # element under way still goes out as it was keyed and the burst
+        # ends at the boundary after it.
+        #
+        # closing says whether the keyer is going with the device. One
+        # that stays -- the operator changing device type -- keys on for
+        # whatever comes next; one that is closing keys nothing further
+        # at all. closed is what a callback already in flight finds:
+        # cancelling one does not reach into a call that has begun, and
+        # an edge keyed after this has looked would be left sounding
+        # with nothing to end it. Settled under the lock the paddles'
+        # thread keys under, so that the two cannot pass each other.
+        self = cls.singleton
+        if self == None:
+            return
         with self.first_element_lock:
-            self.closed = True
+            if closing:
+                self.closed = True
             straight_key_down = self.straight_key_down
             self.straight_key_down = False
             scheduled = self.first_element_scheduled
             self.first_element_scheduled = None
+
+        now = time.perf_counter()
+        self.dit_up_timestamp = now
+        self.dah_up_timestamp = now
 
         if straight_key_down:
             Audio.key_sidetone(False)
@@ -12791,6 +12813,13 @@ class Keyer():
             SerialInput.release_port()
         if not cls.device_type_MoMIDI:
             MidiInput.release_port()
+
+        # A paddle held across the change is held on a device the keyer
+        # has just stopped listening to, and would read closed for ever.
+        # Last, so that whatever device is to report them now is already
+        # in place: released any earlier and the one being let go could
+        # report the paddle closed again on its way out.
+        cls.release_paddles()
 
     @classmethod
     def set_dit_paddle_notes(cls, notes):
