@@ -13112,10 +13112,27 @@ class Keyer():
                               dit_down_ts - previous_elt_ts >
                               self.dit_down_memory_delay)
                 if self.keyer_mode == self.MODE_IAMBIC_B:
+                    # A paddle released during the element just sent is
+                    # remembered, but only where it was also closed
+                    # during it. What the memory is for is a tap the
+                    # operator makes while an element is going out, too
+                    # short to be seen when the next one is chosen; a
+                    # paddle that was already closed before the element
+                    # began and is let go during it is not that. It is
+                    # the operator coming off the paddle -- the end of a
+                    # string of dits as the other paddle takes over --
+                    # and remembering it put one more of the element
+                    # they had just stopped asking for after the one
+                    # they had just started.
+                    #
+                    # A paddle closed during the element and still held
+                    # needs no memory: dit and dah above already have it.
                     dit = dit or (previous_elt == '-' and
+                                  dit_down_ts > previous_elt_ts and
                                   dit_up_ts - previous_elt_ts >
                                   dit_up_memory_delay)
                     dah = dah or (previous_elt == '.' and
+                                  dah_down_ts > previous_elt_ts and
                                   dah_up_ts - previous_elt_ts >
                                   dah_up_memory_delay)
 

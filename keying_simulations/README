@@ -1,0 +1,64 @@
+Keying simulations
+==================
+
+Twenty-one runs of the iambic keyer at 30 WPM, one plot each.
+
+The scenario: the dit paddle closes at time zero, and at the moment
+named in the file's name the operator releases the dit paddle and
+closes the dah, holding it. That moment moves 4ms per run, from 84ms to
+164ms after the dit paddle closed.
+
+Each plot has three panels against one time axis, zeroed on the dit
+paddle closing:
+
+  - what the operator did: the two paddles' closures
+  - what the operator heard: the sidetone as rendered, each tone named
+    and carrying the length it actually came out at
+  - what the K4 was sent: every KZD and KZU, key down above the line
+    and key up below
+
+What they are here to show is that once the first dah has gone out, no
+dit follows it. Across the sweep the only thing that varies is how many
+dits precede the switch, which is what should vary:
+
+     84-104ms   dit dah dah dah
+    108-164ms   dit dit dah dah dah
+
+Before the dit up memory was made to require that the paddle had also
+been closed during the element it is remembered from, 13 of these 21
+runs put an unasked-for dit after the first dah -- as element 3 below
+108ms and as element 4 from 140ms up.
+
+The tones read 119ms where the KZU says 0120, and 39ms where it says
+0040. That is the sidetone catch-up trimming elements a fraction to
+work off the audio's lag; the K4 is always told the full length, so
+nothing on the air is short.
+
+Running them
+------------
+
+    python3 paddle_sweep.py <a copy of k4companion named *.py> <outdir> swap
+
+The harness drives the real Keyer over a virtual clock: paddle events
+go in through send_paddle_event on the thread a paddle's device would
+report on, send_iambic runs on the keyer's thread a hop later, and the
+sidetone edges plotted are the frames next_key_edge actually placed.
+Nothing about the keyer is reimplemented. Pass "tap" instead of "swap"
+for the other scenario, where the dit paddle is held throughout and the
+dah paddle is tapped for 5ms.
+
+It takes a copy of the program with a .py suffix because it imports it
+as a module.
+
+These were produced with inherent_sidetone_lag carried on
+previous_elt_ts in send_iambic's choose_element, rather than on the four
+paddle timestamps. The two spellings are equivalent -- the sweep comes
+out identical either way, every KZD and KZU alike -- but the sign
+matters: adding the lag to the paddle timestamps instead of subtracting
+it leaves no clean band at all.
+
+The dah tap scenario is the regression test for the memory guard. A tap
+is a paddle closed and released inside one element, which is what the
+memory exists for, and that sweep comes out untouched by the guard --
+all 21 runs, every element and every KZD and KZU identical to what they
+were before it.
