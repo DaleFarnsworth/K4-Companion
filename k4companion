@@ -13753,7 +13753,7 @@ class Keyer():
         # Asked of an instant rather than of the clock, so that the
         # paddle's own thread can settle it against the moment the
         # paddle closed. See start_burst_sidetone.
-        if (not self.end_sidetone_timestamp or
+        if (not self.end_sidetone_timestamp or not self.end_element_timestamp or
                 not (self.auto_char_space or self.auto_word_space)):
             return None
         time_since_last_char = now - self.end_sidetone_timestamp
@@ -13765,7 +13765,15 @@ class Keyer():
             space_seconds = self.inter_character_seconds
         else:
             return None
-        return self.end_sidetone_timestamp + space_seconds
+        # From the keyed end of the last element, though the gap was
+        # judged from the heard one. The two are a sidetone delay apart,
+        # and each side wants its own: whether a space was meant is a
+        # question about what was heard, while what is returned is the
+        # instant the next element is keyed, and start_element measures
+        # the gap the K4 is told from the keyed end. Reckoned from the
+        # heard end, every auto space went out a whole audio delay long
+        # -- 135ms where a character space is 120.
+        return self.end_element_timestamp + space_seconds
 
     def wait_for_auto_space(self):
         until = self.auto_space_until(time.perf_counter())
