@@ -2086,8 +2086,18 @@ def format_slider_value(value, resolution):
     return f'{value:.{decimals}f}'
 
 def qt_button_stylesheet(bg, fg, abg, afg):
+    # Padded across but not down. The 2px the padding used to add above
+    # and below the text made every button 4px taller than the
+    # comboboxes it sits beside -- 26px against 22 at the default font
+    # -- which shows up wherever the two share a group, as On/Off does
+    # with its dropdowns in the Main tab's SSNR, LMSNR and NB boxes. The
+    # text needs none of it vertically: the font's own line height plus
+    # the border is exactly the combobox's height, so dropping it lines
+    # the two up rather than merely bringing them closer. The horizontal
+    # padding stays, since across is where the text would otherwise
+    # crowd the border.
     return (
-        f'QPushButton {{ background-color: {bg}; color: {fg}; border: 2px outset #888; padding: 2px; }}'
+        f'QPushButton {{ background-color: {bg}; color: {fg}; border: 2px outset #888; padding: 0px 2px; }}'
         f'QPushButton:pressed {{ background-color: {abg}; color: {afg}; }}'
     )
 
