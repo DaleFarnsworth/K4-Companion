@@ -2489,33 +2489,26 @@ class DigitEntry(QLineEdit):
             return
         super().mousePressEvent(event)
 
+    @staticmethod
+    def _handled(event, handler, *args):
+        # The key belongs to the widget above, whether or not it has
+        # anything to do with it.
+        if handler != None:
+            handler(*args)
+        event.accept()
+
     def keyPressEvent(self, event):
         key = event.key()
         if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
-            if self.on_change_step != None:
-                self.on_change_step(key)
-            event.accept()
-            return
+            return self._handled(event, self.on_change_step, key)
         if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
-            if self.on_bump != None:
-                self.on_bump(key)
-            event.accept()
-            return
+            return self._handled(event, self.on_bump, key)
         if key in (Qt.Key.Key_PageUp, Qt.Key.Key_PageDown):
-            if self.on_jump != None:
-                self.on_jump(key)
-            event.accept()
-            return
+            return self._handled(event, self.on_jump, key)
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            if self.on_validate != None:
-                self.on_validate(True)
-            event.accept()
-            return
+            return self._handled(event, self.on_validate, True)
         if key == Qt.Key.Key_Space:
-            if self.on_space != None:
-                self.on_space()
-            event.accept()
-            return
+            return self._handled(event, self.on_space)
         text = event.text()
         allowed_keys = (Qt.Key.Key_Backspace, Qt.Key.Key_Delete, Qt.Key.Key_Period)
         if text.isdigit() or key in allowed_keys:
@@ -2544,9 +2537,117 @@ class DigitEntry(QLineEdit):
         painter.drawLine(x, y, x + w, y)
         painter.end()
 
-class VFO(Widget):
-    step = (1, 10, 100, 1000, 10000)
-    step_index = {1: 0, 10: 1, 100: 2, 1000: 3, 10000:4}
+class SteppedEntry(Widget):
+    # What the VFO and the RIT are both made of: a fixed-width number in
+    # a DigitEntry, whose digit columns are the tuning steps, with the
+    # step in use underlined. The two differ in what they are counting
+    # -- a frequency or an offset -- and in what they do with it, which
+    # is what value()/set_value() and the colours below are for.
+    #
+    # steps is coarsest-last, and step_indexes is its reverse.
+    steps = ()
+    step_indexes = {}
+
+    def build_step_columns(self, width):
+        # Which character column each step is underlined at.
+        self.step_column = {}
+        for i, step in enumerate(self.steps):
+            self.step_column[step] = width - i - (1 if i < 3 else 2)
+        return {step: {column} for step, column in self.step_column.items()}
+
+    def build_entry(self, width, step_columns):
+        # The field itself, and everything about it that is the same for
+        # both. What it is to be validated against is the caller's.
+        frame = QWidget()
+        frame_grid = QGridLayout(frame)
+        frame_grid.setContentsMargins(0, 0, 0, 0)
+        self.frame.layout().addWidget(frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        self.tb = DigitEntry(width)
+        self.tb.setFont(self.font())
+        self.tb.setStyleSheet('QLineEdit { background-color: pink; color: black; }')
+        self.tb.set_step_columns(step_columns)
+        frame_grid.addWidget(self.tb, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        self.tb.on_step_click = self.on_button_one
+        self.tb.on_change_step = self.on_change_step
+        self.tb.on_bump = self.on_bump_value
+        self.tb.on_jump = self.on_jump_value
+        self.tb.on_wheel = self.on_mouse_wheel
+
+    def on_received_initial_parameters(self, response):
+        self.set_bg()
+
+    def on_button_one(self, step):
+        self.set_step(step)
+
+    def add_tags(self):
+        self.add_underline_tag()
+
+    def add_underline_tag(self):
+        self.tb.set_underline_column(self.step_column[self.step])
+
+    def set_step_index(self, step_index):
+        step_index = max(0, min(len(self.steps) - 1, step_index))
+        self.step = self.steps[step_index]
+        self.add_underline_tag()
+
+    def on_change_step(self, key):
+        # Left for a coarser step, since the digits it moves toward are
+        # the larger ones.
+        step_index = self.step_indexes[self.step]
+        if key == Qt.Key.Key_Left:
+            step_index += 1
+        else:
+            step_index -= 1
+        self.set_step_index(step_index)
+
+    def adjust_value(self, step):
+        # By one step, from wherever it stands to the step's own grid.
+        value = self.value() + step
+        mod = value % self.step
+        value -= mod
+        if mod != 0 and step < 0:
+            value -= step
+        self.set_value(value)
+
+    def on_bump_value(self, key):
+        step = self.step
+        if key == Qt.Key.Key_Down:
+            step = -step
+        self.adjust_value(step)
+
+    def on_jump_value(self, key):
+        # By the step above the one in use, the coarsest standing for
+        # itself.
+        step_index = self.step_indexes[self.step]
+        if step_index < len(self.steps) - 1:
+            step_index += 1
+        step = self.steps[step_index]
+        if key == Qt.Key.Key_PageDown:
+            step = -step
+        self.set_value(self.value() + step)
+        self.add_underline_tag()
+
+    def on_mouse_wheel(self, event):
+        self.adjust_value(self.step * mouse_wheel_mult(event))
+
+    def current_mode_index(self):
+        return self.k4param(f'MD{self.suffix}')
+
+    def transmit_vfo(self):
+        split = self.k4param('FT') == '1'
+        return 'B' if split else 'A'
+
+    def transmitting_here(self):
+        return self.AorB == self.transmit_vfo()
+
+    def set_entry_color(self, color):
+        self.tb.setStyleSheet(f'QLineEdit {{ background-color: {color}; color: black; }}')
+
+class VFO(SteppedEntry):
+    steps = (1, 10, 100, 1000, 10000)
+    step_indexes = {1: 0, 10: 1, 100: 2, 1000: 3, 10000:4}
     low_frequency_limit=100000
     high_frequency_limit=54000000
     instances = {}                # AorB ('A'/'B') -> VFO instance, so
@@ -2564,6 +2665,7 @@ class VFO(Widget):
         super().__init__(config_info, container)
 
         self.AorB = config_info.get('AorB', 'A').upper()
+        self.suffix = '$' if self.AorB == 'B' else ''
         VFO.instances[self.AorB] = self
 
         self.width = config_info.get('width', 9)
@@ -2573,13 +2675,9 @@ class VFO(Widget):
         # columns that select that step when clicked -- the leftmost
         # columns beyond the explicit per-step positions all select the
         # coarsest step, matching the tkinter version's extra tag_add loop.
-        self.step_column = {}
-        for i, step in enumerate(VFO.step):
-            self.step_column[step] = self.width - i - (1 if i < 3 else 2)
-
-        step_columns = {step: {column} for step, column in self.step_column.items()}
-        last_step = VFO.step[-1]
-        for i in range(0, self.width - len(VFO.step) - 1):
+        step_columns = self.build_step_columns(self.width)
+        last_step = VFO.steps[-1]
+        for i in range(0, self.width - len(VFO.steps) - 1):
             step_columns[last_step].add(i)
 
         self.active_color = config_info.get('activecolor', self.bg)
@@ -2588,45 +2686,23 @@ class VFO(Widget):
         self.freq = 14100000
         self.step = 100
 
-        frame = QWidget()
-        frame_grid = QGridLayout(frame)
-        frame_grid.setContentsMargins(0, 0, 0, 0)
-        self.frame.layout().addWidget(frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        self.tb = DigitEntry(self.width)
-        self.tb.setFont(self.font())
-        self.tb.setStyleSheet('QLineEdit { background-color: pink; color: black; }')
-        self.tb.set_step_columns(step_columns)
-        frame_grid.addWidget(self.tb, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        self.tb.on_step_click = self.on_button_one
-        self.tb.on_change_step = self.on_change_step
-        self.tb.on_bump = self.on_bump_frequency
-        self.tb.on_jump = self.on_jump_frequency
-        self.tb.on_wheel = self.on_mouse_wheel
+        self.build_entry(self.width, step_columns)
         self.tb.on_validate = self.validate_frequency
         self.tb.on_space = lambda: self.validate_frequency(False, space=True)
 
         self.add_tags()
 
-        step_cmd = f'VT{"$" if self.AorB == "B" else ""};'
-        self.server.subscribe_response(step_cmd, self.on_step_received)
+        self.server.subscribe_response(f'VT{self.suffix};', self.on_step_received)
         self.server.subscribe_response(f'F{self.AorB};', self.on_frequency_received)
         # subscribe to split and transmit on/off changes
-        self.server.subscribe_responses('FT;TR;', self.set_vfo_bg)
+        self.server.subscribe_responses('FT;TR;', self.set_bg)
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
-    def on_received_initial_parameters(self, response):
-        self.set_vfo_bg()
+    def value(self):
+        return self.freq
 
-    def on_button_one(self, step):
-        self.set_step(step)
-
-    def add_tags(self):
-        self.add_underline_tag()
-
-    def add_underline_tag(self):
-        self.tb.set_underline_column(self.step_column[self.step])
+    def set_value(self, freq):
+        self.set_frequency(freq, send=True)
 
     def validate_frequency(self, send=False, space=False):
         try:
@@ -2638,10 +2714,7 @@ class VFO(Widget):
         self.set_frequency(freq, send=send, space=space)
 
     def set_frequency(self, freq, send=False, space=False):
-        if freq < VFO.low_frequency_limit:
-            freq = VFO.low_frequency_limit
-        if freq > VFO.high_frequency_limit:
-            freq = VFO.high_frequency_limit
+        freq = max(VFO.low_frequency_limit, min(VFO.high_frequency_limit, freq))
         freq_str = f'{freq / 1000:12.3f}'[12-self.width:]
         if freq_str != self.tb.text():
             self.tb.setText(freq_str)
@@ -2650,7 +2723,7 @@ class VFO(Widget):
             cmd = f'F{self.AorB}{freq:011.0f};'
             self.server.send_cmds(cmd)
         self.freq = freq
-        self.set_vfo_bg()
+        self.set_bg()
 
     def on_frequency_received(self, response):
         freq = cmd_parameter(response)
@@ -2659,44 +2732,18 @@ class VFO(Widget):
     def set_step(self, step):
         self.step = step
         self.add_underline_tag()
-        suffix = '$' if self.AorB == 'B' else ''
-        index = VFO.step_index[step]
+        index = VFO.step_indexes[step]
         mode = self.current_mode_index()
-        cmd = f'VT{suffix}{index}{mode};'
+        cmd = f'VT{self.suffix}{index}{mode};'
         self.server.send_cmds(cmd)
 
     def on_step_received(self, response):
         step_str = cmd_parameter(response)
         step_index = int(step_str[0])
         if step_index == 5:                             # Work around an apparent K4 bug
-            cmd = f'VT{"$" if self.AorB == "B" else ""}2;'
-            self.server.send_cmds(cmd)
+            self.server.send_cmds(f'VT{self.suffix}2;')
             step_index = 2
         self.set_step_index(step_index)
-
-    def set_step_index(self, step_index):
-        if step_index < 0:
-            step_index = 0
-        elif step_index > 4:
-            step_index = 4
-        self.step = VFO.step[step_index]
-        self.add_underline_tag()
-
-    def on_change_step(self, key):
-        step_index = VFO.step_index[self.step]
-        if key == Qt.Key.Key_Left:
-            step_index += 1
-        else:
-            step_index -= 1
-        self.set_step_index(step_index)
-
-    def adjust_frequency(self, step):
-        freq = self.freq + step
-        mod = freq % self.step
-        freq -= mod
-        if mod != 0 and step < 0:
-            freq -= step
-        self.set_frequency(freq, send=True)
 
     def nudge_frequency(self, delta_hz):
         # Same rounding as adjust_frequency, but snapped to delta_hz's
@@ -2713,47 +2760,18 @@ class VFO(Widget):
             freq -= delta_hz
         self.set_frequency(freq, send=True)
 
-    def on_bump_frequency(self, key):
-        step = self.step
-        if key == Qt.Key.Key_Down:
-            step = -step
-        self.adjust_frequency(step)
-
-    def on_jump_frequency(self, key):
-        orig_step = self.step
-        step_index = VFO.step_index[self.step]
-        if step_index < 4:
-            step_index += 1
-        step = VFO.step[step_index]
-        if key == Qt.Key.Key_PageDown:
-            step = -step
-        self.set_frequency(self.freq + step, send=True)
-        self.add_underline_tag()
-
-    def on_mouse_wheel(self, event):
-        step = self.step * mouse_wheel_mult(event)
-        self.adjust_frequency(step)
-
-    def current_mode_index(self):
-        base = f'MD{"$" if self.AorB == "B" else ""}'
-        return self.k4param(base)
-
-    def transmit_vfo(self):
-        split = self.k4param('FT') == '1'
-        return 'B' if split else 'A'
-
-    def set_vfo_bg(self, arg=None):
-        if self.AorB == self.transmit_vfo():
-            if self.k4param('TR') == 'T':
-                self.tb.setStyleSheet(f'QLineEdit {{ background-color: {self.transmit_color}; color: black; }}')
-            else:
-                self.tb.setStyleSheet(f'QLineEdit {{ background-color: {self.active_color}; color: black; }}')
+    def set_bg(self, arg=None):
+        # The VFO being transmitted on is marked, and marked differently
+        # while it actually is transmitting.
+        if self.transmitting_here():
+            color = self.transmit_color if self.k4param('TR') == 'T' else self.active_color
         else:
-            self.tb.setStyleSheet(f'QLineEdit {{ background-color: {self.bg}; color: black; }}')
+            color = self.bg
+        self.set_entry_color(color)
 
-class RIT(Widget):
-    step = (1, 10, 100, 1000)
-    step_index = {1: 0, 10: 1, 100: 2, 1000: 3}
+class RIT(SteppedEntry):
+    steps = (1, 10, 100, 1000)
+    step_indexes = {1: 0, 10: 1, 100: 2, 1000: 3}
     low_offset_limit=-9999
     high_offset_limit=9999
 
@@ -2770,10 +2788,7 @@ class RIT(Widget):
 
         self.width = 6
 
-        self.step_column = {}
-        for i, step in enumerate(RIT.step):
-            self.step_column[step] = self.width - i - (1 if i < 3 else 2)
-        step_columns = {step: {column} for step, column in self.step_column.items()}
+        step_columns = self.build_step_columns(self.width)
 
         self.rit_color = config_info.get('ritcolor', self.bg)
         self.xit_color = config_info.get('xitcolor', self.bg)
@@ -2783,22 +2798,7 @@ class RIT(Widget):
         self.step = 1000
         step_index = 3
 
-        frame = QWidget()
-        frame_grid = QGridLayout(frame)
-        frame_grid.setContentsMargins(0, 0, 0, 0)
-        self.frame.layout().addWidget(frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        self.tb = DigitEntry(self.width)
-        self.tb.setFont(self.font())
-        self.tb.setStyleSheet('QLineEdit { background-color: pink; color: black; }')
-        self.tb.set_step_columns(step_columns)
-        frame_grid.addWidget(self.tb, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        self.tb.on_step_click = self.on_button_one
-        self.tb.on_change_step = self.on_change_step
-        self.tb.on_bump = self.on_bump_offset
-        self.tb.on_jump = self.on_jump_offset
-        self.tb.on_wheel = self.on_mouse_wheel
+        self.build_entry(self.width, step_columns)
         self.tb.on_validate = lambda send: self.validate_offset()
 
         self.add_tags()
@@ -2808,28 +2808,19 @@ class RIT(Widget):
         self.server.subscribe_response(f'RO{self.suffix};', self.on_offset_received)
         # subscribe to split and transmit on/off changes
         cmds = f'RT{self.suffix};XT;FT;TR;'
-        self.server.subscribe_responses(cmds, self.set_rit_bg)
+        self.server.subscribe_responses(cmds, self.set_bg)
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
-    def on_received_initial_parameters(self, response):
-        self.set_rit_bg()
+    def value(self):
+        return self.offset
 
-    def on_button_one(self, step):
-        self.set_step(step)
-
-    def add_tags(self):
-        self.add_underline_tag()
-
-    def add_underline_tag(self):
-        self.tb.set_underline_column(self.step_column[self.step])
+    def set_value(self, offset):
+        self.set_offset(offset)
 
     def validate_offset(self):
         try:
             offset = int(round(float(self.tb.text()) * 1000))
-            if offset < RIT.low_offset_limit:
-                offset = RIT.low_offset_limit
-            if offset > RIT.high_offset_limit:
-                offset = RIT.high_offset_limit
+            offset = max(RIT.low_offset_limit, min(RIT.high_offset_limit, offset))
             self.set_offset(offset)
         except:
             self.set_offset(self.offset)
@@ -2842,7 +2833,7 @@ class RIT(Widget):
         if offset != self.offset:
             self.offset = offset
             self.send_offset(offset)
-        self.set_rit_bg()
+        self.set_bg()
 
     def send_offset(self, offset):
         cmd = f'RO{self.suffix}{offset:+05d};'
@@ -2856,73 +2847,16 @@ class RIT(Widget):
         self.step = step
         self.add_underline_tag()
 
-    def set_step_index(self, step_index):
-        if step_index < 0:
-            step_index = 0
-        elif step_index > 3:
-            step_index = 3
-        self.step = RIT.step[step_index]
-        self.add_underline_tag()
-
-    def on_change_step(self, key):
-        step_index = RIT.step_index[self.step]
-        if key == Qt.Key.Key_Left:
-            step_index += 1
-        else:
-            step_index -= 1
-        self.set_step_index(step_index)
-
-    def adjust_offset(self, step):
-        offset = self.offset + step
-        mod = offset % self.step
-        offset -= mod
-        if mod != 0 and step < 0:
-            offset -= step
-        self.set_offset(offset)
-
-    def on_bump_offset(self, key):
-        step = self.step
-        if key == Qt.Key.Key_Down:
-            step = -step
-        self.adjust_offset(step)
-
-    def on_jump_offset(self, key):
-        orig_step = self.step
-        step_index = RIT.step_index[self.step]
-        if step_index < 3:
-            step_index += 1
-        step = RIT.step[step_index]
-        if key == Qt.Key.Key_PageDown:
-            step = -step
-        self.set_offset(self.offset + step)
-        self.add_underline_tag()
-
-    def on_mouse_wheel(self, event):
-        step = self.step * mouse_wheel_mult(event)
-        self.adjust_offset(step)
-
-    def current_mode_index(self):
-        base = f'MD{self.suffix}'
-        return self.k4param(base)
-
-    def transmit_vfo(self):
-        split = self.k4param('FT') == '1'
-        return 'B' if split else 'A'
-
-    def set_rit_bg(self, arg=None):
+    def set_bg(self, arg=None):
+        # RIT and XIT each have their own colour, and a third for both
+        # at once -- XIT only counting on the VFO being transmitted on.
         rit_on = self.k4param(f'RT{self.suffix}') == '1'
-        xit_on = self.k4param(f'XT') == '1'
-
+        xit_here = self.k4param('XT') == '1' and self.transmitting_here()
         if rit_on:
-            if xit_on and self.AorB == self.transmit_vfo():
-                self.tb.setStyleSheet(f'QLineEdit {{ background-color: {self.ritxit_color}; color: black; }}')
-            else:
-                self.tb.setStyleSheet(f'QLineEdit {{ background-color: {self.rit_color}; color: black; }}')
+            color = self.ritxit_color if xit_here else self.rit_color
         else:
-            if xit_on and self.AorB == self.transmit_vfo():
-                self.tb.setStyleSheet(f'QLineEdit {{ background-color: {self.xit_color}; color: black; }}')
-            else:
-                self.tb.setStyleSheet(f'QLineEdit {{ background-color: {self.bg}; color: black; }}')
+            color = self.xit_color if xit_here else self.bg
+        self.set_entry_color(color)
 
 class SliderWidget():
     def __init__(self, caller, frame, options):
