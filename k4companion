@@ -15896,9 +15896,13 @@ config_data = '''
   cmd: PS88;
 #end
 
+# width matches the RIT toggle, which gets its 5 from the Clear button
+# sharing its group. Pan shares its group with a slider, which carries
+# no text, so left to itself it comes out 3 wide.
 #define main-pan-togglebutton
 - item: togglebutton
   label: Pan
+  width: 5
   selections: #{
     - { text: "Off", cmd: WPAN!0;, tooltip: "Enable the panadapter window" }
     - { text: "On",  cmd: WPAN!1;, tooltip: "Disable the panadapter window" }
@@ -15908,6 +15912,7 @@ config_data = '''
 #define sub-pan-togglebutton
 - item: togglebutton
   label: Pan
+  width: 5
   selections: #{
     - { text: "Off", cmd: WPAN$!0;, tooltip: "Enable the panadapter window" }
     - { text: "On",  cmd: WPAN$!1;, tooltip: "Disable the panadapter window" }
@@ -16457,6 +16462,9 @@ config_data = '''
 #   label: surrounds this item with a frame with the specified "label"
 #   wraparound: true or false. whether the button wraps back around to the first selection
 #     defaults to true
+#   width: the number of characters the button is at least as wide as. Defaults
+#     to the longest text of any item in the same group, so that buttons sharing
+#     a group come out alike; give it explicitly to match a button elsewhere.
 #   justify: 'left', 'right', 'center' to justify text within the Button
 #   selections: a list of selections, each of which may have the following elements
 #       text: button text
