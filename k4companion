@@ -7223,7 +7223,7 @@ class Audio():
     server = None
 
     sidetone_rise_time = .004
-    sidetone_fall_time = .006
+    sidetone_fall_time = .004
     sidetone_rise_perceived_ratio = .5
     sidetone_fall_perceived_ratio = .5
     sidetone_enabled = True
