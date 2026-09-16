@@ -7686,23 +7686,19 @@ class Audio():
             cls.singleton.report_audio_glitches(during_sidetone=during_sidetone)
 
     @classmethod
-    def start_sidetone(cls):
-        cls.singleton.report_audio_glitches(during_sidetone=False)
-        cls.key_sidetone(True)
-
-    @classmethod
-    def stop_sidetone(cls):
-        cls.key_sidetone(False)
-        cls.singleton.report_audio_glitches(during_sidetone=True)
-
-    @classmethod
     def key_sidetone(cls, key_down):
+        # An edge as it happens, for a straight key, which has no notice
+        # to give: schedule_sidetone_down and schedule_sidetone_up are
+        # what the keyer's own elements go in through.
+        #
         # Record when the edge happened rather than acting on it here.
         # PortAudio's clock is the one time_info reports the block's
         # play-out time on, so output_stream_callback can work out which
         # frame of which block this edge belongs at. Called from the
-        # keyer's thread, between which and the next callback a whole
-        # element can begin and end.
+        # thread the key's device reports on, between which and the next
+        # callback a whole element can begin and end. Nothing here blocks
+        # for long enough to hold that thread up: the lock is taken only
+        # against the stream being closed, and never by the callback.
         if cls.singleton == None or not cls.sidetone_enabled:
             return
         self = cls.singleton
@@ -12885,6 +12881,36 @@ class Keyer():
 
     def send_paddle_event(self, event, delta_time):
         if self.straight_keying:
+            # The straight key's own edge, keyed here on the thread its
+            # device reports on, ahead of everything else this does.
+            #
+            # A straight key's edge cannot be scheduled ahead the way the
+            # keyer's elements are -- when the operator closes the key is
+            # not ours to know -- so every step between the contact and
+            # the queued edge is monitoring delay, and the largest of
+            # them was the queue below. Waking the keyer's thread is
+            # waiting for the GIL, and whatever holds it -- the output
+            # callback, the opus decode, the Qt thread painting a
+            # panadapter -- holds it until it yields or its switch
+            # interval runs out, five milliseconds by default. Under a
+            # load like the app's own that hop measured .15ms at the
+            # median and a millisecond or two at the worst, and the
+            # spread is as audible as the delay: a tone that follows the
+            # key by a different amount each time is what sounds mushy,
+            # however small the average.
+            #
+            # Both edges, and for the same reason the keyer schedules
+            # both of its own: what is heard as the element's length is
+            # the difference between them, so an edge left to the keyer's
+            # thread would put that whole hop into every element.
+            #
+            # What goes on the air is untouched. KZD and KZU carry
+            # intervals measured from the device's own deltas below, not
+            # from when either thread ran.
+            if event == self.STRAIGHT_KEY_DOWN_EVENT:
+                Audio.key_sidetone(True)
+            elif event == self.STRAIGHT_KEY_UP_EVENT:
+                Audio.key_sidetone(False)
             self.paddle_timestamp += delta_time
             timestamp = self.paddle_timestamp
         else:
@@ -12918,16 +12944,20 @@ class Keyer():
 
         timestamp = paddle_event.timestamp
 
+        # The sidetone's edge has already gone in, on the thread the key
+        # reported it on (see send_paddle_event). What is left here is
+        # the K4's half of it, and the glitch report that used to ride
+        # along with the keying.
         if event == self.STRAIGHT_KEY_DOWN_EVENT:
             ms = self.straight_key_ms(timestamp - self.previous_key_up_timestamp)
             self.previous_key_down_timestamp = timestamp
             Server.k4_server.send_str(f'KZD{ms:04d};')
-            Audio.start_sidetone()
+            Audio.report_glitches(during_sidetone=False)
         elif event == self.STRAIGHT_KEY_UP_EVENT:
             ms = self.straight_key_ms(timestamp - self.previous_key_down_timestamp)
             self.previous_key_up_timestamp = timestamp
             Server.k4_server.send_str(f'KZU{ms:04d};')
-            Audio.stop_sidetone()
+            Audio.report_glitches(during_sidetone=True)
 
         return event
 
