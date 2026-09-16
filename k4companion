@@ -192,6 +192,29 @@ _tight_combobox_delegate = _TightComboBoxDelegate()
 def qt_tighten_combobox_popup(combobox):
     combobox.setItemDelegate(_tight_combobox_delegate)
 
+def qt_combobox_stylesheet(bg, fg, selectbg, selectfg):
+    # The colours every combobox in the app wants, and the tightening
+    # that goes with them.
+    #
+    # Left to the native style a combobox stands 4px taller than a
+    # button of the same font -- 26px against 22 at the default -- so
+    # the two are visibly out of line wherever they share a row, as they
+    # do in the panadapter's controls and in the settings. Spelling the
+    # padding out is what brings it in: it switches the box to the CSS
+    # box model, where the padding is ours rather than the style's.
+    # Nothing is lost by it, the text having wanted none of that space.
+    #
+    # The same switch hands us the horizontal padding too, which comes
+    # in from the native figure whether or not it is asked to, so the
+    # drop-down arrow is narrowed to suit rather than left standing at a
+    # width the rest no longer matches. This is what the Main tab's
+    # dropdowns have always carried; it is here so that every combobox
+    # carries it, and so that there is one place to change it.
+    return (
+        f'QComboBox {{ background-color: {bg}; color: {fg}; padding: 0px 1px 0px 2px; }}'
+        'QComboBox::drop-down { width: 12px; }'
+        f'QComboBox QAbstractItemView {{ background-color: {selectbg}; color: {selectfg}; }}')
+
 def qt_tight_groupbox_stylesheet(title, font):
     # QGroupBox's native title area reserves far more vertical space than
     # the title text needs (independent of the layout's own
@@ -264,9 +287,7 @@ def qt_labeled_readonly_combobox(title, font, box_font, values, current_value, b
     combobox.view().setFont(box_font)
     if combobox.lineEdit() != None:
         combobox.lineEdit().setAlignment(qt_justify(justify))
-    combobox.setStyleSheet(
-        f'QComboBox {{ background-color: {bg}; color: {fg}; }}'
-        f'QComboBox QAbstractItemView {{ background-color: {selectbg}; color: {selectfg}; }}')
+    combobox.setStyleSheet(qt_combobox_stylesheet(bg, fg, selectbg, selectfg))
     qt_tighten_combobox_popup(combobox)
     combobox.setCurrentText(str(current_value))
     grid.addWidget(combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -3362,16 +3383,12 @@ class DropdownWidget():
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def set_bg(self, bg):
-        # The native style's default QComboBox padding + drop-down arrow
-        # width add a lot of blank horizontal space beyond what the text
-        # itself needs (this is on top of setMinimumWidth() above, which
-        # only sets a floor -- the box's actual width is whichever is
-        # larger, and the native chrome alone was already bigger than
-        # that floor). Tightening both here shrinks the visible padding.
+        # The tightening qt_combobox_stylesheet carries matters here on
+        # top of setMinimumWidth() above, which only sets a floor -- the
+        # box's actual width is whichever is larger, and the native
+        # chrome alone was already bigger than that floor.
         self.combobox.setStyleSheet(
-            f'QComboBox {{ background-color: {bg}; color: {self.fg}; padding: 0px 1px 0px 2px; }}'
-            'QComboBox::drop-down { width: 12px; }'
-            f'QComboBox QAbstractItemView {{ background-color: {self.bg}; color: {self.fg}; }}')
+            qt_combobox_stylesheet(bg, self.fg, self.bg, self.fg))
 
     def on_received_initial_parameters(self, response):
         for selection in self.selections:
@@ -3705,9 +3722,8 @@ class Equalizers(Widget):
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
     def _style_combobox(self, combobox):
-        combobox.setStyleSheet(
-            f'QComboBox {{ background-color: {self.bg}; color: {self.fg}; }}'
-            f'QComboBox QAbstractItemView {{ background-color: {self.selectbg}; color: {self.selectfg}; }}')
+        combobox.setStyleSheet(qt_combobox_stylesheet(
+            self.bg, self.fg, self.selectbg, self.selectfg))
         qt_tighten_combobox_popup(combobox)
 
     def _reload_combobox_items(self, combobox, items):
@@ -5481,8 +5497,7 @@ class Panadapter(QDialog):
         combobox.view().setFont(qt_font('Helvetica', 9))
         combobox.activated.connect(on_activated)
         combobox.setStyleSheet(
-            'QComboBox { background-color: white; color: black; }'
-            'QComboBox QAbstractItemView { background-color: #ccc; color: black; }')
+            qt_combobox_stylesheet('white', 'black', '#ccc', 'black'))
         qt_tighten_combobox_popup(combobox)
         return combobox
 
@@ -9926,8 +9941,7 @@ class Dropdown_Widget():
             self.combobox.setEditable(state != 'readonly')
         self.combobox.setMaxVisibleItems(max(height, 10))
         self.combobox.setStyleSheet(
-            f'QComboBox {{ background-color: {bg}; color: {fg}; }}'
-            f'QComboBox QAbstractItemView {{ background-color: {selectbg}; color: {selectfg}; }}')
+            qt_combobox_stylesheet(bg, fg, selectbg, selectfg))
         qt_tighten_combobox_popup(self.combobox)
         if self.combobox.isEditable():
             self.combobox.lineEdit().setAlignment(qt_justify(justify))
