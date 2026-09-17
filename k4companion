@@ -13878,8 +13878,7 @@ class Keyer():
         # to measure a paddle against (see send_burst). Where the edge
         # is never placed, the lag standing is the best estimate there
         # is; it is what the schedule was reckoned on.
-        self.element_heard_start = (self.element_keyed_start +
-                                    self.inherent_sidetone_lag)
+        self.element_heard_start = (self.element_keyed_start + Audio.sidetone_delay())
         if not self.element_sidetone_queued:
             return
         give_up_at = self.element_kzd_timestamp + self.dit_seconds
