@@ -1,16 +1,21 @@
 """A sweep of keying simulations at 30 WPM.
 
-Three scenarios, chosen by the third argument:
+Four scenarios, chosen by the third argument:
 
   tap      the dit paddle is held closed throughout and the dah paddle
            is tapped for 5ms
   dit-tap  the mirror of it: the dah paddle held and the dit tapped
   swap     the dit paddle is released at the same instant the dah
            paddle is closed, and the dah is then held
+  squeeze  both paddles closed at time zero and both let go together
 
 The moment in question moves 4ms per run. Each run drives the real
 Keyer over a virtual clock and writes a plot of what the operator did,
 what they heard, and what the K4 was sent.
+
+squeeze is checked as well as drawn: iambic B owes one element after a
+released squeeze -- the element in progress finishes, and the opposite
+of it follows -- and each run says whether it got it.
 """
 import os, sys, importlib.util, types, queue, contextlib, threading, json
 import matplotlib
@@ -21,7 +26,7 @@ from matplotlib.patches import Rectangle
 MOD = sys.argv[1]
 OUTDIR = sys.argv[2]
 SCENARIO = sys.argv[3] if len(sys.argv) > 3 else 'tap'
-assert SCENARIO in ('tap', 'dit-tap', 'swap'), SCENARIO
+assert SCENARIO in ('tap', 'dit-tap', 'swap', 'squeeze'), SCENARIO
 spec = importlib.util.spec_from_file_location('k4mod', MOD)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
@@ -32,18 +37,25 @@ WPM = 30
 DIT = 1.2 / WPM                 # 40ms
 T0 = 100.1                      # when the first paddle closes
 
-# Which paddle is closed at time zero and held, how long it is held for,
-# and the range the tapped paddle's moment moves over. dit-tap runs
-# further than the others because a dah is three times a dit: 80 to
-# 300ms spans nearly five dah element periods, where 84 to 164 spans
-# four dit ones.
-HELD = {'tap': 'dit', 'dit-tap': 'dah', 'swap': 'dit'}[SCENARIO]
-HOLD = {'tap': .400, 'dit-tap': .760, 'swap': .520}[SCENARIO]
-TAPS = {'tap': (84, 164), 'dit-tap': (80, 300), 'swap': (84, 164)}[SCENARIO]
+# Which paddle is closed at time zero and held -- None for squeeze,
+# where both are -- how long it is held for, and the range the moment
+# in question moves over. dit-tap runs further than the others because
+# a dah is three times a dit: 80 to 300ms spans nearly five dah element
+# periods, where 84 to 164 spans four dit ones. squeeze runs over one
+# whole dit-gap-dah-gap cycle of the squeeze it is releasing, so the
+# release falls in every part of it.
+HELD = {'tap': 'dit', 'dit-tap': 'dah', 'swap': 'dit',
+        'squeeze': None}[SCENARIO]
+HOLD = {'tap': .400, 'dit-tap': .760, 'swap': .520,
+        'squeeze': .480}[SCENARIO]
+TAPS = {'tap': (84, 164), 'dit-tap': (80, 300), 'swap': (84, 164),
+        'squeeze': (4, 240)}[SCENARIO]
 WINDOW = HOLD + .12
-MARK = '#2b7bba' if HELD == 'dah' else '#c2410c'
+MARK = {'dah': '#2b7bba', 'dit': '#c2410c', None: '#374151'}[HELD]
                                 # the tapped paddle's colour, for the
-                                # marker carried down the panels
+                                # marker carried down the panels; a
+                                # squeeze is let go of with both, so
+                                # neither colour would be honest
 HOP = .0001                     # device thread to keyer thread
 LEAD = .016                     # how far ahead of its DAC time a block is filled
 
@@ -100,7 +112,15 @@ def sim(tap_at, tap_length=.005):
             placed.append((dac + e[0] / RATE - 1000.0, e[1]))
             start = e[0]
 
-    if SCENARIO in ('tap', 'dit-tap'):
+    if SCENARIO == 'squeeze':
+        # Both paddles closed at time zero and both let go together.
+        script = [
+            (T0, 'dit_down'),
+            (T0, 'dah_down'),
+            (T0 + tap_at, 'dit_up'),
+            (T0 + tap_at, 'dah_up'),
+        ]
+    elif SCENARIO in ('tap', 'dit-tap'):
         # One paddle held throughout and the other tapped during it.
         tapped = 'dah' if HELD == 'dit' else 'dit'
         script = sorted([
@@ -213,6 +233,24 @@ def elements_from(sent):
     return out
 
 
+def squeeze_verdict(result, release_at):
+    # What iambic B owes for a released squeeze: the element in progress
+    # finishes, and one more goes out, the opposite of it. Nothing is
+    # owed for a release that falls in a gap between elements -- there
+    # was no element in progress to be the opposite of.
+    #
+    # Returns (what was in progress, what is owed, what actually
+    # followed), with the first two None where nothing was owed.
+    elements = elements_from(result['sent'])
+    starts = [when for when, cmd in result['sent'] if cmd.startswith('KZD')]
+    for index, (start, name) in enumerate(zip(starts, elements)):
+        length = result['dah_seconds'] if name == 'dah' else result['dit_seconds']
+        if start <= release_at < start + length:
+            owed = 'dit' if name == 'dah' else 'dah'
+            return name, owed, elements[index + 1:]
+    return None, None, []
+
+
 def plot(result, tap_at, path):
     fig, axes = plt.subplots(3, 1, figsize=(13, 6.6), sharex=True,
                              gridspec_kw=dict(height_ratios=[2, 1.9, 1.7]))
@@ -250,6 +288,7 @@ def plot(result, tap_at, path):
         'tap': 'dit paddle held, dah paddle tapped for 5 ms',
         'dit-tap': 'dah paddle held, dit paddle tapped for 5 ms',
         'swap': 'dit paddle released and dah paddle closed',
+        'squeeze': 'both paddles squeezed, both released',
     }[SCENARIO]
     ax.set_title(f'{WPM} WPM iambic B — {what} at {tap_at * 1000:.0f} ms',
                  fontsize=12.5, pad=16)
@@ -302,7 +341,9 @@ def plot(result, tap_at, path):
     ax.set_ylim(-1.35, 1.35)
     ax.set_yticks([])
     ax.set_ylabel('K4 commands', fontsize=10)
-    ax.set_xlabel(f'milliseconds after the {HELD} paddle closed', fontsize=10)
+    ax.set_xlabel('milliseconds after both paddles closed' if HELD == None
+                  else f'milliseconds after the {HELD} paddle closed',
+                  fontsize=10)
 
     for ax in axes:
         ax.set_xlim(-8, xmax)
@@ -316,6 +357,7 @@ def plot(result, tap_at, path):
 
 os.makedirs(OUTDIR, exist_ok=True)
 summary = []
+owed_total = owed_met = 0
 for tap_ms in range(TAPS[0], TAPS[1] + 1, 4):
     tap_at = tap_ms / 1000
     result = sim(tap_at)
@@ -323,11 +365,31 @@ for tap_ms in range(TAPS[0], TAPS[1] + 1, 4):
         OUTDIR, f'keying_30wpm_{SCENARIO}_{tap_ms:03d}ms.png')
     plot(result, tap_at, path)
     elements = ' '.join(elements_from(result['sent']))
-    summary.append(dict(tap_ms=tap_ms, elements=elements,
-                        sent=[c for _, c in result['sent']],
-                        edges=len(result['edges'])))
+    entry = dict(tap_ms=tap_ms, elements=elements,
+                 sent=[c for _, c in result['sent']],
+                 edges=len(result['edges']))
+    verdict = ''
+    if SCENARIO == 'squeeze':
+        running, owed, after = squeeze_verdict(result, tap_at)
+        entry.update(released_during=running, owed=owed,
+                     followed=' '.join(after))
+        if owed == None:
+            verdict = '  released in a gap, nothing owed'
+        else:
+            owed_total += 1
+            if after == [owed]:
+                owed_met += 1
+                verdict = f'  {running} finished, {owed} owed and sent'
+            else:
+                verdict = (f'  WRONG: {running} finished, {owed} owed, got '
+                           f'{" ".join(after) or "nothing"}')
+    summary.append(entry)
     print(f'{tap_ms:3d} ms  {elements:24s}  {len(result["edges"]):2d} sidetone edges  '
-          f'-> {os.path.basename(path)}')
+          f'-> {os.path.basename(path)}{verdict}')
+
+if SCENARIO == 'squeeze':
+    print(f'\n{owed_met}/{owed_total} releases during an element got the '
+          f'element iambic B owes them')
 
 json.dump(summary, open(os.path.join(OUTDIR, f'summary_{SCENARIO}.json'), 'w'),
           indent=1)

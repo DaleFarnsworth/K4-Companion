@@ -1,8 +1,8 @@
 Keying simulations
 ==================
 
-Runs of the iambic keyer at 30 WPM, one plot each. Two sets are kept
-here, and paddle_sweep.py can produce a third.
+Runs of the iambic keyer at 30 WPM, one plot each. Three sets are kept
+here, and paddle_sweep.py can produce a fourth.
 
 Each plot has three panels against one time axis, zeroed on the paddle
 that closes first:
@@ -74,6 +74,44 @@ reading is what the band either side of a boundary is made of.
 Summary: summary_dit-tap.json
 
 
+keying_30wpm_squeeze_*.png -- sixty runs
+----------------------------------------
+
+Both paddles closed at time zero and both let go together at the moment
+named in the file's name, moving 4ms per run from 4ms to 240ms. That is
+one whole dit-gap-dah-gap cycle of the squeeze being released, so the
+release falls in every part of it.
+
+This is the case iambic B exists for: releasing a squeeze during an
+element completes that element and adds one more, the opposite of it.
+Alone among the sets here this one is checked as well as drawn -- each
+run says what was in progress, what was owed for it, and what actually
+followed, and the run ends with a count.
+
+Forty of the sixty releases land during an element. Thirty-six of those
+get the element they are owed. The four that do not are the releases at
+4, 8, 12 and 16ms, which fall inside inherent_sidetone_lag -- 16ms
+here -- so the release lands no later than the moment the element is
+reckoned to have been heard, and there is nothing yet for the operator
+to have reacted to. Those four behave identically before 6c715bb and
+after efd5c5c; they are not that regression.
+
+The remaining twenty releases fall in a gap between elements. Nothing
+is asserted about them: the squeeze was held through the whole of the
+element before the gap, and what is owed then is a question this sweep
+does not answer. They are still drawn.
+
+The set is here because 6c715bb broke exactly this and no sweep noticed.
+That commit required a remembered paddle to have been closed during the
+element it is remembered from, and a released squeeze is the opposite --
+closed from before the element began and let go part way through it --
+so none of the forty got its element until efd5c5c. Restoring the broken
+guard today leaves the swap, tap and dit-tap sweeps byte identical, and
+takes this one from 36 to 0.
+
+Summary: summary_squeeze.json
+
+
 The dah tap scenario
 --------------------
 
@@ -91,7 +129,7 @@ Running them
 ------------
 
     python3 paddle_sweep.py <a copy of k4companion named *.py> <outdir> \
-        <tap|dit-tap|swap>
+        <tap|dit-tap|swap|squeeze>
 
 The harness drives the real Keyer over a virtual clock: paddle events
 go in through send_paddle_event on the thread a paddle's device would

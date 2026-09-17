@@ -1,0 +1,938 @@
+[
+ {
+  "tap_ms": 4,
+  "elements": "dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;"
+  ],
+  "edges": 2,
+  "released_during": "dit",
+  "owed": "dah",
+  "followed": ""
+ },
+ {
+  "tap_ms": 8,
+  "elements": "dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;"
+  ],
+  "edges": 2,
+  "released_during": "dit",
+  "owed": "dah",
+  "followed": ""
+ },
+ {
+  "tap_ms": 12,
+  "elements": "dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;"
+  ],
+  "edges": 2,
+  "released_during": "dit",
+  "owed": "dah",
+  "followed": ""
+ },
+ {
+  "tap_ms": 16,
+  "elements": "dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;"
+  ],
+  "edges": 2,
+  "released_during": "dit",
+  "owed": "dah",
+  "followed": ""
+ },
+ {
+  "tap_ms": 20,
+  "elements": "dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 4,
+  "released_during": "dit",
+  "owed": "dah",
+  "followed": "dah"
+ },
+ {
+  "tap_ms": 24,
+  "elements": "dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 4,
+  "released_during": "dit",
+  "owed": "dah",
+  "followed": "dah"
+ },
+ {
+  "tap_ms": 28,
+  "elements": "dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 4,
+  "released_during": "dit",
+  "owed": "dah",
+  "followed": "dah"
+ },
+ {
+  "tap_ms": 32,
+  "elements": "dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 4,
+  "released_during": "dit",
+  "owed": "dah",
+  "followed": "dah"
+ },
+ {
+  "tap_ms": 36,
+  "elements": "dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 4,
+  "released_during": "dit",
+  "owed": "dah",
+  "followed": "dah"
+ },
+ {
+  "tap_ms": 40,
+  "elements": "dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 4,
+  "released_during": "dit",
+  "owed": "dah",
+  "followed": "dah"
+ },
+ {
+  "tap_ms": 44,
+  "elements": "dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 4,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 48,
+  "elements": "dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 4,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 52,
+  "elements": "dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 4,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 56,
+  "elements": "dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 4,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 60,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 64,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 68,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 72,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 76,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 80,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 84,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 88,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 92,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 96,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 100,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 104,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 108,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 112,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 116,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 120,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 124,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 128,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 132,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 136,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 140,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 144,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 148,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 152,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 156,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 160,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 164,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 168,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 172,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 176,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 180,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 184,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 188,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 192,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 196,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 200,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
+ },
+ {
+  "tap_ms": 204,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 208,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 212,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 216,
+  "elements": "dit dah dit",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;"
+  ],
+  "edges": 6,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 220,
+  "elements": "dit dah dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 8,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 224,
+  "elements": "dit dah dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 8,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 228,
+  "elements": "dit dah dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 8,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 232,
+  "elements": "dit dah dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 8,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 236,
+  "elements": "dit dah dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 8,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ },
+ {
+  "tap_ms": 240,
+  "elements": "dit dah dit dah",
+  "sent": [
+   "KZD0000;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;",
+   "KZD0040;",
+   "KZU0040;",
+   "KZD0040;",
+   "KZU0120;"
+  ],
+  "edges": 8,
+  "released_during": null,
+  "owed": null,
+  "followed": ""
+ }
+]
