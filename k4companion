@@ -12567,12 +12567,12 @@ class Keyer():
     sidetone_catchup_change_seconds = .001
     sidetone_behind_average_weight = .1
 
-    # The weight one measurement carries in the lag the keyer holds. A
-    # measurement is one look at a device that varies, and there are few
-    # of them -- one for each burst the operator starts after an idle --
-    # so this is far heavier than the per-element average above, and
-    # still not one.
-    inherent_sidetone_lag_weight = .25
+    # How far past the lag the keyer holds the audio may drift before
+    # the catch-up pulls at it. A device wanders by a millisecond or two
+    # about whatever it settles at, and trimming elements for that is
+    # heard as the sending wavering for no reason the operator can point
+    # to. See plan_sidetone_catchup.
+    tolerable_sidetone_lag_margin = .005
 
     # The most that fraction may reach. A lag beyond 10 ms is worked off
     # over more elements rather than by cutting any one of them harder.
@@ -13750,10 +13750,16 @@ class Keyer():
         # inherent lag says it can, or a change absorbed just before a
         # fresh reading of that lag -- is not a debt to be paid back by
         # stretching elements: the operator would hear the sending slow
-        # down for no reason he can point to. Nothing to catch up is
-        # nothing to do, and the next change in the delay is absorbed
-        # from wherever the schedule happens to stand.
-        behind = max(0.0, sidetone_delay - self.inherent_sidetone_lag -
+        # down for no reason to point to. Nothing to catch up is nothing
+        # to do, and the next change in the delay is absorbed from
+        # wherever the schedule happens to stand.
+        #
+        # And not against that lag exactly, but against it plus a
+        # margin: what the device wanders by while sitting at it is not
+        # something to chase.
+        tolerable_sidetone_lag = (self.inherent_sidetone_lag +
+                                  self.tolerable_sidetone_lag_margin)
+        behind = max(0.0, sidetone_delay - tolerable_sidetone_lag -
                      self.sidetone_delay_used)
         self.update_sidetone_catchup(behind)
         # The step it comes to depends on the element's length, which is
