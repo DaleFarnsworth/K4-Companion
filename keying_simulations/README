@@ -74,40 +74,78 @@ reading is what the band either side of a boundary is made of.
 Summary: summary_dit-tap.json
 
 
-keying_30wpm_squeeze_*.png -- sixty runs
-----------------------------------------
+keying_30wpm_squeeze_*.png -- a hundred and twenty-five runs
+------------------------------------------------------------
 
 Both paddles closed at time zero and both let go together at the moment
-named in the file's name, moving 4ms per run from 4ms to 240ms. That is
-one whole dit-gap-dah-gap cycle of the squeeze being released, so the
-release falls in every part of it.
+named in the file's name, moving 4ms per run from 4ms to 500ms. The
+squeeze alternates on a 240ms cycle at this speed, so that is two whole
+cycles and a little over: the release falls in every part of one, and
+the pattern is then seen to repeat rather than assumed to.
 
-This is the case iambic B exists for: releasing a squeeze during an
-element completes that element and adds one more, the opposite of it.
-Alone among the sets here this one is checked as well as drawn -- each
-run says what was in progress, what was owed for it, and what actually
-followed, and the run ends with a count.
+    release       released during   elements sent
+      4-104ms     the first dit     dit dah
+    108-260ms     the first dah     dit dah dit
+    264-340ms     the second dit    dit dah dit dah
+    344-500ms     the second dah    dit dah dit dah dit
 
-Forty of the sixty releases land during an element. Thirty-six of those
-get the element they are owed. The four that do not are the releases at
-4, 8, 12 and 16ms, which fall inside inherent_sidetone_lag -- 16ms
-here -- so the release lands no later than the moment the element is
-reckoned to have been heard, and there is nothing yet for the operator
-to have reacted to. Those four behave identically before 6c715bb and
-after efd5c5c; they are not that regression.
+Each band ends at the last release before the next tone can be heard.
+The second tone becomes audible at 104ms, the third at 264 and the
+fourth at 344, and the bands run to 104, 260 and 340. That is the rule
+below working exactly as written, and it is why the sweep is cut from
+the sidetone and not from the keyed grid.
 
-The remaining twenty releases fall in a gap between elements. Nothing
-is asserted about them: the squeeze was held through the whole of the
-element before the gap, and what is owed then is a question this sweep
-does not answer. They are still drawn.
+This is the case iambic B exists for. The rule, stated against what the
+operator can hear: a squeeze let go of while an element's sidetone is
+sounding, or during the space after it, owes exactly one more element --
+the opposite of that one -- and nothing after it.
+
+Alone among the sets here this one is checked as well as drawn. The
+heard timeline is cut at each tone's start, so a window is a tone plus
+the space following it and every release falls in exactly one. Each run
+says which element it was released during, what was owed for it, and
+what actually followed, and the run ends with a count. All of them follow
+the rule.
+
+Getting all of them took three things, and the sweep is what says each of
+them is needed.
+
+The memories measure a paddle against the previous element, and they
+measure it from when that element was heard, not from when it was
+keyed. The hand works to the sidetone: an element is not there to be
+answered, nor to be still squeezing through, until it can be heard.
+Measured from the keyed start instead, 22 of the 125 go wrong -- the
+last handful of every band, 84 to 104ms and again at 244 to 260, 324 to
+340 and 480 to 500. Those are the releases falling after the next
+element was keyed but before any of it was audible, and each puts an
+unasked-for element after it.
+
+That heard instant is where the output callback really placed the edge,
+not the keyed start plus inherent_sidetone_lag. The two differ whenever
+an edge lands late -- 24ms rather than 16 for the second element here --
+and estimating it loses the last release of every band: 100, 104, 260,
+340 and 500ms.
+
+A burst's first element is the exception, and is measured from its
+keyed start. That element the operator began themselves, by closing the
+paddle; it is the only one whose beginning is known to them without
+hearing it, so a squeeze let go of before it can be heard has still
+been let go of during it. Measuring it like the rest loses all six
+releases inside the lag, from 4 to 24ms.
+
+None of this is visible from the keyed grid. previous_elt_ts is the
+instant the element was keyed -- send_burst used to read the clock at
+the top of its loop, a whole inter-element gap earlier for every
+element but a burst's first, which the lag happened to paper over.
 
 The set is here because 6c715bb broke exactly this and no sweep noticed.
 That commit required a remembered paddle to have been closed during the
 element it is remembered from, and a released squeeze is the opposite --
 closed from before the element began and let go part way through it --
-so none of the forty got its element until efd5c5c. Restoring the broken
+so none of them got its element until efd5c5c. Restoring the broken
 guard today leaves the swap, tap and dit-tap sweeps byte identical, and
-takes this one from 36 to 0.
+takes this one from 125 to 25. So does every other way of breaking it
+that has been tried: nothing but this sweep notices any of them.
 
 Summary: summary_squeeze.json
 
