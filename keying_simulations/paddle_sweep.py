@@ -41,15 +41,19 @@ T0 = 100.1                      # when the first paddle closes
 # where both are -- how long it is held for, and the range the moment
 # in question moves over. dit-tap runs further than the others because
 # a dah is three times a dit: 80 to 300ms spans nearly five dah element
-# periods, where 84 to 164 spans four dit ones. squeeze runs over one
-# whole dit-gap-dah-gap cycle of the squeeze it is releasing, so the
-# release falls in every part of it.
+# periods, where 84 to 164 spans four dit ones. squeeze runs furthest,
+# 4 to 500ms, which is three whole dit-gap-dah-gap cycles of the
+# squeeze it is releasing, so the release falls in every part of one
+# and the pattern is seen to repeat rather than assumed to.
 HELD = {'tap': 'dit', 'dit-tap': 'dah', 'swap': 'dit',
         'squeeze': None}[SCENARIO]
+# squeeze has no held paddle -- both are let go at the moment being
+# swept -- so its entry only has to carry the plots far enough right to
+# show the element owed for the latest release, which ends at 544ms.
 HOLD = {'tap': .400, 'dit-tap': .760, 'swap': .520,
-        'squeeze': .480}[SCENARIO]
+        'squeeze': .500}[SCENARIO]
 TAPS = {'tap': (84, 164), 'dit-tap': (80, 300), 'swap': (84, 164),
-        'squeeze': (4, 240)}[SCENARIO]
+        'squeeze': (4, 500)}[SCENARIO]
 WINDOW = HOLD + .12
 MARK = {'dah': '#2b7bba', 'dit': '#c2410c', None: '#374151'}[HELD]
                                 # the tapped paddle's colour, for the
@@ -234,21 +238,33 @@ def elements_from(sent):
 
 
 def squeeze_verdict(result, release_at):
-    # What iambic B owes for a released squeeze: the element in progress
-    # finishes, and one more goes out, the opposite of it. Nothing is
-    # owed for a release that falls in a gap between elements -- there
-    # was no element in progress to be the opposite of.
+    # What iambic B owes for a released squeeze: exactly one more
+    # element, the opposite of the one the squeeze was let go of during,
+    # and nothing after it.
     #
-    # Returns (what was in progress, what is owed, what actually
-    # followed), with the first two None where nothing was owed.
+    # The rule is about what the operator could hear, so the windows are
+    # cut from the sidetone as the output callback really placed it and
+    # not from the keyed grid -- the two are a lag apart, and a release
+    # can fall after an element was keyed but before any of it was
+    # audible. A window is a tone and the space following it, up to the
+    # next tone starting, so every release falls in exactly one.
+    #
+    # A release before the first tone can be heard belongs to the first
+    # window. That element the operator began themselves by closing the
+    # paddle, so letting go before it could be heard is still letting go
+    # during it.
+    #
+    # Returns (the element released during, what is owed, what followed).
     elements = elements_from(result['sent'])
-    starts = [when for when, cmd in result['sent'] if cmd.startswith('KZD')]
-    for index, (start, name) in enumerate(zip(starts, elements)):
-        length = result['dah_seconds'] if name == 'dah' else result['dit_seconds']
-        if start <= release_at < start + length:
-            owed = 'dit' if name == 'dah' else 'dah'
-            return name, owed, elements[index + 1:]
-    return None, None, []
+    heard = [when for when, down in result['edges'] if down]
+    if not elements or not heard:
+        return None, None, []
+    window = 0
+    for index in range(min(len(heard), len(elements))):
+        if release_at >= heard[index]:
+            window = index
+    owed = 'dit' if elements[window] == 'dah' else 'dah'
+    return elements[window], owed, elements[window + 1:]
 
 
 def plot(result, tap_at, path):
@@ -370,26 +386,26 @@ for tap_ms in range(TAPS[0], TAPS[1] + 1, 4):
                  edges=len(result['edges']))
     verdict = ''
     if SCENARIO == 'squeeze':
-        running, owed, after = squeeze_verdict(result, tap_at)
-        entry.update(released_during=running, owed=owed,
+        during, owed, after = squeeze_verdict(result, tap_at)
+        entry.update(released_during=during, owed=owed,
                      followed=' '.join(after))
         if owed == None:
-            verdict = '  released in a gap, nothing owed'
+            verdict = '  nothing sent'
         else:
             owed_total += 1
             if after == [owed]:
                 owed_met += 1
-                verdict = f'  {running} finished, {owed} owed and sent'
+                verdict = f'  released during the {during}, {owed} owed and sent'
             else:
-                verdict = (f'  WRONG: {running} finished, {owed} owed, got '
-                           f'{" ".join(after) or "nothing"}')
+                verdict = (f'  WRONG: released during the {during}, {owed} '
+                           f'owed, got {" ".join(after) or "nothing"}')
     summary.append(entry)
     print(f'{tap_ms:3d} ms  {elements:24s}  {len(result["edges"]):2d} sidetone edges  '
           f'-> {os.path.basename(path)}{verdict}')
 
 if SCENARIO == 'squeeze':
-    print(f'\n{owed_met}/{owed_total} releases during an element got the '
-          f'element iambic B owes them')
+    print(f'\n{owed_met}/{owed_total} releases got the one element iambic B '
+          f'owes them, and nothing after it')
 
 json.dump(summary, open(os.path.join(OUTDIR, f'summary_{SCENARIO}.json'), 'w'),
           indent=1)
