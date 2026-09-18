@@ -7340,12 +7340,6 @@ class Audio():
     # at.
     exclusive_blocksize = 192
 
-    # Each burst of keying is rendered at a fixed offset behind the
-    # operator's key edges (see mix_sidetone). After this much silence
-    # that offset is dropped, so the next burst starts with the least
-    # delay the device allows rather than inheriting the old one.
-    sidetone_lag_reset_seconds = .5
-
     # The span over which note_block_timing keeps the furthest lead a
     # block has been filled with.
     block_lead_window_seconds = .5
@@ -8658,11 +8652,25 @@ class Audio():
 
         idle = (not self.sidetone_keyed and self.sidetone_envelope_position <= 0
                 and self.pending_key_event == None)
-        quiet_frames = block_start_frame - self.last_edge_frame
 
-        if idle and quiet_frames > sample_rate * self.sidetone_lag_reset_seconds:
-            self.sidetone_lag = 0.0
-
+        # Silence used to drop sidetone_lag, so that the next burst was
+        # rendered at the least delay the device allowed rather than
+        # inheriting the one before's. What it bought was the lowest
+        # delay each burst could have had; what it cost was that no two
+        # bursts had the same one. Every burst re-derived it from
+        # whatever the block lead happened to be at the moment the
+        # paddle closed, and a log of real sending came out at 24.3,
+        # 38.4, 33.7, 29.3 and on down to 26 -- from character to
+        # character, on one machine, at one speed.
+        #
+        # The lag is held now. It is established once, by the first key
+        # down of a session (see first_edge_lag), and every burst after
+        # renders at that same offset: an edge asked for a whole lag
+        # ahead of its block is placed on its own frame, and nothing
+        # about a pause changes that. It rises only where the host later
+        # needs more than it, which is the correction below doing what
+        # it has always done, and it goes back to nothing only when a
+        # stream is opened.
         if idle and self.key_event_queue.empty():
             return                  # nothing keyed: the K4 audio stands as written
 
