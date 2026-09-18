@@ -12752,23 +12752,6 @@ class Keyer():
 
     # And the same for an element's key up, which is given more.
     #
-    # Every other edge is queued a whole element or gap before the block
-    # that carries it is filled. A key up is queued only once the tone
-    # can be heard, the paddles being read as late as they can be, so
-    # what is left of the element after the audio's delay is all the
-    # notice it gets -- and a dit is the shortest element there is. At
-    # 40 WPM over a device filling blocks 24 ms ahead that came to 2 ms,
-    # which is no margin at all for a thread sharing a process with the
-    # panadapter: the dit's key up missed its block, the callback placed
-    # it on the earliest frame it had left, and the dit sounded as much
-    # as half as long again as it was meant to.
-    #
-    # Spent by giving up waiting for the tone that much sooner, so it
-    # costs the lateness of the last reading of the paddles and nothing
-    # else -- and only where the element had less than this to spare,
-    # which at 30 WPM and below is nowhere at all. See
-    # wait_until_sidetone_heard.
-    sidetone_up_edge_margin_seconds = .002
 
     @classmethod
     def get_singleton(cls):
@@ -13437,9 +13420,9 @@ class Keyer():
             # which is what this one's memory carries on from. Those two
             # instants are the same when the look waits for the tone,
             # and the look does not always wait -- a dit's key up has
-            # only what is left of the dit to be queued in, so the look
-            # is taken as much as sidetone_up_edge_margin_seconds early
-            # to leave room for it (see wait_until_sidetone_heard).
+            # only what is left of the dit to be queued in, so where the
+            # element is shorter than the delay the look is taken early
+            # to leave room for it (see up_edge_margin).
             # Measured from the heard start, everything in between fell
             # in no window at all: too late to be seen by the look that
             # settled the element it landed in, too early for the memory
@@ -14121,6 +14104,33 @@ class Keyer():
             step = behind
         return element_seconds * (1 - fraction), step
 
+    def up_edge_margin(self, dit_sidetone_seconds):
+        # How far before the output callback's last moment for it a
+        # dit's key up is queued. As much as the element can spare, and
+        # not a microsecond more.
+        #
+        # The margin is spent by giving up waiting for the tone that
+        # much sooner, so what it costs is the lateness of the last
+        # reading of the paddles -- and past a certain point that
+        # reading lands before the operator can hear the element at all,
+        # which is keying with the loop open. Where the spare runs to
+        # zero the reading is at the tone and the key up has nothing in
+        # hand; a fixed figure could only be wrong in one direction or
+        # the other, small enough to leave the dit unprotected at slow
+        # speeds or large enough to cost the answer at fast ones.
+        #
+        # So it is the element itself that says. The deadline is a
+        # block before the element ends, and the element is heard a
+        # delay after it is keyed, so the reading falls at the tone
+        # exactly while the margin is no more than the element's
+        # rendered length less that delay. That is what is taken.
+        #
+        # Nothing where the element is shorter than the delay: there is
+        # no margin to be had there and no reading to be had at the tone
+        # either, which is what reactable_wpm reports and the keyer
+        # warns about.
+        return max(0.0, dit_sidetone_seconds - Audio.sidetone_delay())
+
     def wait_until_sidetone_heard(self):
         # Until the element start_element began can be heard: the moment
         # the operator can react to it, and so the moment what the
@@ -14171,7 +14181,7 @@ class Keyer():
         queue_by = Audio.sidetone_edge_deadline(heard_at + dit_sidetone_seconds)
         if queue_by != None:
             wait_until = min(wait_until, queue_by -
-                             self.sidetone_up_edge_margin_seconds)
+                             self.up_edge_margin(dit_sidetone_seconds))
         self.sleep_until(wait_until)
 
     def end_element(self, elt):
@@ -14293,16 +14303,12 @@ class Keyer():
         # sixteen come to 36.000000000000004 of them, and a ceiling
         # asked that question answers 37 -- a whole millisecond of
         # threshold, and a word a minute of answer, on nothing.
-        threshold_ms = round((lag + self.sidetone_up_edge_margin_seconds) *
-                             1000, 6)
+        threshold_ms = round(lag * 1000, 6)
         whole_ms = math.ceil(threshold_ms)
         if whole_ms < 2:
             return None
         delta = (1 - self.weighting) / (1 + self.weighting)
-        reactable = math.ceil(1200 * (1 - delta) / (whole_ms - 1)) - 1
-        # Add just a bit of room for variability in lag
-        reactable -= 1
-        return reactable
+        return math.ceil(1200 * (1 - delta) / (whole_ms - 1)) - 1
 
     def warn_if_unreactable(self):
         # Said once for a given speed, and again if the speed or the
