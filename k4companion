@@ -7731,6 +7731,26 @@ class Audio():
         return dac_time + blocks * block_seconds - lead - offset
 
     @classmethod
+    def block_timing(cls):
+        # What note_block_timing last recorded, as (the block's length,
+        # the furthest ahead of its DAC time a block has lately been
+        # filled), or (None, None) before a block has run.
+        #
+        # For the keyer to report with. Those two are what a burst's
+        # first key down is placed at the sum of, so they are what says
+        # where the sidetone delay comes from -- and the stream's own
+        # reported latency does not: that is the depth PortAudio
+        # negotiated, while this is measured on every callback and kept
+        # at its furthest. Read here rather than printed where it is
+        # measured, the output callback being kept clear of anything
+        # that writes.
+        self = cls.singleton
+        timing = self.sidetone_block_timing if self else None
+        if timing == None:
+            return None, None
+        return timing[1], timing[2]
+
+    @classmethod
     def sidetone_delay(cls):
         # How long after the time it was scheduled for an edge is
         # actually heard. The output callback places an edge at that
@@ -13901,7 +13921,17 @@ class Keyer():
         # audio's own delay belongs to the sidetone schedule alone, and
         # is taken off there.
         sidetone_delay = Audio.sidetone_delay()
-        dprint1(f'inherent_sidetone_lag={round(self.inherent_sidetone_lag, 4)} sidetone_delay={round(sidetone_delay, 4)}')
+        # block_lead and block are what the delay is made of: a burst's
+        # first key down is placed at their sum, and every edge after it
+        # carries whatever that came to. Reported beside the delay so a
+        # log says where the figure came from rather than only what it
+        # came to -- the stream's own latency, printed once when it
+        # opens, is the depth PortAudio negotiated and not this.
+        block_seconds, block_lead = Audio.block_timing()
+        dprint1(f'inherent_sidetone_lag={round(self.inherent_sidetone_lag, 4)}'
+                f' sidetone_delay={round(sidetone_delay, 4)}'
+                f' block_lead={None if block_lead == None else round(block_lead, 4)}'
+                f' block={None if block_seconds == None else round(block_seconds, 4)}')
         # The delay the schedule allows for is walked toward the delay
         # the audio is really adding, rather than set to it outright.
         # Underruns slip the DAC clock and that delay only grows, so
