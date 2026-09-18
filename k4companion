@@ -13277,33 +13277,49 @@ class Keyer():
         dah_up_memory_delay = (self.dah_up_memory_delay_percent / 100 *
                                (self.dit_seconds + self.inter_element_seconds))
 
-        def choose_element(previous_elt, previous_elt_ts, previous_heard_ts):
+        def choose_element(previous_elt, previous_look_ts, previous_heard_ts):
             # The element the paddles, and what is remembered of them, ask
             # for next, or None for neither.
             #
-            # Every memory below measures a paddle against the previous
-            # element, and measures it from when that element was heard
-            # to start rather than from when it was keyed. The paddle
-            # timestamps are real time, when the operator's hand moved,
-            # and the hand works to the sidetone: an element is not
-            # there to be answered, nor to be still squeezing through,
-            # until it can be heard.
+            # The memories below measure a paddle against the previous
+            # element, and there are two instants to measure from.
             #
+            # A squeeze still running through, or let go of, is measured
+            # from when that element was heard to start rather than from
+            # when it was keyed. The paddle timestamps are real time,
+            # when the operator's hand moved, and the hand works to the
+            # sidetone: an element is not there to be answered, nor to
+            # be still squeezing through, until it can be heard.
             # send_burst supplies that instant -- where the output
             # callback really placed the edge, which is further off than
             # inherent_sidetone_lag whenever the edge lands late -- and
             # gives a burst's first element its keyed start instead,
             # that being the one element the operator began themselves.
             #
+            # A tap is measured from the last look at the paddles
+            # instead: the reading that settled the previous element,
+            # which is what this one's memory carries on from. Those two
+            # instants are the same when the look waits for the tone,
+            # and the look does not always wait -- a dit's key up has
+            # only what is left of the dit to be queued in, so the look
+            # is taken as much as sidetone_up_edge_margin_seconds early
+            # to leave room for it (see wait_until_sidetone_heard).
+            # Measured from the heard start, everything in between fell
+            # in no window at all: too late to be seen by the look that
+            # settled the element it landed in, too early for the memory
+            # of the next. A 5ms tap there was simply lost, and at 40
+            # WPM three runs of the sweeps lost one.
+            #
             # The comparisons of one paddle against another take no
-            # notice of it: a shift applied to all four cancels between
-            # them. That is why it belongs here, where only one side of
-            # the comparison moves.
+            # notice of either: a shift applied to all four cancels
+            # between them. That is why they belong here, where only one
+            # side of the comparison moves.
             dit_up_ts = self.dit_up_timestamp
             dah_up_ts = self.dah_up_timestamp
             dit_down_ts = self.dit_down_timestamp
             dah_down_ts = self.dah_down_timestamp
             heard_elt_ts = previous_heard_ts
+            look_elt_ts = previous_look_ts
 
             # The paddles as they stand, kept apart from what the
             # memories below add to them: a memory asks what the other
@@ -13345,8 +13361,8 @@ class Keyer():
                     #
                     # A paddle closed during the element and still held
                     # needs no memory: dit and dah above already have it.
-                    dit_tapped = (dit_down_ts > heard_elt_ts and
-                                  dit_up_ts - heard_elt_ts >
+                    dit_tapped = (dit_down_ts > look_elt_ts and
+                                  dit_up_ts - look_elt_ts >
                                   dit_up_memory_delay)
                     dit_squeeze_released = (
                         not dah_held and
@@ -13354,8 +13370,8 @@ class Keyer():
                     dit = dit or (previous_elt == '-' and
                                   (dit_tapped or dit_squeeze_released))
 
-                    dah_tapped = (dah_down_ts > heard_elt_ts and
-                                  dah_up_ts - heard_elt_ts >
+                    dah_tapped = (dah_down_ts > look_elt_ts and
+                                  dah_up_ts - look_elt_ts >
                                   dah_up_memory_delay)
                     dah_squeeze_released = (
                         not dit_held and
@@ -13380,7 +13396,7 @@ class Keyer():
         if self.keyer_mode != self.MODE_ULTIMATIC or event == self.CLOSE_EVENT:
             return event
 
-        def choose_element(previous_elt, previous_elt_ts, previous_heard_ts):
+        def choose_element(previous_elt, previous_look_ts, previous_heard_ts):
             # The element the paddles ask for next, or None for neither:
             # with both closed, the one closed last. Ultimatic keeps no
             # memories, so it has no use for either timestamp.
@@ -13433,10 +13449,10 @@ class Keyer():
         self.in_burst = True
         try:
             previous_elt = None
-            previous_elt_ts = None
+            previous_look_ts = None
             previous_heard_ts = None
             while True:
-                elt = choose_element(previous_elt, previous_elt_ts,
+                elt = choose_element(previous_elt, previous_look_ts,
                                      previous_heard_ts)
                 if elt == None and previous_elt == None:
                     elt = self.placed_first_element()
@@ -13444,7 +13460,7 @@ class Keyer():
                     return
                 first_element = previous_elt == None
                 wanted = lambda: choose_element(
-                    previous_elt, previous_elt_ts, previous_heard_ts) != None
+                    previous_elt, previous_look_ts, previous_heard_ts) != None
                 if not self.start_element(first_element, wanted):
                     return
                 # When this element was keyed, taken from start_element
@@ -13452,9 +13468,9 @@ class Keyer():
                 # inter-element gap apart for every element but a
                 # burst's first: the reading above is when this thread
                 # began working on the element, and start_element then
-                # sleeps out the gap before keying it. What the memories
-                # measure a paddle against is the element, so they want
-                # the instant it was keyed.
+                # sleeps out the gap before keying it. What a burst's
+                # first element is measured from is the instant it was
+                # keyed, that being when the operator began it.
                 elt_ts = self.element_keyed_start
                 self.wait_until_sidetone_heard()
                 # And when it was heard to start, which is what a
@@ -13471,10 +13487,25 @@ class Keyer():
                 # squeeze let go of during it.
                 elt_heard_ts = (elt_ts if first_element
                                 else self.element_heard_start)
-                elt = choose_element(previous_elt, previous_elt_ts,
+                # And the last look at the paddles, which is what a tap
+                # is measured from: this element's memory runs from
+                # where the reading that settled it left off, so the two
+                # windows meet and nothing falls between them. Read
+                # before the reading, so that a paddle moving while it
+                # is taken is counted by it rather than by neither.
+                #
+                # A burst's first element keeps its keyed start here
+                # too. The look that settled it consulted no memory --
+                # there was no element before it to remember against --
+                # so a tap made between the paddle closing and that look
+                # has only the next element's memory to be caught by,
+                # and the window has to reach back far enough to hold
+                # it.
+                elt_look_ts = elt_ts if first_element else time.perf_counter()
+                elt = choose_element(previous_elt, previous_look_ts,
                                      previous_heard_ts) or elt
                 self.end_element(elt)
-                previous_elt, previous_elt_ts = elt, elt_ts
+                previous_elt, previous_look_ts = elt, elt_look_ts
                 previous_heard_ts = elt_heard_ts
         finally:
             self.in_burst = False
