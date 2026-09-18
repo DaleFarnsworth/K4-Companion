@@ -61,14 +61,14 @@
  },
  {
   "tap_ms": 80,
-  "elements": "dit dit dah dit",
+  "elements": "dit dah dit dit",
   "sent": [
    "KZD0000;",
    "KZU0030;",
    "KZD0030;",
-   "KZU0030;",
-   "KZD0030;",
    "KZU0090;",
+   "KZD0030;",
+   "KZU0030;",
    "KZD0030;",
    "KZU0030;"
   ],

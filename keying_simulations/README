@@ -206,8 +206,8 @@ keying_40wpm_swap_*.png -- sixteen runs
 The swap at 40 WPM, from 64ms to 124ms. The same two bands as at 30 WPM
 and nothing else in them, which is what the set is here to say:
 
-     64-76ms    dit dah dah dah
-     80-124ms   dit dit dah dah dah
+     64-80ms    dit dah dah dah
+     84-124ms   dit dit dah dah dah
 
 Summary: summary_40wpm_swap.json
 
@@ -217,20 +217,22 @@ keying_40wpm_dit-tap_*.png -- forty-two runs
 
 The dah held and the dit tapped for 5ms, from 60ms to 224ms.
 
-     60-136ms   dah dit dah dah dah dah
-    140-224ms   dah dah dit dah dah dah
+     60-144ms   dah dit dah dah dah dah
+    148-224ms   dah dah dit dah dah dah
 
-Exactly one dit in every run, as at 30 WPM. The boundary is at 140ms
-where the second dah is keyed at 120 and heard at 144: what decides a
-tap is the last look at the paddles, and a dit's key up leaves so little
-of a dit to be queued in at this speed that the look no longer waits for
-the whole of the tone.
+Exactly one dit in every run, as at 30 WPM. The boundary sits at 148ms,
+where the second dah is keyed at 120 and heard at 144: a tap is decided
+by the last look at the paddles, and that look waits for the tone. It
+did not always. While the key up was given a fixed margin the look was
+taken 8ms early here and the boundary stood at 140, and the margin is
+the element's own spare now, which at this speed and delay leaves the
+look on the tone.
 
-That is the band this set was added for. Between the key up being given
-its margin and a tap being measured from the last look rather than from
-the heard start, three runs of these forty-two and the sixteen below
-lost the tapped element altogether -- the operator tapped a paddle and
-nothing came out. Nothing at 30 WPM showed it.
+That is the band this set was added for. While the margin was fixed and
+a tap was still measured from the heard start rather than from the last
+look, three runs of these forty-two and the sixteen below lost the
+tapped element altogether -- the operator tapped a paddle and nothing
+came out. Nothing at 30 WPM showed it.
 
 Summary: summary_40wpm_dit-tap.json
 
@@ -241,8 +243,8 @@ keying_40wpm_tap_*.png -- sixteen runs
 The mirror: the dit held throughout and the dah tapped for 5ms, from
 64ms to 124ms.
 
-     64-76ms    dit dah dit dit
-     80-124ms   dit dit dah dit
+     64-80ms    dit dah dit dit
+     84-124ms   dit dit dah dit
 
 A tap is a paddle closed and released inside one element, which is what
 the memory exists for, so this is the set the memory guard is answerable
