@@ -8709,6 +8709,7 @@ class Audio():
         # within the block, key down) pair, or None when the next one
         # belongs to a later block. start is the first frame of the block
         # not yet written, which is the earliest an edge can still go.
+        dragged = False
         while True:
             event = self.peek_key_event()
             if event == None:
@@ -8768,15 +8769,28 @@ class Audio():
             # block of monitoring delay on every burst.
             if key_down:
                 self.sidetone_lag += (start - offset) / sample_rate
+            else:
+                dragged = True
             offset = start
 
         # How far this edge was displaced from the time it was asked for
-        # -- normally exactly sidetone_lag, more when it arrived too late
-        # for the frame it wanted and had to take the earliest the block
-        # had left. The keyer needs it to know what gap was really
-        # rendered (see Keyer.start_element).
+        # -- exactly sidetone_lag, which is what the keyer reckons the
+        # audio's delay from (see Keyer.plan_sidetone_catchup).
+        #
+        # Not from an edge the correction above dragged and did not put
+        # into the lag. What such an edge was displaced by is the lag
+        # plus however late the keyer was with it, and only the first of
+        # those is the audio's doing. Read as a delay, the second is a
+        # change that never happened: the schedule is moved by the whole
+        # of it at the element after, and moved back at the one after
+        # that, for a wobble with nothing behind it. It drove
+        # sidetone_delay_used negative besides -- the schedule held
+        # behind the grid, making the monitoring delay worse than the
+        # audio asks for. So the reading standing is left alone, the lag
+        # not having moved.
         placed_at = dac_time + offset / sample_rate
-        self.sidetone_edge_shift = placed_at - event_time
+        if not dragged:
+            self.sidetone_edge_shift = placed_at - event_time
         if key_down:
             # Where it went, for the keyer to wait on hearing it. One
             # assignment, so the keyer's thread never sees half of it.
