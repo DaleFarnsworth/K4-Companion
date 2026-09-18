@@ -12658,8 +12658,18 @@ class Keyer():
     # the catch-up pulls at it. A device wanders by a millisecond or two
     # about whatever it settles at, and trimming elements for that is
     # heard as the sending wavering for no reason the operator can point
-    # to. See plan_sidetone_catchup.
-    tolerable_sidetone_lag_margin = .005
+    # to.
+    #
+    # A millisecond or two is now all it has to cover. This was two
+    # blocks of the device's own while the lag a burst established
+    # carried a block of arbitrariness -- the block lead plus wherever
+    # in the block cycle the paddle fell -- so that a burst could sit a
+    # whole block above the floor with nothing wrong. A burst's first
+    # key down is placed at a fixed delay now (see
+    # Audio.first_edge_lag), and every burst establishes the same lag,
+    # so there is nothing left of that to allow for. What is left is the
+    # device's own wander. See plan_sidetone_catchup.
+    tolerable_sidetone_lag_margin = .002
 
     # The most that fraction may reach. A lag beyond 10 ms is worked off
     # over more elements rather than by cutting any one of them harder.
