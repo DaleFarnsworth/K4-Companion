@@ -112,6 +112,11 @@ def sim(tap_at, tap_length=.005):
     A.mute_k4 = classmethod(lambda cls, unmute_after=None: None)
     A.report_glitches = classmethod(lambda cls, during_sidetone: None)
 
+    # Where the speed and the delay together mean the paddles are read
+    # before the element can be heard, the keyer says so. There is no
+    # window here to say it in, and it is not what these runs are about.
+    m.Popup.warning = classmethod(lambda cls, msg, **kw: None)
+
     grid0 = 1000.0 + 99.9
     st = dict(k=0, keyed=False, last_edge=-1e9)
     placed = []
