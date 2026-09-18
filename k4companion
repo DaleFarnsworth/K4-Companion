@@ -3853,9 +3853,12 @@ class Equalizers(Widget):
             base = 'RE'
         else:
             base = 'TE'
-        values = self.values[alt][tr][mode]
-        cmd = base + self.values_str(values) + ';'
-        self.server.send_cmds(cmd)
+
+        current_values = Server.k4_server.k4_parameter(base)
+        values = self.values_str(self.values[alt][tr][mode])
+        if current_values != values:
+            cmd = f'{base}{values};'
+            self.server.send_cmds(cmd)
 
     def on_active_alt_changed(self, text):
         self.set_k4_equalizer()
