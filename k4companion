@@ -12618,6 +12618,26 @@ class Keyer():
     # and the work done after waking before it gets that far.
     sidetone_edge_margin_seconds = .002
 
+    # And the same for an element's key up, which is given more.
+    #
+    # Every other edge is queued a whole element or gap before the block
+    # that carries it is filled. A key up is queued only once the tone
+    # can be heard, the paddles being read as late as they can be, so
+    # what is left of the element after the audio's delay is all the
+    # notice it gets -- and a dit is the shortest element there is. At
+    # 40 WPM over a device filling blocks 24 ms ahead that came to 2 ms,
+    # which is no margin at all for a thread sharing a process with the
+    # panadapter: the dit's key up missed its block, the callback placed
+    # it on the earliest frame it had left, and the dit sounded as much
+    # as half as long again as it was meant to.
+    #
+    # Spent by giving up waiting for the tone that much sooner, so it
+    # costs the lateness of the last reading of the paddles and nothing
+    # else -- and only where the element had less than this to spare,
+    # which at 30 WPM and below is nowhere at all. See
+    # wait_until_sidetone_heard.
+    sidetone_up_edge_margin_seconds = .016
+
     @classmethod
     def get_singleton(cls):
         if cls.singleton == None:
@@ -13956,7 +13976,7 @@ class Keyer():
         queue_by = Audio.sidetone_edge_deadline(heard_at + dit_sidetone_seconds)
         if queue_by != None:
             wait_until = min(wait_until, queue_by -
-                             self.sidetone_edge_margin_seconds)
+                             self.sidetone_up_edge_margin_seconds)
         self.sleep_until(wait_until)
 
     def end_element(self, elt):
