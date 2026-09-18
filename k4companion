@@ -8704,6 +8704,25 @@ class Audio():
                                       max(self.block_lead_previous,
                                           self.block_lead_current))
 
+    def first_edge_lag(self):
+        # The lag to give a burst's first key down: a block past the
+        # furthest ahead a block has lately been filled, which is the
+        # soonest such an edge can be placed whatever the block it lands
+        # in. See next_key_edge.
+        #
+        # None where there is no block timing to reckon it from, and
+        # None where a lag already stands -- that says a burst is under
+        # way, and an edge arriving late within one is a stall for the
+        # keyer's re-anchor and catch-up to work off rather than a fresh
+        # delay to settle on.
+        if self.sidetone_lag != 0.0:
+            return None
+        timing = self.sidetone_block_timing
+        if timing == None:
+            return None
+        _, block_seconds, lead = timing
+        return lead + block_seconds
+
     def next_key_edge(self, start, frames, dac_time, sample_rate):
         # The next edge landing in the block being filled, as a (frame
         # within the block, key down) pair, or None when the next one
@@ -8767,11 +8786,48 @@ class Audio():
             # definition, and the ones a stall leaves late, which the
             # keyer's re-anchor and catch-up have. What it cost was a
             # block of monitoring delay on every burst.
-            if key_down:
+            fixed = self.first_edge_lag() if key_down else None
+            soonest = dac_time + start / sample_rate - event_time
+            if fixed != None and fixed >= soonest:
+                # A burst's first key down, placed at a fixed distance
+                # after the paddle closed rather than as early as the
+                # block will take it.
+                #
+                # As early as possible is not the same distance twice.
+                # The edge is reported as the paddle closes and the
+                # block carrying it is already being filled, so what it
+                # costs to reach the earliest free frame is however far
+                # into the block cycle the paddle happened to fall --
+                # and that is where the whole spread of the monitoring
+                # delay comes from. Swept across one block period the
+                # lag comes out anywhere over a block: 10.00 to 13.75 ms
+                # on a 4 ms block filled 10 ms ahead.
+                #
+                # Placed a block past that lead instead, it comes out at
+                # 14.00 every time. The trade is the best case, not the
+                # worst: the burst is never monitored sooner than this,
+                # and never later either. A constant delay is not heard
+                # and one that moves from character to character is, so
+                # it is worth the couple of milliseconds. It is worth
+                # them to inherent_sidetone_lag too, which had a whole
+                # block of arbitrariness to hold the least of.
+                #
+                # Where the target lands past this block -- the lead
+                # kept is the furthest lately, and this block may have
+                # been filled nearer than that -- the edge goes back in
+                # the queue for the block that does carry it. The lag is
+                # set either way, so it is placed exactly there.
+                self.sidetone_lag = fixed
+                offset = round((event_time + fixed - dac_time) * sample_rate)
+                if offset >= frames:
+                    self.pending_key_event = event
+                    return None
+            elif key_down:
                 self.sidetone_lag += (start - offset) / sample_rate
+                offset = start
             else:
                 dragged = True
-            offset = start
+                offset = start
 
         # How far this edge was displaced from the time it was asked for
         # -- exactly sidetone_lag, which is what the keyer reckons the

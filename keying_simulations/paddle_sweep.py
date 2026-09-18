@@ -105,6 +105,7 @@ def sim(tap_at, tap_length=.005):
     au.peek_key_event = lambda: m.Audio.peek_key_event(au)
     au.key_edge_offset = lambda *a: m.Audio.key_edge_offset(au, *a)
     au.placed_sidetone_down = lambda: m.Audio.placed_sidetone_down(au)
+    au.first_edge_lag = lambda: m.Audio.first_edge_lag(au)
     A.singleton = au
     A.sidetone_enabled = True
     A.minimum_sidetone_ms = 0
