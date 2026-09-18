@@ -1,6 +1,7 @@
-"""A sweep of keying simulations at 30 WPM.
+"""A sweep of keying simulations, at 30 WPM unless told otherwise.
 
-Four scenarios, chosen by the third argument:
+Four scenarios, chosen by the third argument, and a speed in words a
+minute by an optional fourth:
 
   tap      the dit paddle is held closed throughout and the dah paddle
            is tapped for 5ms
@@ -27,14 +28,15 @@ MOD = sys.argv[1]
 OUTDIR = sys.argv[2]
 SCENARIO = sys.argv[3] if len(sys.argv) > 3 else 'tap'
 assert SCENARIO in ('tap', 'dit-tap', 'swap', 'squeeze'), SCENARIO
+SPEED = int(sys.argv[4]) if len(sys.argv) > 4 else 30
 spec = importlib.util.spec_from_file_location('k4mod', MOD)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
 RATE, U = 48000, 384
 BLOCK = U / RATE
-WPM = 30
-DIT = 1.2 / WPM                 # 40ms
+WPM = SPEED
+DIT = 1.2 / WPM                 # 40ms at 30 WPM
 T0 = 100.1                      # when the first paddle closes
 
 # Which paddle is closed at time zero and held -- None for squeeze,
@@ -42,9 +44,9 @@ T0 = 100.1                      # when the first paddle closes
 # in question moves over. dit-tap runs further than the others because
 # a dah is three times a dit: 80 to 300ms spans nearly five dah element
 # periods, where 84 to 164 spans four dit ones. squeeze runs furthest,
-# 4 to 500ms, which is three whole dit-gap-dah-gap cycles of the
-# squeeze it is releasing, so the release falls in every part of one
-# and the pattern is seen to repeat rather than assumed to.
+# 4 to 500ms, which is two whole dit-gap-dah-gap cycles of the squeeze
+# it is releasing and a little over, so the release falls in every part
+# of one and the pattern is seen to repeat rather than assumed to.
 HELD = {'tap': 'dit', 'dit-tap': 'dah', 'swap': 'dit',
         'squeeze': None}[SCENARIO]
 # squeeze has no held paddle -- both are let go at the moment being
@@ -54,7 +56,20 @@ HOLD = {'tap': .400, 'dit-tap': .760, 'swap': .520,
         'squeeze': .500}[SCENARIO]
 TAPS = {'tap': (84, 164), 'dit-tap': (80, 300), 'swap': (84, 164),
         'squeeze': (4, 500)}[SCENARIO]
-WINDOW = HOLD + .12
+# Those are written for 30 WPM. At another speed they cover the same
+# ground rather than the same milliseconds, the elements being what
+# they are cut to: a dit at 40 WPM is three quarters of a dit at 30, so
+# the sweep is three quarters as long. The step stays at 4ms, and the
+# ends are moved to whole steps of it so that a run still lands on the
+# moments the elements do. At 30 WPM nothing moves at all.
+SCALE = 30 / WPM
+if SCALE != 1:
+    HOLD *= SCALE
+    TAPS = (max(4, round(TAPS[0] * SCALE / 4) * 4),
+            round(TAPS[1] * SCALE / 4) * 4)
+WINDOW = HOLD + .12 * SCALE     # the plot's right edge, far enough past
+                                # the last release to show the element
+                                # owed for it, and scaled with the rest
 MARK = {'dah': '#2b7bba', 'dit': '#c2410c', None: '#374151'}[HELD]
                                 # the tapped paddle's colour, for the
                                 # marker carried down the panels; a
@@ -408,7 +423,7 @@ for tap_ms in range(TAPS[0], TAPS[1] + 1, 4):
     tap_at = tap_ms / 1000
     result = sim(tap_at)
     path = os.path.join(
-        OUTDIR, f'keying_30wpm_{SCENARIO}_{tap_ms:03d}ms.png')
+        OUTDIR, f'keying_{WPM}wpm_{SCENARIO}_{tap_ms:03d}ms.png')
     plot(result, tap_at, path)
     elements = ' '.join(elements_from(result['sent']))
     entry = dict(tap_ms=tap_ms, elements=elements,
@@ -437,5 +452,6 @@ if SCENARIO == 'squeeze':
     print(f'\n{owed_met}/{owed_total} releases got the one element iambic B '
           f'owes them, and nothing after it')
 
-json.dump(summary, open(os.path.join(OUTDIR, f'summary_{SCENARIO}.json'), 'w'),
+json.dump(summary,
+          open(os.path.join(OUTDIR, f'summary_{WPM}wpm_{SCENARIO}.json'), 'w'),
           indent=1)

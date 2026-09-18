@@ -1,8 +1,9 @@
 Keying simulations
 ==================
 
-Runs of the iambic keyer at 30 WPM, one plot each. Three sets are kept
-here, and paddle_sweep.py can produce a fourth.
+Runs of the iambic keyer, one plot each. Four sets are kept here, three
+of them at 30 WPM and the fourth at 40, and paddle_sweep.py can produce
+more at any speed.
 
 Each plot has three panels against one time axis, zeroed on the paddle
 that closes first:
@@ -14,12 +15,13 @@ that closes first:
     and key up below
 
 Every tone comes out at exactly the length its KZU carries -- 40ms or
-120ms, across all four scenarios and every run of them. The sidetone
-catch-up shortens tones a fraction where the audio has drifted past the
-lag the keyer holds, and over the device these were run against it
-never has: the delay sits at what was measured of it. A device that
-drifts would show the tones a shade under, and the K4 still told the
-full length, so nothing on the air is ever short.
+120ms at 30 WPM, 30ms or 90ms at 40 -- across every scenario and every
+run of them. The sidetone catch-up shortens tones a fraction where the
+audio has drifted past the lag the keyer holds, and over the device
+these were run against it never has: the delay sits at what was
+measured of it. A device that drifts would show the tones a shade
+under, and the K4 still told the full length, so nothing on the air is
+ever short.
 
 
 keying_30wpm_swap_*.png -- twenty-one runs
@@ -41,7 +43,7 @@ been closed during the element it is remembered from, 13 of these 21
 runs put an unasked-for dit after the first dah -- as element 3 below
 108ms and as element 4 from 140ms up.
 
-Summary: summary_swap.json
+Summary: summary_30wpm_swap.json
 
 
 keying_30wpm_dit-tap_*.png -- fifty-six runs
@@ -67,7 +69,7 @@ read again once its sidetone can be heard, so a tap arriving up to
 184ms still catches the element that began at 160ms. That second
 reading is what the band either side of a boundary is made of.
 
-Summary: summary_dit-tap.json
+Summary: summary_30wpm_dit-tap.json
 
 
 keying_30wpm_squeeze_*.png -- a hundred and twenty-five runs
@@ -109,9 +111,9 @@ that land on a cut. Each run says which element it was released during,
 what was owed for it, and what actually followed, and the run ends with
 a count. All of them follow the rule.
 
-The plots kept here are at 30 WPM, but nothing about the check is. Run
-at 20, 25, 35, 40, 45 and 50 WPM as well, the keyer follows the rule in
-every run of every one.
+Nothing about the check is tied to 30 WPM. There is a second set of it
+below at 40, and run besides at 20, 25, 35, 45 and 50 the keyer follows
+the rule in every run of every one.
 
 Getting all of them took three things, and the sweep is what said each
 of them was needed. It no longer speaks to the second at all, that
@@ -159,7 +161,43 @@ guard today leaves the swap, tap and dit-tap sweeps byte identical, and
 takes this one from 125 to 25. So does every other way of breaking it
 that has been tried: nothing but this sweep notices any of them.
 
-Summary: summary_squeeze.json
+Summary: summary_30wpm_squeeze.json
+
+
+keying_40wpm_squeeze_*.png -- ninety-four runs
+-----------------------------------------------
+
+The same squeeze at 40 WPM, where a dit is 30ms and a dah 90. The cycle
+is 180ms rather than 240, so the sweep runs from 4ms to 376ms to cover
+the same two cycles and a little over -- three quarters of the ground
+in three quarters of the time, at the same 4ms step.
+
+    release       released during   elements sent
+      4-80ms      the first dit     dit dah
+     84-200ms     the first dah     dit dah dit
+    204-264ms     the second dit    dit dah dit dah
+    268-376ms     the second dah    dit dah dit dah dit
+
+All ninety-four follow the rule.
+
+It is here because nothing was watching above 30 WPM, and the speed is
+not incidental to this keyer. Two of the things the sets here exist to
+hold in place are measured against an element's length, and a dit at 40
+WPM is a quarter shorter than at 30. A dit's key up is the tightest
+edge in the scheme -- it goes into the queue only once the tone can be
+heard, so what is left of the dit after the audio's delay is all the
+notice it gets -- and it was that margin, not anything visible at 30
+WPM, that sidetone_up_edge_margin_seconds was added for.
+
+The tones start at 24, 84, 204, 264 and 384ms, and the 4ms step lands
+on three of them. Those three are the boundary runs described above,
+and at this speed they do not all fall the same way: 84 and 204 are
+counted as during the tone beginning, 264 as during the one ending.
+Which way a run comes down is rounding rather than keying, which is why
+squeeze_verdict allows either. Before it did, the release at 204ms was
+reported as a failure and was not one.
+
+Summary: summary_40wpm_squeeze.json
 
 
 The dah tap scenario
@@ -179,7 +217,12 @@ Running them
 ------------
 
     python3 paddle_sweep.py <a copy of k4companion named *.py> <outdir> \
-        <tap|dit-tap|swap|squeeze>
+        <tap|dit-tap|swap|squeeze> [wpm]
+
+The speed defaults to 30. At any other, the swept moment and the length
+of the run are scaled by it rather than left where they were, so that a
+sweep covers the same ground at every speed: the ranges above are cut
+to elements, not to milliseconds. The step stays at 4ms.
 
 The harness drives the real Keyer over a virtual clock: paddle events
 go in through send_paddle_event on the thread a paddle's device would
