@@ -13930,10 +13930,28 @@ class Keyer():
         # And not against that lag exactly, but against it plus a
         # margin: what the device wanders by while sitting at it is not
         # something to chase.
+        #
+        # And nothing at all to catch up until that lag has been
+        # measured. The first element of a session is planned before any
+        # element has been sent to measure one over, so what it would be
+        # reckoned against is a zero nobody measured -- and against
+        # zero the whole of the audio's delay reads as something to work
+        # off. Whether it does is a race: the first key down is queued by
+        # the paddle's own thread, and if the output callback places it
+        # before the keyer's thread reaches here, the delay read is
+        # real and the element is trimmed for it. On a device filling
+        # blocks 40 ms ahead that took the first dit of a session to
+        # 38.31 ms, and on one filling them 10 ms ahead it did nothing
+        # at all, which is what made it come and go.
+        #
+        # Nothing to measure against is nothing to catch up, and one
+        # element later there is a reading to use.
         tolerable_sidetone_lag = (self.inherent_sidetone_lag +
                                   self.tolerable_sidetone_lag_margin)
-        behind = max(0.0, sidetone_delay - tolerable_sidetone_lag -
-                     self.sidetone_delay_used)
+        behind = 0.0
+        if self.inherent_sidetone_lag >= .001:
+            behind = max(0.0, sidetone_delay - tolerable_sidetone_lag -
+                         self.sidetone_delay_used)
         self.update_sidetone_catchup(behind)
         # The step it comes to depends on the element's length, which is
         # end_element's to know.
