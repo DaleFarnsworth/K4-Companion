@@ -989,21 +989,19 @@
  },
  {
   "tap_ms": 264,
-  "elements": "dit dah dit dah",
+  "elements": "dit dah dit",
   "sent": [
    "KZD0000;",
    "KZU0040;",
    "KZD0040;",
    "KZU0120;",
    "KZD0040;",
-   "KZU0040;",
-   "KZD0040;",
-   "KZU0120;"
+   "KZU0040;"
   ],
-  "edges": 8,
-  "released_during": "dit",
-  "owed": "dah",
-  "followed": "dah"
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
  },
  {
   "tap_ms": 268,
@@ -1349,7 +1347,7 @@
  },
  {
   "tap_ms": 344,
-  "elements": "dit dah dit dah dit",
+  "elements": "dit dah dit dah",
   "sent": [
    "KZD0000;",
    "KZU0040;",
@@ -1358,14 +1356,12 @@
    "KZD0040;",
    "KZU0040;",
    "KZD0040;",
-   "KZU0120;",
-   "KZD0040;",
-   "KZU0040;"
+   "KZU0120;"
   ],
-  "edges": 10,
-  "released_during": "dah",
-  "owed": "dit",
-  "followed": "dit"
+  "edges": 8,
+  "released_during": "dit",
+  "owed": "dah",
+  "followed": "dah"
  },
  {
   "tap_ms": 348,
