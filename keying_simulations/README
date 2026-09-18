@@ -1,9 +1,9 @@
 Keying simulations
 ==================
 
-Runs of the iambic keyer, one plot each. Four sets are kept here, three
-of them at 30 WPM and the fourth at 40, and paddle_sweep.py can produce
-more at any speed.
+Runs of the iambic keyer, one plot each. Seven sets are kept here, three
+of them at 30 WPM and four at 40, and paddle_sweep.py can produce more
+at any speed.
 
 Each plot has three panels against one time axis, zeroed on the paddle
 that closes first:
@@ -200,17 +200,57 @@ reported as a failure and was not one.
 Summary: summary_40wpm_squeeze.json
 
 
-The dah tap scenario
---------------------
+keying_40wpm_swap_*.png -- sixteen runs
+----------------------------------------
 
-    python3 paddle_sweep.py <module> <outdir> tap
+The swap at 40 WPM, from 64ms to 124ms. The same two bands as at 30 WPM
+and nothing else in them, which is what the set is here to say:
 
-The dit paddle held throughout and the dah paddle tapped for 5ms, from
-84ms to 164ms. No plots are kept for it here; it is the regression test
-for the memory guard. A tap is a paddle closed and released inside one
-element, which is what the memory exists for, and that sweep comes out
-untouched by the guard -- all 21 runs, every element and every KZD and
-KZU identical to what they were before it.
+     64-76ms    dit dah dah dah
+     80-124ms   dit dit dah dah dah
+
+Summary: summary_40wpm_swap.json
+
+
+keying_40wpm_dit-tap_*.png -- forty-two runs
+---------------------------------------------
+
+The dah held and the dit tapped for 5ms, from 60ms to 224ms.
+
+     60-136ms   dah dit dah dah dah dah
+    140-224ms   dah dah dit dah dah dah
+
+Exactly one dit in every run, as at 30 WPM. The boundary is at 140ms
+where the second dah is keyed at 120 and heard at 144: what decides a
+tap is the last look at the paddles, and a dit's key up leaves so little
+of a dit to be queued in at this speed that the look no longer waits for
+the whole of the tone.
+
+That is the band this set was added for. Between the key up being given
+its margin and a tap being measured from the last look rather than from
+the heard start, three runs of these forty-two and the sixteen below
+lost the tapped element altogether -- the operator tapped a paddle and
+nothing came out. Nothing at 30 WPM showed it.
+
+Summary: summary_40wpm_dit-tap.json
+
+
+keying_40wpm_tap_*.png -- sixteen runs
+---------------------------------------
+
+The mirror: the dit held throughout and the dah tapped for 5ms, from
+64ms to 124ms.
+
+     64-76ms    dit dah dit dit
+     80-124ms   dit dit dah dit
+
+A tap is a paddle closed and released inside one element, which is what
+the memory exists for, so this is the set the memory guard is answerable
+to. At 30 WPM it is run rather than kept, there being nothing in it to
+look at: the guard leaves that sweep untouched, all 21 runs, every
+element and every KZD and KZU identical to what they were before it.
+
+Summary: summary_40wpm_tap.json
 
 
 Running them
