@@ -70,7 +70,7 @@ import traceback
 import yaml
 
 from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal, QThread, qInstallMessageHandler, QCoreApplication
-from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat
+from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat, QCursor
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
     QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
@@ -4671,13 +4671,23 @@ class _PanControlFilter(QObject):
     # 1 kHz over the waterfall) -- rather than the VFO's current tuning
     # step, so the panadapter's own resolution controls the nudge size,
     # not whatever the VFO widget happens to be set to. Nothing happens
-    # over the window's own margins or the splitter handle between the
-    # trace and waterfall -- those aren't any of the four areas above,
-    # so _nudge_size_hz returns None there (see its own comment) rather
-    # than falling back to some default rate. Up/Down are swallowed and
-    # do nothing -- there's no vertical (dB scale) control here worth
-    # binding them to, and left unhandled they'd fall through to
-    # PlotWidget's own default arrow-key handling.
+    # over the panadapter window's own margins or the splitter handle
+    # between the trace and waterfall -- those aren't any of the four
+    # areas above, so _nudge_size_hz returns None there (see its own
+    # comment) rather than falling back to some default rate. Up/Down
+    # are swallowed and do nothing -- there's no vertical (dB scale)
+    # control here worth binding them to, and left unhandled they'd fall
+    # through to PlotWidget's own default arrow-key handling.
+    #
+    # The waterfall's widget is not one rate but two. It is wider than
+    # the waterfall: the trace's axes inset the span both of them show,
+    # and the two X views are held together pixel for pixel, so bare
+    # ground is left down either side of the image, under the trace's
+    # scales. Over that ground the nudge is 10 kHz where over the
+    # waterfall proper it is 1. What is wanted there is off the edge of
+    # the span altogether -- that is what the cursor is doing out beyond
+    # the last bin -- and a kilohertz a notch is a long way from
+    # bringing it into view.
     def __init__(self, window):
         super().__init__()
         self.window = window
@@ -4692,7 +4702,7 @@ class _PanControlFilter(QObject):
         if self.window.trace_plot.underMouse():
             return 100
         if self.window.waterfall_plot.underMouse():
-            return 1000
+            return 10000 if self._in_waterfall_margin() else 1000
         # The whole upper-right area, not just controls_frame's own
         # widget bounds -- includes minipan_row's stretch to the right
         # of it, so the button rate covers that empty space too, not
@@ -4702,6 +4712,31 @@ class _PanControlFilter(QObject):
         if self.window.minipan_row.underMouse():
             return 1
         return None
+
+    def _in_waterfall_margin(self):
+        # Whether the cursor is over the bare ground down either side of
+        # the waterfall rather than over the waterfall itself. Only asked
+        # where it is over the waterfall's widget at all.
+        #
+        # The waterfall carries no axes of its own, but the trace has one
+        # at either edge, and pyqtgraph holds the two X views together
+        # pixel for pixel -- so the waterfall's view runs wider than the
+        # span its image is drawn over, by the width of the trace's left
+        # axis at one end and its right axis at the other. Those two
+        # strips are the bare ground, and they sit under the trace's
+        # scales. Measured from the axes themselves rather than from a
+        # figure of our own, so that they follow the scales whatever the
+        # ticks come out as.
+        #
+        # Taken from the cursor and not from the event, because a key
+        # press carries no position of its own and both have to agree
+        # about where the operator is.
+        plot = self.window.waterfall_plot
+        item = self.window.trace_plot.getPlotItem()
+        left = int(item.getAxis('left').width())
+        right = plot.width() - int(item.getAxis('right').width())
+        x = plot.mapFromGlobal(QCursor.pos()).x()
+        return x < left or x >= right
 
     def _in_window(self, obj):
         return isinstance(obj, QWidget) and (obj is self.window or
