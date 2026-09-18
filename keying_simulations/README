@@ -86,12 +86,16 @@ the pattern is then seen to repeat rather than assumed to.
     348-500ms     the second dah    dit dah dit dah dit
 
 Each band ends exactly where the next tone becomes audible: the second
-at 104ms, the third at 264, the fourth at 344. The 4ms step lands on
-all three, so in three runs of the sweep the squeeze is let go of at
-the very instant a tone begins, and all three fall the same way -- into
-the band ending rather than the one starting. That is the rule below
+at 104ms, the third at 264, the fourth at 344. That is the rule below
 working as written, and it is why the sweep is cut from the sidetone
 and not from the keyed grid.
+
+The 4ms step lands on all three of those instants, so in three runs the
+squeeze is let go of at the very moment a tone begins -- a moment the
+rule has nothing to say about, the space before it having just run out
+and the tone after it not yet having sounded for any length of time at
+all. Those three are allowed either answer, and the band they are shown
+in above is the one the keyer chose. See squeeze_verdict.
 
 This is the case iambic B exists for. The rule, stated against what the
 operator can hear: a squeeze let go of while an element's sidetone is
@@ -100,23 +104,27 @@ the opposite of that one -- and nothing after it.
 
 Alone among the sets here this one is checked as well as drawn. The
 heard timeline is cut at each tone's start, so a window is a tone plus
-the space following it and every release falls in exactly one. Each run
-says which element it was released during, what was owed for it, and
-what actually followed, and the run ends with a count. All of them follow
-the rule.
+the space following it and every release falls in one, bar the three
+that land on a cut. Each run says which element it was released during,
+what was owed for it, and what actually followed, and the run ends with
+a count. All of them follow the rule.
+
+The plots kept here are at 30 WPM, but nothing about the check is. Run
+at 20, 25, 35, 40, 45 and 50 WPM as well, the keyer follows the rule in
+every run of every one.
 
 Getting all of them took three things, and the sweep is what said each
-of them was needed. It does not press equally on all three now: the
-second has since been made good another way, and what is left of the
-case for it is in the paragraph itself.
+of them was needed. It no longer speaks to the second at all, that
+having since been made good another way; the paragraph is kept for what
+it says about the first.
 
 The memories measure a paddle against the previous element, and they
 measure it from when that element was heard, not from when it was
 keyed. The hand works to the sidetone: an element is not there to be
 answered, nor to be still squeezing through, until it can be heard.
-Measured from the keyed start instead, 24 of the 125 go wrong -- the
-last handful of every band, 84 to 104ms and again at 244 to 264, 324 to
-344 and 480 to 500. Those are the releases falling after the next
+Measured from the keyed start instead, 21 of the 125 go wrong -- the
+last handful of every band, 84 to 100ms and again at 244 to 260, 324 to
+340 and 480 to 500. Those are the releases falling after the next
 element was keyed but before any of it was audible, and each puts an
 unasked-for element after it.
 
@@ -125,10 +133,10 @@ element's edge. Where an edge is never placed at all -- the stream
 replaced under it and its queue dropped -- the keyer falls back on the
 keyed start plus the delay the last edge it did place was given, and
 over this device the two come to the same instant: made to use that
-estimate throughout, the sweep loses only the release at 344ms. So this
-set no longer says much about taking the placed edge over the estimate.
-It said more when the estimate was reckoned from a lag saved between
-sessions rather than from what the audio had just done.
+estimate throughout, this set comes out unchanged, every run of it. So
+it says nothing either way about taking the placed edge over the
+estimate. It said more when the estimate was reckoned from a lag saved
+between sessions rather than from what the audio had just done.
 
 A burst's first element is the exception, and is measured from its
 keyed start. That element the operator began themselves, by closing the
