@@ -14856,6 +14856,7 @@ def logtb(torb, filename, *args):
     file.flush()
     
 def start():
+    dprint1(f'Version {version}')
     Poll.set_top(Page.top)
     Popup.show_popups()
 
