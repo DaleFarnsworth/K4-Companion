@@ -13,10 +13,13 @@ that closes first:
   - what the K4 was sent: every KZD and KZU, key down above the line
     and key up below
 
-The tones read 119ms where the KZU says 0120, and 39ms where it says
-0040. That is the sidetone catch-up trimming elements a fraction to
-work off the audio's lag; the K4 is always told the full length, so
-nothing on the air is short.
+Every tone comes out at exactly the length its KZU carries -- 40ms or
+120ms, across all four scenarios and every run of them. The sidetone
+catch-up shortens tones a fraction where the audio has drifted past the
+lag the keyer holds, and over the device these were run against it
+never has: the delay sits at what was measured of it. A device that
+drifts would show the tones a shade under, and the K4 still told the
+full length, so nothing on the air is ever short.
 
 
 keying_30wpm_swap_*.png -- twenty-one runs
@@ -37,13 +40,6 @@ Before the dit up memory was made to require that the paddle had also
 been closed during the element it is remembered from, 13 of these 21
 runs put an unasked-for dit after the first dah -- as element 3 below
 108ms and as element 4 from 140ms up.
-
-These were produced with inherent_sidetone_lag carried on
-previous_elt_ts in send_iambic's choose_element, rather than on the four
-paddle timestamps. The two spellings are equivalent -- the sweep comes
-out identical either way, every KZD and KZU alike -- but the sign
-matters: adding the lag to the paddle timestamps instead of subtracting
-it leaves no clean band at all.
 
 Summary: summary_swap.json
 
@@ -85,15 +81,17 @@ the pattern is then seen to repeat rather than assumed to.
 
     release       released during   elements sent
       4-104ms     the first dit     dit dah
-    108-260ms     the first dah     dit dah dit
-    264-340ms     the second dit    dit dah dit dah
-    344-500ms     the second dah    dit dah dit dah dit
+    108-264ms     the first dah     dit dah dit
+    268-344ms     the second dit    dit dah dit dah
+    348-500ms     the second dah    dit dah dit dah dit
 
-Each band ends at the last release before the next tone can be heard.
-The second tone becomes audible at 104ms, the third at 264 and the
-fourth at 344, and the bands run to 104, 260 and 340. That is the rule
-below working exactly as written, and it is why the sweep is cut from
-the sidetone and not from the keyed grid.
+Each band ends exactly where the next tone becomes audible: the second
+at 104ms, the third at 264, the fourth at 344. The 4ms step lands on
+all three, so in three runs of the sweep the squeeze is let go of at
+the very instant a tone begins, and all three fall the same way -- into
+the band ending rather than the one starting. That is the rule below
+working as written, and it is why the sweep is cut from the sidetone
+and not from the keyed grid.
 
 This is the case iambic B exists for. The rule, stated against what the
 operator can hear: a squeeze let go of while an element's sidetone is
@@ -107,24 +105,30 @@ says which element it was released during, what was owed for it, and
 what actually followed, and the run ends with a count. All of them follow
 the rule.
 
-Getting all of them took three things, and the sweep is what says each of
-them is needed.
+Getting all of them took three things, and the sweep is what said each
+of them was needed. It does not press equally on all three now: the
+second has since been made good another way, and what is left of the
+case for it is in the paragraph itself.
 
 The memories measure a paddle against the previous element, and they
 measure it from when that element was heard, not from when it was
 keyed. The hand works to the sidetone: an element is not there to be
 answered, nor to be still squeezing through, until it can be heard.
-Measured from the keyed start instead, 22 of the 125 go wrong -- the
-last handful of every band, 84 to 104ms and again at 244 to 260, 324 to
-340 and 480 to 500. Those are the releases falling after the next
+Measured from the keyed start instead, 24 of the 125 go wrong -- the
+last handful of every band, 84 to 104ms and again at 244 to 264, 324 to
+344 and 480 to 500. Those are the releases falling after the next
 element was keyed but before any of it was audible, and each puts an
 unasked-for element after it.
 
-That heard instant is where the output callback really placed the edge,
-not the keyed start plus inherent_sidetone_lag. The two differ whenever
-an edge lands late -- 24ms rather than 16 for the second element here --
-and estimating it loses the last release of every band: 100, 104, 260,
-340 and 500ms.
+That heard instant is where the output callback really placed this
+element's edge. Where an edge is never placed at all -- the stream
+replaced under it and its queue dropped -- the keyer falls back on the
+keyed start plus the delay the last edge it did place was given, and
+over this device the two come to the same instant: made to use that
+estimate throughout, the sweep loses only the release at 344ms. So this
+set no longer says much about taking the placed edge over the estimate.
+It said more when the estimate was reckoned from a lag saved between
+sessions rather than from what the audio had just done.
 
 A burst's first element is the exception, and is measured from its
 keyed start. That element the operator began themselves, by closing the
