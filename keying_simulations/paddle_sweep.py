@@ -62,6 +62,8 @@ MARK = {'dah': '#2b7bba', 'dit': '#c2410c', None: '#374151'}[HELD]
                                 # neither colour would be honest
 HOP = .0001                     # device thread to keyer thread
 LEAD = .016                     # how far ahead of its DAC time a block is filled
+TIE_SECONDS = .000001           # a release landing on a tone's start;
+                                # see squeeze_verdict
 
 
 def sim(tap_at, tap_length=.005):
@@ -254,17 +256,45 @@ def squeeze_verdict(result, release_at):
     # paddle, so letting go before it could be heard is still letting go
     # during it.
     #
-    # Returns (the element released during, what is owed, what followed).
+    # A release landing on a tone's start belongs to both windows and to
+    # neither. The step is a whole number of milliseconds and so are the
+    # elements, so at some speeds a run puts the release on a tone's
+    # start exactly -- at 40 WPM the release at 204ms is the third tone's
+    # start to the last bit. The rule has nothing to say about that
+    # instant: the space of the window before has just run out and the
+    # tone of the window after has not yet been heard for any length of
+    # time at all. Which side of it a run comes down on is settled by
+    # which way a subtraction rounded, here and in the keyer separately,
+    # and the two need not agree -- they are the same quantity reached
+    # by different routes, a stream clock and a paddle clock apart.
+    #
+    # So both readings are honoured, and a run passes on either. The
+    # width below is a thousand times finer than anything the keying
+    # turns on and fifty times finer than the frame an edge is placed
+    # on, but a hundred million times the rounding. Nothing that is
+    # really wrong is wrong by a microsecond: a squeeze that earns the
+    # wrong number of elements earns a whole one too many or too few.
+    #
+    # Returns (the element released during, what is owed, what followed,
+    # whether the rule was met).
     elements = elements_from(result['sent'])
     heard = [when for when, down in result['edges'] if down]
     if not elements or not heard:
-        return None, None, []
+        return None, None, [], False
+    count = min(len(heard), len(elements))
     window = 0
-    for index in range(min(len(heard), len(elements))):
-        if release_at >= heard[index]:
+    for index in range(count):
+        if release_at > heard[index] + TIE_SECONDS:
             window = index
-    owed = 'dit' if elements[window] == 'dah' else 'dah'
-    return elements[window], owed, elements[window + 1:]
+    windows = [window]
+    if window + 1 < count and release_at > heard[window + 1] - TIE_SECONDS:
+        windows.append(window + 1)
+
+    owed_by = lambda index: 'dit' if elements[index] == 'dah' else 'dah'
+    for index in windows:
+        if elements[index + 1:] == [owed_by(index)]:
+            return elements[index], owed_by(index), elements[index + 1:], True
+    return (elements[window], owed_by(window), elements[window + 1:], False)
 
 
 def plot(result, tap_at, path):
@@ -386,14 +416,14 @@ for tap_ms in range(TAPS[0], TAPS[1] + 1, 4):
                  edges=len(result['edges']))
     verdict = ''
     if SCENARIO == 'squeeze':
-        during, owed, after = squeeze_verdict(result, tap_at)
+        during, owed, after, met = squeeze_verdict(result, tap_at)
         entry.update(released_during=during, owed=owed,
                      followed=' '.join(after))
         if owed == None:
             verdict = '  nothing sent'
         else:
             owed_total += 1
-            if after == [owed]:
+            if met:
                 owed_met += 1
                 verdict = f'  released during the {during}, {owed} owed and sent'
             else:
