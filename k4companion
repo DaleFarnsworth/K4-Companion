@@ -12768,7 +12768,7 @@ class Keyer():
     # else -- and only where the element had less than this to spare,
     # which at 30 WPM and below is nowhere at all. See
     # wait_until_sidetone_heard.
-    sidetone_up_edge_margin_seconds = .016
+    sidetone_up_edge_margin_seconds = .002
 
     @classmethod
     def get_singleton(cls):
