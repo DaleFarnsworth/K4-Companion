@@ -12996,8 +12996,11 @@ class Keyer():
         # How hard the catch-up pulls at the moment, the running average
         # of the lag it has left to work off that decides it, and what
         # that average stood at when it was last looked at.
+        #
+        # No average until there is a reading to make one of. See
+        # update_sidetone_catchup.
         self.sidetone_catchup_per_second = self.min_sidetone_catchup_per_second
-        self.sidetone_behind_average = 0.0
+        self.sidetone_behind_average = None
         self.checked_sidetone_behind_average = None
         self.sidetone_catchup_checked_at = 0.0
 
@@ -13510,8 +13513,28 @@ class Keyer():
         # taken on again there and comes in across the character. Easing
         # off is gentle, so that a device needing the harder pull does
         # not have to earn it back from the bottom every second.
-        self.sidetone_behind_average += ((behind - self.sidetone_behind_average) *
-                                         self.sidetone_behind_average_weight)
+        #
+        # Nothing at all until the inherent lag has been measured.
+        # behind is reckoned against that lag, and before an element has
+        # been sent to measure it over there is no lag to reckon
+        # against: what comes here is the whole of a delay that is
+        # itself nothing yet, which is not a reading of anything.
+        #
+        # And the first reading there is becomes the average outright,
+        # rather than a tenth of the way from a zero nobody measured.
+        # Climbing out of that zero took the better part of a second,
+        # and the check below, which asks only whether the average has
+        # moved, read the climb as the device running away and doubled
+        # the pull for it -- while the lag was in fact coming in, and
+        # the elements it doubled were shortened twice as hard as they
+        # needed to be.
+        if self.inherent_sidetone_lag < .001:
+            return
+        if self.sidetone_behind_average == None:
+            self.sidetone_behind_average = behind
+        else:
+            self.sidetone_behind_average += ((behind - self.sidetone_behind_average) *
+                                             self.sidetone_behind_average_weight)
 
         now = time.perf_counter()
         if (now - self.sidetone_catchup_checked_at <
