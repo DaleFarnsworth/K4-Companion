@@ -8737,6 +8737,22 @@ class Audio():
             # the same amount, so only the burst's first tone waits and
             # the elements and gaps after it come out exact.
             #
+            # A key down only. That is the edge the lag is for: a
+            # burst's first is reported as the paddle closes, with no
+            # notice to give, and one a stall leaves late wants the
+            # elements after it kept whole. Every key up is queued ahead
+            # of its block and is late only by accident, and it is the
+            # edge with least to spare -- it goes in only once the tone
+            # can be heard, so what is left of a dit after the audio's
+            # delay is all the notice it gets, against a dah's whole
+            # three units. Ratcheting the lag for that accident stretches
+            # the tone that missed and then moves every element after it,
+            # which plan_sidetone_catchup reads as the audio having
+            # fallen behind and works off by trimming the elements that
+            # follow: one late dit became several of wandering, and only
+            # ever a dit. Left alone it costs the gap after it the
+            # millisecond or two the tone overran, and nothing else.
+            #
             # The earliest frame this block has left, and no later. A
             # block of margin used to go on top of the shortfall, for the
             # first callback to run after an edge was keyed being up to a
@@ -8750,7 +8766,8 @@ class Audio():
             # definition, and the ones a stall leaves late, which the
             # keyer's re-anchor and catch-up have. What it cost was a
             # block of monitoring delay on every burst.
-            self.sidetone_lag += (start - offset) / sample_rate
+            if key_down:
+                self.sidetone_lag += (start - offset) / sample_rate
             offset = start
 
         # How far this edge was displaced from the time it was asked for
