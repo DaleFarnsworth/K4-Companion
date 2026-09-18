@@ -7330,7 +7330,7 @@ class Audio():
     # late, and that is the lag inherent_sidetone_lag settles at and the
     # keyer then holds -- so every element is heard later by whatever is
     # added here, not just the first.
-    extra_output_latency = .002
+    extra_output_latency = .000
 
     # What is asked for in exclusive mode, whatever the sample rate. The
     # device period there is the driver's to fix and the buffer has to be
