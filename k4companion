@@ -14119,6 +14119,16 @@ class Keyer():
         # time -- and taking that pinned the inherent lag at zero,
         # leaving the catch-up chasing a lag the device was never
         # going to give up.
+        #
+        # The last reading, and only the last. Holding the least of them
+        # instead was worth something while the lag a burst established
+        # carried a block of arbitrariness with it, and it is not any
+        # more: a burst's first key down is placed at a fixed delay now
+        # (see Audio.first_edge_lag), so every burst comes to the same
+        # figure to the frame and there is nothing for a minimum to
+        # choose between. What it would still do is refuse to follow a
+        # device that settles worse, and go on chasing a lag no longer
+        # there to be had.
         self.inherent_sidetone_lag = Audio.sidetone_delay()
         dprint1(f'measured inherent_sidetone_lag={round(self.inherent_sidetone_lag, 4)}')
 
