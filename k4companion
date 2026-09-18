@@ -13616,27 +13616,29 @@ class Keyer():
             # shifts every edge after them, and the stall would become
             # the very ratchet plan_sidetone_catchup exists to work off.
             #
-            # Up to now, and no further. The sidetone goes in
-            # sidetone_delay_used ahead of the grid start, so the offset
-            # the schedule was running has to go: this element's edge
-            # can be asked for no earlier than now, which is the grid
-            # start itself. Carrying the offset over would put the edge
-            # that far in the past and ratchet the lag just the same,
-            # and holding the grid off by it instead only lengthened a
-            # gap that is already a hole.
+            # Far enough that this element's sidetone edge lands at now,
+            # which is a sidetone_delay_used further off than the grid
+            # start itself. The edge is the thing that must not be asked
+            # for in the past, and it goes in that much ahead of the
+            # grid, so it is the grid that is held off by it rather than
+            # the offset that is given up.
             #
-            # Giving it up costs nothing at once -- the edge is at the
-            # same instant either way -- and the catch-up works it back
-            # over the elements after, which is what happens at the
-            # start of every burst. end_element_timestamp moves with the
-            # grid, being what the sleep below measures from, and is
-            # written afresh at the end of the element either way.
+            # Which of the two is done makes no odds to what is heard.
+            # The grid and the offset move together and cancel: the edge
+            # is at the same instant either way, and so is every edge
+            # after it. What is kept is the catch-up's own record of how
+            # much of the audio's lag it has already worked off, which a
+            # stall is no reason to say it never did.
+            #
+            # end_element_timestamp moves with the grid, being what the
+            # sleep below measures from, and is written afresh at the
+            # end of the element either way.
             time_since_end_element = time.perf_counter() - self.end_element_timestamp
             if time_since_end_element > inter_element_seconds:
-                grid_shift = time_since_end_element - inter_element_seconds
+                grid_shift = (time_since_end_element - inter_element_seconds +
+                              self.sidetone_delay_used)
                 self.element_timestamp += grid_shift
                 self.end_element_timestamp += grid_shift
-                self.sidetone_delay_used = 0.0
 
             # Scheduled before sleeping for it, not after: element_timestamp
             # already holds this element's intended start (the previous
