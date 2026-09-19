@@ -12750,6 +12750,63 @@ class Keyer():
     # and the work done after waking before it gets that far.
     sidetone_edge_margin_seconds = .002
 
+    morse_characters = {
+        '.-': 'A',
+        '-...': 'B',
+        '-.-.': 'C',
+        '-..': 'D',
+        '.': 'E',
+        '..-.': 'F',
+        '--.': 'G',
+        '....': 'H',
+        '..': 'I',
+        '.---': 'J',
+        '-.-': 'K',
+        '.-..': 'L',
+        '--': 'M',
+        '-.': 'N',
+        '---': 'O',
+        '.--.': 'P',
+        '--.-': 'Q',
+        '.-.': 'R',
+        '...': 'S',
+        '-': 'T',
+        '..-': 'U',
+        '...-': 'V',
+        '.--': 'W',
+        '-..-': 'X',
+        '--.-': 'Y',
+        '--..': 'Z',
+        '.----': '1',
+        '..---': '2',
+        '...--': '3',
+        '....-': '4',
+        '.....': '5',
+        '-....': '6',
+        '--...': '7',
+        '---..': '8',
+        '....-': '9',
+        '-----': '0',
+        '.--.-.': '@',
+        '...-.-': 'SK',
+        '.-.-.': 'AR',
+        '.-...': 'AS',
+        '-...-': 'BT',
+        '.-.-.-': 'period',
+        '-..-.': 'slash',
+        '-.-.-.': 'comma',
+        '..--..': 'questionmark',
+        '-.-.-.': 'semicolon',
+        '---...': 'colon',
+        '-....-': 'dash',
+        '.----.': 'apostrophe',
+        '.-..-.': 'quotationmark',
+        '...-.': 'understood',
+        '......': 'error',
+        '.......': 'error',
+        '........': 'error',
+    }
+
     # And the same for an element's key up, which is given more.
     #
 
@@ -13570,6 +13627,7 @@ class Keyer():
             previous_elt = None
             previous_look_ts = None
             previous_heard_ts = None
+            elements = []
             while True:
                 elt = choose_element(previous_elt, previous_look_ts,
                                      previous_heard_ts)
@@ -13623,10 +13681,15 @@ class Keyer():
                 elt_look_ts = elt_ts if first_element else time.perf_counter()
                 elt = choose_element(previous_elt, previous_look_ts,
                                      previous_heard_ts) or elt
+                elements.append(elt)
                 self.end_element(elt)
                 previous_elt, previous_look_ts = elt, elt_look_ts
                 previous_heard_ts = elt_heard_ts
         finally:
+            if Options.debug > 0 and elements:
+                elements_str = ''.join(elements)
+                character = self.morse_characters.get(elements_str)
+                dprint1(f'character: {elements_str} {character}')
             self.in_burst = False
 
     def placed_first_element(self):
