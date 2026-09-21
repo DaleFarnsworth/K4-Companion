@@ -109,7 +109,6 @@ def sim(tap_at, tap_length=.005):
     A.singleton = au
     A.sidetone_enabled = True
     A.minimum_sidetone_ms = 0
-    A.mute_k4 = classmethod(lambda cls, unmute_after=None: None)
     A.report_glitches = classmethod(lambda cls, during_sidetone: None)
 
     # Where the speed and the delay together mean the paddles are read
@@ -210,6 +209,12 @@ def sim(tap_at, tap_length=.005):
         def subscribe_received_initial_parameters(self, cb):
             pass
 
+        def subscribe_response(self, cmd, cb):
+            pass
+
+        def unsubscribe_response(self, cmd, cb):
+            pass
+
     class Set:
         def getbool(self, s, k, d):
             return False
@@ -218,10 +223,16 @@ def sim(tap_at, tap_length=.005):
             return d
 
     m.Server.k4_server, m.Server.settings = S(), Set()
+    # The keyer's threads stand still here: this runs the keyer's own
+    # work inline on a virtual clock. The timer that puts the K4's
+    # sidetone monitor back after a burst is inert for the same reason
+    # -- a real one would fire on the wall clock, in the middle of a run
+    # that has not reached that instant yet.
     m.threading = types.SimpleNamespace(
         Thread=lambda **kw: types.SimpleNamespace(start=lambda: None),
+        Timer=lambda *a, **kw: types.SimpleNamespace(start=lambda: None,
+                                                     cancel=lambda: None),
         Lock=threading.Lock)
-    m.Keyer.saved_inherent_sidetone_lag = lambda self: .016
     m.Keyer.straight_keying = False
     m.Keyer.keyer_mode = m.Keyer.MODE_IAMBIC_B
     k = m.Keyer()
@@ -394,9 +405,16 @@ def plot(result, tap_at, path):
 
     # What the K4 was sent. Key down above the line, key up below, so
     # the labels of a closely spaced pair do not sit on top of each other.
+    #
+    # The key commands alone. A burst also mutes the K4's own sidetone
+    # monitor as it begins and puts it back when it ends, and that is
+    # not a key edge: drawn here it would hang below the line looking
+    # like one.
     ax = axes[2]
     ax.axhline(0, color='#d1d5db', lw=.8)
     for when, cmd in result['sent']:
+        if not cmd.startswith(('KZD', 'KZU')):
+            continue
         down = cmd.startswith('KZD')
         colour = '#6d28d9' if down else '#a78bfa'
         y = .62 if down else -.62
