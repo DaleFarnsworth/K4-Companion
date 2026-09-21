@@ -13634,15 +13634,52 @@ class Keyer():
             previous_heard_ts = None
             elements = []
             while True:
-                elt = choose_element(previous_elt, previous_look_ts,
-                                     previous_heard_ts)
-                if elt == None and previous_elt == None:
-                    elt = self.placed_first_element()
-                if elt == None:
-                    return
                 first_element = previous_elt == None
-                wanted = lambda: choose_element(
-                    previous_elt, previous_look_ts, previous_heard_ts) != None
+                if first_element:
+                    # A burst begins where the paddles ask for one, or
+                    # where one closing has already had its key down
+                    # queued by the paddle's own thread.
+                    elt = (choose_element(previous_elt, previous_look_ts,
+                                          previous_heard_ts) or
+                           self.placed_first_element())
+                    if elt == None:
+                        return
+                else:
+                    # Nothing is settled here for an element after a
+                    # burst's first -- not what it is, and not whether
+                    # there is to be one at all. Both are asked below,
+                    # at the element's own grid start.
+                    #
+                    # This is where the burst used to end, and it is an
+                    # inter-element gap too early to be asking. The
+                    # operator works to the sidetone, which is a whole
+                    # audio delay behind: an element is not over to them
+                    # until they hear it end, and here the element
+                    # before is still sounding. A paddle closed while it
+                    # sounds -- the ordinary way of swapping from dits
+                    # to dahs -- arrived after the burst had been
+                    # declared over and began another, which is heard as
+                    # a character broken in two and sends the K4 a gap
+                    # shorter than any it should ever be given.
+                    #
+                    # An element that was wanted already had a second,
+                    # much later reading to settle what it was, and it
+                    # is that reading which now settles whether it
+                    # happens at all. The cost is one key down queued
+                    # and taken back at the end of every burst, which
+                    # confirm_element has always done for an element the
+                    # paddles came off before its grid start.
+                    elt = None
+                # What the paddles ask for at the element's own grid
+                # start. Kept rather than only counted, so that an
+                # element nothing had asked for until this reading goes
+                # out as what this reading asked for.
+                def wanted():
+                    nonlocal elt
+                    elt = choose_element(previous_elt, previous_look_ts,
+                                         previous_heard_ts)
+                    return elt != None
+
                 if not self.start_element(first_element, wanted):
                     return
                 # When this element was keyed, taken from start_element
@@ -13684,8 +13721,14 @@ class Keyer():
                 # and the window has to reach back far enough to hold
                 # it.
                 elt_look_ts = elt_ts if first_element else time.perf_counter()
+                # A dit where neither this reading nor the one at the
+                # grid start named anything. That is an element whose
+                # key down the output callback had already placed when
+                # the grid start found nothing wanting it: the tone is
+                # on its way to the DAC and something has to be sent for
+                # it, so it is the shortest thing it can be.
                 elt = choose_element(previous_elt, previous_look_ts,
-                                     previous_heard_ts) or elt
+                                     previous_heard_ts) or elt or '.'
                 elements.append(elt)
                 self.end_element(elt)
                 previous_elt, previous_look_ts = elt, elt_look_ts
@@ -13928,7 +13971,7 @@ class Keyer():
             self.element_sidetone_queued = Audio.schedule_sidetone_down(
                 sidetone_start)
 
-            if self.element_sidetone_queued and not self.confirm_element(wanted):
+            if not self.confirm_element(wanted):
                 return False
             # To the end of the gap, measured from the element before, so
             # that the scheduling just done comes out of it as it always
@@ -14126,19 +14169,22 @@ class Keyer():
             self.sleep_until(until)
 
     def confirm_element(self, wanted):
-        # Whether an element after a burst's first is still to be sent,
+        # Whether an element after a burst's first is to be sent at all,
         # asked of wanted as late as its queued key down can be taken
         # back: shortly before the output callback fills the block that
         # edge lands in. Later than that the tone is in PortAudio's
         # buffer, and could only be cut off, not unsaid.
         #
         # That is around the element's own grid start, a block either
-        # side of it, where asking as the gap began gave the operator
-        # none of the gap -- nor any of the lag the element before is
-        # still being heard with -- to come off the paddles in. The KZD
-        # waits on the answer, a few milliseconds late when it comes
-        # after the gap, which the K4's own delay absorbs: the gap it
-        # carries is the one keyed.
+        # side of it, and it is the only reading that decides. The gap
+        # before it belongs to the operator: the element before is still
+        # sounding through the whole of it, and a paddle moved while it
+        # sounds is moved about that element and not too late for this
+        # one. See send_burst.
+        #
+        # The KZD waits on the answer, a few milliseconds late when it
+        # comes after the gap, which the K4's own delay absorbs: the gap
+        # it carries is the one keyed.
         #
         # A burst's first element has nothing to ask about: it is queued
         # as it is keyed, and its block filled almost at once.
@@ -14149,6 +14195,11 @@ class Keyer():
         check_at = Audio.sidetone_down_deadline()
         if check_at != None:
             self.sleep_until(check_at - self.sidetone_edge_margin_seconds)
+        else:
+            # No tone queued to be in time for -- the sidetone is off,
+            # or no stream is open -- so the reading is taken at the
+            # grid start itself, which is where it belongs anyway.
+            self.sleep_until(self.element_timestamp)
         if wanted():
             return True
         return not Audio.cancel_sidetone_down()
