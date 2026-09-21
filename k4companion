@@ -684,6 +684,16 @@ class Server():
             cmd = cmd[0:-1]
         return cmd.split(';')
 
+    @staticmethod
+    def mute_sidetone_monitor():
+        Server.k4_server.send_str('ML0000;')
+
+    @staticmethod
+    def unmute_sidetone_monitor():
+        server = Server.k4_server
+        volume =  server.k4_parameter('ML0')
+        Server.k4_server.send_str(f'ML0{volume};')
+
     def __init__(self):
         Server.k4_server = self
         Server.settings = Settings()
@@ -7354,18 +7364,16 @@ class Audio():
 
     minimum_sidetone_ms = 0
 
-    k4_muted = False
-    k4_mute_count = 0
-
     # How long the receive audio takes to come back up where it resumes
-    # after silence -- a mute ending, a dropped packet, a queue that ran
-    # dry. It steps from nothing to whatever the signal is at in that
-    # instant otherwise, which a loud one makes a click of. The same
-    # raised cosine the sidetone's own envelope uses, over this long.
+    # after silence -- the element it was held under coming to an end, a
+    # dropped packet, a queue that ran dry. It steps from nothing to
+    # whatever the signal is at in that instant otherwise, which a loud
+    # one makes a click of. The same raised cosine the sidetone's own
+    # envelope uses, over this long.
     #
-    # This is not the old fade of the K4 packets, which shaped every
-    # packet either side of a mute and was taken out with the mute
-    # rework; nothing is shaped here but what follows a silence.
+    # Nothing is shaped here but what follows a silence. An older fade
+    # shaped every K4 packet either side of the mute the keyer used to
+    # apply, and went when that did.
     #
     # Eight milliseconds finishes well inside the gap between elements
     # at any speed the keyer sends at -- forty of gap at 30 WPM, thirty
@@ -7836,28 +7844,6 @@ class Audio():
     def enable_sidetone(cls, enable):
         cls.sidetone_enabled = enable
 
-    @classmethod
-    def mute_k4(cls, unmute_after=None):
-        # unmute_after rides the output callback's own frame counter
-        # rather than a threading.Timer. A Timer is a whole OS thread per
-        # element: about 100us of thread creation on the keyer thread
-        # every time, and 270us for the first one in the process --
-        # taken as the first sidetone begins, and contending for the GIL
-        # the output callback needs to meet its deadline.
-        if unmute_after != None:
-            self = cls.singleton
-            sample_rate = cls.output_device_sample_rate()
-            if self == None or sample_rate == None:
-                return          # no stream running: nothing to mute
-            self.unmute_at_frame = self.rendered_frames + round(unmute_after * sample_rate)
-        cls.k4_muted = True
-
-    @classmethod
-    def unmute_k4(cls):
-        cls.k4_muted = False
-        if cls.singleton != None:
-            cls.singleton.unmute_at_frame = None
-
     def sd_query_hostapis(cls, index=None):
         with quiet_stderr():
             return sounddevice.query_hostapis(index)
@@ -8121,8 +8107,6 @@ class Audio():
         # Frames handed to PortAudio so far; the most recent edge's frame
         # is kept on the same axis (see clear_sidetone_state).
         self.rendered_frames = 0
-        # Frame the output callback lifts the mute at, or None.
-        self.unmute_at_frame = None
         # How far up the receive audio's own fade is, nothing to one.
         # Starts at nothing: the first audio of a session comes out of
         # silence like any other.
@@ -8519,10 +8503,6 @@ class Audio():
         block_start_frame = self.rendered_frames
         self.rendered_frames += frames
 
-        if (self.unmute_at_frame != None and
-                self.rendered_frames >= self.unmute_at_frame):
-            Audio.unmute_k4()
-
         needed = frames * self.output_channels
         data = self.output_stream_leftover
 
@@ -8549,22 +8529,11 @@ class Audio():
             # K4's alone.
             data = numpy.empty(0, dtype=numpy.float32)
         else:
-            if self.k4_muted:
-                # Ahead of the queue loop, and taking the samples already
-                # buffered with it. Asking inside the loop only muted once
-                # the leftover ran out, which is up to a whole K4 packet
-                # late, and a mute shorter than that never happened at all.
-                self.k4_mute_count = 4
-                data = numpy.empty(0, dtype=numpy.float32)
-
             while len(data) < needed:
                 try:
                     chunk = self.k4_decoded_rx_audio_queue.get_nowait()
                 except queue.Empty:
                     break
-                if self.k4_mute_count > 0:
-                    self.k4_mute_count -= 1
-                    break           # drop the chunk rather than play it
                 data = numpy.concatenate((data, chunk))
             self.output_stream_leftover = data[needed:]
 
@@ -9097,9 +9066,6 @@ class Audio():
             except queue.Empty:
                 break
         self.clear_sidetone_state()
-        # The frame an unmute was waiting for belongs to the stream that
-        # has just been replaced, and would never arrive.
-        Audio.unmute_k4()
         self.generate_sidetone_envelopes()
 
     def clear_sidetone_state(self):
@@ -12844,7 +12810,9 @@ class Keyer():
         self = cls.singleton
         if not self:
             return
-        Server.k4_server.unsubscribe_response('KS;', self.on_speed_change)
+        server = Server.k4_server
+        server.unsubscribe_response('KS;', self.on_speed_change)
+        server.unsubscribe_response('KZL;', self.on_keydown_initial_delay_change)
 
         if self.keyer_thread:
             self.send_paddle_event(self.CLOSE_EVENT, 0)
@@ -13198,6 +13166,8 @@ class Keyer():
         # for, so that one is not repeated until it says something new.
         # See warn_if_unreactable.
         self.warned_unreactable = None
+        self.keydown_initial_delay = 0
+        self.unmute_timer = None
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -13205,6 +13175,10 @@ class Keyer():
         self.keyer_thread = threading.Thread(target=self.keyer_loop, name='keyer_thread')
         self.keyer_thread.start()
         Server.k4_server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+        cls = self.__class__
+        cls.set_device_type()
+        server = Server.k4_server
+        server.subscribe_response('KZL;', self.on_keydown_initial_delay_change)
 
     def on_received_initial_parameters(self, response):
         self.weighting = Server.settings.getfloat('CW', 'weighting', 1.0)
@@ -13682,6 +13656,12 @@ class Keyer():
 
                 if not self.start_element(first_element, wanted):
                     return
+
+                if first_element:
+                    if self.unmute_timer:
+                        self.unmute_timer.cancel()
+                    Server.mute_sidetone_monitor()
+
                 # When this element was keyed, taken from start_element
                 # rather than from the clock above. The two are a whole
                 # inter-element gap apart for every element but a
@@ -13734,10 +13714,20 @@ class Keyer():
                 previous_elt, previous_look_ts = elt, elt_look_ts
                 previous_heard_ts = elt_heard_ts
         finally:
-            if Options.debug > 0 and elements:
-                elements_str = ''.join(elements)
-                character = self.morse_characters.get(elements_str)
-                dprint1(f'character: {elements_str} {character}')
+            if elements:
+                if Options.debug > 0:
+                    elements_str = ''.join(elements)
+                    character = self.morse_characters.get(elements_str)
+                    dprint1(f'character: {elements_str} {character}')
+
+                delay = self.keydown_initial_delay / 1000
+                delay += Audio.sidetone_delay()
+                delay += self.end_element_timestamp - self.element_keyed_start
+
+                self.unmute_timer = threading.Timer(
+                    delay, Server.unmute_sidetone_monitor)
+                self.unmute_timer.start()
+
             self.in_burst = False
 
     def placed_first_element(self):
@@ -13984,15 +13974,6 @@ class Keyer():
             # to work off the audio's lag (see sidetone_delay_used), and
             # none of that belongs on the air.
             ms = round(self.inter_element_seconds * 1000)
-
-        initial_delay = int(Server.k4_server.k4_parameter('KZL')) / 1000
-        # Against the keyed start, not the heard one: this covers the
-        # K4's own key-down delay, which has nothing to do with when the
-        # sidetone reaches the operator.
-        time_since_first_element = time.perf_counter() - keyed_start
-        mute_seconds = initial_delay - time_since_first_element
-        if mute_seconds > 0:
-            Audio.mute_k4(mute_seconds)
 
         # Kept for the sidetone this element is about to produce: a
         # gap of zero says the operator had been idle, or that nothing
@@ -14404,6 +14385,9 @@ class Keyer():
         self.inter_word_seconds = unweighted_dit_seconds * 7
         self.unweighted_dit_seconds = unweighted_dit_seconds
         self.warn_if_unreactable()
+
+    def on_keydown_initial_delay_change(self, response=None):
+        self.keydown_initial_delay = int(Server.k4_server.k4_parameter('KZL'))
 
     def reactable_wpm(self):
         # The fastest whole words a minute at which the operator is
