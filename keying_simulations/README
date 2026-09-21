@@ -10,7 +10,8 @@ that closes first:
 
   - what the operator did: the two paddles' closures
   - what the operator heard: the sidetone as rendered, each tone named
-    and carrying the length it actually came out at
+    and carrying the length it actually came out at -- the tone by
+    itself, and not the mix it reaches them in
   - what the K4 was sent: every KZD and KZU, key down above the line
     and key up below
 
@@ -293,6 +294,16 @@ silence between characters, and a run is a single burst. Each run
 settles its lag at the first key down and keeps it to the end. Nothing
 in these sets speaks to the ease either way; what settled its rate was
 logs of real sending, where the silences are the operator's own.
+
+Nor does anything here render a sample. The output callback mixes the
+tone over what the K4 is sending -- a queue of packets, a buffer of
+what has been drawn but not yet played, a fade where that resumes
+after a silence, a crossfade under the tone's own rise and fall -- and
+none of it runs in these sets, which take the edges and stop. A click
+at the end of every element lived in that mix until an operator
+reported it, and the change that introduced it left every one of these
+plots identical. What the edges say is when a tone began and ended,
+which is what the sets are for; what it sounded like is not in them.
 
 It takes a copy of the program with a .py suffix because it imports it
 as a module.
