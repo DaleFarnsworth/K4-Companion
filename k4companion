@@ -13152,7 +13152,6 @@ class Keyer():
         self.sidetone_fraction = 0.0
         self.element_keyed_start = None
         self.element_sidetone_start = None
-        self.element_sidetone_delay = 0.0
         self.element_kzd_timestamp = None
         self.element_sidetone_queued = False
         # Whether the element most recently started was a burst's first.
@@ -13813,7 +13812,7 @@ class Keyer():
         # when it was: nothing has gone to the K4 and nothing will be
         # heard, and end_element is not to be called. See
         # confirm_element.
-        sidetone_delay = self.plan_sidetone_catchup(first_element)
+        self.plan_sidetone_catchup(first_element)
 
         if first_element:
             # Nothing to give notice of for the first element of a burst
@@ -13962,7 +13961,6 @@ class Keyer():
 
         self.element_keyed_start = keyed_start
         self.element_sidetone_start = sidetone_start
-        self.element_sidetone_delay = sidetone_delay
 
         Audio.report_glitches(during_sidetone=False)
         return True
@@ -13970,7 +13968,6 @@ class Keyer():
     def plan_sidetone_catchup(self, first_element):
         # The delay the sidetone schedule allows for this element, and
         # the catch-up fraction end_element trims it and its gap by.
-        # Returns the audio's delay as it stood.
         #
         # element_timestamp, and the grid of element starts hanging off
         # it, are real time -- when the operator keyed the element. The
@@ -14090,7 +14087,6 @@ class Keyer():
         self.sidetone_behind = behind
         self.sidetone_fraction = min(self.max_sidetone_catchup_fraction,
                                      behind * self.sidetone_catchup_per_second)
-        return sidetone_delay
 
     def auto_space_until(self, now):
         # Before a burst's first element: where auto spacing is on and
@@ -14285,8 +14281,20 @@ class Keyer():
         # sidetone was really given rather than from the grid, so that it
         # stays right for an element the catch-up shortened, and for a
         # burst's first element, which carries the whole delay.
+        #
+        # The delay read here and not where the element was started.
+        # start_element runs before this element's key down has been
+        # placed, and at the first element of a session there is no
+        # edge placed at all to read a delay from: what it gets there is
+        # a zero, and the tone was reported ending a whole lag before it
+        # did -- 17ms for a 50ms dit at 24 WPM, with the lag then
+        # appearing in the gap after it. By here the key down has been
+        # waited for (see wait_until_sidetone_heard), so the delay is
+        # the one this element's own edges were given. Only the report
+        # was ever wrong: both edges carry the same lag, so the tone
+        # itself came out its full length.
         self.end_sidetone_timestamp = (sidetone_start + sidetone_seconds +
-                                       self.element_sidetone_delay)
+                                       Audio.sidetone_delay())
         dprint1(f'{self.end_sidetone_timestamp:.4f} sidetone end keyts')
 
         # The keyed end, not the heard one. Its two readers -- the
