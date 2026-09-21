@@ -8516,8 +8516,19 @@ class Audio():
             # Nothing taken while the tone is up and covering the K4
             # audio entirely -- the crossfade at the end of mix_sidetone
             # has it at nothing then -- so anything drawn from the queue
-            # would be dropped on the floor. What the K4 sent stays where
-            # it is, to be played after.
+            # would be dropped on the floor.
+            #
+            # What had already been drawn goes too. That is up to a
+            # packet of audio from before the element, and holding it
+            # through the tone preserves nothing: the decoder caps its
+            # queue at two packets and drops the oldest, so the stream
+            # has moved on by the time the tone ends whatever is done
+            # here. Played out after the fall it is stale, and where it
+            # ran out the waveform stepped to whatever the queue had --
+            # a click a few milliseconds after every element, with the
+            # step as large as the audio was loud. The K4's own mute
+            # used to clear it as a side effect, which is why this only
+            # came out once that went.
             #
             # Not while the tone is still rising, though: the crossfade
             # brings it up over whatever is here, and with the receive
@@ -8533,6 +8544,7 @@ class Audio():
             # to -- and the frames after the fall has finished are the
             # K4's alone.
             data = numpy.empty(0, dtype=numpy.float32)
+            self.output_stream_leftover = data
         else:
             while len(data) < needed:
                 try:
