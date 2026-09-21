@@ -7364,6 +7364,11 @@ class Audio():
 
     minimum_sidetone_ms = 0
 
+    # How fast a pause gives back sidetone_lag, in seconds of lag per
+    # second of silence. See Audio.ease_sidetone_lag for what settled
+    # on a millisecond a second.
+    sidetone_lag_ease_per_second = .001
+
     # How long the receive audio takes to come back up where it resumes
     # after silence -- the element it was held under coming to an end, a
     # dropped packet, a queue that ran dry. It steps from nothing to
@@ -8652,14 +8657,22 @@ class Audio():
         # 38.4, 33.7, 29.3 and on down to 26 -- from character to
         # character, on one machine, at one speed.
         #
-        # The lag is held now. It is established once, by the first key
-        # down of a session (see first_edge_lag), and every burst after
+        # The lag is held now. It is established by the first key down
+        # of a session (see first_edge_lag), and every burst after
         # renders at that same offset: an edge asked for a whole lag
         # ahead of its block is placed on its own frame, and nothing
-        # about a pause changes that. It rises only where the host later
-        # needs more than it, which is the correction below doing what
-        # it has always done, and it goes back to nothing only when a
-        # stream is opened.
+        # about a pause changes that. It rises where the host later
+        # needs more than it, which is the correction in next_key_edge
+        # doing what it has always done.
+        #
+        # What a pause does is give a little of it back, toward what the
+        # device is asking for and never below. A drop took the whole of
+        # it and had to re-derive it from wherever in the block cycle
+        # the next paddle happened to fall; this keeps what was measured
+        # and only lets go of the part the device has stopped needing.
+        # See ease_sidetone_lag.
+        if idle:
+            self.ease_sidetone_lag(frames / sample_rate)
         if idle and self.key_event_queue.empty():
             return                  # nothing keyed: the K4 audio stands as written
 
@@ -8739,24 +8752,58 @@ class Audio():
                                       max(self.block_lead_previous,
                                           self.block_lead_current))
 
+    def wanted_sidetone_lag(self):
+        # The lag the device is asking for as things stand: a block past
+        # the furthest ahead a block has lately been filled, which is
+        # the soonest an edge reported as it happens can be placed
+        # whatever the block it lands in. None with no block timing to
+        # reckon it from.
+        timing = self.sidetone_block_timing
+        if timing == None:
+            return None
+        _, block_seconds, lead = timing
+        return lead + block_seconds
+
     def first_edge_lag(self):
-        # The lag to give a burst's first key down: a block past the
-        # furthest ahead a block has lately been filled, which is the
-        # soonest such an edge can be placed whatever the block it lands
-        # in. See next_key_edge.
+        # The lag to give a burst's first key down. See next_key_edge.
         #
-        # None where there is no block timing to reckon it from, and
         # None where a lag already stands -- that says a burst is under
         # way, and an edge arriving late within one is a stall for the
         # keyer's re-anchor and catch-up to work off rather than a fresh
         # delay to settle on.
         if self.sidetone_lag != 0.0:
             return None
-        timing = self.sidetone_block_timing
-        if timing == None:
-            return None
-        _, block_seconds, lead = timing
-        return lead + block_seconds
+        return self.wanted_sidetone_lag()
+
+    def ease_sidetone_lag(self, seconds):
+        # The lag given back toward what the device is asking for, while
+        # nothing is being keyed. Downward only, and never below it.
+        #
+        # The lag is otherwise a one-way ratchet: an edge that lands
+        # late raises it and nothing lowers it short of a new stream. In
+        # four logs of real sending that shows up two ways, and both are
+        # this. On one machine the first paddle of the session closed
+        # while the app was still loading, at a block lead of 28.9ms
+        # against the 23 it settled at, and the whole session was
+        # monitored at 32.9ms for want of 27 -- 220 elements without the
+        # figure moving once. On another the lead read a flat 18.0ms all
+        # session while the lag ground upward anyway, +0.2 to +3.7ms at
+        # a time, 22 to 47.8ms over 47 seconds and never once back down.
+        #
+        # A rate slow enough not to be heard and fast enough to matter.
+        # Over those logs' own burst timings, a millisecond a second
+        # recovers all but 0.6ms of the stale 6.7 on the first machine
+        # for a worst burst-to-burst move of 0.6ms; two milliseconds a
+        # second gains 0.6ms more and doubles that move on the machines
+        # that grind. Where the grinding is a requirement that really is
+        # rising, the lag cannot get below it and this changes nothing
+        # at all: an edge drags, and the ratchet below puts it straight
+        # back.
+        wanted = self.wanted_sidetone_lag()
+        if wanted == None or self.sidetone_lag <= wanted:
+            return
+        self.sidetone_lag = max(wanted, self.sidetone_lag -
+                                self.sidetone_lag_ease_per_second * seconds)
 
     def next_key_edge(self, start, frames, dac_time, sample_rate):
         # The next edge landing in the block being filled, as a (frame
