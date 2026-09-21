@@ -14,6 +14,13 @@ that closes first:
   - what the K4 was sent: every KZD and KZU, key down above the line
     and key up below
 
+That third panel is the key commands alone. A burst also mutes the K4's
+own sidetone monitor as it begins, with ML0000, and puts it back when
+it ends, so that the K4's sidetone is not heard against the one the app
+renders. Neither is a key edge, and drawn with the rest the mute would
+hang below the line looking like a key up. The summaries record what
+was sent, so they do carry it.
+
 Every tone comes out at exactly the length its KZU carries -- 40ms or
 120ms at 30 WPM, 30ms or 90ms at 40 -- across every scenario and every
 run of them. The sidetone catch-up shortens tones a fraction where the
@@ -271,6 +278,11 @@ go in through send_paddle_event on the thread a paddle's device would
 report on, send_iambic runs on the keyer's thread a hop later, and the
 sidetone edges plotted are the frames next_key_edge actually placed.
 Nothing about the keyer is reimplemented.
+
+Timers stand still along with the threads, a real one being bound to
+the wall clock this has no use for. The command that puts the K4's
+sidetone monitor back is sent from one, which is why a summary carries
+the mute at a burst's start and nothing that undoes it.
 
 It takes a copy of the program with a .py suffix because it imports it
 as a module.
