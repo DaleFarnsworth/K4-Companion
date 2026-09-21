@@ -24,8 +24,8 @@ was sent, so they do carry it.
 Every tone comes out at exactly the length its KZU carries -- 40ms or
 120ms at 30 WPM, 30ms or 90ms at 40 -- across every scenario and every
 run of them. The sidetone catch-up shortens tones a fraction where the
-audio has drifted past the lag the keyer holds, and over the device
-these were run against it never has: the delay sits at what was
+audio has drifted past the lag the keyer is working to, and over the
+device these were run against it never has: the delay sits at what was
 measured of it. A device that drifts would show the tones a shade
 under, and the K4 still told the full length, so nothing on the air is
 ever short.
@@ -283,6 +283,16 @@ Timers stand still along with the threads, a real one being bound to
 the wall clock this has no use for. The command that puts the K4's
 sidetone monitor back is sent from one, which is why a summary carries
 the mute at a burst's start and nothing that undoes it.
+
+What the harness does not run is mix_sidetone. It calls
+note_block_timing and next_key_edge itself, a block at a time, so the
+edges plotted are the ones the output callback really placed -- but the
+ease that gives back sidetone_lag lives in mix_sidetone and never runs
+here. It would have nothing to do if it did: the ease works only in the
+silence between characters, and a run is a single burst. Each run
+settles its lag at the first key down and keeps it to the end. Nothing
+in these sets speaks to the ease either way; what settled its rate was
+logs of real sending, where the silences are the operator's own.
 
 It takes a copy of the program with a .py suffix because it imports it
 as a module.
