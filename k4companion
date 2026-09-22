@@ -12790,7 +12790,7 @@ class Keyer():
     # Audio.first_edge_lag), and every burst establishes the same lag,
     # so there is nothing left of that to allow for. What is left is the
     # device's own wander. See plan_sidetone_catchup.
-    tolerable_sidetone_lag_margin = .002
+    tolerable_sidetone_lag_margin = .001
 
     # The most that fraction may reach. A lag beyond 10 ms is worked off
     # over more elements rather than by cutting any one of them harder.
