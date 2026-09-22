@@ -15473,15 +15473,6 @@ config_data = '''
   #}
 #end
 
-#define tune-group
-- item: group
-  contains: #{
-    #include atu-group
-    #include tunedrop-group
-    #include tune-button
-  #}
-#end
-
 #define tune-button
 - item: togglebutton
   width: 9
@@ -15494,28 +15485,24 @@ config_data = '''
 #end
 
 #define main-tab-row3-column2
+# One three-column grid, matching vfos-control-group beside it, so the
+# rows here line up with the rows under VFOs. Stacked as three separate
+# groups they did not: each carried its own frame and padding, and the
+# rows drifted a few pixels lower down the column.
 - item: group
-  columns: 1
+  columns: 3
   contains: #{
-    - item: group
-      contains: #{
-        #include audio-mx-togglebutton
-        #include power-dropdown-button
-        #include macros-button
-      #}
-    #include tune-group
-    #include test-rxtx-group
-  #}
-#end
-#
-
-#define test-rxtx-group
-- item: group
-  contains: #{
+    #include audio-mx-togglebutton
+    #include power-dropdown-button
+    #include macros-button
+    #include atu-dropdownbutton
+    #include tune-dropdownbutton
+    #include tune-button
     #include test-mode-togglebutton
     #include receive-transmit-togglebutton
   #}
 #end
+#
 
 #define connect-power-off-exit-group
 - item: group
@@ -16158,6 +16145,7 @@ config_data = '''
 #define power-dropdown-button
 - item: dropdownbutton
   label: Power
+  width: 20
   from: 0
   to: 110
   evalincrement: '.0001 if value > 0.0 and value <= .01 else .1 if value <= 10.0 else 1.0'
@@ -16216,14 +16204,6 @@ config_data = '''
   #}
 #end
 
-#define atu-group
-- item: group
-  pady: 4
-  contains: #{
-    #include atu-dropdownbutton
-  #}
-#end
-
 #define atu-dropdownbutton
 - item: dropdownbutton
   selections: #{
@@ -16234,17 +16214,8 @@ config_data = '''
   #}
 #end
 
-#define tunedrop-group
-- item: group
-  pady: 4
-  contains: #{
-    #include tune-dropdownbutton
-  #}
-#end
-
 #define tune-dropdownbutton
 - item: dropdownbutton
-  padx: 4
   selections: #{
     - { text: "Tune Off", cmd: TU0;, evalresponse: 'value if value == "TU1;" or value == "TU2;" else "TU0;"' }
     - { text: "Tune",     cmd: TU1;, evalcmd: '"TU1;" if self.k4param("TU") == "0" else "TU0;"', bg: yellow }
@@ -16318,7 +16289,6 @@ config_data = '''
 
 #define receive-transmit-togglebutton
 - item: togglebutton
-  padx: 4
   selections: #{
     - { text: 'Receive',   cmd: 'TRR;', bg: '#00FF00', abg: '#00FF00' }
     - { text: 'Transmit',  cmd: 'TRT;', bg: DodgerBlue,    abg: DodgerBlue }
