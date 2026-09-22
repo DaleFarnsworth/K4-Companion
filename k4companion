@@ -3348,6 +3348,10 @@ class DropdownWidget():
         # come to, never a ceiling: a box told to be narrower than its
         # own longest text would clip it.
         explicit_width = options.get('width', None)
+        # One for the whole control, not one per selection the way
+        # Togglebutton has them: what a dropdown's selections do is set a
+        # value, and what wants explaining is the control they set it on.
+        tooltip = options.get('tooltip', '')
         self.from_ = options.get('from', None)
         self.to = options.get('to', None)
         self.evalincrement = options.get('evalincrement', None)
@@ -3436,6 +3440,17 @@ class DropdownWidget():
         self.combobox.activated.connect(self.on_combobox_selected)
 
         frame.layout().addWidget(self.combobox, 0, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+
+        # On the frame as well as the box, so the label above it answers
+        # to a hover too -- the frame is the group box the label titles.
+        self.combobox.setToolTip(tooltip)
+        frame.setToolTip(tooltip)
+
+        # Without this, Qt fails to generate hover/tooltip events for
+        # this widget on Windows once connected to a K4 (as for
+        # Togglebutton, where the same line is).
+        self.combobox.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        frame.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
 
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
 
@@ -3583,7 +3598,8 @@ class Dropdownbutton(Widget):
         required = ['item', 'selections']
         optional = ['bg', 'abg', 'fg', 'afg',
             'height', 'width', 'justify', 'unexpectedresponse', 'label',
-            'leading', 'evalincrement', 'evalcmd', 'from', 'to', 'padx', 'pady']
+            'leading', 'evalincrement', 'evalcmd', 'from', 'to', 'padx', 'pady',
+            'tooltip']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
