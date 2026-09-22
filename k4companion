@@ -3467,7 +3467,18 @@ class DropdownWidget():
             self.server.subscribe_responses(selection['response'], self.on_response_received)
 
     def on_increment(self, key):
-        value = float(self.combobox.currentText())
+        try:
+            value = float(self.combobox.currentText())
+        except ValueError:
+            current_index = self.combobox.currentIndex()
+            if key == Qt.Key.Key_Down:
+                current_index += 1
+            else:
+                current_index -= 1
+            self.combobox.setCurrentIndex(current_index)
+            self.set_value(float(self.combobox.currentText()))
+            return
+
         if key == Qt.Key.Key_Down:
             value -= .00000000001       # account for incr vs decr
         else:
@@ -16871,6 +16882,7 @@ config_data = '''
   evalincrement: 1
   evalcmd: 'f"NRS{round(value):02d}{1 if self.k4param("NRS")[2] == "1" else 0};"'
   unexpectedresponse: value[3:5]
+  tooltip: "The SSNR level.\nSelect R to reset the noise elimination function"
   selections: #{
     - { text: "20", cmd: NRS201;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
     - { text: "19", cmd: NRS191;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
@@ -16892,6 +16904,7 @@ config_data = '''
     - { text: "3", cmd: NRS031;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
     - { text: "2", cmd: NRS021;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
     - { text: "1", cmd: NRS011;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
+    - { text: "R", cmd: NRS~; }
   #}
 #end
 
@@ -16901,6 +16914,7 @@ config_data = '''
   to: 20
   evalincrement: 1
   evalcmd: 'f"NRS${round((value)):02d}{1 if self.k4param("NRS$")[2] == "1" else 0};"'
+  tooltip: "The SSNR level.\nSelect R to reset the noise elimination function"
   unexpectedresponse: value[4:6]
   selections: #{
     - { text: "20", cmd: NRS$201;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
@@ -16923,6 +16937,7 @@ config_data = '''
     - { text: "3", cmd: NRS$031;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
     - { text: "2", cmd: NRS$021;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
     - { text: "1", cmd: NRS$011;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
+    - { text: "R", cmd: NRS$~; }
   #}
 #end
 
