@@ -11655,11 +11655,14 @@ class CW(TextButtons):
         return Settings.main().get('Keyer', name, default)
 
     # The dit memory delay: the group box's title, the setting kept in
-    # the main settings file, and what it holds until one is.
-    memory_delay_percent_setting = ('Dit Mem %', 'dit_up_memory_delay_percent', 33)
+    # the main settings file, what it holds until one is, and what the
+    # box says for itself on a hover.
+    memory_delay_percent_setting = (
+        'Dit Mem %', 'dit_up_memory_delay_percent', 33,
+        'The leading percentage of dah in which a dit insertion will be ignored')
 
     def keyer_dit_memory_delay_percent(self, percent=None):
-        _, name, default = self.memory_delay_percent_setting
+        _, name, default, _ = self.memory_delay_percent_setting
         percent = self._keyer_setting(name, default, percent, integer=True)
         self.set_memory_delay_percent_text(percent)
         Keyer.set_dit_up_memory_delay_percent(percent)
@@ -11941,7 +11944,7 @@ class CW(TextButtons):
     def keyer_memory_delay_percent_settings(self):
         # The group box the percentage is typed into. Its own widget
         # rather than a dropdown: any percentage is allowed.
-        title = self.memory_delay_percent_setting[0]
+        title, _, _, tooltip = self.memory_delay_percent_setting
         frame = QGroupBox(title)
         frame.setFont(self.label_font())
         qt_tighten_groupbox(frame, title, self.label_font())
@@ -11955,6 +11958,17 @@ class CW(TextButtons):
         entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
         entry.setFixedWidth(4 * QFontMetrics(self.font()).averageCharWidth() + 12)
         frame.layout().addWidget(entry, 0, 0)
+
+        # On the frame as well, so the title the box sits under answers
+        # to a hover too -- it is the title that names what this is, the
+        # box itself being a bare number. WA_Hover for the reason
+        # Togglebutton sets it: without it Qt stops generating hover
+        # events on Windows once connected to a K4.
+        entry.setToolTip(tooltip)
+        frame.setToolTip(tooltip)
+        entry.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        frame.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+
         self.memory_delay_percent_entry = entry
         # textChanged (not editingFinished) so an emptied field is
         # detected live, matching tk's per-keystroke StringVar trace.
