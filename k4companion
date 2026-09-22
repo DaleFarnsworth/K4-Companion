@@ -13272,7 +13272,7 @@ class Keyer():
     def midi_message_callback(self, event, data=None):
         message, midi_delta_time = event
         event, status_byte, velocity = message
-        dprint1(f'MIDI {event=:02x} status_byte={status_byte} {velocity=}')
+        dprint_keying(f'MIDI {event=:02x} status_byte={status_byte} {velocity=}')
 
         if midi_delta_time >= 0.001:
             self.midi_delta_time = midi_delta_time
@@ -13285,10 +13285,10 @@ class Keyer():
 
         if velocity == 0 or velocity == 127:    # No embedded time, use Midi delta time
             self.delta = midi_delta_time
-            dprint1(f'midi delta={round(self.delta, 3)}')
+            dprint_keying(f'midi delta={round(self.delta, 3)}')
         else:
             self.delta += velocity / 1000
-            dprint1(f'event delta={round(self.delta, 3)}, midi delta={round(self.midi_delta_time, 3)}')
+            dprint_keying(f'event delta={round(self.delta, 3)}, midi delta={round(self.midi_delta_time, 3)}')
 
         if event == 0x90:                       # key down
             if status_byte in self.dit_paddle_notes:
@@ -13307,7 +13307,7 @@ class Keyer():
                     self.dah_was_down = False
                     self.send_paddle_event(self.DAH_UP_EVENT, self.delta)
         else:
-            dprint1("unexpected event 0x%2x" % event)
+            dprint_keying("unexpected event 0x%2x" % event)
 
         self.delta = 0
 
@@ -13393,7 +13393,7 @@ class Keyer():
         # on as well, so a log can be read across the two. A straight
         # key's is its device's own clock instead -- see above -- and
         # comparable only with itself.
-        dprint1(f'{timestamp:.4f} paddle {event} keyts')
+        dprint_keying(f'{timestamp:.4f} paddle {event}')
         self.paddle_event_queue.put(paddle_event)
 
     def start_burst_sidetone(self, event, timestamp):
@@ -13803,7 +13803,7 @@ class Keyer():
                 if Options.debug > 0:
                     elements_str = ''.join(elements)
                     character = self.morse_characters.get(elements_str)
-                    dprint1(f'character: {elements_str} {character}')
+                    dprint_keying(f'character: {elements_str} {character}')
 
                 delay = self.keydown_initial_delay / 1000
                 delay += Audio.sidetone_delay()
@@ -14021,7 +14021,7 @@ class Keyer():
         # came to -- the stream's own latency, printed once when it
         # opens, is the depth PortAudio negotiated and not this.
         block_seconds, block_lead = Audio.block_timing()
-        dprint1(f'inherent_sidetone_lag={round(self.inherent_sidetone_lag, 4)}'
+        dprint_keying(f'inherent_sidetone_lag={round(self.inherent_sidetone_lag, 4)}'
                 f' sidetone_delay={round(sidetone_delay, 4)}'
                 f' block_lead={None if block_lead == None else round(block_lead, 4)}'
                 f' block={None if block_seconds == None else round(block_seconds, 4)}')
@@ -14302,7 +14302,7 @@ class Keyer():
         # Where the tone was heard to start, said here rather than where
         # it is found: the output callback is what places the edge, and
         # that thread is kept clear of anything that writes.
-        dprint1(f'{self.element_heard_start:.4f} sidetone start keyts')
+        dprint_keying(f'{self.element_heard_start:.4f} sidetone start')
         element_seconds = self.whole_ms(self.dah_seconds if elt == '-'
                                         else self.dit_seconds)
         sidetone_start = self.element_sidetone_start
@@ -14310,7 +14310,7 @@ class Keyer():
             element_seconds)
 
         if sidetone_seconds != element_seconds:
-            dprint1(f'sidetone_ms={round((sidetone_seconds * 1000), 2)}')
+            dprint_keying(f'sidetone_ms={round((sidetone_seconds * 1000), 2)}')
         Audio.schedule_sidetone_up(sidetone_start + sidetone_seconds)
 
         # The element's full length from when its KZD went out, however
@@ -14341,7 +14341,7 @@ class Keyer():
         # itself came out its full length.
         self.end_sidetone_timestamp = (sidetone_start + sidetone_seconds +
                                        Audio.sidetone_delay())
-        dprint1(f'{self.end_sidetone_timestamp:.4f} sidetone end keyts')
+        dprint_keying(f'{self.end_sidetone_timestamp:.4f} sidetone end')
 
         # The keyed end, not the heard one. Its two readers -- the
         # inter-element sleep and the inter-character gap sent in KZD --
@@ -14415,7 +14415,7 @@ class Keyer():
         if floor != None:
             lag = max(lag, floor)
         self.inherent_sidetone_lag = lag
-        dprint1(f'measured inherent_sidetone_lag={round(self.inherent_sidetone_lag, 4)}')
+        dprint_keying(f'measured inherent_sidetone_lag={round(self.inherent_sidetone_lag, 4)}')
         # The delay is only known once one has been measured, so a speed
         # set before that could not be judged against it. Judged here
         # instead, as well as where the speed changes.
@@ -14745,6 +14745,7 @@ class Options():
     config_file = None
     verbose = 0
     debug = 0
+    debug_areas = []
     yaml_file = None
     panadapter_receiver = None
 
@@ -14759,6 +14760,10 @@ class Options():
                           help="output debugging messages")
         parser.add_option('--yaml', dest='yaml_file', default=None,
                           help="output YAML config to FILE", metavar="FILE")
+        parser.add_option('--da', '--debugarea', action='append', dest='debug_area',
+                          default=[], type='string',
+                          help="enable logging for a debugging area")
+
         # Internal: how the main process starts a panadapter subprocess
         # (see PanadapterProcess). Not meant to be run by hand.
         parser.add_option('--panadapter', dest='panadapter_receiver', default=None,
@@ -14771,6 +14776,7 @@ class Options():
         Options.verbose = options.verbose
         Options.debug = options.debug
         Options.yaml_file = options.yaml_file
+        Options.debug_areas = options.debug_area
 
         if Options.debug > 0 and Options.verbose == 0:
             Options.verbose = Options.debug
@@ -15100,6 +15106,10 @@ def dprint4(*args, **kwargs):
     if Options.debug >= 4:
         dprint(*args, **kwargs)
 
+def dprint_keying(*args, **kwargs):
+    if 'keyer' in Options.debug_areas:
+        dprint(*args, **kwargs)
+
 def vprint1(*args, **kwargs):
     if Options.verbose >= 1:
         dprint(*args, **kwargs)
@@ -15316,7 +15326,7 @@ def main():
 config_data = '''
 ---
 
-# version = "2.0-rc23"
+# version = "2.0-rc24"
 
 # A description of the various items is provided at the end of this file.
 
