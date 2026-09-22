@@ -8763,6 +8763,14 @@ class Audio():
         self.sidetone_block_timing = (dac_time, block_seconds,
                                       max(self.block_lead_previous,
                                           self.block_lead_current))
+        # Update the prior dac_time for skip detection in next_key_edge.
+        # Keep the old value first so we can detect when dac_time jumps by
+        # more than one block (host filled multiple blocks in one burst).
+        if hasattr(self, 'block_dac_time_for_skip'):
+            self.prev_block_dac_for_skip = self.block_dac_time_for_skip
+        else:
+            self.prev_block_dac_for_skip = None
+        self.block_dac_time_for_skip = dac_time
 
     def wanted_sidetone_lag(self):
         # The lag the device is asking for as things stand: a block past
@@ -8917,8 +8925,25 @@ class Audio():
                     self.pending_key_event = event
                     return None
             elif key_down:
-                self.sidetone_lag += (start - offset) / sample_rate
-                offset = start
+                # Check if the host has skipped blocks. When the host fills
+                # multiple blocks in one callback (WASAPI with a host period
+                # longer than a block), outputBufferDacTime jumps a whole
+                # period at once, and blocks in between never get their own
+                # callback. An edge keyed for one of those skipped blocks is
+                # not a delay the device is asking for; drag it without
+                # raising the lag.
+                prev_dac = self.prev_block_dac_for_skip
+                cur_dac = self.block_dac_time_for_skip
+                timing = self.sidetone_block_timing
+                block_seconds = timing[1] if timing != None else 0.004
+                skipped = (prev_dac != None and cur_dac != None and
+                          cur_dac - prev_dac > block_seconds * 1.5)
+                if skipped:
+                    dragged = True
+                    offset = start
+                else:
+                    self.sidetone_lag += (start - offset) / sample_rate
+                    offset = start
             else:
                 dragged = True
                 offset = start
@@ -9158,6 +9183,11 @@ class Audio():
         # ahead of its DAC time any block has lately been filled), for
         # projecting when later blocks will be. See note_block_timing.
         self.sidetone_block_timing = None
+        # dac_time from the current and previous callbacks, to detect when
+        # the host has filled multiple blocks in one burst. See note_block_timing
+        # and next_key_edge.
+        self.block_dac_time_for_skip = None
+        self.prev_block_dac_for_skip = None
         # The furthest lead in the window running now, and in the one
         # before it, and the stream time the one running now ends at.
         self.block_lead_current = 0.0
