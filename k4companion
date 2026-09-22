@@ -86,7 +86,7 @@ import opuslib
 os.environ['PATH'] = original_path
 
 appname = 'k4companion'
-version = "2.0-rc27"
+version = "2.0-rc28"
 
 python_version = platform.python_version_tuple()
 python_major = int(python_version[0])
@@ -13424,13 +13424,7 @@ class Keyer():
         # Arrival is late by however long the event took to be handed
         # to this callback, and that is not always a millisecond. When
         # the process stalls, everything the device sent meanwhile
-        # arrives together at the end of it: rc27_linux.txt has four
-        # events stamped within 0.3ms that the device put 2, 6 and 38ms
-        # apart, the first of them 0.44s after it was sent. The MIDI
-        # layer had them on time -- its own deltas agree with the
-        # device's -- so the time was lost getting them to Python, and
-        # stamped on arrival the keyer judged the paddles by an order
-        # of events the operator never made.
+        # arrives together at the end of it.
         #
         # So the device's clock is kept, as the sum of its deltas, and
         # put on perf_counter by the least that any event has lately
@@ -14051,9 +14045,7 @@ class Keyer():
         # first: start_burst_sidetone leaves a paddle closing inside a
         # burst to the keyer, and by the time the keyer has it the paddle
         # may be open again. A stall makes that window as long as the
-        # stall -- rc27_linux.txt has the whole of a T's dah arriving
-        # while the keyer was held finishing the S before it -- and
-        # without this the T was simply not sent.
+        # stall.
         #
         # The first to close, keyed now, late as it is; the gap the K4 is
         # told still runs to when the paddle closed.
@@ -15652,7 +15644,7 @@ def main():
 config_data = '''
 ---
 
-# version = "2.0-rc27"
+# version = "2.0-rc28"
 
 # A description of the various items is provided at the end of this file.
 
