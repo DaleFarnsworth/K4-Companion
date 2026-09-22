@@ -3341,6 +3341,11 @@ class DropdownWidget():
         font = options['font']
         justify = options.get('justify', 'right')
         height = options.get('height', 0)
+        # In characters, as everywhere else width is given (see
+        # Button/Togglebutton). A floor under the width the selections
+        # come to, never a ceiling: a box told to be narrower than its
+        # own longest text would clip it.
+        explicit_width = options.get('width', None)
         self.from_ = options.get('from', None)
         self.to = options.get('to', None)
         self.evalincrement = options.get('evalincrement', None)
@@ -3395,6 +3400,13 @@ class DropdownWidget():
             width += 5 * QFontMetrics(font).averageCharWidth()
         elif sys.platform == 'darwin':
             width += 6 * QFontMetrics(font).averageCharWidth()
+
+        # After the platform chrome above, so an explicit width is a
+        # floor under what the box actually comes out at rather than
+        # under the text alone.
+        if explicit_width != None:
+            width = max(width,
+                        explicit_width * QFontMetrics(font).averageCharWidth())
 
         self.defer_selections = False
         self.deferred_selection = False
