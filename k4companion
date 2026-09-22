@@ -7445,19 +7445,26 @@ class Audio():
     # after silence -- the element it was held under coming to an end, a
     # dropped packet, a queue that ran dry. It steps from nothing to
     # whatever the signal is at in that instant otherwise, which a loud
-    # one makes a click of. The same raised cosine the sidetone's own
-    # envelope uses, over this long.
+    # one makes a click of.
+    #
+    # Even in decibels rather than in amplitude (see k4_fade_gain), from
+    # k4_fade_floor_db up. The ear hears loudness by the decibel, so a
+    # fade even in amplitude -- the raised cosine the sidetone uses --
+    # sounds like almost nothing and then all of it at once: most of the
+    # loudness comes in its last few milliseconds. Evened out in
+    # decibels, loud band audio comes back as a swell instead.
     #
     # Nothing is shaped here but what follows a silence. An older fade
     # shaped every K4 packet either side of the mute the keyer used to
     # apply, and went when that did.
     #
-    # Eight milliseconds finishes well inside the gap between elements
-    # at any speed the keyer sends at -- forty of gap at 30 WPM, thirty
-    # at 40, less the K4's own key down delay at the start of each, so
-    # eighteen at its tightest -- and the band is heard at full strength
-    # between elements rather than still on its way up.
-    k4_fade_in_time = .008
+    # Twenty milliseconds is about the gap between elements at 30 WPM
+    # less the K4's own key down delay, and more than it at 40. Where
+    # the next element comes first, the band is simply not all the way
+    # up when it does, and the rise's crossfade takes it down from
+    # wherever it had got to.
+    k4_fade_in_time = .020
+    k4_fade_floor_db = -40.0
     k4_fade_step = 1 / (48000 * k4_fade_in_time)
                                   # Replaced when the device's own rate
                                   # is known -- see choose_output_sample_rate.
@@ -8722,7 +8729,7 @@ class Audio():
         if position < 1:
             ramp = self.envelope_ramp(position, self.k4_fade_step, written)
             self.k4_fade_position = float(ramp[-1])
-            outdata[:written] *= self.raised_cosine(ramp).reshape(written, 1)
+            outdata[:written] *= self.k4_fade_gain(ramp).reshape(written, 1)
         if written < frames:
             self.k4_fade_position = 0.0
 
@@ -9148,10 +9155,20 @@ class Audio():
         numpy.clip(ramp, 0.0, 1.0, out=ramp)
         return ramp
 
+    @classmethod
+    def k4_fade_gain(cls, positions):
+        # The receive audio's gain for a fade position: even in decibels
+        # from k4_fade_floor_db at nothing to 0 dB at one. Pulled down so
+        # it starts from true silence rather than from the floor, which
+        # would otherwise be a step of its own, if a small one.
+        floor = 10 ** (cls.k4_fade_floor_db / 20)
+        gain = numpy.power(floor, 1 - positions)
+        return (gain - floor) / (1 - floor)
+
     @staticmethod
     def raised_cosine(positions):
-        # The gain for an envelope position: the shape both the sidetone
-        # and the receive audio's fade rise and fall with.
+        # The gain for an envelope position: the shape the sidetone
+        # rises and falls with, and crossfades the receive audio by.
         return .5 * (1 - numpy.cos(numpy.pi * positions))
 
     def output_stream_playing(self):
