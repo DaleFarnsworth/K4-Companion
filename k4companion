@@ -14427,28 +14427,24 @@ class Keyer():
         return math.ceil(1200 * (1 - delta) / (whole_ms - 1)) - 1
 
     def warn_if_unreactable(self):
-        # Said once for a given speed, and again if the speed or the
-        # delay moves it: the operator changing speed is asking a
-        # question, and the answer is worth repeating then rather than
-        # every element.
-        reactable = self.reactable_wpm()
-        if reactable == None:
-            return
-        wpm = round(1.2 / self.unweighted_dit_seconds)
-        if wpm <= reactable:
+        # Warn if the inherent lag is greater than half a dit, since the
+        # paddles will be read before the element can be heard, making it
+        # impossible to key to the sidetone at this speed.
+        if self.inherent_sidetone_lag > 0.5 * self.dit_seconds:
+            wpm = round(1.2 / self.unweighted_dit_seconds)
+            told = (wpm, round(self.inherent_sidetone_lag * 1000))
+            if self.warned_unreactable == told:
+                return
+            self.warned_unreactable = told
+            Popup.warning(
+                f'Sending at {wpm} WPM with a sidetone delay of '
+                f'{round(self.inherent_sidetone_lag * 1000)} ms.\n'
+                f'This is more than half a dit ({round(self.dit_seconds * 1000)} ms).\n'
+                f'The paddles are read before the element can be heard,\n'
+                f'so keying to the sidetone is not possible at this speed.',
+                timeout=4000)
+        else:
             self.warned_unreactable = None
-            return
-        told = (wpm, reactable)
-        if self.warned_unreactable == told:
-            return
-        self.warned_unreactable = told
-        Popup.warning(
-            f'Sending at {wpm} WPM with a sidetone delay of '
-            f'{round(self.inherent_sidetone_lag * 1000)} ms.\n'
-            f'The paddles are read before the element can be heard,\n'
-            f'so there is no keying to the sidetone at this speed.\n'
-            f'{reactable} WPM is the fastest this delay allows.',
-            timeout=4000)
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure
