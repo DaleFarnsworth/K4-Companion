@@ -7783,6 +7783,23 @@ class Audio():
         return self.sidetone_lag
 
     @classmethod
+    def sidetone_delay_floor(cls):
+        # The least delay the device is asking for as things stand, or
+        # None before a block has run to reckon it from.
+        #
+        # For the keyer to hold its inherent lag at or above (see
+        # Keyer.measure_inherent_sidetone_lag). What the keyer measures
+        # is what the audio managed, and that can be stale -- the stream
+        # restarts on a device change and the keyer's figure does not --
+        # while this is read off the blocks running now. No amount of
+        # catch-up gets the sidetone below it: the whole of it is lead
+        # the host has already taken.
+        self = cls.singleton
+        if self == None:
+            return None
+        return self.wanted_sidetone_lag()
+
+    @classmethod
     def sidetone_down_shift(cls):
         # How far the output callback displaced the key down
         # schedule_sidetone_down last queued from the time it asked for,
@@ -13219,18 +13236,17 @@ class Keyer():
         # Whether the K4 has been sent a KZD that no KZU has ended yet.
         # See end_straight_key_on_air.
         self.k4_keyed = False
-        # The lag to hold, taken from wherever the audio had settled
-        # after the last element there was no gap to measure before.
-        # Nothing at all until such an element has been sent, and
+        # The lag to hold: the least the audio has settled at over an
+        # element there was no gap to measure before. Nothing at all
+        # until such an element has been sent, and
         # measure_inherent_sidetone_lag keeps being asked until it is:
         # a zero nobody measured is not a lag the device ever had.
+        # Lowered by a better reading and never raised by a worse one,
+        # but never held under what the device is asking for either.
         self.inherent_sidetone_lag = 0.0
         # The gap the KZD most recently sent carried, which is what says
         # whether an element was one of those.
         self.last_kzd_ms = None
-        # How hard the catch-up pulls at the moment, the running average
-        # of the lag it has left to work off that decides it, and what
-        # that average stood at when it was last looked at.
         # The (speed, fastest that works) a warning was last given
         # for, so that one is not repeated until it says something new.
         # See warn_if_unreactable.
@@ -14351,16 +14367,54 @@ class Keyer():
         # leaving the catch-up chasing a lag the device was never
         # going to give up.
         #
-        # The last reading, and only the last. Holding the least of them
-        # instead was worth something while the lag a burst established
-        # carried a block of arbitrariness with it, and it is not any
-        # more: a burst's first key down is placed at a fixed delay now
-        # (see Audio.first_edge_lag), so every burst comes to the same
-        # figure to the frame and there is nothing for a minimum to
-        # choose between. What it would still do is refuse to follow a
-        # device that settles worse, and go on chasing a lag no longer
-        # there to be had.
-        self.inherent_sidetone_lag = Audio.sidetone_delay()
+        # The least of the readings, never the latest. Taking the latest
+        # made this figure follow sidetone_lag wherever it went, and the
+        # one direction sidetone_lag travels by itself is up: the
+        # correction in Audio.next_key_edge raises it and only the ease
+        # in a silence gives any of it back.
+        #
+        # Which matters because of what the figure is for. The catch-up
+        # works off whatever the delay stands at above this plus a
+        # margin (see plan_sidetone_catchup), so a reading taken fresh
+        # at every burst is the baseline chasing the very thing it is
+        # the baseline for: the delay is measured, blessed as inherent,
+        # and the trim then has nothing to work off. Lag that survives a
+        # silence is made permanent by being looked at.
+        #
+        # The premise for taking the latest was that every burst comes
+        # to the same figure to the frame, a burst's first key down
+        # being placed at a fixed delay. That holds for the first burst
+        # of a stream and no other: Audio.first_edge_lag returns None
+        # once a lag stands, so every burst after reads whatever the
+        # ratchet has made of it, and there is plenty for a minimum to
+        # choose between after all.
+        #
+        # The risk the other way is a minimum gone stale: a device that
+        # has settled worse, or another device entirely -- the stream
+        # restarts on a device change and clear_sidetone_state drops the
+        # audio's lag, while this figure is the keyer's and survives it.
+        # Held below what the device now asks for, it has the catch-up
+        # trimming every element toward a lag that is not there to be
+        # had.
+        #
+        # So the minimum is floored at what the device is asking for as
+        # things stand. That is the same floor the ease in a silence
+        # refuses to go under (see Audio.ease_sidetone_lag), and it
+        # cannot bring the runaway back: it is read off the host's own
+        # reported lead, not off the lag the ratchet has accumulated, so
+        # nothing the sidetone does feeds into it.
+        #
+        # A floor and not a ratchet. It is applied to each reading as it
+        # is taken rather than kept, so a lead that widens for a moment
+        # lifts the figure only while it is wide, and the next reading
+        # under it brings the figure back down.
+        lag = Audio.sidetone_delay()
+        if self.inherent_sidetone_lag >= .001:
+            lag = min(lag, self.inherent_sidetone_lag)
+        floor = Audio.sidetone_delay_floor()
+        if floor != None:
+            lag = max(lag, floor)
+        self.inherent_sidetone_lag = lag
         dprint1(f'measured inherent_sidetone_lag={round(self.inherent_sidetone_lag, 4)}')
         # The delay is only known once one has been measured, so a speed
         # set before that could not be judged against it. Judged here
