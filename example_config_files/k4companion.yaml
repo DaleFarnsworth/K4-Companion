@@ -51,8 +51,11 @@
 #end
 
 #define main-tab-row2
+# Filling rather than centring, so the spacers inside
+# antenna-select-group have the page's full width to share out and the
+# row lines up with the VFO panels above it.
 - item: group
-  sticky: center
+  sticky: fill
   leading: 1
   contains: #{
     #include antenna-select-group
@@ -208,12 +211,18 @@
 #end
 
 #define antenna-select-group
+# Main Rx at the left edge, Sub Rx at the right, Tx between them: the
+# two spacers take whatever the row has over and push the three pairs
+# apart. sticky: fill so there is something for them to take.
 - item: group
+  sticky: fill
   contains: #{
     #include antenna-label-main
     #include antenna-select-main
+    - item: spacer
     #include antenna-label-tx
     #include antenna-select-tx
+    - item: spacer
     #include antenna-label-sub
     #include antenna-select-sub
   #}

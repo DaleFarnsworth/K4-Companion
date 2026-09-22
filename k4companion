@@ -1922,6 +1922,8 @@ class Container(Widget):
                 child = Bargraph(config_info, self)
             elif widget_type == 'text':
                 child = Text(config_info, self)
+            elif widget_type == 'spacer':
+                child = Spacer(config_info, self)
             elif widget_type == 'notebook':
                 child = Notebook(config_info, self)
             elif widget_type == 'dropdownbutton':
@@ -3596,6 +3598,44 @@ class Dropdownbutton(Widget):
             config_info['width'] = self.container.childwidth
 
         DropdownWidget(self, self.frame, config_info)
+
+class Spacer():
+    # An empty grid cell that takes the width its row has spare.
+    #
+    # A group's columns are otherwise only as wide as the items in them,
+    # so a row of items sits bunched together however much room the row
+    # has: the antenna row across the Main tab ran 49..428 inside a page
+    # 3..440 wide, floating in the middle of it rather than standing
+    # under the VFO panels it belongs to. Put a spacer between two items
+    # and the column it takes is handed everything left over, pushing
+    # what is either side of it apart.
+    #
+    # This is not a Widget. It has no label, no leading, no padding and
+    # nothing to show -- it is a hole -- so none of what
+    # label_and_leading_frame does for a real item applies to it.
+    #
+    # For a spacer to have anything to hand out, every frame between it
+    # and the width being shared has to be filling its own cell instead
+    # of shrink-wrapping to its contents. That is what sticky: fill is
+    # for, and it is wanted on each group in the chain: a spacer under a
+    # group that is still centring itself divides up nothing at all.
+    def __init__(self, config_info, container):
+        required = ['item']
+        optional = ['weight']
+        validate_options(config_info, required, optional)
+
+        self.config_info = config_info
+        self.container = container
+        self.frame = QWidget()
+
+        # Relative share, for two spacers in one row that should not
+        # come out the same size. Equal by default, which is what a row
+        # spread evenly across its width wants.
+        weight = config_info.get('weight', 1)
+
+        layout = container.frame.layout()
+        layout.addWidget(self.frame, container.row, container.column)
+        layout.setColumnStretch(container.column, weight)
 
 class Equalizers(Widget):
     def __init__(self, config_info, container):
@@ -15389,8 +15429,11 @@ config_data = '''
 #end
 
 #define main-tab-row2
+# Filling rather than centring, so the spacers inside
+# antenna-select-group have the page's full width to share out and the
+# row lines up with the VFO panels above it.
 - item: group
-  sticky: center
+  sticky: fill
   leading: 1
   contains: #{
     #include antenna-select-group
@@ -15546,12 +15589,18 @@ config_data = '''
 #end
 
 #define antenna-select-group
+# Main Rx at the left edge, Sub Rx at the right, Tx between them: the
+# two spacers take whatever the row has over and push the three pairs
+# apart. sticky: fill so there is something for them to take.
 - item: group
+  sticky: fill
   contains: #{
     #include antenna-label-main
     #include antenna-select-main
+    - item: spacer
     #include antenna-label-tx
     #include antenna-select-tx
+    - item: spacer
     #include antenna-label-sub
     #include antenna-select-sub
   #}
@@ -16218,6 +16267,7 @@ config_data = '''
 
 #define atu-dropdownbutton
 - item: dropdownbutton
+  width: 9
   selections: #{
     - { text: "ATU",    cmd: AT2;, evalresponse: '"AT2;" if self.k4param("AT") == "2" and self.k4param("TU") not in ("3", "4") else ""' }
     - { text: "Bypass", cmd: AT1;, bg: yellow }
@@ -16228,6 +16278,7 @@ config_data = '''
 
 #define tune-dropdownbutton
 - item: dropdownbutton
+  width: 9
   selections: #{
     - { text: "Tune Off", cmd: TU0;, evalresponse: 'value if value == "TU1;" or value == "TU2;" else "TU0;"' }
     - { text: "Tune",     cmd: TU1;, evalcmd: '"TU1;" if self.k4param("TU") == "0" else "TU0;"', bg: yellow }
