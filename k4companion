@@ -10962,10 +10962,8 @@ class CW(TextButtons):
         self.is_open = False
         self._key_filter = None
 
-        # The dit and dah halves of the paddle settings, each built by
-        # the same code and told apart by these.
-        self.memory_delay_percent_frame = {}
-        self.memory_delay_percent_entry = {}
+        self.memory_delay_percent_frame = None
+        self.memory_delay_percent_entry = None
         self.auto_space = {}
 
         # Built now rather than in add_keying_tab(), which doesn't run
@@ -11640,28 +11638,16 @@ class CW(TextButtons):
             return Settings.main().getint('Keyer', name, default)
         return Settings.main().get('Keyer', name, default)
 
-    # The dit and dah memory delays: the group box's title, the setting
-    # kept in the main settings file, and what it holds until one is.
-    memory_delay_percent_settings = {
-        'dit': ('Dit Mem %', 'dit_up_memory_delay_percent', 33),
-        'dah': ('Dah Mem %', 'dah_up_memory_delay_percent', 0),
-    }
-
-    def keyer_memory_delay_percent(self, side, percent=None):
-        title, name, default = self.memory_delay_percent_settings[side]
-        percent = self._keyer_setting(name, default, percent, integer=True)
-        self.set_memory_delay_percent_text(side, percent)
-        if side == 'dit':
-            Keyer.set_dit_up_memory_delay_percent(percent)
-        else:
-            Keyer.set_dah_up_memory_delay_percent(percent)
-        return percent
+    # The dit memory delay: the group box's title, the setting kept in
+    # the main settings file, and what it holds until one is.
+    memory_delay_percent_setting = ('Dit Mem %', 'dit_up_memory_delay_percent', 33)
 
     def keyer_dit_memory_delay_percent(self, percent=None):
-        return self.keyer_memory_delay_percent('dit', percent)
-
-    def keyer_dah_memory_delay_percent(self, percent=None):
-        return self.keyer_memory_delay_percent('dah', percent)
+        _, name, default = self.memory_delay_percent_setting
+        percent = self._keyer_setting(name, default, percent, integer=True)
+        self.set_memory_delay_percent_text(percent)
+        Keyer.set_dit_up_memory_delay_percent(percent)
+        return percent
 
     def keyer_settings(self):
         frame, grid = qt_group_box('Keyer Settings', self.label_font())
@@ -11764,11 +11750,9 @@ class CW(TextButtons):
             self.fill_keyer_modes()
             self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
         if not Keyer.device_type_vail_adapter and Keyer.keyer_mode == Keyer.MODE_IAMBIC_B:
-            self._show(self.keyer_mode_frame, self.memory_delay_percent_frame['dit'], 0, 1)
-            self._show(self.keyer_mode_frame, self.memory_delay_percent_frame['dah'], 0, 2)
+            self._show(self.keyer_mode_frame, self.memory_delay_percent_frame, 0, 1)
         else:
-            self._hide(self.keyer_mode_frame, self.memory_delay_percent_frame['dit'])
-            self._hide(self.keyer_mode_frame, self.memory_delay_percent_frame['dah'])
+            self._hide(self.keyer_mode_frame, self.memory_delay_percent_frame)
 
     def disable_midi_device_frame(self):
         self._hide(self.keyer_settings_frame, self.midi_device_frame)
@@ -11776,8 +11760,7 @@ class CW(TextButtons):
         self._hide(self.serial_signal_frame, self.keyer_dit_paddle_signal_frame)
         self._hide(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame)
         self._hide(self.keyer_settings_frame, self.keyer_mode_frame)
-        self._hide(self.keyer_mode_frame, self.memory_delay_percent_frame['dit'])
-        self._hide(self.keyer_mode_frame, self.memory_delay_percent_frame['dah'])
+        self._hide(self.keyer_mode_frame, self.memory_delay_percent_frame)
 
     def enable_serial_device_frame(self):
         self.disable_midi_device_frame()
@@ -11918,8 +11901,7 @@ class CW(TextButtons):
 
         keyer_mode = Keyer.get_keyer_mode()
         self.keyer_mode_dropdown.value(keyer_mode)
-        self.keyer_memory_delay_percent_settings('dit')
-        self.keyer_memory_delay_percent_settings('dah')
+        self.keyer_memory_delay_percent_settings()
         return self.keyer_mode_frame
 
     def fill_keyer_modes(self):
@@ -11940,71 +11922,61 @@ class CW(TextButtons):
         Keyer.set_keyer_mode(keyer_mode)
         self.enable_midi_device_frame()
 
-    def keyer_memory_delay_percent_settings(self, side):
+    def keyer_memory_delay_percent_settings(self):
         # The group box the percentage is typed into. Its own widget
         # rather than a dropdown: any percentage is allowed.
-        title = self.memory_delay_percent_settings[side][0]
+        title = self.memory_delay_percent_setting[0]
         frame = QGroupBox(title)
         frame.setFont(self.label_font())
         qt_tighten_groupbox(frame, title, self.label_font())
         QGridLayout(frame)
-        self.memory_delay_percent_frame[side] = frame
+        self.memory_delay_percent_frame = frame
 
-        self.keyer_memory_delay_percent(side)
-        entry = QLineEdit(str(self.keyer_memory_delay_percent(side)))
+        self.keyer_dit_memory_delay_percent()
+        entry = QLineEdit(str(self.keyer_dit_memory_delay_percent()))
         entry.setFont(self.font())
         entry.setAlignment(qt_justify('right'))
         entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: {self.bg}; }}')
         entry.setFixedWidth(4 * QFontMetrics(self.font()).averageCharWidth() + 12)
         frame.layout().addWidget(entry, 0, 0)
-        self.memory_delay_percent_entry[side] = entry
+        self.memory_delay_percent_entry = entry
         # textChanged (not editingFinished) so an emptied field is
         # detected live, matching tk's per-keystroke StringVar trace.
-        entry.textChanged.connect(lambda text, side=side:
-                                  self.on_memory_delay_percent_changed(side, text))
-        self.keyer_memory_delay_percent(side)
+        entry.textChanged.connect(self.on_memory_delay_percent_changed)
+        self.keyer_dit_memory_delay_percent()
 
         qt_size_tight_groupbox_title(frame, title, self.label_font())
         return frame
 
-    def on_memory_delay_percent_changed(self, side, text):
-        delayed = (self.delayed_set_dit_memory_delay_percent if side == 'dit'
-                   else self.delayed_set_dah_memory_delay_percent)
+    def on_memory_delay_percent_changed(self, text):
         try:
             if text == "":
-                Poll.call(5000, delayed)
+                Poll.call(5000, self.delayed_set_dit_memory_delay_percent)
                 return
             percent = int(text)
             if percent >= 0 and percent <= 100:
-                self.keyer_memory_delay_percent(side, percent)
+                self.keyer_dit_memory_delay_percent(percent)
             else:
-                self.set_memory_delay_percent_text(side, self.keyer_memory_delay_percent(side))
+                self.set_memory_delay_percent_text(self.keyer_dit_memory_delay_percent())
         except ValueError:
-            self.set_memory_delay_percent_text(side, self.keyer_memory_delay_percent(side))
+            self.set_memory_delay_percent_text(self.keyer_dit_memory_delay_percent())
 
-    def set_memory_delay_percent_text(self, side, value):
-        # A no-op before the entry widget exists: keyer_memory_delay_percent()
-        # is called once (to apply the persisted setting) before
-        # keyer_memory_delay_percent_settings() creates the entry.
-        entry = self.memory_delay_percent_entry.get(side)
+    def set_memory_delay_percent_text(self, value):
+        # A no-op before the entry widget exists:
+        # keyer_dit_memory_delay_percent() is called once (to apply the
+        # persisted setting) before keyer_memory_delay_percent_settings()
+        # creates the entry.
+        entry = self.memory_delay_percent_entry
         if entry == None:
             return
         entry.blockSignals(True)
         entry.setText(str(value))
         entry.blockSignals(False)
 
-    # Two of their own, rather than one taking the side: Poll.call is
-    # given a bound method, and these are what a later Poll.remove would
-    # have to match.
     def delayed_set_dit_memory_delay_percent(self):
-        self.delayed_set_memory_delay_percent('dit')
-
-    def delayed_set_dah_memory_delay_percent(self):
-        self.delayed_set_memory_delay_percent('dah')
-
-    def delayed_set_memory_delay_percent(self, side):
-        if self.memory_delay_percent_entry[side].text() == "":
-            self.set_memory_delay_percent_text(side, self.keyer_memory_delay_percent(side))
+        if self.memory_delay_percent_entry.text() == "":
+            self.set_memory_delay_percent_text(
+                self.keyer_dit_memory_delay_percent())
 
     def auto_char_space_setting(self):
         return self.auto_space_setting('char')
@@ -12824,7 +12796,6 @@ class Keyer():
     dah_paddle_signal = None
     dit_down_memory_delay = 0.05  #  5 ms
     dit_up_memory_delay_percent = 0
-    dah_up_memory_delay_percent = 0
     # How hard the sidetone is shortened to catch up, as a fraction of
     # each element and of the gap after it: directly proportional to how
     # far behind the sidetone is, capped at max_sidetone_catchup_fraction.
@@ -13183,8 +13154,6 @@ class Keyer():
         cls.dit_up_memory_delay_percent = percent
 
     @classmethod
-    def set_dah_up_memory_delay_percent(cls, percent):
-        cls.dah_up_memory_delay_percent = percent
 
     @classmethod
     def set_auto_char_space(cls, val):
@@ -13566,8 +13535,6 @@ class Keyer():
 
         dit_up_memory_delay = (self.dit_up_memory_delay_percent / 100 *
                                (self.dah_seconds + self.inter_element_seconds))
-        dah_up_memory_delay = (self.dah_up_memory_delay_percent / 100 *
-                               (self.dit_seconds + self.inter_element_seconds))
 
         def choose_element(previous_elt, previous_look_ts, previous_heard_ts):
             # The element the paddles, and what is remembered of them, ask
@@ -13663,11 +13630,9 @@ class Keyer():
                                   (dit_tapped or dit_squeeze_released))
 
                     dah_tapped = (dah_down_ts > look_elt_ts and
-                                  dah_up_ts - look_elt_ts >
-                                  dah_up_memory_delay)
+                                  dah_up_ts > look_elt_ts)
                     dah_squeeze_released = (
-                        not dit_held and
-                        dah_up_ts - heard_elt_ts > dah_up_memory_delay)
+                        not dit_held and dah_up_ts > heard_elt_ts)
                     dah = dah or (previous_elt == '.' and
                                   (dah_tapped or dah_squeeze_released))
 
