@@ -15565,7 +15565,7 @@ config_data = '''
   bg: None
   text: ' Tx:'
   sticky: fill
-  padleft: 10
+  padleft: 20
 #end
 
 #define antenna-label-main
@@ -15580,7 +15580,7 @@ config_data = '''
   bg: None
   text: ' Sub Rx:'
   sticky: fill
-  padleft: 10
+  padleft: 20
 #end
 
 #define menu
@@ -16145,7 +16145,6 @@ config_data = '''
 #define power-dropdown-button
 - item: dropdownbutton
   label: Power
-  width: 20
   from: 0
   to: 110
   evalincrement: '.0001 if value > 0.0 and value <= .01 else .1 if value <= 10.0 else 1.0'
