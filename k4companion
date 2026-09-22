@@ -12757,23 +12757,9 @@ class Keyer():
     dit_up_memory_delay_percent = 0
     dah_up_memory_delay_percent = 0
     # How hard the sidetone is shortened to catch up, as a fraction of
-    # each element and of the gap after it, per second behind: at 20,
-    # two percent per millisecond, so a tenth off at 5 ms behind and a
-    # twentieth at 2.5 ms. The further behind, the harder it pulls.
-    #
-    # Not a fixed rate. A device that is running away from the pull has
-    # to be chased harder, and pulling hard on a lag already coming in
-    # shortens elements for nothing. So it starts at its gentlest and is
-    # moved between these two by whether the catch-up is gaining on the
-    # lag or losing to it. See update_sidetone_catchup.
-    min_sidetone_catchup_per_second = 1.0
-    max_sidetone_catchup_per_second = 20.0
-    # How often that is looked at, how far the lag left to work off must
-    # have moved over the interval to count as moving, and the weight
-    # one element's reading carries in the average that is looked at.
-    sidetone_catchup_check_seconds = 1.0
-    sidetone_catchup_change_seconds = .001
-    sidetone_behind_average_weight = .1
+    # each element and of the gap after it: directly proportional to how
+    # far behind the sidetone is, capped at max_sidetone_catchup_fraction.
+    # The further behind, the harder it pulls.
 
     # How far past the lag the keyer holds the audio may drift before
     # the catch-up pulls at it. A device wanders by a millisecond or two
@@ -12794,7 +12780,8 @@ class Keyer():
 
     # The most that fraction may reach. A lag beyond 10 ms is worked off
     # over more elements rather than by cutting any one of them harder.
-    max_sidetone_catchup_fraction = .1
+    # Limited to 3% per element so sidetones and gaps trim gently.
+    max_sidetone_catchup_fraction = .03
 
     # How often wait_until_sidetone_heard looks to see whether the output
     # callback has placed the key down yet.
@@ -13244,13 +13231,6 @@ class Keyer():
         # How hard the catch-up pulls at the moment, the running average
         # of the lag it has left to work off that decides it, and what
         # that average stood at when it was last looked at.
-        #
-        # No average until there is a reading to make one of. See
-        # update_sidetone_catchup.
-        self.sidetone_catchup_per_second = self.min_sidetone_catchup_per_second
-        self.sidetone_behind_average = None
-        self.checked_sidetone_behind_average = None
-        self.sidetone_catchup_checked_at = 0.0
         # The (speed, fastest that works) a warning was last given
         # for, so that one is not repeated until it says something new.
         # See warn_if_unreactable.
@@ -13853,75 +13833,6 @@ class Keyer():
         if wait > 0:
             time.sleep(wait)
 
-    def update_sidetone_catchup(self, behind):
-        # Whether the catch-up is winning, and so whether to pull harder
-        # on the lag or to ease off.
-        #
-        # behind is what it has left to work off: the lag over the
-        # inherent one, less what the schedule has already taken up.
-        # Coming in means the pull is gaining on the device, and easing
-        # off then leaves elements their length. Growing means the
-        # device is running away faster than the pull is taking in, so
-        # double it. The device's lag on its own could not tell the two
-        # apart: a lag that grows while the catch-up still gains on it
-        # wants no more pull than it already has.
-        #
-        # A running average of it, and looked at only once a second. One
-        # element's reading moves with whatever block boundary its edge
-        # lands near, and behind is sawtoothed besides -- the schedule
-        # starts from no offset at every character, so the whole lag is
-        # taken on again there and comes in across the character. Easing
-        # off is gentle, so that a device needing the harder pull does
-        # not have to earn it back from the bottom every second.
-        #
-        # Nothing at all until the inherent lag has been measured.
-        # behind is reckoned against that lag, and before an element has
-        # been sent to measure it over there is no lag to reckon
-        # against: what comes here is the whole of a delay that is
-        # itself nothing yet, which is not a reading of anything.
-        #
-        # And the first reading there is becomes the average outright,
-        # rather than a tenth of the way from a zero nobody measured.
-        # Climbing out of that zero took the better part of a second,
-        # and the check below, which asks only whether the average has
-        # moved, read the climb as the device running away and doubled
-        # the pull for it -- while the lag was in fact coming in, and
-        # the elements it doubled were shortened twice as hard as they
-        # needed to be.
-        if self.inherent_sidetone_lag < .001:
-            return
-        if self.sidetone_behind_average == None:
-            self.sidetone_behind_average = behind
-        else:
-            self.sidetone_behind_average += ((behind - self.sidetone_behind_average) *
-                                             self.sidetone_behind_average_weight)
-
-        now = time.perf_counter()
-        if (now - self.sidetone_catchup_checked_at <
-                self.sidetone_catchup_check_seconds):
-            return
-        self.sidetone_catchup_checked_at = now
-
-        previous = self.checked_sidetone_behind_average
-        self.checked_sidetone_behind_average = self.sidetone_behind_average
-        if previous == None:
-            return                  # nothing yet to have moved from
-
-        moved = self.sidetone_behind_average - previous
-        if moved > self.sidetone_catchup_change_seconds:
-            rate = self.sidetone_catchup_per_second * 2
-        elif moved < -self.sidetone_catchup_change_seconds:
-            rate = self.sidetone_catchup_per_second * .7
-        else:
-            return
-        rate = min(self.max_sidetone_catchup_per_second,
-                   max(self.min_sidetone_catchup_per_second, rate))
-        if rate == self.sidetone_catchup_per_second:
-            return                  # already at the end it is heading for
-        self.sidetone_catchup_per_second = rate
-        dprint1(f'sidetone_catchup_per_second={rate:.3g}'
-                f' behind_average_ms={self.sidetone_behind_average * 1000:.2f}')
-
     def start_element(self, first_element, wanted):
         # The first half of an element: the sidetone's key down and the
         # KZD that starts it on the air. Whether it is to be a dit or a
@@ -14194,12 +14105,10 @@ class Keyer():
         if self.inherent_sidetone_lag >= .001:
             behind = max(0.0, sidetone_delay - tolerable_sidetone_lag -
                          self.sidetone_delay_used)
-        self.update_sidetone_catchup(behind)
         # The step it comes to depends on the element's length, which is
         # end_element's to know.
         self.sidetone_behind = behind
-        self.sidetone_fraction = min(self.max_sidetone_catchup_fraction,
-                                     behind * self.sidetone_catchup_per_second)
+        self.sidetone_fraction = min(self.max_sidetone_catchup_fraction, behind)
 
     def auto_space_until(self, now):
         # Before a burst's first element: where auto spacing is on and
