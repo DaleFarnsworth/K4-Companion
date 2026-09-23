@@ -14253,9 +14253,28 @@ class Keyer():
             # or no stream is open -- so the reading is taken at the
             # grid start itself, which is where it belongs anyway.
             self.sleep_until(self.element_timestamp)
+        read_at = time.perf_counter()
         if wanted():
             return True
-        return not Audio.cancel_sidetone_down()
+        if Audio.cancel_sidetone_down():
+            return False
+
+        # Too late to be taken back, so it goes out as a dit nobody asked
+        # for. Said, with what tells the two ways of losing that race
+        # apart: a reading taken after the deadline is this thread woken
+        # late, and one taken before it is the callback filling the
+        # block sooner than block_lead said it would.
+        if check_at != None:
+            heard_at = Audio.sidetone_down_heard_at()
+            _, lead = Audio.block_timing()
+            wake_at = check_at - self.sidetone_edge_margin_seconds
+            heard = f'{heard_at:.4f}' if heard_at != None else None
+            dprint_keying(f'{read_at:.4f} sidetone down not taken back:'
+                          f' woke={(read_at - wake_at) * 1000:.1f}ms late'
+                          f' past_deadline={(read_at - check_at) * 1000:.1f}ms'
+                          f' deadline={check_at:.4f} heard={heard}'
+                          f' block_lead={None if lead == None else round(lead, 4)}')
+        return True
 
     def element_sidetone(self, element_seconds):
         # The catch-up plan_sidetone_catchup settled on, applied to an
