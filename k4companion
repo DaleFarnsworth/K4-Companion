@@ -14835,6 +14835,8 @@ class Options():
         Options.debug = options.debug
         Options.yaml_file = options.yaml_file
         Options.debug_areas = options.debug_area
+        if Options.debug == 0 and Options.debug_areas:
+            Options.debug = 1
 
         if Options.debug > 0 and Options.verbose == 0:
             Options.verbose = Options.debug
