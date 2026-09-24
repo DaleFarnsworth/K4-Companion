@@ -13824,6 +13824,11 @@ class Keyer():
                                   (dah_tapped or dah_squeeze_released))
 
             if dit and dah:
+                if previous_elt == None:
+                    # A burst begun with both paddles closed begins with
+                    # the one closed first, and alternates from there. A
+                    # dit where they closed together.
+                    return '-' if dah_down_ts < dit_down_ts else '.'
                 return '-' if previous_elt == '.' else '.'
             if dit:
                 return '.'
