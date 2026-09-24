@@ -1,7 +1,8 @@
 """A sweep of keying simulations, at 30 WPM unless told otherwise.
 
-Four scenarios, chosen by the third argument, and a speed in words a
-minute by an optional fourth:
+Four scenarios, chosen by the third argument, a speed in words a
+minute by an optional fourth, and the Dit Mem % setting by an optional
+fifth -- the keyer's own default of 0 where it is not given:
 
   tap      the dit paddle is held closed throughout and the dah paddle
            is tapped for 5ms
@@ -16,7 +17,8 @@ what they heard, and what the K4 was sent.
 
 squeeze is checked as well as drawn: iambic B owes one element after a
 released squeeze -- the element in progress finishes, and the opposite
-of it follows -- and each run says whether it got it.
+of it follows -- and each run says whether it got it. A squeeze let go
+of in the leading Dit Mem % of a dah and its gap is owed nothing.
 """
 import os, sys, importlib.util, types, queue, contextlib, threading, json
 import matplotlib
@@ -32,6 +34,9 @@ SPEED = int(sys.argv[4]) if len(sys.argv) > 4 else 30
 spec = importlib.util.spec_from_file_location('k4mod', MOD)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
+if len(sys.argv) > 5:
+    m.Keyer.set_dit_up_memory_delay_percent(float(sys.argv[5]))
+DIT_MEM = m.Keyer.dit_up_memory_delay_percent
 
 RATE, U = 48000, 384
 BLOCK = U / RATE
@@ -259,6 +264,9 @@ def sim(tap_at, tap_length=.005):
         sent=sent,
         dit_seconds=k.dit_seconds,
         dah_seconds=k.dah_seconds,
+        # The Dit Mem window, reckoned as send_iambic reckons it.
+        dit_mem_seconds=(DIT_MEM / 100 *
+                         (k.dah_seconds + k.inter_element_seconds)),
     )
 
 
@@ -275,7 +283,8 @@ def elements_from(sent):
 def squeeze_verdict(result, release_at):
     # What iambic B owes for a released squeeze: exactly one more
     # element, the opposite of the one the squeeze was let go of during,
-    # and nothing after it.
+    # and nothing after it -- or, let go of in a dah's Dit Mem window,
+    # nothing at all.
     #
     # The rule is about what the operator could hear, so the windows are
     # cut from the sidetone as the output callback really placed it and
@@ -323,11 +332,30 @@ def squeeze_verdict(result, release_at):
     if window + 1 < count and release_at > heard[window + 1] - TIE_SECONDS:
         windows.append(window + 1)
 
-    owed_by = lambda index: 'dit' if elements[index] == 'dah' else 'dah'
+    # What a release in a window may be owed: the opposite element, or
+    # 'nothing' for a dah let go of inside the Dit Mem window -- the
+    # leading Dit Mem % of the dah and its gap, from when the dah was
+    # heard, which is where send_iambic measures a released squeeze
+    # from. The window's edge is a tie like a tone's start, and for the
+    # same reason allowed either answer.
+    def owed_by(index):
+        if elements[index] == 'dit':
+            return ['dah']
+        into = release_at - heard[index]
+        delay = result['dit_mem_seconds']
+        if into > delay + TIE_SECONDS:
+            return ['dit']
+        if into < delay - TIE_SECONDS:
+            return ['nothing']
+        return ['dit', 'nothing']
+
     for index in windows:
-        if elements[index + 1:] == [owed_by(index)]:
-            return elements[index], owed_by(index), elements[index + 1:], True
-    return (elements[window], owed_by(window), elements[window + 1:], False)
+        for owed in owed_by(index):
+            wanted = [] if owed == 'nothing' else [owed]
+            if elements[index + 1:] == wanted:
+                return elements[index], owed, elements[index + 1:], True
+    return (elements[window], owed_by(window)[0], elements[window + 1:],
+            False)
 
 
 def plot(result, tap_at, path):
@@ -465,7 +493,12 @@ for tap_ms in range(TAPS[0], TAPS[1] + 1, 4):
             owed_total += 1
             if met:
                 owed_met += 1
-                verdict = f'  released during the {during}, {owed} owed and sent'
+                if owed == 'nothing':
+                    verdict = (f'  released during the {during} inside Dit '
+                               f'Mem, nothing owed and nothing sent')
+                else:
+                    verdict = (f'  released during the {during}, {owed} '
+                               f'owed and sent')
             else:
                 verdict = (f'  WRONG: released during the {during}, {owed} '
                            f'owed, got {" ".join(after) or "nothing"}')
@@ -474,8 +507,9 @@ for tap_ms in range(TAPS[0], TAPS[1] + 1, 4):
           f'-> {os.path.basename(path)}{verdict}')
 
 if SCENARIO == 'squeeze':
-    print(f'\n{owed_met}/{owed_total} releases got the one element iambic B '
-          f'owes them, and nothing after it')
+    print(f'\n{owed_met}/{owed_total} releases got what iambic B owes them '
+          f'-- one element, or none inside Dit Mem {DIT_MEM:g}% -- and '
+          f'nothing after it')
 
 json.dump(summary,
           open(os.path.join(OUTDIR, f'summary_{WPM}wpm_{SCENARIO}.json'), 'w'),
