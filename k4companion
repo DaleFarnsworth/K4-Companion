@@ -13907,9 +13907,17 @@ class Keyer():
                     # A burst begins where the paddles ask for one, or
                     # where one closing has already had its key down
                     # queued by the paddle's own thread.
-                    elt = (choose_element(previous_elt, previous_look_ts,
-                                          previous_heard_ts) or
-                           self.placed_first_element() or
+                    elt = choose_element(previous_elt, previous_look_ts,
+                                         previous_heard_ts)
+                    if elt != None:
+                        # When the paddle it is for closed, for the gap
+                        # the K4 is told should nothing have been queued
+                        # for it: a paddle still closed when a stalled
+                        # thread gets to it closed some time before.
+                        self.first_element_closed_at = (
+                            self.dah_down_timestamp if elt == '-'
+                            else self.dit_down_timestamp)
+                    elt = (elt or self.placed_first_element() or
                            self.missed_first_element(self.burst_end_due))
                     if elt == None:
                         return
@@ -14140,9 +14148,18 @@ class Keyer():
             else:
                 self.wait_for_auto_space()
                 keyed_start = time.perf_counter()
+                # The gap the K4 is told runs to when the paddle closed,
+                # or to where auto spacing held the element off until if
+                # that is later, and never past the keyed start: only
+                # this thread's lateness is left out of it.
                 closed_at = self.first_element_closed_at
                 if closed_at == None:
                     closed_at = keyed_start
+                else:
+                    until = self.auto_space_until(closed_at)
+                    if until != None:
+                        closed_at = max(closed_at, until)
+                    closed_at = min(closed_at, keyed_start)
                 self.element_sidetone_queued = Audio.schedule_sidetone_down(
                     keyed_start)
             self.first_element_closed_at = None
