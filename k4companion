@@ -13344,10 +13344,6 @@ class Keyer():
         # The gap the KZD most recently sent carried, which is what says
         # whether an element was one of those.
         self.last_kzd_ms = None
-        # The (speed, fastest that works) a warning was last given
-        # for, so that one is not repeated until it says something new.
-        # See warn_if_unreactable.
-        self.warned_unreactable = None
         self.keydown_initial_delay = 0
         self.unmute_timer = None
 
@@ -14550,8 +14546,7 @@ class Keyer():
         #
         # Nothing where the element is shorter than the delay: there is
         # no margin to be had there and no reading to be had at the tone
-        # either, which is what reactable_wpm reports and the keyer
-        # warns about.
+        # either.
         return max(0.0, dit_sidetone_seconds - Audio.sidetone_delay())
 
     def wait_until_sidetone_heard(self):
@@ -14732,10 +14727,6 @@ class Keyer():
             lag = max(lag, floor)
         self.inherent_sidetone_lag = lag
         dprint_keying(f'measured inherent_sidetone_lag={round(self.inherent_sidetone_lag, 4)}')
-        # The delay is only known once one has been measured, so a speed
-        # set before that could not be judged against it. Judged here
-        # instead, as well as where the speed changes.
-        self.warn_if_unreactable()
 
     def on_speed_change(self, response=None):
         # The length of a dit in seconds is 1.2 / wpm,
@@ -14752,69 +14743,9 @@ class Keyer():
         self.inter_character_seconds = unweighted_dit_seconds * 3
         self.inter_word_seconds = unweighted_dit_seconds * 7
         self.unweighted_dit_seconds = unweighted_dit_seconds
-        self.warn_if_unreactable()
 
     def on_keydown_initial_delay_change(self, response=None):
         self.keydown_initial_delay = int(Server.k4_server.k4_parameter('KZL'))
-
-    def reactable_wpm(self):
-        # The fastest whole words a minute at which the operator is
-        # still keying to what they hear, at the delay the audio is
-        # running. None where no delay has been measured yet.
-        #
-        # An element is settled by the last look at the paddles, and for
-        # the operator to have any say in it that look has to come no
-        # earlier than the moment they can hear the element. It does not
-        # always wait that long: a dit's key up is queued only once the
-        # element is known, and it has to be in before the block
-        # carrying it is filled, so where the dit is short the look is
-        # taken early enough to leave room for it (see
-        # wait_until_sidetone_heard).
-        #
-        # What that room is measured against is the dit as it is
-        # rendered -- rounded up to a whole millisecond, the length
-        # end_element gives it -- less the block, which is the worst the
-        # deadline's rounding to the block grid can leave. And the lead
-        # plus a block is the delay, so the whole of it comes to
-        #
-        #     whole ms of a dit >= sidetone_delay + up edge margin
-        #
-        # A dit rounds up to that many milliseconds for as long as it is
-        # longer than one less, which is what the speed below is the
-        # largest to manage.
-        lag = self.inherent_sidetone_lag
-        if lag < .001:
-            return None
-        # Rounded before the ceiling is taken. Twenty milliseconds and
-        # sixteen come to 36.000000000000004 of them, and a ceiling
-        # asked that question answers 37 -- a whole millisecond of
-        # threshold, and a word a minute of answer, on nothing.
-        threshold_ms = round(lag * 1000, 6)
-        whole_ms = math.ceil(threshold_ms)
-        if whole_ms < 2:
-            return None
-        delta = (1 - self.weighting) / (1 + self.weighting)
-        return math.ceil(1200 * (1 - delta) / (whole_ms - 1)) - 1
-
-    def warn_if_unreactable(self):
-        # Warn if the inherent lag is greater than 3/4 a dit, since the
-        # paddles will be read before the element can be heard, making it
-        # impossible to key to the sidetone at this speed.
-        if self.inherent_sidetone_lag > 0.75 * self.dit_seconds:
-            wpm = round(1.2 / self.unweighted_dit_seconds)
-            told = (wpm, round(self.inherent_sidetone_lag * 1000))
-            if self.warned_unreactable == told:
-                return
-            self.warned_unreactable = told
-            Popup.warning(
-                f'Sending at {wpm} WPM with a sidetone delay of '
-                f'{round(self.inherent_sidetone_lag * 1000)} ms.\n'
-                f'This is more than 3/4 a dit ({round(self.dit_seconds * 1000)} ms).\n'
-                f'The paddles are read before the element can be heard,\n'
-                f'so keying to the sidetone is not possible at this speed.',
-                timeout=4000)
-        else:
-            self.warned_unreactable = None
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure
