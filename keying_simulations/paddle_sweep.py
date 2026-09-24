@@ -1,6 +1,6 @@
 """A sweep of keying simulations, at 30 WPM unless told otherwise.
 
-Four scenarios, chosen by the third argument, a speed in words a
+Six scenarios, chosen by the third argument, a speed in words a
 minute by an optional fourth, and the Dit Mem % setting by an optional
 fifth -- the keyer's own default of 0 where it is not given:
 
@@ -10,6 +10,12 @@ fifth -- the keyer's own default of 0 where it is not given:
   swap     the dit paddle is released at the same instant the dah
            paddle is closed, and the dah is then held
   squeeze  both paddles closed at time zero and both let go together
+  dah-first
+           the dah paddle closed at time zero and the dit closed
+           after it, both held and let go together
+  stall    an S and then a T, through the MIDI path and timed by the
+           device, with the whole process stalled from just before the
+           S's dit is let go of until the moment in question
 
 The moment in question moves 4ms per run. Each run drives the real
 Keyer over a virtual clock and writes a plot of what the operator did,
@@ -19,6 +25,8 @@ squeeze is checked as well as drawn: iambic B owes one element after a
 released squeeze -- the element in progress finishes, and the opposite
 of it follows -- and each run says whether it got it. A squeeze let go
 of in the leading Dit Mem % of a dah and its gap is owed nothing.
+dah-first and stall are checked too: a squeeze begins with the paddle
+closed first, and a stall changes nothing about what is sent.
 """
 import os, sys, importlib.util, types, queue, contextlib, threading, json
 import matplotlib
@@ -29,7 +37,8 @@ from matplotlib.patches import Rectangle
 MOD = sys.argv[1]
 OUTDIR = sys.argv[2]
 SCENARIO = sys.argv[3] if len(sys.argv) > 3 else 'tap'
-assert SCENARIO in ('tap', 'dit-tap', 'swap', 'squeeze'), SCENARIO
+assert SCENARIO in ('tap', 'dit-tap', 'swap', 'squeeze', 'dah-first',
+                    'stall'), SCENARIO
 SPEED = int(sys.argv[4]) if len(sys.argv) > 4 else 30
 spec = importlib.util.spec_from_file_location('k4mod', MOD)
 m = importlib.util.module_from_spec(spec)
@@ -53,14 +62,24 @@ T0 = 100.1                      # when the first paddle closes
 # it is releasing and a little over, so the release falls in every part
 # of one and the pattern is seen to repeat rather than assumed to.
 HELD = {'tap': 'dit', 'dit-tap': 'dah', 'swap': 'dit',
-        'squeeze': None}[SCENARIO]
+        'squeeze': None, 'dah-first': 'dah', 'stall': 'dit'}[SCENARIO]
 # squeeze has no held paddle -- both are let go at the moment being
 # swept -- so its entry only has to carry the plots far enough right to
 # show the element owed for the latest release, which ends at 544ms.
+#
+# dah-first sweeps the dit's closing from 4 to 40ms after the dah's,
+# either side of the moment the first tone can be heard, which is where
+# what the burst begins with is settled; both are let go of at 300ms.
+#
+# stall sweeps the moment the stall ends, from 200ms -- a stall too
+# short to hold up anything the keyer does -- to 600, past the T's dah
+# being closed at 400 and let go of at 460. Its HOLD only carries the
+# plots far enough right to show the T keyed after the longest stall.
 HOLD = {'tap': .400, 'dit-tap': .760, 'swap': .520,
-        'squeeze': .500}[SCENARIO]
+        'squeeze': .500, 'dah-first': .300, 'stall': .680}[SCENARIO]
 TAPS = {'tap': (84, 164), 'dit-tap': (80, 300), 'swap': (84, 164),
-        'squeeze': (4, 500)}[SCENARIO]
+        'squeeze': (4, 500), 'dah-first': (4, 40),
+        'stall': (200, 600)}[SCENARIO]
 # Those are written for 30 WPM. At another speed they cover the same
 # ground rather than the same milliseconds, the elements being what
 # they are cut to: a dit at 40 WPM is three quarters of a dit at 30, so
@@ -84,6 +103,22 @@ HOP = .0001                     # device thread to keyer thread
 LEAD = .016                     # how far ahead of its DAC time a block is filled
 TIE_SECONDS = .000001           # a release landing on a tone's start;
                                 # see squeeze_verdict
+
+# stall: the S's dit is held from time zero to 200ms, which lets it go
+# as its third dit ends, and the T's dah is closed at 400ms and let go
+# of at 460. The process stalls from 190ms -- just before the dit is let
+# go of -- until the moment swept: every paddle event the device sends
+# in that time reaches the keyer at the end of it, a tenth of a
+# millisecond apart, and the keyer's own thread is held too, waking a
+# millisecond after them all. That is the order rc27_linux.txt came
+# nearest to going wrong in: the reading after the S's last dit, woken
+# late, with the whole of the T already standing. What the K4 should be
+# told regardless is the S, a 200ms gap, and the T.
+STALL_FROM = .190 * SCALE
+STALL_PADDLES = [(0, 'dit_down'), (.200 * SCALE, 'dit_up'),
+                 (.400 * SCALE, 'dah_down'), (.460 * SCALE, 'dah_up')]
+STALL_GAP_MS = round(200 * SCALE)
+MIDI_NOTE = {'dit': 20, 'dah': 21}
 
 
 def sim(tap_at, tap_length=.005):
@@ -161,6 +196,17 @@ def sim(tap_at, tap_length=.005):
             (T0 + tap_at + tap_length, f'{tapped}_up'),
             (T0 + HOLD, f'{HELD}_up'),
         ])
+    elif SCENARIO == 'dah-first':
+        # The dah closed first and the dit after it, both held, and both
+        # let go of together.
+        script = [
+            (T0, 'dah_down'),
+            (T0 + tap_at, 'dit_down'),
+            (T0 + HOLD, 'dit_up'),
+            (T0 + HOLD, 'dah_up'),
+        ]
+    elif SCENARIO == 'stall':
+        script = [(T0 + when, what) for when, what in STALL_PADDLES]
     else:
         # The dit released and the dah closed in the same instant. The
         # dit's release is put first so the keyer sees the paddles in
@@ -171,7 +217,34 @@ def sim(tap_at, tap_length=.005):
             (T0 + tap_at, 'dah_down'),
             (T0 + HOLD, 'dah_up'),
         ]
-    pending = list(script)
+    # What reaches the keyer, and when: (arrival, event, when it
+    # happened). Everywhere but a stall the two are the same instant.
+    freeze = None
+    if SCENARIO == 'stall':
+        # Delivered in the order the device sent them, as a queue does:
+        # what the stall held arrives from its end, a tenth of a
+        # millisecond apart, and anything sent as it ends waits its turn
+        # behind them.
+        stall_from, stall_to = T0 + STALL_FROM, T0 + tap_at
+        pending = []
+        arrived = None
+        held_until = None
+        for when, what in script:
+            at = stall_to if stall_from <= when < stall_to else when
+            if arrived != None:
+                at = max(at, arrived + .0001)
+            if stall_from <= when < stall_to:
+                held_until = at
+            pending.append((at, what, when))
+            arrived = at
+        # The keyer's thread held from the stall's start until a
+        # millisecond after the last held event reaches it.
+        if held_until == None:
+            held_until = stall_to
+        freeze = (stall_from, held_until + .001)
+    else:
+        pending = [(when, what, when) for when, what in script]
+    device_clock = [0.0]
     wake = [None]
     keyer = []
 
@@ -184,9 +257,12 @@ def sim(tap_at, tap_length=.005):
                 break
             clock[0] = max(clock[0], nxt)
             if pending and pending[0][0] == nxt:
-                _, attr = pending.pop(0)
+                _, attr, happened = pending.pop(0)
                 k = keyer[0]
-                k.send_paddle_event(getattr(k, attr.upper() + '_EVENT'), 0)
+                if SCENARIO == 'stall':
+                    send_midi(k, attr, happened)
+                else:
+                    k.send_paddle_event(getattr(k, attr.upper() + '_EVENT'), 0)
                 if wake[0] is None:
                     wake[0] = clock[0] + HOP
             else:
@@ -194,12 +270,32 @@ def sim(tap_at, tap_length=.005):
                 st['k'] += 1
         clock[0] = max(clock[0], to)
 
+    def send_midi(k, attr, happened):
+        # As a MoMIDI device sends it: the time since its last event in
+        # 126ms steps by polyphonic aftertouch, where there are any, and
+        # the milliseconds left over as the note's velocity -- never 0
+        # or 127, which say there is no time in it at all.
+        delta = happened - device_clock[0]
+        device_clock[0] = happened
+        steps = int(delta / .126)
+        ms = max(1, min(126, round((delta - steps * .126) * 1000)))
+        side, edge = attr.split('_')
+        note = MIDI_NOTE[side]
+        if steps:
+            k.midi_message_callback(((0xa0, note, steps), 0))
+        k.midi_message_callback((((0x90 if edge == 'down' else 0x80),
+                                  note, ms), 0))
+
     class T:
         perf_counter = staticmethod(lambda: clock[0])
 
         @staticmethod
         def sleep(s):
-            advance(clock[0] + s)
+            # The keyer's thread, held for as long as a stall lasts.
+            to = clock[0] + s
+            if freeze != None and freeze[0] <= to < freeze[1]:
+                to = freeze[1]
+            advance(to)
 
     m.time = T
     m.dprint1 = lambda *a, **k: None
@@ -240,6 +336,8 @@ def sim(tap_at, tap_length=.005):
                                                      cancel=lambda: None),
         Lock=threading.Lock)
     m.Keyer.straight_keying = False
+    m.Keyer.dit_paddle_notes = [MIDI_NOTE['dit']]
+    m.Keyer.dah_paddle_notes = [MIDI_NOTE['dah']]
     m.Keyer.keyer_mode = m.Keyer.MODE_IAMBIC_B
     k = m.Keyer()
     keyer.append(k)
@@ -358,6 +456,27 @@ def squeeze_verdict(result, release_at):
             False)
 
 
+def dah_first_verdict(result, dit_at):
+    # A squeeze begins with the paddle closed first and alternates from
+    # there: dah, dit, dah and so on, for as long as it is held. Returns
+    # (what was sent, whether it did).
+    elements = elements_from(result['sent'])
+    alternating = all(a != b for a, b in zip(elements, elements[1:]))
+    return elements, bool(elements) and elements[0] == 'dah' and alternating
+
+
+def stall_verdict(result):
+    # The S, the gap the operator left, and the T, whatever the stall:
+    # nothing added, nothing lost, nothing run together. Returns (the
+    # gap the T's KZD carried, whether all of that held).
+    elements = elements_from(result['sent'])
+    kzds = [cmd for _, cmd in result['sent'] if cmd.startswith('KZD')]
+    gap = kzds[3] if len(kzds) > 3 else None
+    met = (elements == ['dit', 'dit', 'dit', 'dah'] and
+           gap == f'KZD{STALL_GAP_MS:04d};')
+    return gap, met
+
+
 def plot(result, tap_at, path):
     fig, axes = plt.subplots(3, 1, figsize=(13, 6.6), sharex=True,
                              gridspec_kw=dict(height_ratios=[2, 1.9, 1.7]))
@@ -369,6 +488,10 @@ def plot(result, tap_at, path):
         # colour of the paddle that made it.
         ax.axvline(tap_at * 1000, color=MARK, lw=1, ls=(0, (4, 3)),
                    alpha=.55, zorder=1)
+        if SCENARIO == 'stall':
+            # The stall, shaded down all three panels.
+            ax.axvspan(STALL_FROM * 1000, tap_at * 1000, color='#9ca3af',
+                       alpha=.14, lw=0, zorder=0)
 
     # What the operator did.
     ax = axes[0]
@@ -396,8 +519,12 @@ def plot(result, tap_at, path):
         'dit-tap': 'dah paddle held, dit paddle tapped for 5 ms',
         'swap': 'dit paddle released and dah paddle closed',
         'squeeze': 'both paddles squeezed, both released',
+        'dah-first': 'dah paddle closed, dit paddle closed',
+        'stall': (f'S then T over MIDI, the process stalled from '
+                  f'{STALL_FROM * 1000:.0f} ms to'),
     }[SCENARIO]
-    ax.set_title(f'{WPM} WPM iambic B — {what} at {tap_at * 1000:.0f} ms',
+    joiner = ' ' if SCENARIO == 'stall' else ' at '
+    ax.set_title(f'{WPM} WPM iambic B — {what}{joiner}{tap_at * 1000:.0f} ms',
                  fontsize=12.5, pad=16)
     ax.text(tap_at * 1000, 2.06, f'{tap_at * 1000:.0f} ms', ha='center',
             va='bottom', fontsize=9.5, color=MARK, weight='bold')
@@ -502,10 +629,35 @@ for tap_ms in range(TAPS[0], TAPS[1] + 1, 4):
             else:
                 verdict = (f'  WRONG: released during the {during}, {owed} '
                            f'owed, got {" ".join(after) or "nothing"}')
+    elif SCENARIO == 'dah-first':
+        sent_elements, met = dah_first_verdict(result, tap_at)
+        entry.update(met=met)
+        owed_total += 1
+        if met:
+            owed_met += 1
+            verdict = '  begun with the dah, alternating'
+        else:
+            verdict = '  WRONG: not begun with the dah, or not alternating'
+    elif SCENARIO == 'stall':
+        gap, met = stall_verdict(result)
+        entry.update(gap=gap, met=met)
+        owed_total += 1
+        if met:
+            owed_met += 1
+            verdict = f'  S, {gap.rstrip(";")}, T'
+        else:
+            verdict = (f'  WRONG: wanted S, KZD{STALL_GAP_MS:04d}, T; '
+                       f'the T\'s KZD was {gap}')
     summary.append(entry)
     print(f'{tap_ms:3d} ms  {elements:24s}  {len(result["edges"]):2d} sidetone edges  '
           f'-> {os.path.basename(path)}{verdict}')
 
+if SCENARIO == 'dah-first':
+    print(f'\n{owed_met}/{owed_total} squeezes begun with the dah closed '
+          f'first began with it and alternated')
+if SCENARIO == 'stall':
+    print(f'\n{owed_met}/{owed_total} stalls left the S, the '
+          f'{STALL_GAP_MS}ms gap and the T as the operator sent them')
 if SCENARIO == 'squeeze':
     print(f'\n{owed_met}/{owed_total} releases got what iambic B owes them '
           f'-- one element, or none inside Dit Mem {DIT_MEM:g}% -- and '

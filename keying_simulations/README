@@ -1,9 +1,9 @@
 Keying simulations
 ==================
 
-Runs of the iambic keyer, one plot each. Seven sets are kept here, three
-of them at 30 WPM and four at 40, and paddle_sweep.py can produce more
-at any speed.
+Runs of the iambic keyer, one plot each. Eleven sets are kept here, five
+of them at 30 WPM and six at 40, and paddle_sweep.py can produce more at
+any speed.
 
 Each plot has three panels against one time axis, zeroed on the paddle
 that closes first:
@@ -89,6 +89,11 @@ named in the file's name, moving 4ms per run from 4ms to 500ms. The
 squeeze alternates on a 240ms cycle at this speed, so that is two whole
 cycles and a little over: the release falls in every part of one, and
 the pattern is then seen to repeat rather than assumed to.
+
+Closed together, the squeeze begins with a dit. Since 026e3ec a squeeze
+begins with whichever paddle was closed first, and a dit only where
+neither was, which is the case these sets hold to. The dah-first sets
+below are the other case.
 
     release       released during   elements sent
       4-104ms     the first dit     dit dah
@@ -271,11 +276,94 @@ element and every KZD and KZU identical to what they were before it.
 Summary: summary_40wpm_tap.json
 
 
+keying_30wpm_dah-first_*.png -- ten runs
+-----------------------------------------
+
+The dah paddle closes at time zero and the dit at the moment named in
+the file's name, from 4ms to 40ms; both are held, and let go of together
+at 300ms. The dit's closing is swept either side of 24ms, where the
+first tone can be heard, since that is where what the burst begins with
+is settled: the element is started as the paddle closes, and read again
+once it can be heard.
+
+Every run goes dah dit dah dit, and is checked to: begun with the paddle
+closed first, and alternating from there.
+
+Until 026e3ec a squeeze with nothing before it always began with a dit.
+The dah's tone was queued as its paddle closed, but the reading taken
+as the tone could be heard found both paddles closed and made the
+element a dit. Run against the keyer before it, 4 to 24ms go dit dah dit
+dah -- six of the ten -- and 28ms on, where the dit closed after the dah
+was heard, go dah dit dah dit.
+
+Summary: summary_30wpm_dah-first.json
+
+
+keying_40wpm_dah-first_*.png -- eight runs
+-------------------------------------------
+
+The same at 40 WPM, the dit's closing swept from 4ms to 32ms. All eight
+go dah dit dah dit. Before 026e3ec six of them began with a dit.
+
+Summary: summary_40wpm_dah-first.json
+
+
+keying_30wpm_stall_*.png -- a hundred and one runs
+--------------------------------------------------
+
+An S and then a T, sent through the MIDI path and timed by the device's
+own deltas, as a MoMIDI paddle sends them. The dit is held from time
+zero to 200ms, and let go of as the S's third dit ends; the dah is
+closed at 400ms and let go of at 460. From 190ms the whole process
+stalls until the moment named in the file's name, swept from 200ms to
+600: every paddle event the device sends in that time reaches the keyer
+at the end of it, in order and a tenth of a millisecond apart, and the
+keyer's own thread is held too, waking a millisecond after the last of
+them. The stall is shaded on the plots.
+
+It is rc27_linux.txt's stall, where the process stood still for some
+0.44s as an S ended, and the order is the hardest one: the keyer wakes
+to the reading after the S's last dit with everything already standing,
+the T included where the stall outlasted its closing. What the K4 should
+be told regardless is the S, the 200ms gap the operator left, and the
+T, and every run is checked for exactly that. All 101 send it.
+
+Run against the keyer as it was at 3f12782, with the device's timing but
+before the readings were taken as of when they were due (b95114d), the
+first 50 pass -- stalls ending before the dah is closed -- and all 51
+from 400ms on fail the same way: the reading after the S's last dit,
+woken with the dah standing, took it for a tap during that dit, and the
+T's dah went out as a fourth element of the S with KZD0040. S and T
+went out together as V.
+
+The sweep found two faults of its own besides. Stalls ending while the
+dah was still held, 404 to 452ms, sent the right elements but told the
+K4 the gap as the thread saw it -- the stall's end, not when the dah
+closed -- because a burst begun from a paddle standing closed took its
+gap from when it was keyed. It now runs to when that paddle closed, or
+to where auto spacing held the element off until. And the harness
+itself first delivered two events of the same instant in the wrong
+order, which a queue never does.
+
+Summary: summary_30wpm_stall.json
+
+
+keying_40wpm_stall_*.png -- seventy-five runs
+----------------------------------------------
+
+The same at 40 WPM, every time scaled by three quarters: the dit let go
+of at 150ms, the dah closed at 300 and let go of at 345, the stall from
+142.5ms to the moment swept, 152 to 452ms. All 75 send the S, KZD0150
+and the T.
+
+Summary: summary_40wpm_stall.json
+
+
 Running them
 ------------
 
     python3 paddle_sweep.py <a copy of k4companion named *.py> <outdir> \
-        <tap|dit-tap|swap|squeeze> [wpm] [dit-mem-%]
+        <tap|dit-tap|swap|squeeze|dah-first|stall> [wpm] [dit-mem-%]
 
 The speed defaults to 30. At any other, the swept moment and the length
 of the run are scaled by it rather than left where they were, so that a
@@ -287,6 +375,15 @@ go in through send_paddle_event on the thread a paddle's device would
 report on, send_iambic runs on the keyer's thread a hop later, and the
 sidetone edges plotted are the frames next_key_edge actually placed.
 Nothing about the keyer is reimplemented.
+
+The paddle events go in without a time of their own, so each is timed
+on arrival, as a serial paddle's is. A MIDI paddle's events are timed
+by the device's own deltas since 3233b2c (see midi_event_timestamp),
+and delivered on time the two come to the same instant. The stall sets
+are the exception: they go in through midi_message_callback as a MoMIDI
+device sends them, the time since its last event carried in the
+messages themselves, which is what lets a late delivery keep the time
+it happened.
 
 Timers stand still along with the threads, a real one being bound to
 the wall clock this has no use for. The command that puts the K4's
@@ -313,15 +410,31 @@ reported it, and the change that introduced it left every one of these
 plots identical. What the edges say is when a tone began and ended,
 which is what the sets are for; what it sounded like is not in them.
 
-Nor is anything here ever late. The keyer's thread wakes on the
-instant it asked for and every block is filled exactly a lead ahead of
-its DAC time, so a race between the two is never lost. Until 39926dd an
-element's key down was queued at the start of the gap before it and
-taken back where the paddles came to want nothing, and a take-back that
-lost the race to the output callback sent a dit nobody had asked for,
-heard and on the air. None of these sets could show that. It was found
-in logs of real sending under WASAPI in exclusive mode, and reproduced
-here only by making the keyer's reading late on purpose.
+Nor is anything here ever late, the stall sets apart. The keyer's
+thread wakes on the instant it asked for and every block is filled
+exactly a lead ahead of its DAC time, so a race between the two is
+never lost. Until 39926dd an element's key down was queued at the start
+of the gap before it and taken back where the paddles came to want
+nothing, and a take-back that lost the race to the output callback sent
+a dit nobody had asked for, heard and on the air. None of these sets
+could show that. It was found in logs of real sending under WASAPI in
+exclusive mode, and reproduced here only by making the keyer's reading
+late on purpose.
+
+The whole process stalling is the exception: rc27_linux.txt caught one,
+and the stall sets above make one happen. For some 0.44s nothing ran,
+and the paddle events of that time arrived together at the end of it.
+Three changes answer it, and none moves a byte of the other sets. The
+paddles are timed by the device rather than by arrival (3233b2c). A
+reading is of the paddles as they stood when it was due, not when the
+stalled thread got to it (b95114d), so the reading after an S's last
+dit does not see the dah of the next character as a tap during it -- S
+and T were going out together as V -- and a paddle closed and let go of
+again while the keyer was still finishing a burst begins the next one
+rather than being lost. And an element never sent no longer moves the
+gap the next burst's first KZD carries (65edffc): the K4 was told 47ms
+between two characters the operator had left 200ms apart. The stall
+sets hold them in place.
 
 The sets kept here are run with Dit Mem % at the keyer's own default
 of 0 rather than the application's 33, and a fifth argument sets it.
