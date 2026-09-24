@@ -13248,6 +13248,7 @@ class Keyer():
         self.CLOSE_EVENT = 'close'
 
         self.delta = 0
+        self.midi_delta_time = 0
         self.dit_was_down = False
         self.dah_was_down = False
 
