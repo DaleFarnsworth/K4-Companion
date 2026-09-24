@@ -111,7 +111,10 @@ in above is the one the keyer chose. See squeeze_verdict.
 This is the case iambic B exists for. The rule, stated against what the
 operator can hear: a squeeze let go of while an element's sidetone is
 sounding, or during the space after it, owes exactly one more element --
-the opposite of that one -- and nothing after it.
+the opposite of that one -- and nothing after it. The one exception is
+the Dit Mem window: a squeeze let go of in the leading Dit Mem % of a dah
+and the space after it owes nothing. These sets are run with the window
+at 0, where it never applies; see Running them.
 
 Alone among the sets here this one is checked as well as drawn. The
 heard timeline is cut at each tone's start, so a window is a tone plus
@@ -272,7 +275,7 @@ Running them
 ------------
 
     python3 paddle_sweep.py <a copy of k4companion named *.py> <outdir> \
-        <tap|dit-tap|swap|squeeze> [wpm]
+        <tap|dit-tap|swap|squeeze> [wpm] [dit-mem-%]
 
 The speed defaults to 30. At any other, the swept moment and the length
 of the run are scaled by it rather than left where they were, so that a
@@ -320,15 +323,16 @@ heard and on the air. None of these sets could show that. It was found
 in logs of real sending under WASAPI in exclusive mode, and reproduced
 here only by making the keyer's reading late on purpose.
 
-The Dit Mem % setting is left at the keyer's own default of 0 rather
-than the application's 33. Since 762c88b the only thing it governs is a
-released squeeze -- a dit closed during a dah is remembered wherever in
-the dah it closes -- so the swap, tap and dit-tap sets come out the same
-at either. The squeeze sets do not. At 33 a squeeze let go of in the
-leading third of a dah and its gap is owed no dit, which is what the
-setting is for, and squeeze_verdict, which checks iambic B's rule with
-no such window, counts each of those as a failure: 26 of the 125 at 30
-WPM, 108 to 156ms and 348 to 396, and 19 of the 94 at 40.
+The sets kept here are run with Dit Mem % at the keyer's own default
+of 0 rather than the application's 33, and a fifth argument sets it.
+Since 762c88b the only thing it governs is a released squeeze -- a dit
+closed during a dah is remembered wherever in the dah it closes -- so
+the swap, tap and dit-tap sets come out the same at either. The squeeze
+sets do not: at 33 a squeeze let go of in the leading third of a dah and
+its gap is owed no dit, which is what the setting is for. 26 of the 125
+runs at 30 WPM fall there, 108 to 156ms and 348 to 396, and 19 of the 94
+at 40. squeeze_verdict applies the same window, so every run of both
+passes at 33 as at 0.
 
 It takes a copy of the program with a .py suffix because it imports it
 as a module.
