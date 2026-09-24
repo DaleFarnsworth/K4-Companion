@@ -14014,6 +14014,18 @@ class Keyer():
             # end_element_timestamp moves with the grid, being what the
             # sleep below measures from, and is written afresh at the
             # end of the element either way.
+            #
+            # Either way, that is, where there is an element. Where
+            # confirm_element finds none, both go back to where they were:
+            # the burst is over, and end_element_timestamp is then what
+            # the next burst's first KZD measures its gap from, which is
+            # the end of the last element sent. Left moved up, it said the
+            # burst had ended when this thread woke, and a thread held
+            # off for most of a second -- the whole process stalling --
+            # told the K4 a 47ms gap before the next character where the
+            # operator had left several hundred, running the two
+            # characters together on the air.
+            unshifted = self.element_timestamp, self.end_element_timestamp
             time_since_end_element = time.perf_counter() - self.end_element_timestamp
             if time_since_end_element > inter_element_seconds:
                 grid_shift = (time_since_end_element - inter_element_seconds +
@@ -14033,6 +14045,7 @@ class Keyer():
             keyed_start = self.element_timestamp
             sidetone_start = keyed_start - self.sidetone_delay_used
             if not self.confirm_element(sidetone_start, wanted):
+                self.element_timestamp, self.end_element_timestamp = unshifted
                 return False
             # To the end of the gap, measured from the element before, so
             # that the scheduling just done comes out of it as it always
