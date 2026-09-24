@@ -811,7 +811,7 @@
  },
  {
   "tap_ms": 204,
-  "elements": "dit dah dit dah",
+  "elements": "dit dah dit",
   "sent": [
    "KZD0000;",
    "ML0000;",
@@ -819,14 +819,12 @@
    "KZD0030;",
    "KZU0090;",
    "KZD0030;",
-   "KZU0030;",
-   "KZD0030;",
-   "KZU0090;"
+   "KZU0030;"
   ],
-  "edges": 8,
-  "released_during": "dit",
-  "owed": "dah",
-  "followed": "dah"
+  "edges": 6,
+  "released_during": "dah",
+  "owed": "dit",
+  "followed": "dit"
  },
  {
   "tap_ms": 208,

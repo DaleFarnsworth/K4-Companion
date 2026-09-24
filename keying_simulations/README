@@ -72,10 +72,11 @@ element the dit becomes:
 
 The boundary sits at 188ms, not at the 160ms where the second dah
 begins. The 28ms between the two is send_burst asking the paddles a
-second time: an element is started before it is known what it is, and
-read again once its sidetone can be heard, so a tap arriving up to
-184ms still catches the element that began at 160ms. That second
-reading is what the band either side of a boundary is made of.
+second time: whether there is to be an element at all is settled at its
+grid start, and what it is only once its sidetone can be heard, so a
+tap arriving up to 184ms still catches the element that began at 160ms.
+That second reading is what the band either side of a boundary is made
+of.
 
 Summary: summary_30wpm_dit-tap.json
 
@@ -182,8 +183,8 @@ in three quarters of the time, at the same 4ms step.
 
     release       released during   elements sent
       4-80ms      the first dit     dit dah
-     84-200ms     the first dah     dit dah dit
-    204-264ms     the second dit    dit dah dit dah
+     84-204ms     the first dah     dit dah dit
+    208-264ms     the second dit    dit dah dit dah
     268-376ms     the second dah    dit dah dit dah dit
 
 All ninety-four follow the rule.
@@ -199,11 +200,15 @@ WPM, that sidetone_up_edge_margin_seconds was added for.
 
 The tones start at 24, 84, 204, 264 and 384ms, and the 4ms step lands
 on three of them. Those three are the boundary runs described above,
-and at this speed they do not all fall the same way: 84 and 204 are
-counted as during the tone beginning, 264 as during the one ending.
-Which way a run comes down is rounding rather than keying, which is why
+and at this speed they do not all fall the same way: 84 is counted as
+during the tone beginning, 204 and 264 as during the one ending. Which
+way a run comes down is rounding rather than keying, which is why
 squeeze_verdict allows either. Before it did, the release at 204ms was
-reported as a failure and was not one.
+reported as a failure and was not one. It has since changed sides once
+more with nothing about the keying changing: 39926dd reckons the
+deadline for an element's key down from the two clocks read afresh
+rather than from the ones its queued edge was put on, and the
+subtraction rounded the other way.
 
 Summary: summary_40wpm_squeeze.json
 
@@ -304,6 +309,26 @@ at the end of every element lived in that mix until an operator
 reported it, and the change that introduced it left every one of these
 plots identical. What the edges say is when a tone began and ended,
 which is what the sets are for; what it sounded like is not in them.
+
+Nor is anything here ever late. The keyer's thread wakes on the
+instant it asked for and every block is filled exactly a lead ahead of
+its DAC time, so a race between the two is never lost. Until 39926dd an
+element's key down was queued at the start of the gap before it and
+taken back where the paddles came to want nothing, and a take-back that
+lost the race to the output callback sent a dit nobody had asked for,
+heard and on the air. None of these sets could show that. It was found
+in logs of real sending under WASAPI in exclusive mode, and reproduced
+here only by making the keyer's reading late on purpose.
+
+The Dit Mem % setting is left at the keyer's own default of 0 rather
+than the application's 33. Since 762c88b the only thing it governs is a
+released squeeze -- a dit closed during a dah is remembered wherever in
+the dah it closes -- so the swap, tap and dit-tap sets come out the same
+at either. The squeeze sets do not. At 33 a squeeze let go of in the
+leading third of a dah and its gap is owed no dit, which is what the
+setting is for, and squeeze_verdict, which checks iambic B's rule with
+no such window, counts each of those as a failure: 26 of the 125 at 30
+WPM, 108 to 156ms and 348 to 396, and 19 of the 94 at 40.
 
 It takes a copy of the program with a .py suffix because it imports it
 as a module.
