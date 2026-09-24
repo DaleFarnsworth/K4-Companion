@@ -12889,6 +12889,12 @@ class Keyer():
     # midi_event_timestamp.
     midi_reanchor_seconds = 1.0
 
+    # How many paddle events are kept for paddle_timestamps to look
+    # back through: far more than a burst's readings ever reach back
+    # over, a stall included, and anything older is still read from the
+    # timestamps themselves.
+    paddle_history_length = 64
+
     morse_characters = {
         '.-': 'A',
         '-...': 'B',
@@ -13053,6 +13059,8 @@ class Keyer():
         now = time.perf_counter()
         self.dit_up_timestamp = now
         self.dah_up_timestamp = now
+        self.paddle_history.append((now, self.DIT_UP_EVENT))
+        self.paddle_history.append((now, self.DAH_UP_EVENT))
 
         if straight_key_down:
             Audio.key_sidetone(False)
@@ -13274,6 +13282,15 @@ class Keyer():
         self.dit_up_timestamp = 0
         self.dah_down_timestamp = 0
         self.dah_up_timestamp = 0
+        # The paddle events most lately reported, as (timestamp, event),
+        # for the paddles as they stood at a moment gone by. See
+        # paddle_timestamps.
+        self.paddle_history = collections.deque(maxlen=self.paddle_history_length)
+        # When the reading that ended the last burst was due, and when the
+        # paddle closed for a burst's first element that nothing queued.
+        # See missed_first_element.
+        self.burst_end_due = None
+        self.first_element_closed_at = None
         self.element_timestamp = None
         self.end_element_timestamp = None
         self.end_sidetone_timestamp = None
@@ -13533,6 +13550,7 @@ class Keyer():
                 self.dah_down_timestamp = timestamp
             elif event == self.DAH_UP_EVENT:
                 self.dah_up_timestamp = timestamp
+            self.paddle_history.append((timestamp, event))
         paddle_event = PaddleEvent(event, timestamp)
         # What the operator's hand did, and when. On perf_counter for
         # the paddles, which is the clock the sidetone times below are
@@ -13652,6 +13670,49 @@ class Keyer():
             return 0
         return max(ms, Audio.minimum_sidetone_ms)
 
+    def paddle_timestamps(self, as_of=None):
+        # (dit up, dah up, dit down, dah down): when each last happened,
+        # as the paddles stood at as_of, a perf_counter time -- or as
+        # they stand now, where it is None.
+        #
+        # A reading is about the moment it was due, and the thread taking
+        # it is not always there on time. Where the whole process
+        # stalls, the paddles' events arrive together at the end of it,
+        # timed where they really happened (see midi_event_timestamp),
+        # and the keyer wakes to find them all standing: a reading for
+        # the element after an S's last dit, due a gap after it, saw a
+        # dah the operator closed a character space later as a tap made
+        # during that dit, and S and T went out together as V. Read as of
+        # when it was due, a paddle that moved after that has not moved
+        # yet.
+        #
+        # From the history of events, newest first, taking for each the
+        # latest reported that had happened by as_of. Where the history
+        # has nothing of one, what stands is older than all of it, and
+        # the timestamp itself is that; nothing at all where even that
+        # is still to come.
+        stamps = (self.dit_up_timestamp, self.dah_up_timestamp,
+                  self.dit_down_timestamp, self.dah_down_timestamp)
+        if as_of == None:
+            return stamps
+        events = (self.DIT_UP_EVENT, self.DAH_UP_EVENT,
+                  self.DIT_DOWN_EVENT, self.DAH_DOWN_EVENT)
+        found = [None] * 4
+        # A copy, taken in one step: the paddles' thread appends as this
+        # one reads.
+        for timestamp, event in reversed(tuple(self.paddle_history)):
+            if timestamp > as_of or event not in events:
+                continue
+            index = events.index(event)
+            if found[index] == None:
+                found[index] = timestamp
+                if None not in found:
+                    break
+        return tuple(
+            found[index] if found[index] != None else
+            stamps[index] if stamps[index] <= as_of else 0
+            for index in range(4))
+
     def send_iambic(self):
         paddle_event = self.paddle_event_queue.get()
         event = paddle_event.event
@@ -13663,9 +13724,11 @@ class Keyer():
         dit_up_memory_delay = (self.dit_up_memory_delay_percent / 100 *
                                (self.dah_seconds + self.inter_element_seconds))
 
-        def choose_element(previous_elt, previous_look_ts, previous_heard_ts):
+        def choose_element(previous_elt, previous_look_ts, previous_heard_ts,
+                           as_of=None):
             # The element the paddles, and what is remembered of them, ask
-            # for next, or None for neither.
+            # for next, or None for neither: as they stood at as_of, or
+            # as they stand where it is None.
             #
             # The memories below measure a paddle against the previous
             # element, and there are two instants to measure from.
@@ -13700,10 +13763,8 @@ class Keyer():
             # notice of either: a shift applied to all four cancels
             # between them. That is why they belong here, where only one
             # side of the comparison moves.
-            dit_up_ts = self.dit_up_timestamp
-            dah_up_ts = self.dah_up_timestamp
-            dit_down_ts = self.dit_down_timestamp
-            dah_down_ts = self.dah_down_timestamp
+            (dit_up_ts, dah_up_ts,
+             dit_down_ts, dah_down_ts) = self.paddle_timestamps(as_of)
             heard_elt_ts = previous_heard_ts
             look_elt_ts = previous_look_ts
 
@@ -13779,10 +13840,12 @@ class Keyer():
         if self.keyer_mode != self.MODE_ULTIMATIC or event == self.CLOSE_EVENT:
             return event
 
-        def choose_element(previous_elt, previous_look_ts, previous_heard_ts):
+        def choose_element(previous_elt, previous_look_ts, previous_heard_ts,
+                           as_of=None):
             # The element the paddles ask for next, or None for neither:
             # with both closed, the one closed last. Ultimatic keeps no
-            # memories, so it has no use for either timestamp.
+            # memories, so it has no use for either timestamp. As they
+            # stood at as_of, as send_iambic reads them.
             #
             # Read once into these, as send_iambic reads them, so that
             # every comparison below is of one view of the paddles.
@@ -13790,10 +13853,8 @@ class Keyer():
             # on, and by whichever thread lets that device go (see
             # release_paddles), so reading each afresh could compare a
             # paddle as it was against another as it became.
-            dit_up_ts = self.dit_up_timestamp
-            dah_up_ts = self.dah_up_timestamp
-            dit_down_ts = self.dit_down_timestamp
-            dah_down_ts = self.dah_down_timestamp
+            (dit_up_ts, dah_up_ts,
+             dit_down_ts, dah_down_ts) = self.paddle_timestamps(as_of)
 
             dit = dit_down_ts > dit_up_ts
             dah = dah_down_ts > dah_up_ts
@@ -13843,9 +13904,14 @@ class Keyer():
                     # queued by the paddle's own thread.
                     elt = (choose_element(previous_elt, previous_look_ts,
                                           previous_heard_ts) or
-                           self.placed_first_element())
+                           self.placed_first_element() or
+                           self.missed_first_element(self.burst_end_due))
                     if elt == None:
                         return
+                    # Kept until a burst does begin: a look that finds
+                    # nothing, as each paddle's release asks for, has
+                    # not settled what came after the last one ended.
+                    self.burst_end_due = None
                 else:
                     # Nothing is settled here for an element after a
                     # burst's first -- not what it is, and not whether
@@ -13874,10 +13940,10 @@ class Keyer():
                 # start. Kept rather than only counted, so that an
                 # element nothing had asked for until this reading goes
                 # out as what this reading asked for.
-                def wanted():
+                def wanted(as_of):
                     nonlocal elt
                     elt = choose_element(previous_elt, previous_look_ts,
-                                         previous_heard_ts)
+                                         previous_heard_ts, as_of)
                     return elt != None
 
                 if not self.start_element(first_element, wanted):
@@ -13926,13 +13992,20 @@ class Keyer():
                 # has only the next element's memory to be caught by,
                 # and the window has to reach back far enough to hold
                 # it.
-                elt_look_ts = elt_ts if first_element else time.perf_counter()
+                #
+                # The look is when the reading was due, which is what it
+                # is taken as of (see paddle_timestamps), and not when
+                # this thread got to it.
+                read_due = self.element_read_due
+                if read_due == None:
+                    read_due = time.perf_counter()
+                elt_look_ts = elt_ts if first_element else read_due
                 # What the reading at the grid start asked for, where the
                 # paddles have come off since. Every element gets here
                 # with one: nothing after a burst's first is queued
                 # until a reading wants it.
                 elt = choose_element(previous_elt, previous_look_ts,
-                                     previous_heard_ts) or elt
+                                     previous_heard_ts, read_due) or elt
                 elements.append(elt)
                 self.end_element(elt)
                 previous_elt, previous_look_ts = elt, elt_look_ts
@@ -13953,6 +14026,38 @@ class Keyer():
                 self.unmute_timer.start()
 
             self.in_burst = False
+
+    def missed_first_element(self, ended_due):
+        # A paddle closed, and let go of again, after the reading that
+        # ended the last burst was due but before this thread was done
+        # with that burst: the element it asked for, or None.
+        #
+        # That reading sees the paddles as they stood when it was due
+        # (see paddle_timestamps), so a paddle closed after that is no
+        # part of the burst it ended. Nor was it queued as a burst's
+        # first: start_burst_sidetone leaves a paddle closing inside a
+        # burst to the keyer, and by the time the keyer has it the paddle
+        # may be open again. A stall makes that window as long as the
+        # stall -- rc27_linux.txt has the whole of a T's dah arriving
+        # while the keyer was held finishing the S before it -- and
+        # without this the T was simply not sent.
+        #
+        # The first to close, keyed now, late as it is; the gap the K4 is
+        # told still runs to when the paddle closed.
+        if ended_due == None:
+            return None
+        for timestamp, event in tuple(self.paddle_history):
+            if timestamp <= ended_due:
+                continue
+            if event == self.DIT_DOWN_EVENT:
+                elt = '.'
+            elif event == self.DAH_DOWN_EVENT:
+                elt = '-'
+            else:
+                continue
+            self.first_element_closed_at = timestamp
+            return elt
+        return None
 
     def placed_first_element(self):
         # Nothing is wanted of a burst's first element, but its key down
@@ -14030,9 +14135,12 @@ class Keyer():
             else:
                 self.wait_for_auto_space()
                 keyed_start = time.perf_counter()
-                closed_at = keyed_start
+                closed_at = self.first_element_closed_at
+                if closed_at == None:
+                    closed_at = keyed_start
                 self.element_sidetone_queued = Audio.schedule_sidetone_down(
                     keyed_start)
+            self.first_element_closed_at = None
             self.element_timestamp = keyed_start
             sidetone_start = keyed_start
 
@@ -14110,6 +14218,7 @@ class Keyer():
             # operator had left several hundred, running the two
             # characters together on the air.
             unshifted = self.element_timestamp, self.end_element_timestamp
+            grid_shift = 0.0
             time_since_end_element = time.perf_counter() - self.end_element_timestamp
             if time_since_end_element > inter_element_seconds:
                 grid_shift = (time_since_end_element - inter_element_seconds +
@@ -14128,7 +14237,7 @@ class Keyer():
             # have yet to say whether there is an element at all.
             keyed_start = self.element_timestamp
             sidetone_start = keyed_start - self.sidetone_delay_used
-            if not self.confirm_element(sidetone_start, wanted):
+            if not self.confirm_element(sidetone_start, wanted, grid_shift):
                 self.element_timestamp, self.end_element_timestamp = unshifted
                 return False
             # To the end of the gap, measured from the element before, so
@@ -14315,7 +14424,7 @@ class Keyer():
         if until != None:
             self.sleep_until(until)
 
-    def confirm_element(self, sidetone_start, wanted):
+    def confirm_element(self, sidetone_start, wanted, grid_shift):
         # Whether an element after a burst's first is to be sent at all,
         # asked of wanted as late as its key down can still be queued to
         # land on its own frame: shortly before the output callback fills
@@ -14346,18 +14455,29 @@ class Keyer():
         # A burst's first element has nothing to ask about: it is queued
         # as it is keyed, and its block filled almost at once.
         #
+        # The reading is of the paddles as they stood when it was due (see
+        # paddle_timestamps), which where this thread was held off past
+        # the grid start is on the grid as it was before start_element
+        # moved it up by grid_shift. The element goes where the grid now
+        # is; whether there is one was a question for the moment it
+        # should have been asked.
+        #
         # True when the element goes ahead, with its key down queued
         # where there is a sidetone to queue it to.
         check_at = Audio.sidetone_down_deadline(sidetone_start)
         if check_at != None:
-            self.sleep_until(check_at - self.sidetone_edge_margin_seconds)
+            wake_at = check_at - self.sidetone_edge_margin_seconds
         else:
             # No tone to be in time for -- the sidetone is off, or no
             # stream is open -- so the reading is taken at the grid
             # start itself, which is where it belongs anyway.
-            self.sleep_until(self.element_timestamp)
+            wake_at = self.element_timestamp
+        self.sleep_until(wake_at)
         read_at = time.perf_counter()
-        if not wanted():
+        due = min(read_at, wake_at - grid_shift)
+        if not wanted(due):
+            # The burst ends here, as of then. See missed_first_element.
+            self.burst_end_due = due
             self.element_sidetone_queued = False
             return False
         self.element_sidetone_queued = Audio.schedule_sidetone_down(
@@ -14370,7 +14490,6 @@ class Keyer():
         # sidetone_delay rising at the element after.
         if check_at != None and read_at > check_at:
             _, lead = Audio.block_timing()
-            wake_at = check_at - self.sidetone_edge_margin_seconds
             dprint_keying(f'{read_at:.4f} sidetone down queued late:'
                           f' woke={(read_at - wake_at) * 1000:.1f}ms late'
                           f' past_deadline={(read_at - check_at) * 1000:.1f}ms'
@@ -14450,6 +14569,9 @@ class Keyer():
         # is never placed, the lag standing is the best estimate there
         # is; it is what the schedule was reckoned on.
         self.element_heard_start = (self.element_keyed_start + Audio.sidetone_delay())
+        # When the reading that follows is due, for it to be taken as of:
+        # where this returns early, whenever it is taken.
+        self.element_read_due = None
         if not self.element_sidetone_queued:
             return
         give_up_at = self.element_kzd_timestamp + self.dit_seconds
@@ -14472,6 +14594,7 @@ class Keyer():
         if queue_by != None:
             wait_until = min(wait_until, queue_by -
                              self.up_edge_margin(dit_sidetone_seconds))
+        self.element_read_due = wait_until
         self.sleep_until(wait_until)
 
     def end_element(self, elt):
