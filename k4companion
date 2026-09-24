@@ -12882,6 +12882,13 @@ class Keyer():
     # and the work done after waking before it gets that far.
     sidetone_edge_margin_seconds = .002
 
+    # How far apart two MIDI paddle events can be, by the device's own
+    # count, and still have the second timed from the first; and how far
+    # behind its arrival an event can be timed before it is taken to be
+    # a break in the device's clock rather than a delivery held up. See
+    # midi_event_timestamp.
+    midi_reanchor_seconds = 1.0
+
     morse_characters = {
         '.-': 'A',
         '-...': 'B',
@@ -13257,6 +13264,11 @@ class Keyer():
 
         # for keyer handling
         self.paddle_timestamp = 0
+        # The MIDI device's own clock, as the sum of the deltas it has
+        # reported, and what is added to it to put it on perf_counter.
+        # See midi_event_timestamp.
+        self.midi_device_clock = 0.0
+        self.midi_clock_offset = None
         self.dit_down_timestamp = 0
         self.dit_up_timestamp = 0
         self.dah_down_timestamp = 0
@@ -13357,26 +13369,76 @@ class Keyer():
             self.delta += velocity / 1000
             dprint_keying(f'event delta={round(self.delta, 3)}, midi delta={round(self.midi_delta_time, 3)}')
 
+        # Every note, whether or not it goes on to the keyer: the device
+        # counts its deltas from the note before, whichever that was.
+        if event in (0x90, 0x80):
+            timestamp = self.midi_event_timestamp(self.delta)
+
         if event == 0x90:                       # key down
             if status_byte in self.dit_paddle_notes:
                 self.dit_was_down = True
-                self.send_paddle_event(self.DIT_DOWN_EVENT, self.delta)
+                self.send_paddle_event(self.DIT_DOWN_EVENT, self.delta,
+                                       timestamp)
             elif status_byte in self.dah_paddle_notes:
                 self.dah_was_down = True
-                self.send_paddle_event(self.DAH_DOWN_EVENT, self.delta)
+                self.send_paddle_event(self.DAH_DOWN_EVENT, self.delta,
+                                       timestamp)
         elif event == 0x80:                     # key up
             if status_byte in self.dit_paddle_notes:
                 if self.dit_was_down:
                     self.dit_was_down = False
-                    self.send_paddle_event(self.DIT_UP_EVENT, self.delta)
+                    self.send_paddle_event(self.DIT_UP_EVENT, self.delta,
+                                           timestamp)
             elif status_byte in self.dah_paddle_notes:
                 if self.dah_was_down:
                     self.dah_was_down = False
-                    self.send_paddle_event(self.DAH_UP_EVENT, self.delta)
+                    self.send_paddle_event(self.DAH_UP_EVENT, self.delta,
+                                           timestamp)
         else:
             dprint_keying("unexpected event 0x%2x" % event)
 
         self.delta = 0
+
+    def midi_event_timestamp(self, delta):
+        # When a MIDI paddle event happened, as a perf_counter time, by
+        # the device's own count rather than by when it got here.
+        #
+        # Arrival is late by however long the event took to be handed
+        # to this callback, and that is not always a millisecond. When
+        # the process stalls, everything the device sent meanwhile
+        # arrives together at the end of it: rc27_linux.txt has four
+        # events stamped within 0.3ms that the device put 2, 6 and 38ms
+        # apart, the first of them 0.44s after it was sent. The MIDI
+        # layer had them on time -- its own deltas agree with the
+        # device's -- so the time was lost getting them to Python, and
+        # stamped on arrival the keyer judged the paddles by an order
+        # of events the operator never made.
+        #
+        # So the device's clock is kept, as the sum of its deltas, and
+        # put on perf_counter by the least that any event has lately
+        # arrived behind it: the delivery that was quickest is the one
+        # that says best where the device's clock stands, and a late one
+        # is simply later than that. Never after the event's arrival,
+        # since the least offset is at most this event's own.
+        #
+        # Taken afresh from arrival where the device's count cannot be
+        # trusted to reach back that far: after a pause of
+        # midi_reanchor_seconds or more, whose delta the device may not
+        # be able to carry whole, and where an event would be put that
+        # much or more before it arrived -- a device reconnected, its
+        # count starting over, rather than any delivery held up. Nothing
+        # the keyer measures reaches across a gap that long, so the one
+        # event timed from arrival costs nothing.
+        arrived = time.perf_counter()
+        self.midi_device_clock += delta
+        offset = arrived - self.midi_device_clock
+        if (self.midi_clock_offset == None or
+                delta >= self.midi_reanchor_seconds or
+                offset - self.midi_clock_offset >= self.midi_reanchor_seconds):
+            self.midi_clock_offset = offset
+        else:
+            self.midi_clock_offset = min(self.midi_clock_offset, offset)
+        return self.midi_device_clock + self.midi_clock_offset
 
     def serial_message_callback(self, event):
         message, delta_time = event
@@ -13394,7 +13456,10 @@ class Keyer():
             else:
                 self.send_paddle_event(self.DAH_UP_EVENT, delta_time)
 
-    def send_paddle_event(self, event, delta_time):
+    def send_paddle_event(self, event, delta_time, timestamp=None):
+        # timestamp is when the paddle moved, where the device can say
+        # (see midi_event_timestamp), and otherwise when the event got
+        # here.
         if self.straight_keying:
             # The straight key's own edge, keyed here on the thread its
             # device reports on, ahead of everything else this does.
@@ -13443,9 +13508,22 @@ class Keyer():
                         self.straight_key_down = False
             self.paddle_timestamp += delta_time
             timestamp = self.paddle_timestamp
+            late = ''
         else:
-            timestamp = time.perf_counter()
-            self.start_burst_sidetone(event, timestamp)
+            # The paddles are judged by when they moved, and the tone
+            # keyed when the keyer hears of it: an edge asked for in
+            # the past is dragged, and a burst's first key down dragged
+            # carries the whole shortfall into sidetone_lag. See
+            # start_burst_sidetone.
+            arrived = time.perf_counter()
+            if timestamp == None:
+                timestamp = arrived
+            self.start_burst_sidetone(event, arrived, timestamp)
+            # Said in the log where it arrived a millisecond or more
+            # after it happened.
+            late = ''
+            if arrived - timestamp >= .001:
+                late = f' arrived {arrived:.4f}'
             if event == self.DIT_DOWN_EVENT:
                 self.dit_down_timestamp = timestamp
             elif event == self.DIT_UP_EVENT:
@@ -13460,10 +13538,10 @@ class Keyer():
         # on as well, so a log can be read across the two. A straight
         # key's is its device's own clock instead -- see above -- and
         # comparable only with itself.
-        dprint_keying(f'{timestamp:.4f} paddle {event}')
+        dprint_keying(f'{timestamp:.4f} paddle {event}{late}')
         self.paddle_event_queue.put(paddle_event)
 
-    def start_burst_sidetone(self, event, timestamp):
+    def start_burst_sidetone(self, event, timestamp, pressed):
         # A burst's first key down, queued here on the thread the
         # paddle's device reports on rather than after the hop to the
         # keyer's, for the same reason a straight key's edges are (see
@@ -13507,12 +13585,14 @@ class Keyer():
                     self.auto_space_until(timestamp) != None):
                 return
             if Audio.schedule_sidetone_down(timestamp):
-                self.first_element_scheduled = (timestamp, elt)
+                self.first_element_scheduled = (timestamp, elt, pressed)
 
     def take_first_element(self):
         # What start_burst_sidetone queued for a burst's first element,
-        # as (when the paddle closed, which paddle), or None where it
-        # queued nothing. Cleared as it is taken.
+        # as (when it was keyed, which paddle, when the paddle closed),
+        # or None where it queued nothing. Keyed when the keyer heard of
+        # the paddle, which a stalled delivery can put well after it
+        # closed. Cleared as it is taken.
         with self.first_element_lock:
             scheduled = self.first_element_scheduled
             self.first_element_scheduled = None
@@ -13944,11 +14024,12 @@ class Keyer():
             # what the grid is anchored to.
             scheduled = self.take_first_element()
             if scheduled != None:
-                keyed_start = scheduled[0]
+                keyed_start, _, closed_at = scheduled
                 self.element_sidetone_queued = True
             else:
                 self.wait_for_auto_space()
                 keyed_start = time.perf_counter()
+                closed_at = keyed_start
                 self.element_sidetone_queued = Audio.schedule_sidetone_down(
                     keyed_start)
             self.element_timestamp = keyed_start
@@ -13956,11 +14037,13 @@ class Keyer():
 
             ms = 0
             if self.end_element_timestamp:
-                # From the keyed start, which is when the paddle closed,
-                # and not from now: the gap the K4 is told is the one
-                # the operator left, not that gap plus however long this
-                # thread took to be woken with it.
-                ms = round((keyed_start - self.end_element_timestamp) * 1000)
+                # From when the paddle closed, and not from now: the gap
+                # the K4 is told is the one the operator left, not that
+                # gap plus however long this thread took to be woken with
+                # it. Nor plus however long the paddle's event took to
+                # get here, which the keyed start carries: a stall that
+                # held it up would be read as the operator waiting.
+                ms = round((closed_at - self.end_element_timestamp) * 1000)
                 # This doesn't match the spec as I understand it, but it works!
                 # From testing, I believe the worst case is actually 4500,
                 # (3.5 + maximum network jitter, but use 5000 to be safe.
