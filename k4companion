@@ -11680,7 +11680,7 @@ class CW(TextButtons):
     # box says for itself on a hover.
     memory_delay_percent_setting = (
         'Dit Mem %', 'dit_up_memory_delay_percent', 33,
-        'The leading percentage of dah in which a dit insertion will be ignored')
+        'The leading percentage of dah in which releasing a squeeze sends no dit after it')
 
     def keyer_dit_memory_delay_percent(self, percent=None):
         _, name, default, _ = self.memory_delay_percent_setting
@@ -12845,7 +12845,6 @@ class Keyer():
     dah_paddle_notes = None
     dit_paddle_signal = None
     dah_paddle_signal = None
-    dit_down_memory_delay = 0.05  #  5 ms
     dit_up_memory_delay_percent = 0
     # How hard the sidetone is shortened to catch up, as a fraction of
     # each element and of the gap after it: directly proportional to how
@@ -13195,10 +13194,6 @@ class Keyer():
     @classmethod
     def set_dah_paddle_signal(cls, signal):
         cls.dah_paddle_signal = signal
-
-    @classmethod
-    def set_dit_down_memory_delay(cls, seconds):
-        cls.dit_down_memory_delay = seconds
 
     @classmethod
     def set_dit_up_memory_delay_percent(cls, percent):
@@ -13642,8 +13637,7 @@ class Keyer():
             dah = dah_held
             if previous_elt != None and self.keyer_mode != self.MODE_IAMBIC:
                 dit = dit or (previous_elt == '-' and
-                              dit_down_ts - heard_elt_ts >
-                              self.dit_down_memory_delay)
+                              dit_down_ts > heard_elt_ts)
                 if self.keyer_mode == self.MODE_IAMBIC_B:
                     # A paddle released during the element just sent is
                     # remembered, and one more element goes out for it.
