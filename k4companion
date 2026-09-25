@@ -12858,10 +12858,12 @@ class Keyer():
     dit_paddle_signal = None
     dah_paddle_signal = None
     dit_up_memory_delay_percent = 0
-    # How hard the sidetone is shortened to catch up, as a fraction of
-    # each element and of the gap after it: directly proportional to how
-    # far behind the sidetone is, capped at max_sidetone_catchup_fraction.
-    # The further behind, the harder it pulls.
+    # The sidetone catches up by taking however far behind it is off
+    # each element's tone and the gap after it, split between the two
+    # in proportion to their lengths -- half and half after a dit, three
+    # quarters and a quarter after a dah -- so that both are shortened
+    # by the same share, and that no more than
+    # max_sidetone_catchup_fraction. See element_sidetone.
 
     # How far past the lag the keyer holds the audio may drift before
     # the catch-up pulls at it. A device wanders by a millisecond or two
@@ -12880,9 +12882,11 @@ class Keyer():
     # device's own wander. See plan_sidetone_catchup.
     tolerable_sidetone_lag_margin = .001
 
-    # The most that fraction may reach. A lag beyond 10 ms is worked off
-    # over more elements rather than by cutting any one of them harder.
-    # Limited to 3% per element so sidetones and gaps trim gently.
+    # The most of an element's tone, or of the gap after it, the
+    # catch-up may take off. A lag beyond that is worked off over more
+    # elements rather than by cutting any one of them harder: at 26 WPM,
+    # 4 ms of a 139 ms dah and a little over a millisecond of a 46 ms
+    # dit or gap.
     max_sidetone_catchup_fraction = .03
 
     # How often wait_until_sidetone_heard looks to see whether the output
@@ -13314,12 +13318,10 @@ class Keyer():
         self.sidetone_delay_used = 0.0
         self.sidetone_pending_step = 0.0
         self.sidetone_delay_seen = 0.0
-        # Handed from start_element to end_element: what is behind and the
-        # catch-up fraction taken for it, the element's keyed start and
-        # its sidetone's, the delay that sidetone was scheduled against,
-        # and when the KZD went out.
+        # Handed from start_element to end_element: what is behind, the
+        # element's keyed start and its sidetone's, the delay that
+        # sidetone was scheduled against, and when the KZD went out.
         self.sidetone_behind = 0.0
-        self.sidetone_fraction = 0.0
         self.element_keyed_start = None
         self.element_sidetone_start = None
         self.element_kzd_timestamp = None
@@ -14304,7 +14306,7 @@ class Keyer():
 
     def plan_sidetone_catchup(self, first_element):
         # The delay the sidetone schedule allows for this element, and
-        # the catch-up fraction end_element trims it and its gap by.
+        # how far behind that leaves it for end_element to trim.
         #
         # element_timestamp, and the grid of element starts hanging off
         # it, are real time -- when the operator keyed the element. The
@@ -14328,16 +14330,14 @@ class Keyer():
         # taking it whole each element is what let the sidetone fall
         # further behind the paddle with every element of a long burst.
         #
-        # The element and the gap after it are scaled by the same
-        # fraction, and the schedule moves earlier by what that scaling
-        # frees up -- the two together. So the step belonging to an
-        # element is taken at the element after it, when the audio it
-        # pays for has actually been given up. Sizing the step from this
-        # element's own fraction instead left gaps stretched where tones
-        # had been trimmed, the fraction having changed between the two
-        # as the lag closed.
+        # What is behind comes off each element's tone and the gap after
+        # it, both by the same share of their lengths (see
+        # element_sidetone), and the schedule moves earlier by what the
+        # two free up together. So the step belonging to an element
+        # is taken at the element after it, when the audio it pays for
+        # has actually been given up.
         #
-        # The sidetone runs fractionally fast until it has caught up, and
+        # The sidetone runs a little fast until it has caught up, and
         # then stops. What the K4 is told is untouched: KZU carries the
         # full element_seconds and KZD the full gap.
         #
@@ -14421,7 +14421,6 @@ class Keyer():
         # The step it comes to depends on the element's length, which is
         # end_element's to know.
         self.sidetone_behind = behind
-        self.sidetone_fraction = min(self.max_sidetone_catchup_fraction, behind)
 
     def auto_space_until(self, now):
         # Before a burst's first element: where auto spacing is on and
@@ -14534,20 +14533,23 @@ class Keyer():
         return True
 
     def element_sidetone(self, element_seconds):
-        # The catch-up plan_sidetone_catchup settled on, applied to an
-        # element of this length and the gap after it alike: what the
-        # sidetone is actually given, as against what the K4 is told, and
-        # the step that frees up for the element after it to take.
-        behind = self.sidetone_behind
-        fraction = self.sidetone_fraction
-        inter_element_seconds = self.whole_ms(self.inter_element_seconds)
-        step = (element_seconds + inter_element_seconds) * fraction
-        if step > behind:
-            # Short of a whole step: scale the fraction back so that the
-            # element and the gap stay scaled alike.
-            fraction *= behind / step
-            step = behind
-        return element_seconds * (1 - fraction), step
+        # The catch-up for an element of this length: what the sidetone
+        # is actually given, as against what the K4 is told, and the
+        # step that frees up for the element after it to take.
+        #
+        # What plan_sidetone_catchup found behind comes off the tone and
+        # the gap after it in proportion to their nominal lengths: half
+        # each after a dit, three quarters and a quarter after a dah, and
+        # whatever the weighting makes of those otherwise. So both are
+        # shortened by the same share, and that share is no more than
+        # max_sidetone_catchup_fraction. The next element's sidetone
+        # moves earlier by the two together, so the gap is heard short
+        # by its part and the tone by its.
+        gap_seconds = self.whole_ms(self.inter_element_seconds)
+        fraction = min(self.max_sidetone_catchup_fraction,
+                       self.sidetone_behind / (element_seconds + gap_seconds))
+        element_trim = element_seconds * fraction
+        return element_seconds - element_trim, element_trim + gap_seconds * fraction
 
     def up_edge_margin(self, dit_sidetone_seconds):
         # How far before the output callback's last moment for it a
