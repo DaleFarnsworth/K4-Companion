@@ -13521,10 +13521,10 @@ class Keyer():
             if timestamp == None:
                 timestamp = arrived
             self.start_burst_sidetone(event, arrived, timestamp)
-            # Said in the log where it arrived a millisecond or more
+            # Said in the log where it arrived more than 3 milliseconds
             # after it happened.
             late = ''
-            if arrived - timestamp >= .001:
+            if arrived - timestamp >= .003:
                 late = f' arrived {arrived:.4f}'
             if event == self.DIT_DOWN_EVENT:
                 self.dit_down_timestamp = timestamp
