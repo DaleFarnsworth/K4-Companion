@@ -12826,8 +12826,8 @@ class Keyer():
     singleton = None
 
     keyer_thread = None
-    # keep sidetone monitor muted for an extra half second
-    straight_key_unmute_sidetone_monitor_delay = 0.5
+    # keep sidetone monitor muted for an extra .5 second
+    unmute_sidetone_monitor_extra_delay = 0.5
     device_type = None
     device_type_straight_key = False
     device_type_MoMIDI = False
@@ -13655,7 +13655,10 @@ class Keyer():
             if self.k4_keyed:
                 self.k4_keyed = False
                 Server.k4_server.send_str(f'KZU{ms:04d};')
-                delay = self.straight_key_unmute_sidetone_monitor_delay
+                delay = self.keydown_initial_delay / 1000
+                delay += Audio.sidetone_delay()
+                delay += ms / 1000
+                delay += self.unmute_sidetone_monitor_extra_delay
                 self.delayed_unmute_sidetone_monitor(delay)
             Audio.report_glitches(during_sidetone=True)
 
@@ -14031,6 +14034,7 @@ class Keyer():
                 delay = self.keydown_initial_delay / 1000
                 delay += Audio.sidetone_delay()
                 delay += self.end_element_timestamp - self.element_keyed_start
+                delay += self.unmute_sidetone_monitor_extra_delay
                 self.delayed_unmute_sidetone_monitor(delay)
 
             self.in_burst = False
