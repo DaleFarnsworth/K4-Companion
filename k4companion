@@ -39,6 +39,7 @@ import collections
 import configparser
 import contextlib
 import ctypes
+import faulthandler
 import glob
 import hashlib
 import io
@@ -15061,6 +15062,7 @@ class Options():
             Options.config_file = 'k4companion.yaml'
 
 def clean_up(exit=False):
+    StallWatchdog.stop()
     save_geometry()
     # CW/Macros close *before* the server is disconnected, not after --
     # CW.close() may still need to send a real command (stop_sending()'s
@@ -15536,6 +15538,59 @@ def _qt_message_handler(msg_type, context, message):
     except Exception:
         pass
 
+class StallWatchdog():
+    # Debugging only: says where the process was when it stopped
+    # running Python for stall_seconds or more -- the MIDI callback and
+    # the keyer's thread held up together, which is one thread holding
+    # the GIL rather than either waiting on anything.
+    #
+    # The watchdog's own thread can do nothing about that: it needs the
+    # GIL to run, and gets it only once the stall is over and the
+    # thread that caused it has moved on. So it keeps faulthandler's
+    # timer armed instead, re-arming it every check_seconds. The timer
+    # runs in C without the GIL, and when it goes off -- the thread
+    # having missed its re-arming for stall_seconds -- it writes every
+    # thread's stack to stderr as it stands, mid-stall. The thread then
+    # says in the log, once it runs again, when the stall ended and how
+    # long it lasted, on the clock the rest of the log is on.
+    stall_seconds = .1
+    check_seconds = .01
+    thread = None
+    stopping = False
+
+    @classmethod
+    def start(cls):
+        if cls.thread != None:
+            return
+        cls.stopping = False
+        cls.thread = threading.Thread(target=cls.run, name='stall_watchdog',
+                                      daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def stop(cls):
+        # Before shutting down, whose joins may well take longer than a
+        # stall without being one.
+        if cls.thread == None:
+            return
+        cls.stopping = True
+        cls.thread.join()
+        cls.thread = None
+        faulthandler.cancel_dump_traceback_later()
+
+    @classmethod
+    def run(cls):
+        before = time.perf_counter()
+        while not cls.stopping:
+            faulthandler.dump_traceback_later(cls.stall_seconds, file=sys.stderr)
+            time.sleep(cls.check_seconds)
+            now = time.perf_counter()
+            stalled = now - before - cls.check_seconds
+            if stalled >= cls.stall_seconds:
+                dprint(f'{now:.4f} stall of {round(stalled * 1000)} ms ended')
+            before = now
+        faulthandler.cancel_dump_traceback_later()
+
 def main():
     qInstallMessageHandler(_qt_message_handler)
     # remove obsolete settings file
@@ -15552,6 +15607,9 @@ def main():
         # with no connection, config, or audio of its own.
         panadapter_child_main(Options.panadapter_receiver)
         return
+
+    if Options.debug > 0:
+        StallWatchdog.start()
 
     app = QApplication(sys.argv)
     app.setStyle(CompactStyle(app.style()))
