@@ -684,16 +684,6 @@ class Server():
             cmd = cmd[0:-1]
         return cmd.split(';')
 
-    @staticmethod
-    def mute_sidetone_monitor():
-        Server.k4_server.send_str('ML0000;')
-
-    @staticmethod
-    def unmute_sidetone_monitor():
-        server = Server.k4_server
-        volume =  server.k4_parameter('ML0')
-        Server.k4_server.send_str(f'ML0{volume};')
-
     def __init__(self):
         Server.k4_server = self
         Server.settings = Settings()
@@ -12833,6 +12823,8 @@ class Keyer():
     singleton = None
 
     keyer_thread = None
+    # keep sidetone monitor muted for an extra half second
+    straight_key_unmute_sidetone_monitor_delay = 0.5
     device_type = None
     device_type_straight_key = False
     device_type_MoMIDI = False
@@ -13345,7 +13337,9 @@ class Keyer():
         # whether an element was one of those.
         self.last_kzd_ms = None
         self.keydown_initial_delay = 0
-        self.unmute_timer = None
+        self.sidetone_monitor_mutex = threading.Lock()
+        self.unmute_sidetone_monitor_timer = None
+        self.sidetone_monitor_muted = False
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -13633,6 +13627,7 @@ class Keyer():
             ms = self.straight_key_ms(timestamp - self.previous_key_up_timestamp)
             self.previous_key_down_timestamp = timestamp
             self.k4_keyed = True
+            self.mute_sidetone_monitor()
             Server.k4_server.send_str(f'KZD{ms:04d};')
             Audio.report_glitches(during_sidetone=False)
         elif event == self.STRAIGHT_KEY_UP_EVENT:
@@ -13647,6 +13642,8 @@ class Keyer():
             if self.k4_keyed:
                 self.k4_keyed = False
                 Server.k4_server.send_str(f'KZU{ms:04d};')
+                delay = self.straight_key_unmute_sidetone_monitor_delay
+                self.delayed_unmute_sidetone_monitor(delay)
             Audio.report_glitches(during_sidetone=True)
 
         return event
@@ -13953,9 +13950,7 @@ class Keyer():
                     return
 
                 if first_element:
-                    if self.unmute_timer:
-                        self.unmute_timer.cancel()
-                    Server.mute_sidetone_monitor()
+                    self.mute_sidetone_monitor()
 
                 # When this element was keyed, taken from start_element
                 # rather than from the clock above. The two are a whole
@@ -14023,10 +14018,7 @@ class Keyer():
                 delay = self.keydown_initial_delay / 1000
                 delay += Audio.sidetone_delay()
                 delay += self.end_element_timestamp - self.element_keyed_start
-
-                self.unmute_timer = threading.Timer(
-                    delay, Server.unmute_sidetone_monitor)
-                self.unmute_timer.start()
+                self.delayed_unmute_sidetone_monitor(delay)
 
             self.in_burst = False
 
@@ -14746,6 +14738,28 @@ class Keyer():
 
     def on_keydown_initial_delay_change(self, response=None):
         self.keydown_initial_delay = int(Server.k4_server.k4_parameter('KZL'))
+
+    def mute_sidetone_monitor(self):
+        if self.unmute_sidetone_monitor_timer:
+            self.unmute_sidetone_monitor_timer.cancel()
+        with self.sidetone_monitor_mutex:
+            was_muted = self.sidetone_monitor_muted
+            self.sidetone_monitor_muted = True
+        if not was_muted:
+                Server.k4_server.send_str('ML0000;')
+
+    def unmute_sidetone_monitor(self):
+        server = Server.k4_server
+        volume = server.k4_parameter('ML0')
+        server.send_str(f'ML0{volume};')
+        with self.sidetone_monitor_mutex:
+            self.sidetone_monitor_muted = False
+
+    def delayed_unmute_sidetone_monitor(self, delay):
+        if self.unmute_sidetone_monitor_timer:
+            self.unmute_sidetone_monitor_timer.cancel()
+        self.unmute_sidetone_monitor_timer = threading.Timer(delay, self.unmute_sidetone_monitor)
+        self.unmute_sidetone_monitor_timer.start()
 
 # A simple reversable string hash function
 # Not in any way cryptographically secure
