@@ -35,6 +35,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import atexit
 import collections
 import configparser
 import contextlib
@@ -7334,6 +7335,7 @@ def panadapter_child_main(receiver):
     # daemon threads". Qt has already shut down by here and the flushes
     # below are what the parent is waiting for, so there is nothing left
     # that finalization needs to do.
+    LogWriter.flush()
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.flush()
@@ -15357,13 +15359,68 @@ def scale_font(font, scale):
     size = max(1, round(font.pointSize() * scale))
     return qt_font(font.family(), size, font.weight())
 
+class LogWriter():
+    # Writes the debug log on a thread of its own, so that no thread
+    # printing to it ever waits on stderr. A write to a terminal, or to
+    # a pipe into one, blocks for as long as the reader stops reading,
+    # and a debug run has the MIDI callback and the keyer's thread
+    # printing between every step they take: a stalled stderr stalled
+    # them both, and the paddles with them. Every line that matters for
+    # timing carries its own timestamp, so nothing is lost by writing it
+    # a little after it was said.
+    #
+    # Started with the first line, and drained at exit (see flush).
+    lines = queue.SimpleQueue()
+    thread = None
+    lock = threading.Lock()
+    flush_timeout = 2.0
+
+    @classmethod
+    def put(cls, text):
+        if cls.thread == None:
+            with cls.lock:
+                if cls.thread == None:
+                    cls.thread = threading.Thread(target=cls.run, name='log_writer',
+                                                  daemon=True)
+                    cls.thread.start()
+                    atexit.register(cls.flush)
+        cls.lines.put(text)
+
+    @classmethod
+    def flush(cls):
+        # Until everything put so far is written, and no longer than
+        # flush_timeout: a stderr that has stopped taking lines is no
+        # reason not to exit. For atexit, and for an exit that skips it
+        # (see panadapter_child_main).
+        if cls.thread == None:
+            return
+        written = threading.Event()
+        cls.lines.put(written)
+        written.wait(cls.flush_timeout)
+
+    @classmethod
+    def run(cls):
+        while True:
+            # Whatever has piled up is written in one go.
+            items = [cls.lines.get()]
+            while not cls.lines.empty():
+                items.append(cls.lines.get())
+            text = ''.join(item for item in items if isinstance(item, str))
+            if text:
+                try:
+                    stderr.write(text)
+                    stderr.flush()
+                except:
+                    # fails in a pyinstaller bundle while stderr is closed
+                    pass
+            for item in items:
+                if isinstance(item, threading.Event):
+                    item.set()
+
 def dprint(*args, **kwargs):
-    try:
-        # fails in a pyinstaller bundle while stderr is closed
-        print(*args, file=stderr, flush=True, **kwargs)
-    except:
-        # ignore that failure
-        pass
+    text = io.StringIO()
+    print(*args, file=text, **kwargs)
+    LogWriter.put(text.getvalue())
 
 def dprint1(*args, **kwargs):
     if Options.debug >= 1:
