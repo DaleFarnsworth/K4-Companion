@@ -13508,6 +13508,16 @@ class Keyer():
                     elif event == self.STRAIGHT_KEY_UP_EVENT:
                         Audio.key_sidetone(False)
                         self.straight_key_down = False
+            # Said in the log where a MIDI edge arrived 3ms or more
+            # after the device sent it, by the device's own clock (see
+            # midi_event_timestamp): the edge was keyed that much late.
+            # Measured after keying, so it includes the wait for the lock.
+            if timestamp != None:
+                arrived = time.perf_counter()
+                if arrived - timestamp >= .003:
+                    dprint_keying(f'straight key {event} at {timestamp:.4f} '
+                                  f'arrived {arrived:.4f}, '
+                                  f'{round((arrived - timestamp) * 1000)} ms late')
             self.paddle_timestamp += delta_time
             timestamp = self.paddle_timestamp
             late = ''
