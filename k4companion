@@ -108,6 +108,21 @@ for name, original in original_paths.items():
     else:
         os.environ[name] = original
 
+# Only a K-Pod needs it, so it is not required: without it the K-Pod tab
+# says what to install. The hidapi package (cython-hidapi), whose module
+# is called hid -- not the unrelated package called hid, which has no
+# hid.device. On Linux its hidraw module instead, which the same package
+# installs: that goes through the kernel's own HID driver, where hid
+# goes through libusb, detaching the driver and needing access to the
+# raw USB device.
+hid = None
+for hid_module in (('hidraw', 'hid') if sys.platform.startswith('linux') else ('hid',)):
+    try:
+        hid = __import__(hid_module)
+        break
+    except ImportError:
+        pass
+
 appname = 'k4companion'
 version = "2.0.2"
 
@@ -3013,6 +3028,7 @@ class RIT(SteppedEntry):
     step_indexes = {1: 0, 10: 1, 100: 2, 1000: 3}
     low_offset_limit=-9999
     high_offset_limit=9999
+    instances = {}                # AorB -> RIT instance, as VFO has them
 
     def __init__(self, config_info, container):
         required = ['item', 'AorB']
@@ -3024,6 +3040,7 @@ class RIT(SteppedEntry):
 
         self.AorB = config_info.get('AorB', 'A').upper()
         self.suffix = '' if self.AorB == 'A' else '$'
+        RIT.instances[self.AorB] = self
 
         self.width = 6
 
@@ -10528,6 +10545,133 @@ class AppSettings_widget(Widget):
         Server.settings.put_save('Audio', 'remote_audio_latency', current_value)
         Audio.set_remote_audio_latency(current_value)
 
+class KpodSettings():
+    # The Macros window's K-Pod tab: whether a K-Pod is connected, what its
+    # encoder is tuning, and the commands each of its eight buttons runs
+    # when tapped and when held. The commands belong to the radio, as
+    # macros do, so they are kept with each K4's settings.
+    settings_section = 'K-Pod'
+    buttons = 8
+    # The settings key prefix for each tab of buttons, and its title.
+    modes = (('', 'All Modes'), ('cw', 'CW'), ('ssb', 'SSB'),
+             ('data', 'Data'), ('am', 'AM'), ('fm', 'FM'))
+
+    def __init__(self, owner):
+        # owner is the window the tab goes in, for its fonts and colours.
+        self.owner = owner
+
+    def frame(self):
+        owner = self.owner
+        frame, grid = qt_group_box('K-Pod', owner.label_font())
+
+        self.status_label = QLabel()
+        self.status_label.setFont(owner.font())
+        grid.addWidget(self.status_label, 0, 0, Qt.AlignmentFlag.AlignLeft)
+
+        self.rocker_label = QLabel()
+        self.rocker_label.setFont(owner.font())
+        grid.addWidget(self.rocker_label, 1, 0, Qt.AlignmentFlag.AlignLeft)
+
+        note = QLabel('The rocker picks what the knob tunes: left VFO A, centre VFO B, right RIT.\n'
+                      'A button runs its Tap commands when tapped and its Hold commands when held.\n'
+                      'Commands set on All Modes run in every mode; otherwise those for the current TX mode run\n'
+                      "(VFO A's mode, or VFO B's when split).\n"
+                      'As in Macros, text before an & is shown, and the commands after it are sent.')
+        note.setFont(owner.label_font())
+        grid.addWidget(note, 2, 0, Qt.AlignmentFlag.AlignLeft)
+
+        # A tab of buttons for each group of modes, and one for all of
+        # them: a button set on All Modes runs in every mode, so the same
+        # button on the other tabs is greyed out while it is.
+        modes_notebook = QTabWidget()
+        modes_notebook.setFont(owner.label_font())
+        self.entries = {}
+        for mode, title in self.modes:
+            modes_notebook.addTab(self.buttons_frame(mode), title)
+        grid.addWidget(modes_notebook, 3, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.update_enabled()
+
+        KpodInput.add_status_listener(self.show_status)
+        self.show_status()
+        return frame
+
+    def close(self):
+        # The window's widgets are about to go; stop telling them things.
+        KpodInput.remove_status_listener(self.show_status)
+
+    def buttons_frame(self, mode):
+        owner = self.owner
+        buttons_frame = QWidget()
+        buttons_grid = QGridLayout(buttons_frame)
+        buttons_grid.setHorizontalSpacing(6)
+        for column, title in ((1, 'Tap'), (2, 'Hold')):
+            header = QLabel(title)
+            header.setFont(owner.label_font())
+            buttons_grid.addWidget(header, 0, column, Qt.AlignmentFlag.AlignLeft)
+        width = 22 * QFontMetrics(owner.font()).averageCharWidth()
+        for button in range(1, self.buttons + 1):
+            label = QLabel(f'Button {button}')
+            label.setFont(owner.label_font())
+            buttons_grid.addWidget(label, button, 0, Qt.AlignmentFlag.AlignLeft)
+            for column, kind in ((1, 'tap'), (2, 'hold')):
+                key = self.key(mode, kind, button)
+                value = Server.settings.get(self.settings_section, key, '') or ''
+                entry = QLineEdit(value)
+                entry.setFont(owner.font())
+                entry.setFixedWidth(width)
+                entry.setStyleSheet(f'QLineEdit {{ color: {owner.fg}; background-color: {owner.bg}; }}'
+                                    'QLineEdit:disabled { color: #888; background-color: #ccc; }')
+                entry.editingFinished.connect(lambda key=key: self.save_entry(key))
+                if mode == '':
+                    entry.textChanged.connect(self.update_enabled)
+                buttons_grid.addWidget(entry, button, column, Qt.AlignmentFlag.AlignLeft)
+                self.entries[key] = entry
+        buttons_grid.setRowStretch(self.buttons + 1, 1)
+        buttons_grid.setColumnStretch(3, 1)
+        return buttons_frame
+
+    @staticmethod
+    def key(mode, kind, button):
+        # All Modes keeps the keys the buttons had before there were
+        # modes, so settings made then still apply everywhere.
+        return f'{mode}_{kind}{button}' if mode else f'{kind}{button}'
+
+    @classmethod
+    def mode_group(cls, k4_mode):
+        # The tab whose commands run in the K4's mode, as tx_mode() names it.
+        return {'LSB': 'ssb', 'USB': 'ssb', 'CW': 'cw', 'CW-R': 'cw',
+                'DATA': 'data', 'DATA-R': 'data', 'AM': 'am', 'FM': 'fm'}.get(k4_mode, '')
+
+    @classmethod
+    def commands_text(cls, kind, button, k4_mode):
+        # What a button runs: its All Modes commands if it has any, or
+        # else those for the mode the K4 is in.
+        text = Server.settings.get(cls.settings_section, cls.key('', kind, button), '') or ''
+        if text.strip() != '':
+            return text
+        mode = cls.mode_group(k4_mode)
+        if mode == '':
+            return ''
+        return Server.settings.get(cls.settings_section, cls.key(mode, kind, button), '') or ''
+
+    def update_enabled(self):
+        for button in range(1, self.buttons + 1):
+            for kind in ('tap', 'hold'):
+                in_all_modes = self.entries[self.key('', kind, button)].text().strip() != ''
+                for mode, title in self.modes:
+                    if mode != '':
+                        self.entries[self.key(mode, kind, button)].setEnabled(not in_all_modes)
+
+    def save_entry(self, key):
+        Server.settings.put_save(self.settings_section, key, self.entries[key].text())
+
+    def show_status(self):
+        self.status_label.setText(KpodInput.status_text)
+        self.rocker_label.setText(
+            f'The knob tunes {KpodInput.rocker_names.get(KpodInput.rocker, "VFO B")}.')
+        # Which VFO the knob tunes means nothing without a K-Pod.
+        self.rocker_label.setVisible(KpodInput.connected)
+
 class FWversions(Text):
     def __init__(self, config_info, container):
 
@@ -10893,7 +11037,20 @@ class Antenna(Widget):
 
         self._set_dropdown_values(values)
 
+class FitTabPage(QWidget):
+    # A tab page that asks for no room while it isn't the one shown. A
+    # QTabWidget is as big as its biggest page, so a window whose tabs
+    # are made of these fits whichever tab is current instead.
+    def sizeHint(self):
+        return QSize(0, 0) if self.isHidden() else super().sizeHint()
+
+    def minimumSizeHint(self):
+        return QSize(0, 0) if self.isHidden() else super().minimumSizeHint()
+
 class TextButtons(Widget):
+    # What its tab pages are made of: see FitTabPage.
+    tab_page_class = QWidget
+
     def __init__(self, config_info, container):
         super().__init__(config_info, container)
 
@@ -11002,7 +11159,7 @@ class TextButtons(Widget):
         # The Configure tab: Save and Cancel, what the & in a value
         # means, the buttons as editable fields, and whatever settings of
         # its own the tab adds in add_config_vars.
-        self.config_frame = QWidget()
+        self.config_frame = self.tab_page_class()
         config_grid = QGridLayout(self.config_frame)
         self.add_tab(self.config_frame, 'Configure')
 
@@ -12521,6 +12678,9 @@ class CW(TextButtons):
 class Macros(TextButtons):
     singleton = None
     settings_section = 'Macros'
+    # The K-Pod and Configure tabs are much bigger than the macros
+    # themselves, so the window shrinks back when they aren't showing.
+    tab_page_class = FitTabPage
 
     @classmethod
     def close_window(cls):
@@ -12574,6 +12734,7 @@ class Macros(TextButtons):
 
         self.add_macros_tab()
         self.add_config_tab()
+        self.add_kpod_tab()
 
         self.set_geometry()
         # move()/resize() here happen before this window is ever shown
@@ -12593,7 +12754,7 @@ class Macros(TextButtons):
         # be the only things that actually call top_level.show()/hide().
 
     def add_macros_tab(self):
-        self.macros_frame = QWidget()
+        self.macros_frame = self.tab_page_class()
         macros_grid = QGridLayout(self.macros_frame)
         self.add_tab(self.macros_frame, 'Macros')
 
@@ -12604,8 +12765,18 @@ class Macros(TextButtons):
         bat_grid.addWidget(self.buttons_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.add_buttons(self.buttons, self.buttons_frame, edit=False)
 
+    def add_kpod_tab(self):
+        self.kpod_settings = KpodSettings(self)
+        kpod_frame = self.tab_page_class()
+        kpod_grid = QGridLayout(kpod_frame)
+        kpod_grid.addWidget(self.kpod_settings.frame(), 0, 0,
+                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.add_tab(kpod_frame, 'K-Pod')
+
     def on_tab_changed(self, index):
         super().on_tab_changed(index)
+        # Fit the window to the tab now showing (see FitTabPage).
+        self.notebook.updateGeometry()
         if self.current_tabname == 'Configure':
             self.save_geometry()
             self.set_geometry()
@@ -12646,6 +12817,7 @@ class Macros(TextButtons):
             return
         self.is_open = False
         self.save_geometry()
+        self.kpod_settings.close()
         self.top_level.deleteLater()
 
     def add_buttons(self, buttons, parent_frame, edit):
@@ -13211,6 +13383,316 @@ class SerialInput():
                     self.dah_time = None
 
             time.sleep(.001)
+
+class KpodDecoder():
+    # What an Elecraft K-Pod's answer to a poll says happened.
+    #
+    # The host writes an eight-byte report whose first byte is 'u', and
+    # the K-Pod answers with eight bytes of its own:
+    #
+    #     [0]     'u' where something has happened since the last poll,
+    #             and 0 where nothing has
+    #     [1..2]  encoder ticks since the last poll, signed, little-endian
+    #     [3]     bits 0-3: the button down, 1 to 8, or 0 for none
+    #             bit 4:    set once that button has been held
+    #             bits 5-6: the rocker -- 0 centre, 1 right, 2 left, and 3
+    #                       in between two positions, which is ignored
+    #
+    # A button is a tap where it comes up without having been held, and
+    # a hold the moment it is reported held; it is never both. It comes
+    # up either in an answer saying no button is down, or in one saying
+    # nothing has happened at all.
+    ROCKER_VFO_B = 0              # centre
+    ROCKER_RIT = 1                # right
+    ROCKER_VFO_A = 2              # left
+    ROCKER_MOVING = 3
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        # The rocker is only reported alongside something else happening,
+        # so until then it is taken to be where it rests.
+        self.rocker = self.ROCKER_VFO_B
+        self.button = 0
+        self.hold_sent = False
+
+    def decode(self, report):
+        # The events in one answer, in the order to act on them:
+        # ('rocker', position), ('encoder', ticks), ('hold', button) and
+        # ('tap', button).
+        events = []
+        if len(report) < 4 or report[0] != ord('u'):
+            if self.button:
+                if not self.hold_sent:
+                    events.append(('tap', self.button))
+                self.button = 0
+                self.hold_sent = False
+            return events
+
+        ticks = int.from_bytes(bytes(report[1:3]), 'little', signed=True)
+        controls = report[3]
+        button = controls & 0x0f
+        held = bool(controls & 0x10)
+        rocker = (controls >> 5) & 0x03
+
+        # The rocker before the encoder: a turn reports where the rocker
+        # is, and that is what the turn is for.
+        if rocker != self.rocker and rocker != self.ROCKER_MOVING:
+            self.rocker = rocker
+            events.append(('rocker', rocker))
+
+        if ticks:
+            events.append(('encoder', ticks))
+
+        if button and not self.button:
+            self.button = button
+            self.hold_sent = held
+            if held:
+                events.append(('hold', button))
+        elif button:
+            if held and not self.hold_sent:
+                self.hold_sent = True
+                events.append(('hold', self.button))
+        elif self.button:
+            if not self.hold_sent:
+                events.append(('tap', self.button))
+            self.button = 0
+            self.hold_sent = False
+
+        return events
+
+class KpodSignals(QObject):
+    # From the K-Pod's thread to the Qt thread, where the VFOs and the
+    # connection to the K4 are.
+    event = pyqtSignal(str, int)
+    status = pyqtSignal(str, bool)
+
+class KpodInput():
+    # An Elecraft K-Pod: its encoder tunes whatever its rocker picks -- VFO
+    # A, VFO B, or the RIT offset -- and each of its eight buttons runs
+    # the commands set for tapping or holding it on the K-Pod tab.
+    #
+    # A USB HID device, read with hidapi on a thread of its own. The K-Pod
+    # only answers when asked, so it is polled; it is looked for again
+    # every few seconds while it is not there, so it can be plugged in
+    # and out at any time.
+    vendor_id = 0x04d8
+    product_id = 0xf12d
+    poll_seconds = .02
+    search_seconds = 2.0
+    query_timeout_ms = 500 if sys.platform == 'win32' else 100
+
+    thread = None
+    stopping = False
+    signals = None
+    status_text = ''
+    connected = False
+    status_listeners = []
+    rocker = KpodDecoder.ROCKER_VFO_B
+    rocker_names = {
+        KpodDecoder.ROCKER_VFO_A: 'VFO A',
+        KpodDecoder.ROCKER_VFO_B: 'VFO B',
+        KpodDecoder.ROCKER_RIT: 'RIT',
+    }
+
+    @classmethod
+    def start(cls):
+        if cls.thread != None:
+            return
+        cls.signals = KpodSignals()
+        cls.signals.event.connect(cls.on_event)
+        cls.signals.status.connect(cls.on_status)
+        if hid == None or not hasattr(hid, 'device'):
+            cls.on_status('K-Pod support needs the hidapi package (pip install hidapi).', False)
+            return
+        cls.stopping = False
+        cls.thread = threading.Thread(target=cls.run, name='kpod_thread', daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def stop(cls):
+        cls.stopping = True
+        if cls.thread != None:
+            cls.thread.join(1.0)
+            cls.thread = None
+
+    @classmethod
+    def add_status_listener(cls, listener):
+        cls.status_listeners.append(listener)
+
+    @classmethod
+    def remove_status_listener(cls, listener):
+        if listener in cls.status_listeners:
+            cls.status_listeners.remove(listener)
+
+    # ------------------------------------------------ on the K-Pod's thread
+
+    @classmethod
+    def run(cls):
+        decoder = KpodDecoder()
+        device = None
+        said = None
+        while not cls.stopping:
+            if device == None:
+                device, status = cls.open_device()
+                if status != said:
+                    said = status
+                    cls.signals.status.emit(status, device != None)
+                if device == None:
+                    cls.pause(cls.search_seconds)
+                    continue
+                decoder.reset()
+            try:
+                report = cls.poll(device)
+            except (OSError, ValueError) as e:
+                dprint_kpod(f'K-Pod lost: {e}')
+                cls.close_device(device)
+                device = None
+                continue
+            if report:
+                for kind, value in decoder.decode(report):
+                    cls.signals.event.emit(kind, value)
+            time.sleep(cls.poll_seconds)
+        if device != None:
+            cls.close_device(device)
+
+    @classmethod
+    def pause(cls, seconds):
+        # A sleep that a stop cuts short.
+        until = time.monotonic() + seconds
+        while not cls.stopping and time.monotonic() < until:
+            time.sleep(.1)
+
+    @classmethod
+    def open_device(cls):
+        # The K-Pod opened, and what to say about it; or None, and why not.
+        try:
+            infos = hid.enumerate(cls.vendor_id, cls.product_id)
+        except Exception as e:
+            return None, f'K-Pod search failed: {e}'
+        if not infos:
+            return None, 'No K-Pod found.'
+
+        # Its vendor-defined interface, where it has more than one.
+        info = max(infos, key=lambda i: i.get('usage_page', 0) >= 0xff00)
+        device = hid.device()
+        try:
+            device.open_path(info['path'])
+        except (OSError, ValueError) as e:
+            reason = f'A K-Pod was found but could not be opened ({e}).'
+            if sys.platform.startswith('linux'):
+                reason += ' It may need a udev rule giving you access to it.'
+            return None, reason
+        device.set_nonblocking(1)
+
+        details = []
+        try:
+            answer = cls.query(device, '=')
+            if answer:
+                ident = bytes(b for b in answer[1:8] if b).decode('ascii', 'replace').strip()
+                if ident:
+                    details.append(f'ID {ident}')
+            answer = cls.query(device, 'v')
+            if answer:
+                version = int.from_bytes(bytes(answer[1:3]), 'little', signed=True)
+                details.append(f'firmware {version // 100}.{version % 100:02d}')
+        except (OSError, ValueError) as e:
+            dprint_kpod(f'K-Pod query failed: {e}')
+        product = info.get('product_string') or 'K-Pod'
+        status = f'{product} connected'
+        if details:
+            status += f' ({", ".join(details)})'
+        return device, status + '.'
+
+    @classmethod
+    def write(cls, device, letter):
+        report = [ord(letter)] + [0] * 7
+        if sys.platform == 'win32':
+            # Report ID 0 in front, which Windows wants and the others don't.
+            report = [0] + report
+        if device.write(report) < 0:
+            raise OSError('write failed')
+
+    @classmethod
+    def query(cls, device, letter):
+        cls.write(device, letter)
+        answer = device.read(8, cls.query_timeout_ms)
+        return answer if len(answer) == 8 else None
+
+    @classmethod
+    def poll(cls, device):
+        # This poll's answer, or None where it has not come in time --
+        # which is nothing having happened, not the K-Pod gone.
+        cls.write(device, 'u')
+        answer = device.read(8, 5)
+        return answer if len(answer) == 8 else None
+
+    @classmethod
+    def close_device(cls, device):
+        try:
+            device.close()
+        except Exception:
+            pass
+
+    # ----------------------------------------------------- on the Qt thread
+
+    @classmethod
+    def on_status(cls, text, connected):
+        cls.status_text = text
+        cls.connected = connected
+        dprint_kpod(f'K-Pod: {text}')
+        for listener in cls.status_listeners:
+            listener()
+
+    @classmethod
+    def on_event(cls, kind, value):
+        dprint_kpod(f'K-Pod {kind} {value}')
+        if kind == 'rocker':
+            cls.rocker = value
+            for listener in cls.status_listeners:
+                listener()
+        elif kind == 'encoder':
+            cls.tune(value)
+        else:
+            cls.run_commands(kind, value)
+
+    @classmethod
+    def tune(cls, ticks):
+        # A tick a step, at whatever step the VFO or RIT is set to, as the
+        # mouse wheel does.
+        server = Server.k4_server
+        if server == None or not server.connected:
+            return
+        if cls.rocker == KpodDecoder.ROCKER_RIT:
+            entry = RIT.instances.get('A')
+        elif cls.rocker == KpodDecoder.ROCKER_VFO_A:
+            entry = VFO.instances.get('A')
+        else:
+            entry = VFO.instances.get('B')
+        if entry != None:
+            entry.adjust_value(ticks * entry.step)
+
+    @classmethod
+    def run_commands(cls, kind, button):
+        # As a macro does: whatever comes before an & is shown, and what
+        # comes after it is sent.
+        server = Server.k4_server
+        if server == None or not server.connected:
+            return
+        text = KpodSettings.commands_text(kind, button, server.tx_mode())
+        label, amp, commands = text.partition('&')
+        if not amp:
+            label = commands = text
+        label = label.strip()
+        commands = commands.strip()
+        if commands == '':
+            return
+        if label != '':
+            Popup.popup(label, timeout=500, color='white')
+        if not commands.endswith(';'):
+            commands += ';'
+        server.send_cmds(commands)
 
 class PaddleEvent():
     def __init__(self, event, timestamp):
@@ -15533,6 +16015,7 @@ def clean_up(exit=False):
     # window -- otherwise exiting would clear the persisted "was open"
     # flag that restore_open_windows() relies on next launch.
     PanadapterProcess.close_all()
+    KpodInput.stop()
     Audio.close()
     Poll.remove_all()
 
@@ -15873,6 +16356,10 @@ def dprint_keying(*args, **kwargs):
     if 'keyer' in Options.debug_areas:
         dprint(*args, **kwargs)
 
+def dprint_kpod(*args, **kwargs):
+    if 'kpod' in Options.debug_areas:
+        dprint(*args, **kwargs)
+
 def dprint_audio(*args, **kwargs):
     if 'audio' in Options.debug_areas:
         dprint(*args, **kwargs)
@@ -15943,6 +16430,8 @@ def start():
             sys.exit()
 
     read_config(config_file)
+
+    KpodInput.start()
 
     page = Page.main()
     server = page.server
