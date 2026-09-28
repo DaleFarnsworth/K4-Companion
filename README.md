@@ -2,9 +2,17 @@
 
 K4-Companion is an application written in python3 that remotely
 controls one or more Elecraft K4 tranceivers via TCP/IP.  It controls
-the main K4 features, including remote audio. It still lacks panadapter
-and waterfall support, however. It also has few enhancements, like
+the main K4 features, including remote audio, and shows a panadapter
+and waterfall for each receiver. It also has a few enhancements, like
 per-mode equalizer settings and configurable CW and general macros.
+
+K4-Companion can also key the K4 from paddles or a straight key
+connected to the computer, through a MoMIDI interface, a serial port,
+or a Vail adapter. Its built-in keyer offers plain Iambic, Iambic A,
+Iambic B and Ultimatic modes, and it plays its own sidetone, so you hear your
+sending without waiting for the audio to come back from the K4.
+
+Connections to the K4 are encrypted (TLS on port 9204) by default.
 
 K4-Companion began life as a simple macro-sending program called
 K4Macro-Python, created by Charles Powell, NK8O. It has now grown
