@@ -41,6 +41,7 @@ import configparser
 import contextlib
 import ctypes
 import faulthandler
+import gc
 import glob
 import hashlib
 import io
@@ -1010,6 +1011,7 @@ class Server():
             if orig_param != None:
                 self.update_k4_parameter(cmd_base(cmd), orig_param)
         Keyer.subscribe_enabled()
+        freeze_startup_objects()
 
     def on_ov_received(self, response):
         param = cmd_parameter(response)
@@ -2292,8 +2294,14 @@ class ToggleWidget():
         self.button.setText(selection['text'])
         self.button.setToolTip(selection['tooltip'])
         self.frame.setToolTip(selection['tooltip'])
-        self.button.setStyleSheet(
-            qt_button_stylesheet(selection['bg'], selection['fg'], selection['abg'], selection['afg']))
+        # Only where it differs: configure() runs at every response,
+        # the PONG keepalive included, and setting even the same style
+        # sheet has Qt restyle the button -- a couple of milliseconds
+        # holding the GIL, which the audio output callback can't spare.
+        stylesheet = qt_button_stylesheet(selection['bg'], selection['fg'],
+                                          selection['abg'], selection['afg'])
+        if self.button.styleSheet() != stylesheet:
+            self.button.setStyleSheet(stylesheet)
         if selection['blink']:
             self.blinkon(selection)
         else:
@@ -2342,10 +2350,19 @@ class ToggleWidget():
         return True
 
     def on_response_received(self, response):
-        for index, selection in enumerate(self.selections):
+        # The last selection that matches is the one shown. A selection
+        # with no response of its own matches anything, so configuring
+        # each match in turn, as this did, restyled the button and
+        # started and stopped a blink timer at every response -- the
+        # connect button at every PONG keepalive -- holding the GIL long
+        # enough to make the audio output callback late.
+        index = None
+        for i, selection in enumerate(self.selections):
             if self.compare_parameters(selection):
-                self.index = index
-                self.configure()
+                index = i
+        if index != None and index != self.index:
+            self.index = index
+            self.configure()
 
     def blinkon(self, selection):
         Poll.add(Widget.blink_ms, self.blink)
@@ -3202,14 +3219,40 @@ class Bargraph(Widget):
 
     def on_response_received(self, response):
         value = float(self.eval_value(self.evalresponse, response))
+        # setValue repaints there and then, taking with it whatever else
+        # in the window is waiting to be painted -- the VFOs recoloured
+        # for receive, after RX; -- all while holding the GIL, which
+        # made the audio output callback late. With updates off it only
+        # schedules the paint, which the event loop then does in C++.
+        self.progressbar.setUpdatesEnabled(False)
         self.progressbar.setValue(round(value * 1000))
+        self.progressbar.setUpdatesEnabled(True)
         if self.server.connected:
-            self.configure()
+            # A meter reading comes several times a second, and the scale
+            # only changes with what evalbottomtext and evalmaximum see --
+            # the power range, for the power meter. Laying the bar out
+            # again at every reading held the GIL long enough to make the
+            # audio output underrun.
+            scale = (self.bottom_text(), self.maximum_value())
+            if scale != self.configured_scale:
+                self.configure()
+
+    configured_scale = None
+
+    def bottom_text(self):
+        if self.evalbottomtext != None:
+            return self.eval_value(self.evalbottomtext, None)
+        return self.bottomtext
+
+    def maximum_value(self):
+        if self.evalmaximum != None:
+            return float(self.eval_value(self.evalmaximum, None)) + .001
+        return self.maximum
 
     def configure(self):
-        bottomtext = self.bottomtext
-        if self.evalbottomtext != None:
-            bottomtext = self.eval_value(self.evalbottomtext, None)
+        bottomtext = self.bottom_text()
+        maximum = self.maximum_value()
+        self.configured_scale = (bottomtext, maximum)
         if hasattr(self, 'bottom_label'):
             self.bottom_label.setText(str(bottomtext))
         bottom_width = self.bottom_frame.sizeHint().width()
@@ -3218,9 +3261,6 @@ class Bargraph(Widget):
         if self.length_percent != None:
             length = (bottom_width - left_width) * self.length_percent / 100.0
             length = max(1, round(length))
-        maximum = self.maximum
-        if self.evalmaximum != None:
-            maximum = float(self.eval_value(self.evalmaximum, None)) + .001
         if self.progressbar.orientation() == Qt.Orientation.Horizontal:
             self.progressbar.setFixedWidth(length)
         else:
@@ -3842,6 +3882,11 @@ class Equalizers(Widget):
 
     def _reload_combobox_items(self, combobox, items):
         items = list(items)
+        # configure() reloads every box on each TX/RX change, where the
+        # items are almost always what they were; refilling them anyway
+        # held the GIL long enough to make the audio output underrun.
+        if items == [combobox.itemText(i) for i in range(combobox.count())]:
+            return
         current = combobox.currentText()
         combobox.blockSignals(True)
         combobox.clear()
@@ -8391,7 +8436,8 @@ class Audio():
                 if sample_rate != 0:
                     raise Exception('Unsupported audio sample rate:', sample_rate)
 
-                opus = opuslib.Decoder(cls.k4_sample_rate, cls.output_channels)
+                opus = OpusFloatDecoder(cls.k4_sample_rate, cls.output_channels,
+                                        self.maximum_output_frame_size)
 
                 with self.output_stream_lock:
                     if self.output_stream != None:
@@ -8495,8 +8541,7 @@ class Audio():
 
             self.report_audio_glitches()
 
-            pcm = opus.decode_float(bytes(packet[4:]), self.maximum_output_frame_size)
-            stereo = numpy.frombuffer(pcm, dtype=numpy.float32)
+            stereo = opus.decode(bytes(packet[4:]))
             a = stereo[0::2]                    # even samples are from the main receiver
             b = stereo[1::2]                    # odd samples are from the sub receiver
 
@@ -15547,7 +15592,20 @@ def start():
         page.select_tab('Server')
         Page.show_page(page.name)
 
+def freeze_startup_objects():
+    # Everything built by now -- the pages, their widgets, the config --
+    # lasts as long as the connection does, and Python 3.14's incremental
+    # collector otherwise goes back over a share of it at every young
+    # collection: eight milliseconds and more with the GIL held, which the
+    # audio output callback, a few milliseconds deep, cannot wait out.
+    # Frozen, the collector leaves it alone. Collected first, so that
+    # what is garbage already isn't frozen with it.
+    gc.collect()
+    gc.freeze()
+
 def restart():
+    # What the old pages leave behind has to be collectable again.
+    gc.unfreeze()
     clean_up()
     Settings.restarting(True)
     Page.main().frame.deleteLater()
@@ -15624,6 +15682,35 @@ def _qt_message_handler(msg_type, context, message):
     except Exception:
         pass
 
+class OpusFloatDecoder():
+    # opuslib's Decoder.decode_float, without its garbage. It allocates a
+    # fresh ctypes array for every packet -- four times the size it needs,
+    # sizeof(float) being applied twice -- and ctypes.cast leaves that
+    # array in a reference cycle, which only the garbage collector frees.
+    # At the K4's packet rate that was a couple of thousand arrays and
+    # tens of megabytes for every collection to free, twenty milliseconds
+    # with the GIL held and the audio output callback waiting on it. It
+    # then copies the samples out through a Python list of floats.
+    #
+    # This decodes into one buffer, kept for the decoder's life, through
+    # the same libopus binding opuslib uses.
+    def __init__(self, sample_rate, channels, frame_size):
+        self.decoder = opuslib.Decoder(sample_rate, channels)
+        self.channels = channels
+        self.frame_size = frame_size
+        self.buffer = numpy.empty(frame_size * channels, dtype=numpy.float32)
+        self.pointer = self.buffer.ctypes.data_as(opuslib.api.c_float_pointer)
+
+    def decode(self, data):
+        # Interleaved float32 samples, a copy of the buffer's, since the
+        # next packet decodes over it.
+        frames = opuslib.api.decoder.libopus_decode_float(
+            self.decoder.decoder_state, data, len(data),
+            self.pointer, self.frame_size, 0)
+        if frames < 0:
+            raise opuslib.exceptions.OpusError(frames)
+        return self.buffer[:frames * self.channels].copy()
+
 class StallWatchdog():
     # Debugging only: says where the process was when it stopped
     # running Python for stall_seconds or more -- the MIDI callback and
@@ -15678,6 +15765,14 @@ class StallWatchdog():
         faulthandler.cancel_dump_traceback_later()
 
 def main():
+    # How long a thread may hold the GIL while another waits for it:
+    # five milliseconds by default. The output callback is Python and
+    # waits like any other thread, and its blocks are only a few
+    # milliseconds deep, so a wait of most of one interval behind the
+    # opus decode, the CAT traffic or the Qt thread was enough to have
+    # it underrun. More switching costs a little throughput; a late
+    # block costs a click.
+    sys.setswitchinterval(.001)
     qInstallMessageHandler(_qt_message_handler)
     # remove obsolete settings file
     obsolete_settings_file = Settings.settings_pathname(-1)
