@@ -12153,6 +12153,7 @@ class Macros(TextButtons):
 
         Macros.singleton = self
         self.is_open = False
+        self.closing = False
         self.previous_tabname = None
         self._fkey_shortcuts = []
         self._geometry_needs_recheck = False
@@ -12170,6 +12171,10 @@ class Macros(TextButtons):
             self.hide()
 
     def on_macros_cmd(self, response):
+        if self.closing:
+            # close() disabling the macros as the app exits; the user's
+            # choice is what was saved before, for the next time.
+            return
         self.enabled = cmd_parameter(response) == 'ENABLE'
         Server.settings.put_save(self.settings_section, 'enabled', self.enabled)
         self.show_or_hide()
@@ -12247,6 +12252,7 @@ class Macros(TextButtons):
         self.top_level.activateWindow()
 
     def close(self):
+        self.closing = True
         if self.k4param('!MACROS') != 'DISABLE':
             self.server.update_k4_parameter('!MACROS', 'DISABLE')
         if not self.is_open:
