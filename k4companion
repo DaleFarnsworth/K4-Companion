@@ -783,6 +783,9 @@ class Server():
         else:
             self.connect_callbacks.append(callback)
 
+    # With --da audio, a response handler taking this long is logged.
+    slow_callback_seconds = .002
+
     def update_k4_parameter(self, base, parameter):
         if base in ('TX', 'RX', 'SD0', 'SD1', 'ES', 'TB', 'TB$', 'SB', 'NB', 'NB$'):
             if base == 'TX':
@@ -811,7 +814,22 @@ class Server():
 
         callbacks = self.k4_subscriptions.get(base, [])
         for callback in callbacks:
-            callback(base + parameter + ';')
+            if 'audio' in Options.debug_areas:
+                # Which handlers hold the GIL long enough to make the
+                # audio output callback late (see Audio.report_audio_glitches).
+                # Wall time counts waiting for the GIL as well; the
+                # thread's own CPU time is what the handler itself cost.
+                start = time.perf_counter()
+                cpu_start = time.thread_time()
+                callback(base + parameter + ';')
+                elapsed = time.perf_counter() - start
+                cpu = time.thread_time() - cpu_start
+                if elapsed >= self.slow_callback_seconds:
+                    name = getattr(callback, '__qualname__', repr(callback))
+                    dprint(f'slow {base}{parameter}; handler {name}: {elapsed * 1000:.1f}ms'
+                           f' ({cpu * 1000:.1f}ms CPU)')
+            else:
+                callback(base + parameter + ';')
 
         return  old != parameter
 
@@ -7539,6 +7557,7 @@ class Audio():
 
         Server.k4_server.unsubscribe_response('CW;', self.on_cw_pitch_change)
         Server.k4_server.unsubscribe_response('ML0;', self.on_sidetone_volume_change)
+        Server.k4_server.unsubscribe_response('TR;', self.on_tr_change)
 
         self.transmit_audio = False
         if self.k4_tx_audio_thread != None:
@@ -8071,14 +8090,14 @@ class Audio():
                                extra_settings=extra_settings):
                 break
         else:
-            dprint1('no sample rate available for'
-                    f' {"exclusive" if extra_settings != None else "shared"} mode')
+            dprint_audio('no sample rate available for'
+                         f' {"exclusive" if extra_settings != None else "shared"} mode')
             return
 
         if rate != info['output_sample_rate']:
-            dprint1(f'output sample rate {info["output_sample_rate"]} -> {rate}'
-                    f' for {"exclusive" if extra_settings != None else "shared"}'
-                    ' mode')
+            dprint_audio(f'output sample rate {info["output_sample_rate"]} -> {rate}'
+                         f' for {"exclusive" if extra_settings != None else "shared"}'
+                         ' mode')
         info['output_sample_rate'] = rate
         cls.frames_per_output_buffer = cls.output_blocksize(extra_settings, rate)
         cls.k4_fade_step = 1 / max(1, round(rate * cls.k4_fade_in_time))
@@ -8287,6 +8306,14 @@ class Audio():
         # Bounded, since nothing guarantees anyone comes to read it.
         self.underflow_log = collections.deque(maxlen=32)
         self.last_key_up_frame = None
+        # perf_counter times the underflow report measures from: the
+        # previous callback's start, and the most recent of the things
+        # suspected of holding the GIL past a callback's deadline -- the
+        # K4 dropping back to receive, and the monitor being unmuted
+        # after a burst.
+        self.last_callback_time = None
+        self.rx_time = None
+        self.monitor_unmuted_time = None
         self.input_device_index = -1
         self.output_device_index = -1
         self.input_device_infos = {}
@@ -8299,6 +8326,7 @@ class Audio():
 
         Server.k4_server.subscribe_response('CW;', self.on_cw_pitch_change)
         Server.k4_server.subscribe_response('ML0;', self.on_sidetone_volume_change)
+        Server.k4_server.subscribe_response('TR;', self.on_tr_change, send=False)
 
         a_volume = Server.settings.get('Audio', 'main_volume')
         if a_volume == None:
@@ -8388,7 +8416,7 @@ class Audio():
                          device=device_info['index'],
                          channels=channels,
                          dtype='float32'):
-                dprint('Info:', device_info['name'], 'does not support multiple of K4 sample rate. supported rate:', default_sample_rate)
+                dprint_audio('Info:', device_info['name'], 'does not support multiple of K4 sample rate. supported rate:', default_sample_rate)
         return sample_rate
 
 
@@ -8475,7 +8503,7 @@ class Audio():
                             # PortAudio had to say about it, is the whole
                             # of what there is to go on when a device
                             # will not take exclusive mode.
-                            dprint1(f'output stream open failed: {e}')
+                            dprint_audio(f'output stream open failed: {e}')
                             continue
                     return None
 
@@ -8502,21 +8530,21 @@ class Audio():
                         # asked to prove itself; the shared open is what
                         # there is, dead or alive.
                         stream = self.output_stream
-                        dprint1(f'output stream opened {label} but never'
-                                ' asked for a block:'
-                                f' active={stream.active}'
-                                f' stopped={stream.stopped}'
-                                f' samplerate={stream.samplerate}'
-                                f' blocksize={stream.blocksize}'
-                                f' latency={stream.latency * 1000:.2f}ms')
+                        dprint_audio(f'output stream opened {label} but never'
+                                     ' asked for a block:'
+                                     f' active={stream.active}'
+                                     f' stopped={stream.stopped}'
+                                     f' samplerate={stream.samplerate}'
+                                     f' blocksize={stream.blocksize}'
+                                     f' latency={stream.latency * 1000:.2f}ms')
                         with self.output_stream_lock:
                             self.output_stream.close()
                             self.output_stream = None
                         continue
                     opened_exclusive = extra_settings != None
-                    dprint1('output stream opened', label,
-                            f'blocksize={blocksize}',
-                            f'latency={self.output_stream.latency * 1000:.2f}ms')
+                    dprint_audio('output stream opened', label,
+                                 f'blocksize={blocksize}',
+                                 f'latency={self.output_stream.latency * 1000:.2f}ms')
                     break
 
                 # After the loop, the rate being whatever the attempt
@@ -8637,6 +8665,9 @@ class Audio():
         # waiting for k4_decoded_rx_audio_queue to be refilled. Unlike pyaudio's
         # callback, sounddevice's doesn't return the samples -- they're
         # written directly into the outdata buffer it hands in.
+        now = time.perf_counter()
+        gap = None if self.last_callback_time == None else now - self.last_callback_time
+        self.last_callback_time = now
         if status:
             # Counted, not reported: a status flag means this thread is
             # already late, and stderr is the last place to spend that
@@ -8654,7 +8685,7 @@ class Audio():
                 since_key_up = (None if self.last_key_up_frame == None
                                 else block - self.last_key_up_frame)
                 self.underflow_log.append((block, since_key_up,
-                                           self.sidetone_keyed))
+                                           self.sidetone_keyed, gap, now))
 
         block_start_frame = self.rendered_frames
         self.rendered_frames += frames
@@ -9128,7 +9159,7 @@ class Audio():
         # Silent unless something actually went wrong, and rate limited,
         # since a device that cannot keep up would otherwise report on
         # every block.
-        if Options.debug < 1:
+        if 'audio' not in Options.debug_areas:
             return
 
         during_sidetone = ' during sidetone' if during_sidetone else ''
@@ -9157,7 +9188,7 @@ class Audio():
 
         sample_rate = Audio.output_device_sample_rate()
         while self.underflow_log:
-            block, since_key_up, keyed = self.underflow_log.popleft()
+            block, since_key_up, keyed, gap, at = self.underflow_log.popleft()
             if keyed:
                 when = 'with the key down'
             elif since_key_up == None:
@@ -9167,6 +9198,30 @@ class Audio():
             else:
                 when = f'{since_key_up / sample_rate * 1000:.1f}ms after the key came up'
             dprint(f'  underflow at frame {block}, {when}')
+            # Whether this callback was itself late -- a gap well past a
+            # block is its thread kept from running, the GIL held
+            # elsewhere -- and how it lines up with the suspects.
+            details = []
+            if gap != None:
+                detail = f'callback {gap * 1000:.1f}ms after the previous one'
+                if sample_rate != None:
+                    detail += f' (a block is {Audio.frames_per_output_buffer / sample_rate * 1000:.1f}ms)'
+                details.append(detail)
+            for name, then in (('RX;', self.rx_time),
+                               ('the monitor unmute', self.monitor_unmuted_time)):
+                if then != None:
+                    details.append(f'{(at - then) * 1000:+.1f}ms from {name}')
+            if details:
+                dprint(f'    {", ".join(details)}')
+
+    def on_tr_change(self, response):
+        if response == 'TRR;':
+            self.rx_time = time.perf_counter()
+
+    @classmethod
+    def note_monitor_unmuted(cls):
+        if cls.singleton != None:
+            cls.singleton.monitor_unmuted_time = time.perf_counter()
 
     # How far past one repeat of the tone the rendered cycle is tiled,
     # which is the largest block that can be taken as a plain slice. Far
@@ -9452,19 +9507,19 @@ class Audio():
                         continue
                     if (extra_settings != None and
                             not self.input_stream_capturing(input_stream)):
-                        dprint1(f'input stream opened {label} but took nothing'
-                                f' in: active={input_stream.active}'
-                                f' stopped={input_stream.stopped}'
-                                f' samplerate={input_stream.samplerate}'
-                                f' blocksize={input_stream.blocksize}'
-                                f' latency={input_stream.latency * 1000:.2f}ms')
+                        dprint_audio(f'input stream opened {label} but took nothing'
+                                     f' in: active={input_stream.active}'
+                                     f' stopped={input_stream.stopped}'
+                                     f' samplerate={input_stream.samplerate}'
+                                     f' blocksize={input_stream.blocksize}'
+                                     f' latency={input_stream.latency * 1000:.2f}ms')
                         input_stream.close()
                         input_stream = None
                         continue
                     opened_exclusive = extra_settings != None
-                    dprint1('input stream opened', label,
-                            f'blocksize={blocksize}',
-                            f'latency={input_stream.latency * 1000:.2f}ms')
+                    dprint_audio('input stream opened', label,
+                                 f'blocksize={blocksize}',
+                                 f'latency={input_stream.latency * 1000:.2f}ms')
                     break
 
                 if input_stream != None and wanted_exclusive:
@@ -14839,6 +14894,7 @@ class Keyer():
         server = Server.k4_server
         volume = server.k4_parameter('ML0')
         server.send_str(f'ML0{volume};')
+        Audio.note_monitor_unmuted()
         with self.sidetone_monitor_mutex:
             self.sidetone_monitor_muted = False
 
@@ -15516,6 +15572,10 @@ def dprint_keying(*args, **kwargs):
     if 'keyer' in Options.debug_areas:
         dprint(*args, **kwargs)
 
+def dprint_audio(*args, **kwargs):
+    if 'audio' in Options.debug_areas:
+        dprint(*args, **kwargs)
+
 def vprint1(*args, **kwargs):
     if Options.verbose >= 1:
         dprint(*args, **kwargs)
@@ -15602,6 +15662,8 @@ def freeze_startup_objects():
     # what is garbage already isn't frozen with it.
     gc.collect()
     gc.freeze()
+    if 'audio' in Options.debug_areas:
+        dprint(f'froze {gc.get_freeze_count()} objects out of garbage collection')
 
 def restart():
     # What the old pages leave behind has to be collectable again.
@@ -15681,6 +15743,72 @@ def _qt_message_handler(msg_type, context, message):
         stderr.flush()
     except Exception:
         pass
+
+class GCTimer():
+    # Debugging only, with --da audio: logs each garbage collection long
+    # enough to make the audio output callback late. A collection holds
+    # the GIL throughout, in whichever thread's allocation set it off, so
+    # it shows up as that thread's work -- a slow response handler, say --
+    # when it is nothing of the kind.
+    #
+    # And what the garbage was, to find what keeps making it: what is
+    # collected is objects in reference cycles, which nothing but the
+    # collector frees. Every other collection keeps what it found
+    # (DEBUG_SAVEALL) to be counted here, and lets it go; the next one,
+    # without the flag, then frees it as usual.
+    slow_seconds = .002
+    start_time = None
+    garbage_types = None
+    top_types = 8
+
+    @classmethod
+    def start(cls):
+        gc.set_debug(gc.DEBUG_SAVEALL)
+        gc.callbacks.append(cls.on_gc)
+
+    @classmethod
+    def on_gc(cls, phase, info):
+        if phase == 'start':
+            cls.start_time = time.perf_counter()
+            return
+        if cls.start_time == None:
+            return
+        elapsed = time.perf_counter() - cls.start_time
+        cls.start_time = None
+        if gc.get_debug() & gc.DEBUG_SAVEALL:
+            if gc.garbage:
+                cls.garbage_types = collections.Counter(
+                    cls.describe(o) for o in gc.garbage)
+            gc.garbage.clear()
+            gc.set_debug(0)
+        else:
+            gc.set_debug(gc.DEBUG_SAVEALL)
+        if elapsed >= cls.slow_seconds:
+            dprint(f'slow garbage collection, generation {info["generation"]}:'
+                   f' {elapsed * 1000:.1f}ms, {info["collected"]} collected,'
+                   f' in {threading.current_thread().name}')
+            if cls.garbage_types:
+                total = sum(cls.garbage_types.values())
+                dprint(f'  the last garbage sampled, {total} objects:')
+                for name, count in cls.garbage_types.most_common(cls.top_types):
+                    dprint(f'    {count:6d} {name}')
+
+    @staticmethod
+    def describe(o):
+        # The type, and for code, whose: a function, frame or method
+        # names where the cycle was made.
+        kind = type(o)
+        name = f'{kind.__module__}.{kind.__qualname__}'
+        try:
+            if kind.__name__ == 'function':
+                name += f' {o.__qualname__}'
+            elif kind.__name__ == 'frame':
+                name += f' {o.f_code.co_qualname}'
+            elif kind.__name__ == 'method':
+                name += f' {o.__func__.__qualname__}'
+        except Exception:
+            pass
+        return name
 
 class OpusFloatDecoder():
     # opuslib's Decoder.decode_float, without its garbage. It allocates a
@@ -15789,6 +15917,11 @@ def main():
         panadapter_child_main(Options.panadapter_receiver)
         return
 
+    if 'audio' in Options.debug_areas:
+        # Stalls well short of the usual threshold are what make the
+        # audio output underrun: a few blocks' worth.
+        StallWatchdog.stall_seconds = .025
+        GCTimer.start()
     if Options.debug > 0:
         StallWatchdog.start()
 
