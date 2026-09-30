@@ -372,7 +372,12 @@ class Server():
     cat_sequence_number = 0
     control_k4_audio_cmd_bases = ( 'AG', 'AG$', 'MG' )
     audio_version_number = 1
-    k4_raw_rx_audio_queue_size = 2     # 40ms of audio
+    # Only the hand-off from the socket to the decoder, which keeps up:
+    # deep enough never to drop, since how much audio is held back is
+    # settled after decoding (see Audio.trim_decoded_rx_audio_queue).
+    k4_raw_rx_audio_queue_size = 64
+    # Packets to have in hand before decoding starts.
+    k4_raw_rx_audio_startup_packets = 2
     # Audio packets thrown away for the queue being full, for the audio
     # glitch report.
     raw_audio_dropped = 0
@@ -7455,12 +7460,24 @@ class Audio():
     sidetone_fall_perceived_ratio = .5
     sidetone_enabled = True
 
-    # Deliberately shallow, to minimize audio delay when changing
-    # frequency or going into transmit. Deepening this does not fix
-    # panadapter-induced dropouts: during a main-thread stall
-    # output_stream_callback cannot run to drain the queue either, so
-    # only PortAudio's own buffer (frames_per_buffer) keeps playing.
-    k4_decoded_rx_audio_queue_size = 2    # 40ms of audio
+    # How much decoded K4 audio may wait to be played, as a duration,
+    # since the length of the K4's packets follows its remote audio
+    # latency setting, from 20 ms at SL0 to 120 ms at SL7: two packets
+    # were 40 ms at one and 240 ms at the other. They come in bursts,
+    # with gaps of over 100 ms between them, and 40 ms ran dry in every
+    # gap and overflowed in every burst after it.
+    #
+    # Still shallow, though, since it is how far behind the radio the
+    # audio can get -- after changing frequency, say. And never less than
+    # two packets, which ordinary jitter would otherwise trim at every
+    # one. Two packets only while the key is down: the sidetone covers
+    # the receive audio then, and what follows the element has to be
+    # current. Deepening this does not fix panadapter-induced dropouts:
+    # during a main-thread stall output_stream_callback cannot run to
+    # drain the queue either, so only PortAudio's own buffer
+    # (frames_per_buffer) keeps playing.
+    k4_decoded_rx_audio_max_seconds = .240
+    k4_decoded_rx_audio_max_packets = 2
 
     # The block the output callback fills, and with it two thirds of
     # what stands between the paddle and the sidetone: an edge is picked
@@ -8320,11 +8337,11 @@ class Audio():
         # padded with silence and faded back in: the K4's stream pausing,
         # not the callback being late, so no underflow is flagged for it.
         self.k4_starved_count = 0
-        # Packets of K4 audio thrown away because the queue was already
-        # full: a burst after a pause, say. What is played jumps from the
-        # audio before the packet to the audio after it.
-        self.k4_dropped_count = 0
-        self.reported_glitch_counts = (0, 0, 0, 0, 0)
+        # Milliseconds of decoded K4 audio thrown away for the queue
+        # being past what may wait: a burst after a pause, say. What is
+        # played jumps from the audio before to the audio after it.
+        self.k4_dropped_ms = 0.0
+        self.reported_glitch_counts = (0, 0, 0, 0, 0, 0)
         self.glitch_report_time = 0.0
         # Where each underflow fell, as (block, frames since the key came
         # up, whether the key was down), noted by the callback and
@@ -8470,8 +8487,9 @@ class Audio():
         current_generation = None
         warned = False
 
-        # Wait for the received audio queue to fill to avoid dropouts at startup
-        while not cls.server.k4_raw_rx_audio_queue.full():
+        # Wait for some received audio to avoid dropouts at startup
+        while (cls.server.k4_raw_rx_audio_queue.qsize()
+                < cls.server.k4_raw_rx_audio_startup_packets):
             time.sleep(0.1)
 
         while True:
@@ -8644,10 +8662,38 @@ class Audio():
             stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
             stereo[1::2] = right
-            while self.k4_decoded_rx_audio_queue.qsize() >= self.k4_decoded_rx_audio_queue_size:
-                self.k4_decoded_rx_audio_queue.get()    # Discard oldest audio
-                self.k4_dropped_count += 1
             self.k4_decoded_rx_audio_queue.put(stereo)
+            self.trim_decoded_rx_audio_queue(len(stereo) // cls.output_channels,
+                                             cls.output_device_sample_rate())
+
+    def trim_decoded_rx_audio_queue(self, packet_frames, sample_rate):
+        # Drops the oldest audio past what may wait (see
+        # k4_decoded_rx_audio_max_seconds), sample by sample rather than
+        # a packet at a time, since a packet can be 120 ms.
+        cls = self.__class__
+        maximum = packet_frames * cls.k4_decoded_rx_audio_max_packets
+        if not self.sidetone_keyed and sample_rate != None:
+            maximum = max(maximum, round(cls.k4_decoded_rx_audio_max_seconds * sample_rate))
+        channels = cls.output_channels
+        queue_ = self.k4_decoded_rx_audio_queue
+        dropped = 0
+        # The queue's own lock, which get_nowait in the output callback
+        # takes too, so the two never see the deque half changed.
+        with queue_.mutex:
+            chunks = queue_.queue
+            excess = sum(len(chunk) for chunk in chunks) // channels - maximum
+            while excess > 0 and chunks:
+                frames = len(chunks[0]) // channels
+                if frames <= excess:
+                    chunks.popleft()
+                    dropped += frames
+                    excess -= frames
+                else:
+                    chunks[0] = chunks[0][excess * channels:]
+                    dropped += excess
+                    excess = 0
+        if dropped and sample_rate != None:
+            self.k4_dropped_ms += dropped / sample_rate * 1000
 
     def averaged_left_right_volume(self):
             a = self.a_volume
@@ -8733,7 +8779,8 @@ class Audio():
             # What had already been drawn goes too. That is up to a
             # packet of audio from before the element, and holding it
             # through the tone preserves nothing: the decoder caps its
-            # queue at two packets and drops the oldest, so the stream
+            # queue at two packets while the key is down and drops the
+            # oldest (see trim_decoded_rx_audio_queue), so the stream
             # has moved on by the time the tone ends whatever is done
             # here. Played out after the fall it is stale, and where it
             # ran out the waveform stepped to whatever the queue had --
@@ -9203,10 +9250,10 @@ class Audio():
 
         counts = (self.output_underflow_count, self.output_status_count,
                   self.input_overflow_count, self.k4_starved_count,
-                  self.k4_dropped_count + Server.k4_server.raw_audio_dropped)
+                  round(self.k4_dropped_ms), Server.k4_server.raw_audio_dropped)
         if counts == self.reported_glitch_counts:
             return
-        underflows, statuses, overflows, starved, dropped = (
+        underflows, statuses, overflows, starved, dropped_ms, raw_dropped = (
                 new - old for new, old in zip(counts, self.reported_glitch_counts))
         self.reported_glitch_counts = counts
 
@@ -9219,8 +9266,10 @@ class Audio():
             report.append(f'{overflows} input overflow(s){during_sidetone}')
         if starved:
             report.append(f'{starved} block(s) short of K4 audio with the key up')
-        if dropped:
-            report.append(f'{dropped} packet(s) of K4 audio dropped, the queue full')
+        if dropped_ms:
+            report.append(f'{dropped_ms}ms of K4 audio dropped, too much waiting')
+        if raw_dropped:
+            report.append(f'{raw_dropped} packet(s) of K4 audio dropped before decoding')
         dprint('audio glitches since the last report:', ', '.join(report))
 
         sample_rate = Audio.output_device_sample_rate()
