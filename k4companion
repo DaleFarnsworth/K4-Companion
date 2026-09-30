@@ -373,6 +373,9 @@ class Server():
     control_k4_audio_cmd_bases = ( 'AG', 'AG$', 'MG' )
     audio_version_number = 1
     k4_raw_rx_audio_queue_size = 2     # 40ms of audio
+    # Audio packets thrown away for the queue being full, for the audio
+    # glitch report.
+    raw_audio_dropped = 0
 
     k4_get_cmd_bases = [         # For future use
         '#A',
@@ -1530,6 +1533,7 @@ class Server():
                 break
             except queue.Full:
                 self.k4_raw_rx_audio_queue.get()
+                self.raw_audio_dropped += 1
 
     def subscribe_response(self, cmd, callback, send=True):
         base = cmd_base(cmd)
@@ -8316,7 +8320,11 @@ class Audio():
         # padded with silence and faded back in: the K4's stream pausing,
         # not the callback being late, so no underflow is flagged for it.
         self.k4_starved_count = 0
-        self.reported_glitch_counts = (0, 0, 0, 0)
+        # Packets of K4 audio thrown away because the queue was already
+        # full: a burst after a pause, say. What is played jumps from the
+        # audio before the packet to the audio after it.
+        self.k4_dropped_count = 0
+        self.reported_glitch_counts = (0, 0, 0, 0, 0)
         self.glitch_report_time = 0.0
         # Where each underflow fell, as (block, frames since the key came
         # up, whether the key was down), noted by the callback and
@@ -8638,6 +8646,7 @@ class Audio():
             stereo[1::2] = right
             while self.k4_decoded_rx_audio_queue.qsize() >= self.k4_decoded_rx_audio_queue_size:
                 self.k4_decoded_rx_audio_queue.get()    # Discard oldest audio
+                self.k4_dropped_count += 1
             self.k4_decoded_rx_audio_queue.put(stereo)
 
     def averaged_left_right_volume(self):
@@ -9193,10 +9202,11 @@ class Audio():
         self.glitch_report_time = now
 
         counts = (self.output_underflow_count, self.output_status_count,
-                  self.input_overflow_count, self.k4_starved_count)
+                  self.input_overflow_count, self.k4_starved_count,
+                  self.k4_dropped_count + Server.k4_server.raw_audio_dropped)
         if counts == self.reported_glitch_counts:
             return
-        underflows, statuses, overflows, starved = (
+        underflows, statuses, overflows, starved, dropped = (
                 new - old for new, old in zip(counts, self.reported_glitch_counts))
         self.reported_glitch_counts = counts
 
@@ -9209,6 +9219,8 @@ class Audio():
             report.append(f'{overflows} input overflow(s){during_sidetone}')
         if starved:
             report.append(f'{starved} block(s) short of K4 audio with the key up')
+        if dropped:
+            report.append(f'{dropped} packet(s) of K4 audio dropped, the queue full')
         dprint('audio glitches since the last report:', ', '.join(report))
 
         sample_rate = Audio.output_device_sample_rate()
