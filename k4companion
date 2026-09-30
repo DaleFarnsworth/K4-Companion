@@ -1747,9 +1747,19 @@ class Widget():
             return 0
         return len(param)
 
+    # Each expression the config gives, compiled once. eval() of the
+    # source compiles it afresh every time, and some are evaluated at
+    # every response, once for each of a widget's selections.
+    compiled_expressions = {}
+
     def eval_value(self, s, value=""):
         try:
-            ret = eval(str(s))
+            s = str(s)
+            code = Widget.compiled_expressions.get(s)
+            if code == None:
+                code = compile(s, '<config>', 'eval')
+                Widget.compiled_expressions[s] = code
+            ret = eval(code)
         except Exception as err:
             dprint('value: "{value}", eval("{s}")'.format(value=value, s=s))
             dprint('exception: {err}'.format(err=err))
@@ -3509,8 +3519,14 @@ class DropdownWidget():
         # top of setMinimumWidth() above, which only sets a floor -- the
         # box's actual width is whichever is larger, and the native
         # chrome alone was already bigger than that floor.
-        self.combobox.setStyleSheet(
-            qt_combobox_stylesheet(bg, self.fg, self.bg, self.fg))
+        #
+        # Only where it differs: this runs at every response that matches
+        # a selection, and setting even the same style sheet has Qt
+        # restyle the box and its popup -- milliseconds holding the GIL,
+        # which the audio output callback can't spare.
+        stylesheet = qt_combobox_stylesheet(bg, self.fg, self.bg, self.fg)
+        if self.combobox.styleSheet() != stylesheet:
+            self.combobox.setStyleSheet(stylesheet)
 
     def on_received_initial_parameters(self, response):
         for selection in self.selections:
@@ -3579,7 +3595,9 @@ class DropdownWidget():
         self.set_value(value)
 
     def set_val(self, value):
-        self.combobox.setCurrentText(str(value))
+        value = str(value)
+        if self.combobox.currentText() != value:
+            self.combobox.setCurrentText(value)
 
     def undefer_selections(self):
         self.defer_selections = False
@@ -3647,7 +3665,6 @@ class DropdownWidget():
                 return
         if not found:
             if self.unexpected_response != '':
-                text = self.caller.eval_value(self.unexpected_response, response)
                 text = str(self.caller.eval_value(self.unexpected_response, response))
             else:
                 text = ''
