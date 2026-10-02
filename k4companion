@@ -73,7 +73,7 @@ import traceback
 import yaml
 
 from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal, QThread, qInstallMessageHandler, QCoreApplication
-from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat, QCursor
+from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat, QCursor, QPalette, QColor
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
     QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
@@ -581,6 +581,7 @@ class Server():
         'KZ': ['KZL', 'KZF'],
         'LO': ['LOG'],
         '!M': ['!MACROS'],
+        '!R': ['!RTTY'],
         'ME': ['MEDF'],
         'ML': ['ML0', 'ML1', 'ML2'],
         '#M': ['#MP'],
@@ -1203,7 +1204,7 @@ class Server():
             if self.is_directive(base):
                 self.directive(base, cmd)
                 continue
-            if base in ('TR', 'SDC', 'SDV', 'SDD', 'SB', 'TU', 'ME', 'FA', 'FB', 'IS', 'IS$', '!MACROS') + Server.control_k4_audio_cmd_bases:
+            if base in ('TR', 'SDC', 'SDV', 'SDD', 'SB', 'TU', 'ME', 'FA', 'FB', 'IS', 'IS$', '!MACROS', '!RTTY', '!RTTY$') + Server.control_k4_audio_cmd_bases:
                 if base == 'TR':
                     if cmd[2] == 'T':
                         self.update_k4_parameter('TR', 'T')
@@ -1235,7 +1236,7 @@ class Server():
                     param = cmd[len(base):]
                     if param == '9000':
                         adjust = True
-                elif base == '!MACROS':
+                elif base in ('!MACROS', '!RTTY', '!RTTY$'):
                     send = False
             if self.warn_if_not_connected():
                 return
@@ -1436,6 +1437,18 @@ class Server():
 
     def receive_k4_responses(self, responses):
         self.received_cat_cmd = True
+        # What the K4 reports, rather than what the app sent and recorded
+        # itself: see RTTY.on_rtty_mode_changed.
+        self.receiving = True
+        try:
+            self.receive_responses(responses)
+        finally:
+            self.receiving = False
+
+    # Whether update_k4_parameter is applying what the K4 reported.
+    receiving = False
+
+    def receive_responses(self, responses):
         for response in responses:
             base = cmd_base(response)
             if base == 'SB':
@@ -1995,6 +2008,8 @@ class Container(Widget):
                 child = Antenna(config_info, self)
             elif widget_type == 'cw':
                 child = CW(config_info, self)
+            elif widget_type == 'rtty':
+                child = RTTY(config_info, self)
             elif widget_type == 'macros':
                 child = Macros(config_info, self)
             else:
@@ -4852,7 +4867,7 @@ class _PanControlFilter(QObject):
     # anywhere in the panadapter window as they do on the corresponding
     # VFO control -- not just while some particular child widget (e.g.
     # the trace plot) happens to have focus/be under the cursor. An
-    # application-wide event filter (same pattern as CW's _CWKeyFilter)
+    # application-wide event filter (same pattern as Digital's _DigitalKeyFilter)
     # sidesteps that: it sees every event before the widget it's headed
     # for does, so it works regardless of focus and isn't affected by
     # e.g. PlotWidget's own default arrow-key/wheel handling.
@@ -8637,6 +8652,7 @@ class Audio():
             self.report_audio_glitches()
 
             stereo = opus.decode(bytes(packet[4:]))
+            RTTY.feed_audio(stereo)
             a = stereo[0::2]                    # even samples are from the main receiver
             b = stereo[1::2]                    # odd samples are from the sub receiver
 
@@ -11180,7 +11196,49 @@ and everything after the & is sent.'''
         self.add_buttons(self.buttons, self.buttons_frame, edit=False)
         self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
 
-class CWText(QPlainTextEdit):
+class FrequencyDropdown():
+    # A choice of frequencies for a mode -- where RTTY usually is, band
+    # by band -- in megahertz, picking one calling on_selected with it
+    # in hertz. It shows the VFO's own frequency, to the nearest
+    # kilohertz, whether or not it is one of them: as the placeholder a
+    # combobox shows while nothing in it is selected.
+
+    def __init__(self, font, bg, fg, calling_hz, on_selected):
+        self.calling_hz = calling_hz
+        self.on_selected = on_selected
+        self.combobox = QComboBox()
+        self.combobox.setFont(font)
+        self.combobox.setStyleSheet(qt_combobox_stylesheet(bg, fg, bg, fg))
+        # The placeholder in the text's own colour, not greyed.
+        palette = self.combobox.palette()
+        palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(fg))
+        self.combobox.setPalette(palette)
+        texts = [self.text(hz) for hz in calling_hz]
+        self.combobox.addItems(texts)
+        # Wide enough for the widest, a VFO's frequency included, with the
+        # arrow and padding: left to itself, the box sized to whatever it
+        # first showed.
+        metrics = QFontMetrics(font)
+        self.combobox.setMinimumWidth(
+            max(metrics.horizontalAdvance(text) for text in texts + ['000.000'])
+            + 5 * metrics.averageCharWidth())
+        self.combobox.activated.connect(lambda row: self.on_selected(self.calling_hz[row]))
+        self.combobox.setCurrentIndex(-1)
+
+    @staticmethod
+    def text(hz):
+        return f'{round(hz / 1000) / 1000:.3f}'
+
+    def show(self, frequency):
+        # frequency as the K4 reports it, in hertz, or None.
+        try:
+            text = self.text(int(frequency))
+        except (TypeError, ValueError):
+            text = ''
+        self.combobox.setCurrentIndex(-1)
+        self.combobox.setPlaceholderText(text)
+
+class DigitalText(QPlainTextEdit):
     # A scrolling, line-wrapping text buffer for CW send/decode display.
     # The tkinter version subclassed tk.Text directly and had to fight its
     # API: a 'disabled' widget blocks even *programmatic* insert/delete,
@@ -11223,7 +11281,7 @@ class CWText(QPlainTextEdit):
     def set(self, value):
         self.setPlainText(value)
 
-class _CWKeyFilter(QObject):
+class _DigitalKeyFilter(QObject):
     # CW's tkinter version routed *any* keypress within the window (while
     # the CW tab is active) to either the delayed-tx entry field or
     # straight to immediate keying, regardless of which widget visually
@@ -11248,7 +11306,7 @@ class _CWKeyFilter(QObject):
             return False
         if not (obj is cw.top_level or cw.top_level.isAncestorOf(obj)):
             return False
-        if cw.current_tabname != 'CW':
+        if cw.current_tabname != cw.tab_name:
             return False
         if not cw.top_level.isActiveWindow():
             return False
@@ -11264,26 +11322,550 @@ class _CWKeyFilter(QObject):
         else:
             return cw.on_tx_text_modified(event)
 
-class CW(TextButtons):
+class Digital(TextButtons):
+    # A window for a text mode the K4 sends and decodes itself, CW and
+    # RTTY: macro buttons, delayed and immediate Tx, and what the main
+    # and sub receivers decode. A subclass gives the mode's own controls
+    # and subscriptions, when the window shows and when it can send, what
+    # stops sending, what may be typed and the buttons it starts with.
     tx_queue_max = 9
     tx_queue_low = 8
     singleton = None
-    settings_section = 'CW'
+    settings_section = None
+    tab_name = None
+    stop_cmd = None
+    characters = ''
+    default_buttons = ()
 
-    # The responses the CW tab listens to while it is open.
-    cw_subscriptions = (
+    # The responses the main tab listens to while it is open, and the
+    # mode's own on top.
+    text_subscriptions = (
         ('TD;', 'on_main_text_decode'),
         ('TD$;', 'on_sub_text_decode'),
         ('TB;', 'on_main_text_buffer'),
         ('TB$;', 'on_sub_text_buffer'),
         ('ACN1;', 'on_transmit_ack'),
-        ('KS;', 'on_keyer_speed_change'),
     )
+    mode_subscriptions = ()
 
     @classmethod
     def close_window(cls):
         if cls.singleton != None:
             cls.singleton.close()
+
+    def __init__(self, config_info, container):
+        required = ['item']
+        optional = ['bd', 'bg', 'fg', 'font', 'label', 'leading', 'padx', 'pady',
+                    'selectbg', 'selectfg']
+        validate_options(config_info, required, optional)
+
+        super().__init__(config_info, container)
+
+        self.selectbg = config_info.get('selectbg', self.bg)
+        self.selectfg = config_info.get('selectfg', self.fg)
+
+        self.valid_characters = self.characters
+
+        self.load_settings()
+
+        # Real value comes from the mode -- the K4's reported keyer speed
+        # for CW, its data rate for RTTY -- but that arrives
+        # asynchronously -- a user typing or sending a macro before it's
+        # received must not crash Poll.call() with a None interval, so
+        # start with a sane default instead of None.
+        self.tx_poll_interval = 50
+
+        self.tx_line_len = self.text_width
+        self.tx_send_offset = 0
+        self.tx_remaining_count = 0
+        self.sending = False
+
+        type(self).singleton = self
+        self.is_open = False
+        self._key_filter = None
+
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
+    def subscriptions(self):
+        return self.text_subscriptions + self.mode_subscriptions
+
+    # What a subclass fills in.
+
+    def on_received_initial_parameters(self, response):
+        # Subscribe to what decides whether the window shows, calling
+        # on_tx_mode_changed.
+        pass
+
+    def transmitting_in_mode(self):
+        # Whether the transmit VFO is in this window's mode, which is
+        # when the window is shown.
+        return False
+
+    def can_send(self):
+        # Whether text typed or sent from a button can go out now.
+        return False
+
+    def cannot_send_message(self):
+        return f'Cannot transmit {self.tab_name} in {self.server.tx_mode()} mode.'
+
+    def add_mode_controls(self, parent_frame):
+        # The row of the mode's own controls at the top of the main tab.
+        pass
+
+    def add_more_widgets(self, grid):
+        # More of them, below that row.
+        pass
+
+    def show_mode_controls(self):
+        # Shows what of those the text fields' layout has hidden.
+        pass
+
+    def add_mode_tabs(self):
+        # Tabs of the mode's own, after Configure.
+        pass
+
+    def open(self):
+        if self.is_open:
+            return
+        self.is_open = True
+        self.open_dialog(self.tab_name)
+
+        self.add_main_tab()
+        self.add_config_tab()
+        self.add_mode_tabs()
+
+        self._key_filter = _DigitalKeyFilter(self)
+        QApplication.instance().installEventFilter(self._key_filter)
+
+        self.set_geometry()
+        self.top_level.show()
+        # See the matching comment in main(): move()/resize() before
+        # show() targets the window's undecorated content rect, but the
+        # WM only attaches its frame once the window is actually mapped
+        # -- and that reparenting happens asynchronously, after show()
+        # returns, so a move() issued immediately still races it. Redo
+        # it deferred to the next event loop iteration instead, once
+        # the frame has actually landed; harmless to call twice since it
+        # just re-reads the same persisted geometry. One-time only
+        # (open() itself is guarded by is_open), so this doesn't fight a
+        # later user-dragged position.
+        for geo_delay in (100, 250, 500, 1000):
+            QTimer.singleShot(geo_delay, self.set_geometry)
+
+    def add_main_tab(self):
+        self.mode_frame = QWidget()
+        mode_grid = QGridLayout(self.mode_frame)
+        self.add_tab(self.mode_frame, self.tab_name)
+
+        self.main_enabled = False
+        self.sub_enabled = False
+
+        self.mode_controls_frame, controls_grid = self._plain_frame()
+        mode_grid.addWidget(self.mode_controls_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.add_mode_controls(self.mode_controls_frame)
+
+        self.add_more_widgets(mode_grid)
+
+        self.buttons_and_text_frame, bat_grid = self._plain_frame()
+        mode_grid.addWidget(self.buttons_and_text_frame, 4, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        self.buttons_frame, buttons_grid = self._plain_frame()
+        bat_grid.addWidget(self.buttons_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.add_buttons(self.buttons, self.buttons_frame, edit=False)
+
+        self.text_fields_frame, text_fields_grid = self._plain_frame()
+        bat_grid.addWidget(self.text_fields_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.add_text_fields(self.text_fields_frame)
+
+        self.tx_send_offset = 0
+        self.tx_remaining_count = 0
+        self.sending = False
+
+        for response, handler in self.subscriptions():
+            self.server.subscribe_response(response, getattr(self, handler))
+
+    def close(self):
+        if not self.is_open:
+            return
+
+        self.save_geometry()
+
+        self.focus_out()
+
+        if self.tx_remaining_count > 0:
+            self.stop_sending()
+        Poll.remove(self.send_text)
+        for response, handler in self.subscriptions():
+            self.server.unsubscribe_response(response, getattr(self, handler))
+
+        self.is_open = False
+        self.top_level.deleteLater()
+
+    def _size_text(self, text_field, height_lines):
+        text_field.max_lines = height_lines
+        fm = QFontMetrics(self.monospaced_font)
+        text_field.setFixedHeight(height_lines * fm.height() + 10)
+        text_field.setFixedWidth(self.text_width * fm.averageCharWidth() + 10)
+
+    def _widget_overflowing(self, text_field, max_lines):
+        total_lines = 0
+        block = text_field.document().firstBlock()
+        while block.isValid():
+            layout = block.layout()
+            n = layout.lineCount() if layout != None and layout.lineCount() > 0 else 1
+            total_lines += n
+            block = block.next()
+        return total_lines > max_lines
+
+    def _set_underline_position(self, text_field, position):
+        doc = text_field.document()
+        clear_fmt = QTextCharFormat()
+        clear_fmt.setFontUnderline(False)
+        cursor = QTextCursor(doc)
+        cursor.select(QTextCursor.SelectionType.Document)
+        cursor.mergeCharFormat(clear_fmt)
+
+        text_len = len(text_field.toPlainText())
+        if position < 0 or position >= text_len:
+            return
+        underline_fmt = QTextCharFormat()
+        underline_fmt.setFontUnderline(True)
+        cursor = QTextCursor(doc)
+        cursor.setPosition(position)
+        cursor.setPosition(position + 1, QTextCursor.MoveMode.KeepAnchor)
+        cursor.mergeCharFormat(underline_fmt)
+
+    def add_text_fields(self, parent_frame):
+        self.entry_frame, entry_grid = qt_group_box(
+            'Delayed Tx (Press Enter key to send, Delete key to clear)', self.label_font())
+        parent_frame.layout().addWidget(self.entry_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.entry_text = self._add_text(entry_grid, self.entry_height)
+
+        self.tx_frame, tx_grid = qt_group_box(
+            'Immediate Tx (Press Escape key to stop sending.)', self.label_font())
+        parent_frame.layout().addWidget(self.tx_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.tx_text = self._add_text(tx_grid, self.tx_height, read_only=True)
+
+        self.main_frame, main_grid = qt_group_box('Main Rx', self.label_font())
+        self.main_text = self._add_text(main_grid, self.rx_height, read_only=True)
+
+        self.sub_frame, sub_grid = qt_group_box('Sub Rx', self.label_font())
+        self.sub_text = self._add_text(sub_grid, self.rx_height, read_only=True)
+
+        self.config_text_fields()
+
+    def _add_text(self, grid, height_lines, read_only=False):
+        text_field = DigitalText()
+        if read_only:
+            text_field.setReadOnly(True)
+        text_field.setFont(self.monospaced_font)
+        text_field.setStyleSheet(f'QPlainTextEdit {{ background-color: {self.bg}; color: {self.fg}; }}')
+        self._size_text(text_field, height_lines)
+        grid.addWidget(text_field, 0, 0)
+        return text_field
+
+    def add_config_vars(self, parent_frame):
+        super().add_config_vars(parent_frame)
+        grid = parent_frame.layout()
+        self.text_width_entry = self._labeled_entry(grid, 1, 1, 'Text Width:', self.text_width)
+        self.tx_height_entry = self._labeled_entry(grid, 2, 0, 'Tx lines:', self.tx_height)
+        self.rx_height_entry = self._labeled_entry(grid, 2, 1, 'Rx lines:', self.rx_height)
+        self.entry_height_entry = self._labeled_entry(grid, 3, 0, 'Entry lines:', self.entry_height)
+
+    def hide(self):
+        if self.is_open:
+            self.top_level.hide()
+
+    def show(self):
+        if not self.is_open:
+            self.open()
+        else:
+            self.top_level.show()
+            self.top_level.raise_()
+            self.top_level.activateWindow()
+            Page.top.setFocus()
+
+    def focus_out(self, event=None):
+        if self._key_filter != None:
+            QApplication.instance().removeEventFilter(self._key_filter)
+            self._key_filter = None
+
+    def load_button_value(self, buttons, index, edit=False):
+        super().load_button_value(buttons, index, edit=edit)
+        if not edit:
+            button = buttons[index]
+            button.mousePressEvent = lambda event, index=index: self.send_button(index)
+
+    def store_button_value(self, buttons, index):
+        super().store_button_value(buttons, index)
+        self.save_settings()
+
+    def on_tx_mode_changed(self, response=None):
+        if self.transmitting_in_mode():
+            self.show()
+        else:
+            self.hide()
+
+    def append_tx_text(self, s):
+        if self.can_send():
+            self.tx_text.append(s)
+            return True
+        else:
+            Popup.warning(self.cannot_send_message())
+            return False
+
+    def send_button(self, index):
+        value = self.button_values[index]
+        if value == '':
+            return
+        value += ' '
+        if self.tx_text.text() == '':
+            self.tx_send_offset = 0
+            self.tx_remaining_count = 0
+        if self.append_tx_text(value):
+            self.send_text()
+
+    def send_text(self):
+        if not self.is_open:
+            return
+
+        if self.tx_remaining_count > Digital.tx_queue_low:
+            Poll.call(self.tx_poll_interval, self.send_text)
+            return
+
+        max_tx_chars = Digital.tx_queue_max - self.tx_remaining_count
+
+        full_text = self.tx_text.text()
+        chunk = full_text[self.tx_send_offset:self.tx_send_offset + max_tx_chars]
+        chunk_len = len(chunk)
+        if chunk_len > 0:
+            self.tx_send_offset += chunk_len
+
+            if self.tx_remaining_count == 0:
+                chunk_len -= 1
+            self.tx_remaining_count += chunk_len
+            self.server.send_cmds(f'KY {chunk};ACN1;')
+            self.sending = True
+            Poll.call(self.tx_poll_interval, self.send_text)
+        else:
+            self.update_sending_offset()
+
+    def on_main_text_decode(self, response):
+        self._text_decode_changed('main_enabled', 'TD')
+
+    def on_sub_text_decode(self, response):
+        self._text_decode_changed('sub_enabled', 'TD$')
+
+    def _text_decode_changed(self, attribute, base):
+        # Whether that receiver is decoding at all, which decides whether
+        # its text field is shown.
+        enabled = self.k4param(base)[0] != '0'
+        if enabled != getattr(self, attribute):
+            setattr(self, attribute, enabled)
+            self.config_text_fields()
+
+    def config_text_fields(self):
+        fm = QFontMetrics(self.monospaced_font)
+        self.entry_text.setFixedWidth(self.text_width * fm.averageCharWidth() + 10)
+        self.tx_text.setFixedWidth(self.text_width * fm.averageCharWidth() + 10)
+
+        if self.main_enabled:
+            self._show(self.text_fields_frame, self.main_frame, 2, 0)
+            if self.sub_enabled:
+                self._show(self.text_fields_frame, self.sub_frame, 3, 0)
+            else:
+                self._hide(self.text_fields_frame, self.sub_frame)
+        else:
+            self._hide(self.text_fields_frame, self.main_frame)
+            if self.sub_enabled:
+                self._show(self.text_fields_frame, self.sub_frame, 2, 0)
+            else:
+                self._hide(self.text_fields_frame, self.sub_frame)
+
+        self.show_mode_controls()
+
+    def update_sending_offset(self):
+        sending_offset = self.tx_send_offset - self.tx_remaining_count - 1
+        if self._widget_overflowing(self.tx_text, self.tx_text.max_lines):
+            deleted_count = self.tx_text.scroll_up()
+            self.tx_send_offset -= deleted_count
+            sending_offset -= deleted_count
+
+        self._set_underline_position(self.tx_text, sending_offset)
+
+    def on_transmit_ack(self, response):
+        self.sending = False
+
+    def on_text_buffer(self, response, widget):
+        param = cmd_parameter(response).rstrip(';')
+        if not self.sending:
+            r = int(param[0])
+            self.tx_remaining_count = r
+            self.update_sending_offset()
+        new_text = param[3:]
+        if new_text == '':
+            return
+
+        widget.append(new_text)
+        if self._widget_overflowing(widget, widget.max_lines):
+            widget.scroll_up()
+
+    def on_main_text_buffer(self, response):
+        self.on_text_buffer(response, self.main_text)
+
+    def on_sub_text_buffer(self, response):
+        self.on_text_buffer(response, self.sub_text)
+
+    def on_entry_text_modified(self, event):
+        key = event.key()
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Escape, Qt.Key.Key_Delete):
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                text = self.entry_text.text(clear=True)
+                if not text.endswith(' '):
+                    text += ' '
+                if self.tx_text.text() == '':
+                    self.tx_send_offset = 0
+                    self.tx_remaining_count = 0
+                if self.append_tx_text(text):
+                    self.send_text()
+            elif key == Qt.Key.Key_Escape:
+                self.stop_sending()
+            elif key == Qt.Key.Key_Delete:
+                self.entry_text.clear()
+            return True
+
+        c = event.text()
+        if c == '' or ord(c[0]) < 0x20:     # ignore control chars, navigation keys, etc.
+            return False
+        if c.upper() not in self.valid_characters:
+            Popup.warning(f'Character "{c}" not supported for {self.tab_name}')
+            return True
+        return False
+
+    def on_tx_text_modified(self, event):
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self.stop_sending()
+            return True
+
+        if key == Qt.Key.Key_Backspace:
+            pending_text = self.tx_text.text()
+            offset = self.tx_send_offset - self.tx_remaining_count
+            if (len(pending_text) - offset) > Digital.tx_queue_max + 1:
+                self.tx_text.set(pending_text[0:-1])
+            return True
+
+        c = event.text()
+        if c == '' or ord(c[0]) < 0x20:     # ignore control chars, navigation keys, etc.
+            return True
+        if c.upper() not in self.valid_characters + '\x7f':
+            Popup.warning(f'Character "{c}" not supported for {self.tab_name}')
+            return True
+
+        if self.append_tx_text(c):
+            self.send_text()
+        return True
+
+    def stop_sending(self, event=None):
+        self.server.send_cmds(self.stop_cmd)
+
+        if self.tx_remaining_count == 0:
+            return
+
+        pending_text = self.tx_text.text()
+        offset = self.tx_send_offset - self.tx_remaining_count
+        if offset == len(pending_text):
+            return
+        self.tx_text.clear()
+        if offset > 1:
+            offset -= 1
+        word_begin = pending_text.rfind(' ', 0, offset)
+        if word_begin < 0:
+            word_begin = 0
+        else:
+            word_begin += 1
+        text = pending_text[word_begin:] + self.entry_text.text(clear=True)
+        self.entry_text.append(text)
+        self.tx_send_offset = 0
+        self.tx_remaining_count = 0
+
+    def on_save_button(self):
+        super().on_save_button()
+
+        self._read_entry_ints(('text_width', 'entry_height', 'tx_height', 'rx_height'))
+        self.save_settings()
+        self.config_text_fields()
+        self.select_tab(self.tab_name)
+
+    def on_cancel_button(self):
+        super().on_cancel_button()
+
+        self._write_entry_ints(('entry_height', 'tx_height', 'rx_height'))
+        self.config_text_fields()
+        self.select_tab(self.tab_name)
+
+    def load_settings(self):
+        section = self.settings_section
+        self.load_button_grid_settings(5, 4, 15)
+        self.text_width = Server.settings.getint(section, 'text_width', 65, minimum=10, maximum=150)
+        self.entry_height = Server.settings.getint(section, 'entry_height', 3, minimum=1, maximum=20)
+        self.tx_height = Server.settings.getint(section, 'tx_height', 3, minimum=1, maximum=20)
+        self.rx_height = Server.settings.getint(section, 'rx_height', 3, minimum=1, maximum=20)
+        self.load_button_settings(self.default_buttons)
+
+    def save_settings(self):
+        self.save_settings_section((
+            ('button_rows', self.rows),
+            ('button_columns', self.columns),
+            ('button_width', self.button_width),
+            ('text_width', self.text_width),
+            ('entry_height', self.entry_height),
+            ('tx_height', self.tx_height),
+            ('rx_height', self.rx_height),
+        ))
+
+class CW(Digital):
+    singleton = None
+    settings_section = 'CW'
+    tab_name = 'CW'
+    stop_cmd = 'KY @;'
+    characters = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_,./?(+=%*!'
+    default_buttons = ('<KN>&(', '<AR>&+', '<BT>&=', '<AS>&%', '<SK>&*', '<VE>&!')
+
+    mode_subscriptions = (
+        ('KS;', 'on_keyer_speed_change'),
+    )
+
+    def __init__(self, config_info, container):
+        super().__init__(config_info, container)
+
+        self.memory_delay_percent_frame = None
+        self.memory_delay_percent_entry = None
+        self.auto_space = {}
+
+        # Built now rather than in add_keying_tab(), which doesn't run
+        # until the window is first opened: constructing these widgets is
+        # also what configures the keyer hardware (keyer_device_type() ->
+        # Keyer.set_device_type(), MidiInput/SerialInput.open()), and that
+        # has to happen at startup whether or not the CW window has been
+        # shown yet.
+        self.keying_settings_frame = self.keyer_settings()
+
+    def on_received_initial_parameters(self, response):
+        self.server.subscribe_tx_cw_changed(self.on_tx_mode_changed)
+
+    def transmitting_in_mode(self):
+        return self.server.tx_cw()
+
+    def can_send(self):
+        return self.server.tx_cw()
+
+    def add_mode_tabs(self):
+        self.add_keying_tab()
+
+    def show_mode_controls(self):
+        self._show(self.mode_controls_frame, self.apf_frame, 0, 2)
+        self._show(self.mode_controls_frame, self.autospot_frame, 0, 3)
 
     def _dropdown(self, parent, on_select, justify, **options):
         dropdown = Dropdown_Widget(parent, bd=2, bg=self.bg, fg=self.fg,
@@ -11330,113 +11912,6 @@ class CW(TextButtons):
             self.selectfg if select_colors else self.fg,
             on_changed, justify=justify)
         return frame
-
-    def __init__(self, config_info, container):
-        required = ['item']
-        optional = ['bd', 'bg', 'fg', 'font', 'label', 'leading', 'padx', 'pady',
-                    'selectbg', 'selectfg']
-        validate_options(config_info, required, optional)
-
-        super().__init__(config_info, container)
-
-        self.selectbg = config_info.get('selectbg', self.bg)
-        self.selectfg = config_info.get('selectfg', self.fg)
-
-        self.valid_characters = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_,./?(+=%*!'
-
-        self.load_settings()
-
-        # Real value comes from the K4's reported keyer speed
-        # (on_keyer_speed_change), but that arrives asynchronously -- a
-        # user typing or sending a macro before it's received must not
-        # crash Poll.call() with a None interval, so start with a sane
-        # default instead of None.
-        self.tx_poll_interval = 50
-
-        self.tx_line_len = self.text_width
-        self.tx_send_offset = 0
-        self.tx_remaining_count = 0
-        self.sending = False
-
-        CW.singleton = self
-        self.is_open = False
-        self._key_filter = None
-
-        self.memory_delay_percent_frame = None
-        self.memory_delay_percent_entry = None
-        self.auto_space = {}
-
-        # Built now rather than in add_keying_tab(), which doesn't run
-        # until the window is first opened: constructing these widgets is
-        # also what configures the keyer hardware (keyer_device_type() ->
-        # Keyer.set_device_type(), MidiInput/SerialInput.open()), and that
-        # has to happen at startup whether or not the CW window has been
-        # shown yet.
-        self.keying_settings_frame = self.keyer_settings()
-
-        server = self.server
-
-        server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
-
-    def open(self):
-        if self.is_open:
-            return
-        self.is_open = True
-        self.open_dialog('CW')
-
-        self.add_cw_tab()
-        self.add_config_tab()
-        self.add_keying_tab()
-
-        self._key_filter = _CWKeyFilter(self)
-        QApplication.instance().installEventFilter(self._key_filter)
-
-        self.set_geometry()
-        self.top_level.show()
-        # See the matching comment in main(): move()/resize() before
-        # show() targets the window's undecorated content rect, but the
-        # WM only attaches its frame once the window is actually mapped
-        # -- and that reparenting happens asynchronously, after show()
-        # returns, so a move() issued immediately still races it. Redo
-        # it deferred to the next event loop iteration instead, once
-        # the frame has actually landed; harmless to call twice since it
-        # just re-reads the same persisted geometry. One-time only
-        # (open() itself is guarded by is_open), so this doesn't fight a
-        # later user-dragged position.
-        for geo_delay in (100, 250, 500, 1000):
-            QTimer.singleShot(geo_delay, self.set_geometry)
-
-    def add_cw_tab(self):
-        self.cw_frame = QWidget()
-        cw_grid = QGridLayout(self.cw_frame)
-        self.add_tab(self.cw_frame, 'CW')
-
-        self.main_enabled = False
-        self.sub_enabled = False
-
-        self.cw_controls_frame, controls_grid = self._plain_frame()
-        cw_grid.addWidget(self.cw_controls_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.add_cw_controls(self.cw_controls_frame)
-
-        self.add_more_widgets(cw_grid)
-
-        self.buttons_and_text_frame, bat_grid = self._plain_frame()
-        cw_grid.addWidget(self.buttons_and_text_frame, 4, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        self.buttons_frame, buttons_grid = self._plain_frame()
-        bat_grid.addWidget(self.buttons_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.add_buttons(self.buttons, self.buttons_frame, edit=False)
-
-        self.text_fields_frame, text_fields_grid = self._plain_frame()
-        bat_grid.addWidget(self.text_fields_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.add_text_fields(self.text_fields_frame)
-
-        self.tx_send_offset = 0
-        self.tx_remaining_count = 0
-        self.sending = False
-
-        for response, handler in self.cw_subscriptions:
-            self.server.subscribe_response(response, getattr(self, handler))
 
     def add_more_widgets(self, cw_grid):
         self.qsk_frame, qsk_grid = self._plain_frame()
@@ -11546,7 +12021,7 @@ class CW(TextButtons):
         ]
         return wpm, threshold
 
-    def add_cw_controls(self, parent_frame):
+    def add_mode_controls(self, parent_frame):
         sidetone_frame, sidetone_grid = qt_group_box('Sidetone Volume', self.label_font())
         parent_frame.layout().addWidget(sidetone_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
@@ -11602,316 +12077,6 @@ class CW(TextButtons):
             autospot_grid.addWidget(button, 0, column, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
             setattr(self, f'{text.lower()}_spot_button', button)
 
-    def _size_cw_text(self, cw_text, height_lines):
-        cw_text.max_lines = height_lines
-        fm = QFontMetrics(self.monospaced_font)
-        cw_text.setFixedHeight(height_lines * fm.height() + 10)
-        cw_text.setFixedWidth(self.text_width * fm.averageCharWidth() + 10)
-
-    def _widget_overflowing(self, cw_text, max_lines):
-        total_lines = 0
-        block = cw_text.document().firstBlock()
-        while block.isValid():
-            layout = block.layout()
-            n = layout.lineCount() if layout != None and layout.lineCount() > 0 else 1
-            total_lines += n
-            block = block.next()
-        return total_lines > max_lines
-
-    def _set_underline_position(self, cw_text, position):
-        doc = cw_text.document()
-        clear_fmt = QTextCharFormat()
-        clear_fmt.setFontUnderline(False)
-        cursor = QTextCursor(doc)
-        cursor.select(QTextCursor.SelectionType.Document)
-        cursor.mergeCharFormat(clear_fmt)
-
-        text_len = len(cw_text.toPlainText())
-        if position < 0 or position >= text_len:
-            return
-        underline_fmt = QTextCharFormat()
-        underline_fmt.setFontUnderline(True)
-        cursor = QTextCursor(doc)
-        cursor.setPosition(position)
-        cursor.setPosition(position + 1, QTextCursor.MoveMode.KeepAnchor)
-        cursor.mergeCharFormat(underline_fmt)
-
-    def add_text_fields(self, parent_frame):
-        self.entry_frame, entry_grid = qt_group_box(
-            'Delayed Tx (Press Enter key to send, Delete key to clear)', self.label_font())
-        parent_frame.layout().addWidget(self.entry_frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.entry_text = self._add_cw_text(entry_grid, self.entry_height)
-
-        self.tx_frame, tx_grid = qt_group_box(
-            'Immediate Tx (Press Escape key to stop sending.)', self.label_font())
-        parent_frame.layout().addWidget(self.tx_frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.tx_text = self._add_cw_text(tx_grid, self.tx_height, read_only=True)
-
-        self.main_frame, main_grid = qt_group_box('Main Rx', self.label_font())
-        self.main_text = self._add_cw_text(main_grid, self.rx_height, read_only=True)
-
-        self.sub_frame, sub_grid = qt_group_box('Sub Rx', self.label_font())
-        self.sub_text = self._add_cw_text(sub_grid, self.rx_height, read_only=True)
-
-        self.config_cw_fields()
-
-    def _add_cw_text(self, grid, height_lines, read_only=False):
-        cw_text = CWText()
-        if read_only:
-            cw_text.setReadOnly(True)
-        cw_text.setFont(self.monospaced_font)
-        cw_text.setStyleSheet(f'QPlainTextEdit {{ background-color: {self.bg}; color: {self.fg}; }}')
-        self._size_cw_text(cw_text, height_lines)
-        grid.addWidget(cw_text, 0, 0)
-        return cw_text
-
-    def add_config_vars(self, parent_frame):
-        super().add_config_vars(parent_frame)
-        grid = parent_frame.layout()
-        self.text_width_entry = self._labeled_entry(grid, 1, 1, 'Text Width:', self.text_width)
-        self.tx_height_entry = self._labeled_entry(grid, 2, 0, 'Tx lines:', self.tx_height)
-        self.rx_height_entry = self._labeled_entry(grid, 2, 1, 'Rx lines:', self.rx_height)
-        self.entry_height_entry = self._labeled_entry(grid, 3, 0, 'Entry lines:', self.entry_height)
-
-    def on_received_initial_parameters(self, response):
-        self.server.subscribe_tx_cw_changed(self.on_tx_cw_changed)
-
-    def hide(self):
-        if self.is_open:
-            self.top_level.hide()
-
-    def show(self):
-        if not self.is_open:
-            self.open()
-        else:
-            self.top_level.show()
-            self.top_level.raise_()
-            self.top_level.activateWindow()
-            Page.top.setFocus()
-
-    def close(self):
-        if not self.is_open:
-            return
-
-        self.save_geometry()
-
-        self.focus_out()
-
-        if self.tx_remaining_count > 0:
-            self.stop_sending()
-        Poll.remove(self.send_cw)
-        for response, handler in self.cw_subscriptions:
-            self.server.unsubscribe_response(response, getattr(self, handler))
-
-        self.is_open = False
-        self.top_level.deleteLater()
-
-    def focus_out(self, event=None):
-        if self._key_filter != None:
-            QApplication.instance().removeEventFilter(self._key_filter)
-            self._key_filter = None
-
-    def load_button_value(self, buttons, index, edit=False):
-        super().load_button_value(buttons, index, edit=edit)
-        if not edit:
-            button = buttons[index]
-            button.mousePressEvent = lambda event, index=index: self.send_button(index)
-
-    def store_button_value(self, buttons, index):
-        super().store_button_value(buttons, index)
-        self.save_settings()
-
-    def on_tx_cw_changed(self, response=None):
-        if self.server.tx_cw():
-            self.show()
-        else:
-            self.hide()
-
-    def append_tx_text(self, s):
-        if self.server.tx_cw():
-            self.tx_text.append(s)
-            return True
-        else:
-            tx_mode = self.server.tx_mode()
-            Popup.warning(f'Cannot transmit CW in {tx_mode} mode.')
-            return False
-
-    def send_button(self, index):
-        value = self.button_values[index]
-        if value == '':
-            return
-        value += ' '
-        if self.tx_text.text() == '':
-            self.tx_send_offset = 0
-            self.tx_remaining_count = 0
-        if self.append_tx_text(value):
-            self.send_cw()
-
-    def send_cw(self):
-        if not self.is_open:
-            return
-
-        if self.tx_remaining_count > CW.tx_queue_low:
-            Poll.call(self.tx_poll_interval, self.send_cw)
-            return
-
-        max_tx_chars = CW.tx_queue_max - self.tx_remaining_count
-
-        full_text = self.tx_text.text()
-        chunk = full_text[self.tx_send_offset:self.tx_send_offset + max_tx_chars]
-        chunk_len = len(chunk)
-        if chunk_len > 0:
-            self.tx_send_offset += chunk_len
-
-            if self.tx_remaining_count == 0:
-                chunk_len -= 1
-            self.tx_remaining_count += chunk_len
-            self.server.send_cmds(f'KY {chunk};ACN1;')
-            self.sending = True
-            Poll.call(self.tx_poll_interval, self.send_cw)
-        else:
-            self.update_sending_offset()
-
-    def on_main_text_decode(self, response):
-        self._text_decode_changed('main_enabled', 'TD')
-
-    def on_sub_text_decode(self, response):
-        self._text_decode_changed('sub_enabled', 'TD$')
-
-    def _text_decode_changed(self, attribute, base):
-        # Whether that receiver is decoding at all, which decides whether
-        # its text field is shown.
-        enabled = self.k4param(base)[0] != '0'
-        if enabled != getattr(self, attribute):
-            setattr(self, attribute, enabled)
-            self.config_cw_fields()
-
-    def config_cw_fields(self):
-        fm = QFontMetrics(self.monospaced_font)
-        self.entry_text.setFixedWidth(self.text_width * fm.averageCharWidth() + 10)
-        self.tx_text.setFixedWidth(self.text_width * fm.averageCharWidth() + 10)
-
-        if self.main_enabled:
-            self._show(self.text_fields_frame, self.main_frame, 2, 0)
-            if self.sub_enabled:
-                self._show(self.text_fields_frame, self.sub_frame, 3, 0)
-            else:
-                self._hide(self.text_fields_frame, self.sub_frame)
-        else:
-            self._hide(self.text_fields_frame, self.main_frame)
-            if self.sub_enabled:
-                self._show(self.text_fields_frame, self.sub_frame, 2, 0)
-            else:
-                self._hide(self.text_fields_frame, self.sub_frame)
-
-        self._show(self.cw_controls_frame, self.apf_frame, 0, 2)
-        self._show(self.cw_controls_frame, self.autospot_frame, 0, 3)
-
-    def update_sending_offset(self):
-        sending_offset = self.tx_send_offset - self.tx_remaining_count - 1
-        if self._widget_overflowing(self.tx_text, self.tx_text.max_lines):
-            deleted_count = self.tx_text.scroll_up()
-            self.tx_send_offset -= deleted_count
-            sending_offset -= deleted_count
-
-        self._set_underline_position(self.tx_text, sending_offset)
-
-    def on_transmit_ack(self, response):
-        self.sending = False
-
-    def on_text_buffer(self, response, widget):
-        param = cmd_parameter(response).rstrip(';')
-        if not self.sending:
-            r = int(param[0])
-            self.tx_remaining_count = r
-            self.update_sending_offset()
-        new_text = param[3:]
-        if new_text == '':
-            return
-
-        widget.append(new_text)
-        if self._widget_overflowing(widget, widget.max_lines):
-            widget.scroll_up()
-
-    def on_main_text_buffer(self, response):
-        self.on_text_buffer(response, self.main_text)
-
-    def on_sub_text_buffer(self, response):
-        self.on_text_buffer(response, self.sub_text)
-
-    def on_entry_text_modified(self, event):
-        key = event.key()
-        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Escape, Qt.Key.Key_Delete):
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                text = self.entry_text.text(clear=True)
-                if not text.endswith(' '):
-                    text += ' '
-                if self.tx_text.text() == '':
-                    self.tx_send_offset = 0
-                    self.tx_remaining_count = 0
-                if self.append_tx_text(text):
-                    self.send_cw()
-            elif key == Qt.Key.Key_Escape:
-                self.stop_sending()
-            elif key == Qt.Key.Key_Delete:
-                self.entry_text.clear()
-            return True
-
-        c = event.text()
-        if c == '' or ord(c[0]) < 0x20:     # ignore control chars, navigation keys, etc.
-            return False
-        if c.upper() not in self.valid_characters:
-            Popup.warning(f'Character "{c}" not supported for CW')
-            return True
-        return False
-
-    def on_tx_text_modified(self, event):
-        key = event.key()
-        if key == Qt.Key.Key_Escape:
-            self.stop_sending()
-            return True
-
-        if key == Qt.Key.Key_Backspace:
-            pending_text = self.tx_text.text()
-            offset = self.tx_send_offset - self.tx_remaining_count
-            if (len(pending_text) - offset) > CW.tx_queue_max + 1:
-                self.tx_text.set(pending_text[0:-1])
-            return True
-
-        c = event.text()
-        if c == '' or ord(c[0]) < 0x20:     # ignore control chars, navigation keys, etc.
-            return True
-        if c.upper() not in self.valid_characters + '\x7f':
-            Popup.warning(f'Character "{c}" not supported for CW')
-            return True
-
-        if self.append_tx_text(c):
-            self.send_cw()
-        return True
-
-    def stop_sending(self, event=None):
-        self.server.send_cmds('KY @;')
-
-        if self.tx_remaining_count == 0:
-            return
-
-        pending_text = self.tx_text.text()
-        offset = self.tx_send_offset - self.tx_remaining_count
-        if offset == len(pending_text):
-            return
-        self.tx_text.clear()
-        if offset > 1:
-            offset -= 1
-        word_begin = pending_text.rfind(' ', 0, offset)
-        if word_begin < 0:
-            word_begin = 0
-        else:
-            word_begin += 1
-        text = pending_text[word_begin:] + self.entry_text.text(clear=True)
-        self.entry_text.append(text)
-        self.tx_send_offset = 0
-        self.tx_remaining_count = 0
-
     def on_keyer_speed_change(self, response=None):
         # The length of a dit in seconds is 1.2 / wpm,
         # therefore the length of an E in ms is 1000 * 2.4 / wpm.
@@ -11920,41 +12085,6 @@ class CW(TextButtons):
         self.tx_poll_interval = int(1000 * 2.4 / float(wpm))
         self.keyer_speed_frame.setTitle(f'Keyer: {wpm} WPM')
         VailAdapter.send_keyer_speed()
-
-    def on_save_button(self):
-        super().on_save_button()
-
-        self._read_entry_ints(('text_width', 'entry_height', 'tx_height', 'rx_height'))
-        self.save_settings()
-        self.config_cw_fields()
-        self.select_tab('CW')
-
-    def on_cancel_button(self):
-        super().on_cancel_button()
-
-        self._write_entry_ints(('entry_height', 'tx_height', 'rx_height'))
-        self.config_cw_fields()
-        self.select_tab('CW')
-
-    def load_settings(self):
-        section = self.settings_section
-        self.load_button_grid_settings(5, 4, 15)
-        self.text_width = Server.settings.getint(section, 'text_width', 65, minimum=10, maximum=150)
-        self.entry_height = Server.settings.getint(section, 'entry_height', 3, minimum=1, maximum=20)
-        self.tx_height = Server.settings.getint(section, 'tx_height', 3, minimum=1, maximum=20)
-        self.rx_height = Server.settings.getint(section, 'rx_height', 3, minimum=1, maximum=20)
-        self.load_button_settings(('<KN>&(', '<AR>&+', '<BT>&=', '<AS>&%', '<SK>&*', '<VE>&!'))
-
-    def save_settings(self):
-        self.save_settings_section((
-            ('button_rows', self.rows),
-            ('button_columns', self.columns),
-            ('button_width', self.button_width),
-            ('text_width', self.text_width),
-            ('entry_height', self.entry_height),
-            ('tx_height', self.tx_height),
-            ('rx_height', self.rx_height),
-        ))
 
     def add_keying_tab(self):
         self.keying_frame = QWidget()
@@ -12483,6 +12613,544 @@ class CW(TextButtons):
             return
         Server.settings.put_save('CW', 'weighting', f'{float(current_value):.2f}')
         Keyer.set_weighting(float(current_value))
+
+class RTTY(Digital):
+    # The Digital window for RTTY, sent and decoded by the K4 itself.
+    # That takes the FSK D data sub-mode; AFSK A has the K4's decoder but
+    # nothing to send with, so the window shows there too but will not
+    # send. There is no keyer here, so no Keying tab.
+    singleton = None
+    settings_section = 'RTTY'
+    tab_name = 'RTTY'
+    # | ends a transmission at once in FSK D; the @ CW uses does nothing.
+    stop_cmd = 'KY |;'
+    # Baudot's characters, less the semicolon, which would end the KY
+    # command it was sent in.
+    characters = ' ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-?:$!&#\'().,/"'
+    default_buttons = ('CQ&CQ CQ CQ DE ', 'QRZ&QRZ? ', 'TU&TU 73 ', 'RYRY&RYRYRYRYRYRY ')
+
+    # The data sub-modes the window shows in, and the one it can send in.
+    shown_sub_modes = ('1', '2')        # AFSK A, FSK D
+    sending_sub_mode = '2'              # FSK D
+
+    mode_subscriptions = (
+        ('DR;', 'on_data_rate_change'),
+        ('FA;', 'on_main_frequency_changed'),
+    )
+
+    # What the Frequency dropdown offers: where RTTY usually is on 80,
+    # 40 (Region 1, then Region 2), 30, 20, 17, 15, 12 and 10 m.
+    calling_hz = (3590000, 7040000, 7080000, 10140000, 14080000, 18100000,
+                  21080000, 24920000, 28080000)
+
+    def __init__(self, config_info, container):
+        # Before Digital's __init__, which may subscribe at once: until
+        # when, for each VFO, its mode and sub-mode are put back to
+        # RTTY's, and which of DATA and DATA REV that is.
+        self.sub_mode_until = [0.0, 0.0]
+        self.rtty_mode = ['6', '6']
+        # Each VFO's data rate as last reported, and until when a filter
+        # it reports isn't remembered: see on_rtty_data_rate_changed.
+        self.data_rates = [None, None]
+        self.bandwidth_restored_until = [0.0, 0.0]
+        # The Receiver choice: see keep_decoding.
+        self.decoding = Server.settings.getint('RTTY', 'decoding', 0, minimum=0, maximum=2)
+        # AFC: see afc_check.
+        self.afc_on = Server.settings.getbool('RTTY', 'afc', False)
+        self.afc_audio = [collections.deque(), collections.deque()]
+        self.afc_timer = None
+        self.afc_wait_until = 0.0
+        self.afc_last = None
+        self.choosing_decoding = False
+        self.decoding_check_pending = False
+        super().__init__(config_info, container)
+        self.tx_poll_interval = self.character_ms('0')
+
+    @staticmethod
+    def character_ms(data_rate):
+        # How long a character takes to send, at DR's 45 (0) or 75 (1)
+        # baud: a start bit, five data bits and a stop bit and a half.
+        baud = 75 if data_rate == '1' else 45.45
+        return int(1000 * 7.5 / baud)
+
+    def tx_sub_mode(self):
+        # The transmit VFO's mode and data sub-mode, as DT reports it.
+        server = self.server
+        split = server.k4_parameter('FT') == '1'
+        return server.tx_mode(), server.k4_parameter('DT$' if split else 'DT')
+
+    def transmitting_in_mode(self):
+        mode, sub_mode = self.tx_sub_mode()
+        return mode in ('DATA', 'DATA-R') and sub_mode in self.shown_sub_modes
+
+    def can_send(self):
+        mode, sub_mode = self.tx_sub_mode()
+        return mode in ('DATA', 'DATA-R') and sub_mode == self.sending_sub_mode
+
+    def cannot_send_message(self):
+        mode, sub_mode = self.tx_sub_mode()
+        if mode in ('DATA', 'DATA-R'):
+            return 'The K4 sends RTTY text only in the FSK D data sub-mode.'
+        return f'Cannot transmit RTTY in {mode} mode.'
+
+    # RTTY picked from a VFO's mode dropdown: !RTTY6 for DATA or !RTTY9
+    # for DATA REV, !RTTY$ for VFO B. The mode is sent, then FSK D; but
+    # the K4 can still be going into DATA when DT arrives, and keep the
+    # data sub-mode it had. So it is asked again, a little after, and FSK
+    # D sent again if it isn't in it -- for a while after, so that the
+    # sub-mode is the operator's to change once RTTY is set up.
+    rtty_directives = ('!RTTY', '!RTTY$')
+    check_ms = (400, 1200)
+    sub_mode_hold_seconds = 2
+    # The filter is remembered for each data rate, as last set while in
+    # DATA or DATA REV, here or at the radio, and put back when the rate
+    # changes, or RTTY is picked; a frequency picked leaves it alone. To
+    # begin with, 300 Hz at 45 baud and 400 Hz at 75, in BW's hundredths
+    # of a kilohertz. For bandwidth_restore_seconds after it is put
+    # back, a filter reported isn't remembered: it may be one the K4 set
+    # with the new rate.
+    default_bandwidths = {'0': '0030', '1': '0040'}
+    bandwidth_restore_seconds = 1
+
+    def bandwidth(self, index, rate=None):
+        # Remembered for the data rate, the VFO's own (DR or DR$) unless
+        # given.
+        if rate == None:
+            rate = self.server.k4_parameter('DR$' if index else 'DR')
+        default = self.default_bandwidths.get(rate, self.default_bandwidths['0'])
+        return Server.settings.get(self.settings_section, f'bandwidth_{rate}', default)
+
+    def on_received_initial_parameters(self, response):
+        self.server.subscribe_responses('MD;MD$;FT;DT;DT$;', self.on_tx_mode_changed)
+        self.server.subscribe_responses('!RTTY;!RTTY$;', self.on_rtty_cmd)
+        self.server.subscribe_responses('DT;DT$;', self.on_data_sub_mode_changed)
+        self.server.subscribe_responses('MD;MD$;', self.on_rtty_mode_changed)
+        self.server.subscribe_responses('BW;BW$;', self.on_rtty_bandwidth_changed)
+        self.server.subscribe_responses('DR;DR$;', self.on_rtty_data_rate_changed)
+
+    def on_rtty_cmd(self, response):
+        index = self.rtty_directives.index(cmd_base(response))
+        mode = cmd_parameter(response).rstrip(';')
+        if mode in ('6', '9'):
+            self.set_rtty(index, mode)
+
+    def set_rtty(self, index, mode, with_bandwidth=True):
+        vfo = '$' if index else ''
+        self.rtty_mode[index] = mode
+        cmds = f'MD{vfo}{mode};DT{vfo}{self.sending_sub_mode};'
+        if with_bandwidth:
+            cmds += f'BW{vfo}{self.bandwidth(index)};'
+        self.server.send_cmds(cmds)
+        self.sub_mode_until[index] = time.monotonic() + self.sub_mode_hold_seconds
+        for ms in self.check_ms:
+            QTimer.singleShot(ms, lambda index=index: self.check_sub_mode(index))
+
+    def check_sub_mode(self, index):
+        server = self.server
+        if not server.connected or time.monotonic() > self.sub_mode_until[index]:
+            return
+        vfo = '$' if index else ''
+        # Sent as they are: through send_cmds the empty answers a query
+        # is recorded as would be taken for the mode and sub-mode.
+        server.send_str(f'MD{vfo};DT{vfo};')
+
+    def on_data_sub_mode_changed(self, response):
+        index = 1 if cmd_base(response) == 'DT$' else 0
+        sub_mode = cmd_parameter(response).rstrip(';')
+        if (sub_mode in ('', self.sending_sub_mode)
+                or time.monotonic() > self.sub_mode_until[index]):
+            return
+        if not self.server.receiving:
+            # Picked in the app: the operator's.
+            self.sub_mode_until[index] = 0.0
+            return
+        vfo = '$' if index else ''
+        if self.server.k4_parameter(f'MD{vfo}') in ('6', '9'):
+            self.server.send_cmds(f'DT{vfo}{self.sending_sub_mode};')
+
+    def on_rtty_bandwidth_changed(self, response):
+        # The filter remembered for the data rate it was set at, while in
+        # DATA or DATA REV.
+        index = 1 if cmd_base(response) == 'BW$' else 0
+        bandwidth = cmd_parameter(response).rstrip(';')
+        vfo = '$' if index else ''
+        rate = self.server.k4_parameter(f'DR{vfo}')
+        if (bandwidth == '' or rate not in self.default_bandwidths
+                or self.server.k4_parameter(f'MD{vfo}') not in ('6', '9')
+                or time.monotonic() < self.bandwidth_restored_until[index]):
+            return
+        if bandwidth != self.bandwidth(index, rate):
+            Server.settings.put_save(self.settings_section, f'bandwidth_{rate}', bandwidth)
+
+    def on_rtty_mode_changed(self, response):
+        # Moved to another band, the K4 puts back the mode it last had
+        # there: RTTY's again, for a while after it was set up. Only what
+        # the K4 reports, though: another mode picked in the app, from a
+        # dropdown say, is the operator's, and ends that.
+        index = 1 if cmd_base(response) == 'MD$' else 0
+        mode = cmd_parameter(response).rstrip(';')
+        if mode in ('', '6', '9') or time.monotonic() > self.sub_mode_until[index]:
+            return
+        if not self.server.receiving:
+            self.sub_mode_until[index] = 0.0
+            return
+        vfo = '$' if index else ''
+        self.server.send_cmds(f'MD{vfo}{self.rtty_mode[index]};DT{vfo}{self.sending_sub_mode};')
+
+    def on_frequency_selected(self, hz):
+        # VFO A's, as the rest of these controls are: tuned, then put
+        # back in RTTY -- DATA or DATA REV as it is, and FSK D -- since
+        # moving band the K4 puts back what it last had there.
+        mode = self.k4param('MD')
+        self.server.send_cmds(f'FA{hz:011d};')
+        if self.afc_on:
+            # Tracking starts again from the frequency picked.
+            self.server.send_cmds('RO+0000;')
+            self.afc_last = None
+        self.set_rtty(0, mode if mode in ('6', '9') else '6', with_bandwidth=False)
+
+    def on_main_frequency_changed(self, response=None):
+        self.frequency_dropdown.show(self.k4param('FA'))
+
+    def on_rtty_data_rate_changed(self, response):
+        # The data rate changed, here or at the radio, on a VFO in DATA
+        # or DATA REV: the filter remembered for it. Not the rate first
+        # learnt.
+        index = 1 if cmd_base(response) == 'DR$' else 0
+        rate = cmd_parameter(response).rstrip(';')
+        if rate == '':
+            # A query sent, not a rate.
+            return
+        previous, self.data_rates[index] = self.data_rates[index], rate
+        if previous == None or rate == previous or rate not in self.default_bandwidths:
+            return
+        vfo = '$' if index else ''
+        if self.server.k4_parameter(f'MD{vfo}') not in ('6', '9'):
+            return
+        cmd = f'BW{vfo}{self.bandwidth(index, rate)};'
+        self.bandwidth_restored_until[index] = time.monotonic() + self.bandwidth_restore_seconds
+        if self.server.receiving:
+            self.server.send_cmds(cmd)
+        else:
+            # The rate picked in the app is recorded before it is sent:
+            # the filter after it, in case the K4 sets one of its own with
+            # the new rate.
+            QTimer.singleShot(0, lambda: self.server.send_cmds(cmd))
+
+    def on_data_rate_change(self, response=None):
+        # Polled at least as often as a character goes out, as CW does
+        # from the keyer speed.
+        self.tx_poll_interval = self.character_ms(self.k4param('DR'))
+
+    def add_mode_controls(self, parent_frame):
+        # Frequency, rate, sub-mode and polarity, for the main receiver,
+        # which is what the K4 transmits on unless split.
+        grid = parent_frame.layout()
+        frame, frame_grid = qt_group_box('Frequency', self.label_font())
+        grid.addWidget(frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.frequency_dropdown = FrequencyDropdown(self.font(), self.bg, self.fg, self.calling_hz,
+                                                    self.on_frequency_selected)
+        frame_grid.addWidget(self.frequency_dropdown.combobox, 0, 0)
+        for column, (title, width, selections) in enumerate((
+                ('Data Rate', 8, (('45 baud', 'DR0;'), ('75 baud', 'DR1;'))),
+                ('Sub-Mode', 7, (('AFSK A', 'DT1;'), ('FSK D', 'DT2;'))),
+                ('Polarity', 8, (('Normal', 'MD6;'), ('Reverse', 'MD9;'))))):
+            frame, frame_grid = qt_group_box(title, self.label_font())
+            grid.addWidget(frame, 0, column + 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            options = {
+                'selections': [{'text': text, 'cmd': cmd} for text, cmd in selections],
+                'width': width, 'bg': self.bg, 'fg': self.fg, 'font': self.font(),
+            }
+            ToggleWidget(self, frame, options)
+        frame, frame_grid = qt_group_box('AFC', self.label_font())
+        grid.addWidget(frame, 0, 4, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.afc_button = QPushButton()
+        self.afc_button.setFont(self.font())
+        self.afc_button.setMinimumWidth(4 * QFontMetrics(self.font()).averageCharWidth())
+        self.afc_button.clicked.connect(lambda checked=False: self.set_afc(not self.afc_on))
+        frame_grid.addWidget(self.afc_button, 0, 0)
+        autotune = QPushButton('Autotune')
+        autotune.setFont(self.font())
+        autotune.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.abg, self.afg))
+        autotune.clicked.connect(lambda checked=False: self.autotune())
+        frame_grid.addWidget(autotune, 0, 1)
+        self.afc_timer = QTimer(self.afc_button)
+        self.afc_timer.timeout.connect(self.afc_check)
+        self.set_afc(self.afc_on)
+
+    def add_more_widgets(self, mode_grid):
+        # Which receivers decode: the main, the sub or both, never neither
+        # (see keep_decoding). Each one's TD threshold and lines are kept
+        # as they are.
+        frame, frame_grid = qt_group_box('Receiver', self.label_font())
+        mode_grid.addWidget(frame, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        options = {
+            'selections': [
+                {
+                    'text': text,
+                    'cmd': f'TD{int(main)};TD${int(sub)};',
+                    'evalcmd': f'self.choose_decoding({choice})',
+                    'evalresponse': '(value[0:4] if value[2] == "$" else value[0:3]) + ";"',
+                }
+                for choice, (text, (main, sub)) in enumerate(zip(self.decoding_names,
+                                                                 self.decoding_choices))
+            ],
+            'width': 4, 'bg': self.bg, 'fg': self.fg,
+            'selectbg': self.bg, 'selectfg': self.fg, 'font': self.font(),
+        }
+        self.decoding_dropdown = DropdownWidget(self, frame, options)
+
+    # The Receiver choices: whether each of the main and sub decodes.
+    decoding_names = ('Main', 'Sub', 'Both')
+    decoding_choices = ((True, False), (False, True), (True, True))
+    # How long after the last TD report keep_decoding looks: the radio
+    # reports a change of receiver as two, one TD for each, and between
+    # them it can have neither on.
+    decoding_settle_ms = 500
+
+    def decode_cmds(self, choice):
+        # The TD commands for a choice, each receiver's threshold and lines
+        # as they are.
+        cmds = ''
+        for base, on in zip(('TD', 'TD$'), self.decoding_choices[choice]):
+            rest = ((self.k4param(base) or '') + '00')[1:3]
+            cmds += f'{base}{int(on)}{rest};'
+        return cmds
+
+    def choose_decoding(self, choice):
+        # From the Receiver dropdown. The choice recorded first, and sent
+        # with keep_decoding kept out of it: between the two commands
+        # neither receiver can be on, which it would otherwise put right
+        # with the choice before. Sent here, so nothing is returned for
+        # the dropdown to send.
+        self.remember_decoding(choice)
+        self.choosing_decoding = True
+        try:
+            self.server.send_cmds(self.decode_cmds(choice))
+        finally:
+            self.choosing_decoding = False
+        return None
+
+    def remember_decoding(self, choice):
+        if choice != self.decoding:
+            self.decoding = choice
+            Server.settings.put_save(self.settings_section, 'decoding', choice)
+
+    def keep_decoding(self):
+        if self.choosing_decoding or self.decoding_check_pending:
+            return
+        self.decoding_check_pending = True
+        QTimer.singleShot(self.decoding_settle_ms, self.check_decoding)
+
+    def check_decoding(self):
+        # At least one receiver decoding while the window is in its mode:
+        # what is on, here or at the radio, is the choice remembered;
+        # neither, and the choice remembered is put back. Not in other
+        # modes, where TD is theirs -- CW's, say.
+        self.decoding_check_pending = False
+        if not self.is_open or not self.transmitting_in_mode():
+            return
+        main, sub = self.k4param('TD'), self.k4param('TD$')
+        if not main or not sub:
+            return
+        state = (main[0] != '0', sub[0] != '0')
+        if state in self.decoding_choices:
+            self.remember_decoding(self.decoding_choices.index(state))
+        else:
+            self.choose_decoding(self.decoding)
+
+    # AFC: the receiver's RIT kept where the RTTY signal coming in sits
+    # on the K4's tones -- its FSK mark tone and the space 170 Hz above,
+    # whose middle is afc_target. Every afc_check_ms, the last
+    # afc_window_seconds of that receiver's audio is looked at for two
+    # tones afc_shift_hz apart within afc_search_hz of there, and RIT
+    # moved by afc_gain of how far off they are, if more than
+    # afc_deadband_hz; then left for afc_settle_seconds, the audio being
+    # behind the radio, before looking again. Which way RIT moves the
+    # tones depends on the sideband, DATA's or DATA REV's: if a move
+    # makes things worse, the other way, remembered for that mode.
+    afc_shift_hz = 170
+    afc_search_hz = 250
+    afc_window_seconds = .8
+    afc_check_ms = 600
+    afc_settle_seconds = 1.3
+    afc_deadband_hz = 4
+    afc_gain = .8
+    # How far above the noise the pair has to be to be followed, and how
+    # near each other the two tones' strengths, so that a carrier isn't.
+    afc_snr = 4
+    afc_balance = .2
+    default_mark_hz = 915
+
+    @classmethod
+    def feed_audio(cls, stereo):
+        # From the receive audio thread, while the window is open, for
+        # AFC and Autotune: the K4's audio as decoded, interleaved main and
+        # sub.
+        self = cls.singleton
+        if self == None or not self.is_open:
+            return
+        keep = int(self.afc_window_seconds * self.k4_sample_rate)
+        for index, audio in enumerate(self.afc_audio):
+            audio.append(stereo[index::2].copy())
+            while sum(len(chunk) for chunk in audio) - len(audio[0]) >= keep:
+                audio.popleft()
+
+    k4_sample_rate = 12000
+
+    def set_afc(self, on):
+        self.afc_on = on
+        Server.settings.put_save(self.settings_section, 'afc', on)
+        self.afc_button.setText('On' if on else 'Off')
+        bg = 'yellow' if on else self.bg
+        self.afc_button.setStyleSheet(qt_button_stylesheet(bg, self.fg, self.abg, self.afg))
+        self.afc_last = None
+        for audio in self.afc_audio:
+            audio.clear()
+        if on:
+            self.afc_timer.start(self.afc_check_ms)
+        else:
+            self.afc_timer.stop()
+
+    def afc_target(self):
+        # Halfway between the K4's mark and space tones.
+        mark = self.default_mark_hz
+        entry = Menu.entry(85) if Menu.singleton != None else None
+        try:
+            mark = int(entry.values[int(entry.current)])
+        except (AttributeError, IndexError, TypeError, ValueError):
+            pass
+        return mark + self.afc_shift_hz / 2
+
+    def afc_measure(self, samples, target):
+        # Where the middle of the RTTY pair is, in hertz, or None where
+        # there isn't one clearly enough.
+        rate = self.k4_sample_rate
+        if len(samples) < rate // 2:
+            return None
+        window = numpy.hanning(len(samples))
+        # Zero-padded to a second: one hertz a bin.
+        power = numpy.abs(numpy.fft.rfft(samples * window, n=rate)) ** 2
+        # Each tone's power within 10 Hz either side, the keying spreading it.
+        tone = numpy.convolve(power, numpy.ones(21), mode='same')
+        half = self.afc_shift_hz // 2
+        low = int(target - self.afc_search_hz)
+        high = int(target + self.afc_search_hz)
+        if low - half < 0 or high + half >= len(tone):
+            return None
+        centres = numpy.arange(low, high + 1)
+        lower, upper = tone[centres - half], tone[centres + half]
+        best = int(numpy.argmax(lower + upper))
+        noise = numpy.median(tone[low - half:high + half + 1])
+        if noise <= 0 or min(lower[best], upper[best]) < self.afc_snr * noise:
+            return None
+        if min(lower[best], upper[best]) < self.afc_balance * max(lower[best], upper[best]):
+            return None
+        return float(centres[best])
+
+    def afc_receiver(self):
+        # The sub's, decoding it alone; otherwise the main's.
+        return 1 if self.decoding == 1 else 0
+
+    def afc_error(self, index):
+        # How far the RTTY pair coming in is from the K4's tones, in
+        # hertz of audio, or None where there isn't one clearly enough.
+        chunks = list(self.afc_audio[index])
+        if not chunks:
+            return None
+        samples = numpy.concatenate(chunks)[-int(self.afc_window_seconds * self.k4_sample_rate):]
+        target = self.afc_target()
+        centre = self.afc_measure(samples, target)
+        return None if centre == None else centre - target
+
+    def afc_direction(self, index):
+        # Which way RIT, or the VFO, moves the tones in this mode.
+        mode = self.server.k4_parameter('MD$' if index else 'MD') or '6'
+        return Server.settings.getint(self.settings_section, f'afc_direction_{mode}', 1)
+
+    def autotune(self):
+        # The VFO moved to where the signal is received -- its frequency,
+        # plus RIT's offset if RIT is on, plus how far off the signal still
+        # is -- and RIT set to nothing, so that what is sent goes out where
+        # the other station is.
+        server = self.server
+        if not server.connected:
+            return
+        index = self.afc_receiver()
+        vfo = '$' if index else ''
+        frequency_base = 'FB' if index else 'FA'
+        try:
+            frequency = int(server.k4_parameter(frequency_base))
+        except (TypeError, ValueError):
+            return
+        offset = 0
+        if server.k4_parameter(f'RT{vfo}') == '1':
+            try:
+                offset = int(server.k4_parameter(f'RO{vfo}') or 0)
+            except ValueError:
+                pass
+        error = self.afc_error(index)
+        if error != None:
+            offset -= round(self.afc_direction(index) * error)
+        server.send_cmds(f'{frequency_base}{frequency + offset:011d};RO{vfo}+0000;')
+        # AFC starts again from there, once the audio has caught up.
+        self.afc_last = None
+        self.afc_wait_until = time.monotonic() + self.afc_settle_seconds
+        for audio in self.afc_audio:
+            audio.clear()
+
+    def afc_check(self):
+        if not self.is_open or not self.transmitting_in_mode():
+            return
+        server = self.server
+        if not server.connected or server.k4_parameter('TR') == 'T':
+            return
+        if time.monotonic() < self.afc_wait_until:
+            return
+        index = self.afc_receiver()
+        error = self.afc_error(index)
+        if error == None:
+            self.afc_last = None
+            return
+        mode = server.k4_parameter('MD$' if index else 'MD') or '6'
+        setting = f'afc_direction_{mode}'
+        direction = self.afc_direction(index)
+        if self.afc_last != None:
+            last_index, last_error = self.afc_last
+            if (last_index == index and abs(last_error) >= 15
+                    and abs(error) > .8 * abs(last_error)):
+                # The last move made it worse: RIT moves the tones the
+                # other way in this mode.
+                direction = -direction
+                Server.settings.put_save(self.settings_section, setting, direction)
+        if abs(error) <= self.afc_deadband_hz:
+            self.afc_last = None
+            return
+        vfo = '$' if index else ''
+        try:
+            offset = int(server.k4_parameter(f'RO{vfo}') or 0)
+        except ValueError:
+            offset = 0
+        offset = max(-9999, min(9999, offset - round(direction * self.afc_gain * error)))
+        cmds = '' if server.k4_parameter(f'RT{vfo}') == '1' else f'RT{vfo}1;'
+        server.send_cmds(cmds + f'RO{vfo}{offset:+05d};')
+        self.afc_last = (index, error)
+        self.afc_wait_until = time.monotonic() + self.afc_settle_seconds
+        for audio in self.afc_audio:
+            audio.clear()
+
+    def on_main_text_decode(self, response):
+        super().on_main_text_decode(response)
+        self.keep_decoding()
+
+    def on_sub_text_decode(self, response):
+        super().on_sub_text_decode(response)
+        self.keep_decoding()
+
+    def on_tx_mode_changed(self, response=None):
+        super().on_tx_mode_changed(response)
+        if self.is_open:
+            self.keep_decoding()
 
 class Macros(TextButtons):
     singleton = None
@@ -15784,6 +16452,7 @@ def clean_up(exit=False):
     # pop up a spurious "not connected" warning in the middle of shutting
     # down.
     CW.close_window()
+    RTTY.close_window()
     Macros.close_window()
     # Both of the above end with top_level.deleteLater(), which only
     # *schedules* the actual C++ destruction for the next event-loop
@@ -16594,6 +17263,7 @@ config_data = '''
     #include main-tab-row2
     #include main-tab-row3
     #include cw-window
+    #include rtty-window
     #include macros-window
     #}
 #end
@@ -17062,6 +17732,8 @@ config_data = '''
     - { text: " LSB", cmd: MD1; }
     - { text: "  AM", cmd: MD5; }
     - { text: "  FM", cmd: MD4; }
+    - { text: "RTTY", cmd: MD6;DT2; }
+    - { text: "RT-R", cmd: MD9;DT2; }
     - { text: "DATA", cmd: MD6; }
     - { text: "DT-R", cmd: MD9; }
   #}
@@ -17271,6 +17943,8 @@ config_data = '''
     - { text: " LSB", cmd: MD$1; }
     - { text: "  AM", cmd: MD$5; }
     - { text: "  FM", cmd: MD$4; }
+    - { text: "RTTY", cmd: MD$6;DT$2; }
+    - { text: "RT-R", cmd: MD$9;DT$2; }
     - { text: "DATA", cmd: MD$6; }
     - { text: "DT-R", cmd: MD$9; }
   #}
@@ -17842,6 +18516,11 @@ config_data = '''
 
 #define cw-window
 - item: cw
+  selectbg: pink
+#end
+
+#define rtty-window
+- item: rtty
   selectbg: pink
 #end
 
