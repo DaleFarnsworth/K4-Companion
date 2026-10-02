@@ -1558,7 +1558,8 @@ class Server():
                 continue
             full_response = response
             response = response[len(base):]
-            if response == '?' and base not in self.ignored_errors:
+            if (response == '?' and base not in self.ignored_errors
+                    and not CatServer.forwarded_lately(base)):
                 Popup.warning('Received error response from K4: ' + base + response)
             self.update_k4_parameter(base, response)
             CatServer.on_k4_response(base, full_response)
@@ -11775,6 +11776,11 @@ class CatServer():
     clients = {}
     pending = {}
     timer = None
+    # When each command was last passed on, by name: an error the K4
+    # gives for one within error_seconds is the program's, and isn't
+    # put up as the app's own.
+    forwarded = {}
+    error_seconds = 3.0
 
     @classmethod
     def start(cls):
@@ -11844,13 +11850,20 @@ class CatServer():
             if k4 == None or not k4.connected:
                 cls.answer_from_cache(socket, base)
                 return
+            cls.forwarded[base] = time.monotonic()
             cls.pending.setdefault(base, []).append((socket, time.monotonic()))
             # As it is: through send_cmds the empty answer a query is
             # would be recorded as the value.
             k4.send_str(f'{cmd};')
             return
         if k4 != None and k4.connected:
+            cls.forwarded[base] = time.monotonic()
             k4.send_cmds(f'{cmd};')
+
+    @classmethod
+    def forwarded_lately(cls, base):
+        forwarded = cls.forwarded.get(base)
+        return forwarded != None and time.monotonic() - forwarded < cls.error_seconds
 
     @classmethod
     def answer_from_cache(cls, socket, base):
@@ -11864,7 +11877,8 @@ class CatServer():
         waiting = cls.pending.get(base)
         if waiting:
             socket, asked = waiting.pop(0)
-            cls.reply(socket, f'{response};')
+            # An error answered as CAT answers one.
+            cls.reply(socket, '?;' if response == f'{base}?' else f'{response};')
 
     @classmethod
     def answer_late_queries(cls):
