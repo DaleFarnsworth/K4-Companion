@@ -40,6 +40,7 @@
     #include cw-window
     #include rtty-window
     #include macros-window
+    #include sstv-window
     #}
 #end
 
@@ -503,11 +504,12 @@
   selections: #{
     - { text: "  CW", cmd: MD3; }
     - { text: "CW-R", cmd: MD7; }
-    - { text: " USB", cmd: MD2; }
-    - { text: " LSB", cmd: MD1; }
+    - { text: " USB", cmd: '!SSTVDISABLE;MD2;' }
+    - { text: " LSB", cmd: '!SSTVDISABLE;MD1;' }
     - { text: "  AM", cmd: MD5; }
     - { text: "  FM", cmd: MD4; }
     - { text: "RTTY", cmd: '!RTTY6;', response: MD6;DT2; }
+    - { text: "SSTV", cmd: '!SSTVENABLE;' }
     - { text: "DATA", cmd: MD6; }
     - { text: "DT-R", cmd: MD9; }
   #}
@@ -713,11 +715,12 @@
   selections: #{
     - { text: "  CW", cmd: MD$3; }
     - { text: "CW-R", cmd: MD$7; }
-    - { text: " USB", cmd: MD$2; }
-    - { text: " LSB", cmd: MD$1; }
+    - { text: " USB", cmd: '!SSTV$DISABLE;MD$2;' }
+    - { text: " LSB", cmd: '!SSTV$DISABLE;MD$1;' }
     - { text: "  AM", cmd: MD$5; }
     - { text: "  FM", cmd: MD$4; }
     - { text: "RTTY", cmd: '!RTTY$6;', response: MD$6;DT$2; }
+    - { text: "SSTV", cmd: '!SSTV$ENABLE;' }
     - { text: "DATA", cmd: MD$6; }
     - { text: "DT-R", cmd: MD$9; }
   #}
@@ -1299,6 +1302,10 @@
 
 #define macros-window
 - item: macros
+#end
+
+#define sstv-window
+- item: sstv
 #end
 
 #define equalizers
