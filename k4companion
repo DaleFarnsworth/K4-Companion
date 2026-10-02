@@ -74,6 +74,7 @@ import yaml
 
 from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal, QThread, qInstallMessageHandler, QCoreApplication, QStandardPaths
 from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat, QCursor, QImage, QPixmap, QPalette, QColor
+from PyQt6.QtNetwork import QTcpServer, QHostAddress
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
     QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
@@ -1461,10 +1462,12 @@ class Server():
                     dprint1('{name}: received: {response};'.format(name=self.name, response=response))
             if not self.control_k4_audio and base in self.control_k4_audio_cmd_bases:
                 continue
+            full_response = response
             response = response[len(base):]
             if response == '?' and base not in self.ignored_errors:
                 Popup.warning('Received error response from K4: ' + base + response)
             self.update_k4_parameter(base, response)
+            CatServer.on_k4_response(base, full_response)
 
     def cat_only_recv_loop(self):
         while True:
@@ -11552,6 +11555,134 @@ class SSTVDecoder():
         self.vis_from = int(self.next_sync)
         self.on_end(mode, complete)
 
+class CatServer():
+    # Other programs' CAT -- logging and digital-mode programs through
+    # hamlib's K4 backend, say -- on TCP port 9200, as if it were the
+    # radio's, and passed on to the K4 over the app's own connection.
+    #
+    # A query, a command without a parameter, is sent on as it is, and
+    # the next response the K4 gives with that command's name goes back
+    # to the program that asked; it updates the app's parameter cache as
+    # any response does. Without one within query_seconds, the cached
+    # value is answered, or ?; where there is none. A command that sets
+    # something goes through send_cmds, so the cache and the windows
+    # follow at once, and, as at a real CAT port, nothing is answered.
+    #
+    # Not passed on: the commands that set how the K4 talks -- auto-info
+    # and the extended modes -- which would change it for the app as
+    # well. Each program is answered what it last set them to.
+    #
+    # Only on this machine: anything that can connect can key the
+    # transmitter.
+    port = 9200
+    query_seconds = 1.0
+    # Commands with no parameter that set something rather than ask.
+    actions = ('TX', 'RX', 'RC', 'UP', 'DN', 'UP$', 'DN$')
+    # Answered here, never passed on, with what they start as.
+    protocol = {'AI': '0', 'K2': '0', 'K3': '0', 'K4': '1'}
+    server = None
+    clients = {}
+    pending = {}
+    timer = None
+
+    @classmethod
+    def start(cls):
+        if cls.server != None:
+            return
+        cls.server = QTcpServer()
+        if not cls.server.listen(QHostAddress(QHostAddress.SpecialAddress.LocalHost), cls.port):
+            dprint(f'CAT server: cannot listen on port {cls.port}: {cls.server.errorString()}')
+            cls.server = None
+            return
+        cls.server.newConnection.connect(cls.on_new_connection)
+        cls.timer = QTimer()
+        cls.timer.timeout.connect(cls.answer_late_queries)
+        cls.timer.start(200)
+        dprint_cat(f'CAT server: listening on port {cls.port}')
+
+    @classmethod
+    def on_new_connection(cls):
+        while cls.server.hasPendingConnections():
+            socket = cls.server.nextPendingConnection()
+            # What it has sent of a command not yet ended, and what it has
+            # set the protocol commands to.
+            cls.clients[socket] = {'partial': '', 'protocol': dict(cls.protocol)}
+            socket.readyRead.connect(lambda socket=socket: cls.on_ready_read(socket))
+            socket.disconnected.connect(lambda socket=socket: cls.on_disconnected(socket))
+            dprint_cat(f'CAT server: {socket.peerAddress().toString()} connected')
+
+    @classmethod
+    def on_disconnected(cls, socket):
+        cls.clients.pop(socket, None)
+        for waiting in cls.pending.values():
+            waiting[:] = [(s, t) for s, t in waiting if s is not socket]
+        socket.deleteLater()
+
+    @classmethod
+    def on_ready_read(cls, socket):
+        client = cls.clients.get(socket)
+        if client == None:
+            return
+        text = client['partial'] + bytes(socket.readAll()).decode('ascii', 'replace')
+        cmds = text.split(';')
+        client['partial'] = cmds.pop()
+        for cmd in cmds:
+            cmd = cmd.strip()
+            if cmd != '':
+                cls.on_cmd(socket, client, cmd)
+
+    @classmethod
+    def reply(cls, socket, text):
+        if socket in cls.clients:
+            dprint_cat(f'CAT server: answered {text}')
+            socket.write(text.encode('ascii', 'replace'))
+
+    @classmethod
+    def on_cmd(cls, socket, client, cmd):
+        dprint_cat(f'CAT server: received {cmd};')
+        base = cmd_base(cmd)
+        parameter = cmd[len(base):]
+        k4 = Server.k4_server
+        if base in client['protocol']:
+            if parameter == '':
+                cls.reply(socket, f'{base}{client["protocol"][base]};')
+            else:
+                client['protocol'][base] = parameter
+            return
+        if parameter == '' and base not in cls.actions:
+            if k4 == None or not k4.connected:
+                cls.answer_from_cache(socket, base)
+                return
+            cls.pending.setdefault(base, []).append((socket, time.monotonic()))
+            # As it is: through send_cmds the empty answer a query is
+            # would be recorded as the value.
+            k4.send_str(f'{cmd};')
+            return
+        if k4 != None and k4.connected:
+            k4.send_cmds(f'{cmd};')
+
+    @classmethod
+    def answer_from_cache(cls, socket, base):
+        k4 = Server.k4_server
+        value = k4.k4_parameter(base) if k4 != None else None
+        cls.reply(socket, '?;' if value in (None, '') else f'{base}{value};')
+
+    @classmethod
+    def on_k4_response(cls, base, response):
+        # From the K4: the answer to the oldest query waiting for it.
+        waiting = cls.pending.get(base)
+        if waiting:
+            socket, asked = waiting.pop(0)
+            cls.reply(socket, f'{response};')
+
+    @classmethod
+    def answer_late_queries(cls):
+        now = time.monotonic()
+        for base, waiting in cls.pending.items():
+            while waiting and now - waiting[0][1] > cls.query_seconds:
+                socket, asked = waiting.pop(0)
+                cls.answer_from_cache(socket, base)
+
 class SSTVSignals(QObject):
     # From the SSTV decoder's thread to the Qt thread, where the window is.
     started = pyqtSignal(object)
@@ -17780,6 +17911,10 @@ def dprint_keying(*args, **kwargs):
     if 'keyer' in Options.debug_areas:
         dprint(*args, **kwargs)
 
+def dprint_cat(*args, **kwargs):
+    if 'cat' in Options.debug_areas:
+        dprint(*args, **kwargs)
+
 def dprint_kpod(*args, **kwargs):
     if 'kpod' in Options.debug_areas:
         dprint(*args, **kwargs)
@@ -17856,6 +17991,7 @@ def start():
     read_config(config_file)
 
     KpodInput.start()
+    CatServer.start()
 
     page = Page.main()
     server = page.server
@@ -18694,7 +18830,6 @@ config_data = '''
     - { text: "  AM", cmd: MD5; }
     - { text: "  FM", cmd: MD4; }
     - { text: "RTTY", cmd: '!RTTY6;', response: MD6;DT2; }
-    - { text: "RT-R", cmd: '!RTTY9;', response: MD9;DT2; }
     - { text: "SSTV", cmd: '!SSTVENABLE;' }
     - { text: "DATA", cmd: MD6; }
     - { text: "DT-R", cmd: MD9; }
@@ -18906,7 +19041,6 @@ config_data = '''
     - { text: "  AM", cmd: MD$5; }
     - { text: "  FM", cmd: MD$4; }
     - { text: "RTTY", cmd: '!RTTY$6;', response: MD$6;DT$2; }
-    - { text: "RT-R", cmd: '!RTTY$9;', response: MD$9;DT$2; }
     - { text: "SSTV", cmd: '!SSTV$ENABLE;' }
     - { text: "DATA", cmd: MD$6; }
     - { text: "DT-R", cmd: MD$9; }
