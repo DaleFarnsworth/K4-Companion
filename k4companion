@@ -72,8 +72,8 @@ import time
 import traceback
 import yaml
 
-from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal, QThread, qInstallMessageHandler, QCoreApplication
-from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat, QCursor, QPalette, QColor
+from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal, QThread, qInstallMessageHandler, QCoreApplication, QStandardPaths
+from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat, QCursor, QImage, QPixmap, QPalette, QColor
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
     QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
@@ -676,6 +676,7 @@ class Server():
         'LO': ['LOG'],
         '!M': ['!MACROS'],
         '!R': ['!RTTY'],
+        '!S': ['!SSTV'],
         'ME': ['MEDF'],
         'ML': ['ML0', 'ML1', 'ML2'],
         '#M': ['#MP'],
@@ -1298,7 +1299,7 @@ class Server():
             if self.is_directive(base):
                 self.directive(base, cmd)
                 continue
-            if base in ('TR', 'SDC', 'SDV', 'SDD', 'SB', 'TU', 'ME', 'FA', 'FB', 'IS', 'IS$', '!MACROS', '!RTTY', '!RTTY$') + Server.control_k4_audio_cmd_bases:
+            if base in ('TR', 'SDC', 'SDV', 'SDD', 'SB', 'TU', 'ME', 'FA', 'FB', 'IS', 'IS$', '!MACROS', '!SSTV', '!SSTV$', '!RTTY', '!RTTY$') + Server.control_k4_audio_cmd_bases:
                 if base == 'TR':
                     if cmd[2] == 'T':
                         self.update_k4_parameter('TR', 'T')
@@ -1330,7 +1331,7 @@ class Server():
                     param = cmd[len(base):]
                     if param == '9000':
                         adjust = True
-                elif base in ('!MACROS', '!RTTY', '!RTTY$'):
+                elif base in ('!MACROS', '!SSTV', '!SSTV$', '!RTTY', '!RTTY$'):
                     send = False
             if self.warn_if_not_connected():
                 return
@@ -2106,6 +2107,8 @@ class Container(Widget):
                 child = RTTY(config_info, self)
             elif widget_type == 'macros':
                 child = Macros(config_info, self)
+            elif widget_type == 'sstv':
+                child = SSTV(config_info, self)
             else:
                 raise Exception('Error: config file: unknown item "{type}"'.format(type=widget_type))
 
@@ -8825,6 +8828,7 @@ class Audio():
             self.report_audio_glitches()
 
             stereo = opus.decode(bytes(packet[4:]))
+            SSTV.feed_audio(stereo)
             RTTY.feed_audio(stereo)
             a = stereo[0::2]                    # even samples are from the main receiver
             b = stereo[1::2]                    # odd samples are from the sub receiver
@@ -11387,10 +11391,965 @@ and everything after the & is sent.'''
         self.add_buttons(self.buttons, self.buttons_frame, edit=False)
         self.add_buttons(self.config_buttons, self.config_buttons_frame, edit=True)
 
+class SSTVMode():
+    # One SSTV mode's picture and timing. Every line is laid out relative
+    # to the start of its sync pulse, in milliseconds: a Scottie line's
+    # green and blue come before its sync, so their offsets are negative.
+    # components is (channel, offset, duration) for each scan, the
+    # channel one of R, G, B for the RGB modes, or Y, Y0, Y1 (luminance;
+    # the two lines a PD sync carries), U (B-Y) and V (R-Y). chroma, for
+    # Robot 36, which sends one of U and V a line, alternately.
+    def __init__(self, name, vis, width, height, line_ms, sync_ms, components,
+                 lines_per_sync=1, first_sync_ms=0.0, chroma=None):
+        self.name = name
+        self.vis = vis
+        self.width = width
+        self.height = height
+        self.line_ms = line_ms
+        self.sync_ms = sync_ms
+        self.components = components
+        self.lines_per_sync = lines_per_sync
+        # Where the first line's sync starts, after the VIS code ends.
+        self.first_sync_ms = first_sync_ms
+        self.chroma = chroma
+
+    def syncs(self):
+        return self.height // self.lines_per_sync
+
+def _martin(name, vis, scan):
+    g = 4.862 + .572
+    b = g + scan + .572
+    r = b + scan + .572
+    return SSTVMode(name, vis, 320, 256, r + scan + .572, 4.862,
+                    (('G', g, scan), ('B', b, scan), ('R', r, scan)))
+
+def _scottie(name, vis, scan):
+    # A line is separator, green, separator, blue, sync, porch, red, and
+    # the first line has a sync of its own before it.
+    sync_at = 1.5 + scan + 1.5 + scan
+    return SSTVMode(name, vis, 320, 256, sync_at + 9 + 1.5 + scan, 9,
+                    (('G', 1.5 - sync_at, scan), ('B', -scan, scan), ('R', 10.5, scan)),
+                    first_sync_ms=9 + sync_at)
+
+def _pd(name, vis, width, height, scan):
+    y0 = 20 + 2.08
+    return SSTVMode(name, vis, width, height, y0 + 4 * scan, 20,
+                    (('Y0', y0, scan), ('V', y0 + scan, scan),
+                     ('U', y0 + 2 * scan, scan), ('Y1', y0 + 3 * scan, scan)),
+                    lines_per_sync=2)
+
+SSTV_MODES = {mode.vis: mode for mode in (
+    _martin('Martin M1', 44, 146.432),
+    _martin('Martin M2', 40, 73.216),
+    _scottie('Scottie S1', 60, 138.24),
+    _scottie('Scottie S2', 56, 88.064),
+    _scottie('Scottie DX', 76, 345.6),
+    SSTVMode('Robot 36', 8, 320, 240, 150, 9, (('Y', 12, 88), ('C', 106, 44)),
+             chroma=('V', 'U')),
+    SSTVMode('Robot 72', 12, 320, 240, 300, 9,
+             (('Y', 12, 138), ('V', 156, 69), ('U', 231, 69))),
+    _pd('PD 50', 93, 320, 256, 91.52),
+    _pd('PD 90', 99, 320, 256, 170.24),
+    _pd('PD 120', 95, 640, 496, 121.6),
+    _pd('PD 160', 98, 512, 400, 195.584),
+    _pd('PD 180', 96, 640, 496, 183.04),
+    _pd('PD 240', 97, 640, 496, 244.48),
+    _pd('PD 290', 94, 800, 616, 228.8),
+)}
+
+class SSTVDecoder():
+    # Pictures out of a receiver's audio, fed to it as it comes. The
+    # audio's instantaneous frequency is what carries an SSTV signal --
+    # 1200 Hz sync, 1500 to 2300 Hz black to white -- found by mixing it
+    # down to around nothing, filtering, and taking the phase's rate of
+    # change. A picture starts with a VIS code naming its mode; each line
+    # is then found by its sync pulse, near where the line before put it,
+    # so that a sender whose clock is a little off doesn't slant the
+    # picture.
+    #
+    # The callbacks are on_start(mode), on_lines(first, rows) as rows of
+    # the picture are done, and on_end(mode, complete).
+    sample_rate = 12000
+    center_hz = 1700
+    # The low-pass the mixed-down signal goes through: wide enough for
+    # the 1100 to 2300 Hz an SSTV signal spans, narrow enough to keep out
+    # most of the noise either side of it.
+    filter_hz = 1000
+    filter_taps = 49
+    # How far either side of where it's expected a line's sync is looked
+    # for, and how much of the pulse has to be there to be believed.
+    sync_search_ms = 6
+    sync_fill = .6
+    # How much of the gap between where a sync was expected and where it
+    # was found the line period takes on, for a sender's clock.
+    period_gain = .05
+    # Syncs in a row not found before the picture is taken to have ended.
+    lost_syncs = 16
+
+    def __init__(self, on_start, on_lines, on_end):
+        self.on_start = on_start
+        self.on_lines = on_lines
+        self.on_end = on_end
+        self.taps = self.lowpass()
+        self.reset()
+
+    @classmethod
+    def lowpass(cls):
+        n = numpy.arange(cls.filter_taps) - (cls.filter_taps - 1) / 2
+        taps = numpy.sinc(2 * cls.filter_hz / cls.sample_rate * n) * numpy.hamming(cls.filter_taps)
+        return (taps / taps.sum()).astype(numpy.float64)
+
+    @classmethod
+    def frequency(cls, samples):
+        # The instantaneous frequency of a stretch of audio, all at once,
+        # found as feed finds it; shorter by the filter's length.
+        t = numpy.arange(len(samples)) / cls.sample_rate
+        mixed = samples * numpy.exp(-2j * numpy.pi * cls.center_hz * t)
+        filtered = numpy.convolve(mixed, cls.lowpass(), mode='valid')
+        return cls.center_hz + (numpy.angle(filtered[1:] * numpy.conj(filtered[:-1]))
+                                * cls.sample_rate / (2 * numpy.pi))
+
+    def reset(self):
+        self.samples_in = 0
+        self.history = numpy.zeros(self.filter_taps - 1, dtype=numpy.complex128)
+        self.last = 0j
+        # The frequency of every sample kept, freq[0] being sample base.
+        self.freq = numpy.empty(0, dtype=numpy.float32)
+        self.base = 0
+        self.vis_from = 0
+        self.mode = None
+
+    def ms(self, ms):
+        return ms * self.sample_rate / 1000
+
+    def feed(self, samples):
+        n = len(samples)
+        if n == 0:
+            return
+        t = (self.samples_in + numpy.arange(n)) / self.sample_rate
+        self.samples_in += n
+        mixed = samples * numpy.exp(-2j * numpy.pi * self.center_hz * t)
+        joined = numpy.concatenate((self.history, mixed))
+        self.history = joined[-(self.filter_taps - 1):]
+        filtered = numpy.convolve(joined, self.taps, mode='valid')
+        previous = numpy.concatenate(([self.last], filtered[:-1]))
+        self.last = filtered[-1]
+        freq = self.center_hz + numpy.angle(filtered * numpy.conj(previous)) * self.sample_rate / (2 * numpy.pi)
+        self.freq = numpy.concatenate((self.freq, freq.astype(numpy.float32)))
+        while True:
+            if self.mode == None:
+                if not self.find_vis():
+                    break
+            elif not self.decode_lines():
+                break
+        self.trim()
+
+    def end(self):
+        # The receiver changed or the window closed: whatever was coming
+        # in ends here.
+        if self.mode != None:
+            self.finish(False)
+        self.reset()
+
+    def trim(self):
+        # Keeps what may still be needed: the second or so a VIS code
+        # takes to arrive, and the leader before where the search goes on
+        # from, which the start bit is checked against; or from the
+        # earliest part of the next line on.
+        if self.mode == None:
+            keep_from = max(self.vis_from - int(self.ms(250)),
+                            self.base + len(self.freq) - int(self.ms(1500)))
+        else:
+            earliest = min(offset for channel, offset, duration in self.mode.components)
+            earliest = min(earliest, 0) * self.clock()
+            keep_from = int(self.next_sync + self.ms(earliest - self.sync_search_ms - 50))
+        drop = keep_from - self.base
+        if drop > 0:
+            self.freq = self.freq[drop:]
+            self.base += drop
+
+    def median(self, start, ms):
+        # The median frequency over ms from sample start, or None where
+        # that isn't all here.
+        i = int(start) - self.base
+        j = i + int(self.ms(ms))
+        if i < 0 or j > len(self.freq):
+            return None
+        return float(numpy.median(self.freq[i:j]))
+
+    def find_vis(self):
+        # A VIS code: 300 ms of 1900 Hz, 10 ms of 1200, 300 ms more of
+        # 1900, then 30 ms bits -- a 1200 Hz start bit, seven data bits
+        # least significant first and an even parity bit, 1100 Hz for a
+        # one and 1300 for a nought, and a 1200 Hz stop bit. Found by the
+        # step down from the second leader into the start bit.
+        freq = self.freq
+        start = max(self.vis_from - self.base, int(self.ms(200)))
+        end = len(freq) - int(self.ms(300))
+        if end <= start:
+            return False
+        # Where a 5 ms average first goes under 1550 Hz, looked at only
+        # where it is new: smoothing the whole of what is kept, at every
+        # packet, held the GIL long enough to make the audio late.
+        window = int(self.ms(5))
+        lead = start - window
+        smooth = numpy.convolve(freq[lead:end + window], numpy.ones(window) / window, mode='same')
+        below = smooth[window:window + end - start] < 1550
+        steps = numpy.nonzero(below[1:] & ~below[:-1])[0] + start + 1
+        for i in steps:
+            t0 = self.base + int(i)
+            leader = self.median(t0 - self.ms(200), 190)
+            if leader == None or abs(leader - 1900) > 60:
+                continue
+            start_bit = self.median(t0 + self.ms(5), 20)
+            if start_bit == None or abs(start_bit - 1200) > 70:
+                continue
+            bits = []
+            for k in range(8):
+                f = self.median(t0 + self.ms(30 * (k + 1) + 8), 14)
+                if f == None or not 1030 < f < 1370:
+                    break
+                bits.append(1 if f < 1200 else 0)
+            if len(bits) < 8 or sum(bits) % 2 != 0:
+                continue
+            vis = sum(bit << k for k, bit in enumerate(bits[:7]))
+            mode = SSTV_MODES.get(vis)
+            if mode == None:
+                continue
+            self.start(mode, t0 + self.ms(300))
+            return True
+        self.vis_from = self.base + end
+        return False
+
+    def start(self, mode, image_start):
+        self.mode = mode
+        self.image = numpy.zeros((mode.height, mode.width, 3), dtype=numpy.uint8)
+        self.next_sync = image_start + self.ms(mode.first_sync_ms)
+        self.period = self.ms(mode.line_ms)
+        self.sync_index = 0
+        self.missed = 0
+        self.chroma = {}
+        self.on_start(mode)
+
+    def find_sync(self, expected):
+        # Where in the search window the sync pulse best fits, or None
+        # where too little of one is there to go by.
+        width = int(self.ms(self.mode.sync_ms))
+        search = int(self.ms(self.sync_search_ms))
+        i = int(expected) - search - self.base
+        j = int(expected) + search + width - self.base
+        if i < 0:
+            return None
+        under = (self.freq[i:j] < 1350).astype(numpy.float32)
+        sums = numpy.convolve(under, numpy.ones(width), mode='valid')
+        best = int(numpy.argmax(sums))
+        if sums[best] < self.sync_fill * width:
+            return None
+        # Of equally good places, the one nearest where it was expected.
+        candidates = numpy.nonzero(sums >= sums[best] - .5)[0]
+        best = int(candidates[numpy.argmin(numpy.abs(candidates - search))])
+        return self.base + i + best
+
+    def clock(self):
+        # The sender's clock against the mode's, as the line period has
+        # come to show it: for where in a line each scan is and how long
+        # it takes.
+        return self.period / self.ms(self.mode.line_ms)
+
+    def decode_lines(self):
+        mode = self.mode
+        latest = max(offset + duration for channel, offset, duration in mode.components)
+        latest *= self.clock()
+        needed = self.next_sync + self.ms(max(latest, self.sync_search_ms + mode.sync_ms) + 1)
+        if self.base + len(self.freq) < needed:
+            return False
+        expected = self.next_sync
+        found = self.find_sync(expected)
+        if found == None:
+            sync = expected
+            self.missed += 1
+        else:
+            sync = found
+            self.missed = 0
+            if self.sync_index > 0:
+                # A sender's clock running fast or slow shows as every
+                # sync arriving a little early or late.
+                self.period += self.period_gain * (found - expected)
+        self.decode_line(sync)
+        self.sync_index += 1
+        self.next_sync = sync + self.period
+        if self.sync_index >= mode.syncs():
+            self.finish(True)
+        elif self.missed >= self.lost_syncs:
+            self.finish(False)
+        return True
+
+    def levels(self, start, ms, pixels):
+        # The pixels' values, 0 to 255, from the mean frequency across
+        # each one's share of a scan.
+        i = int(round(start)) - self.base
+        n = self.ms(ms)
+        edges = i + numpy.round(numpy.arange(pixels + 1) * n / pixels).astype(int)
+        edges = numpy.clip(edges, 0, len(self.freq))
+        cumulative = numpy.concatenate(([0], numpy.cumsum(self.freq, dtype=numpy.float64)))
+        counts = numpy.maximum(edges[1:] - edges[:-1], 1)
+        mean = (cumulative[edges[1:]] - cumulative[edges[:-1]]) / counts
+        return numpy.clip((mean - 1500) * 255 / 800, 0, 255)
+
+    def decode_line(self, sync):
+        mode = self.mode
+        clock = self.clock()
+        scans = {channel: self.levels(sync + self.ms(offset * clock), duration * clock, mode.width)
+                 for channel, offset, duration in mode.components}
+        row = self.sync_index * mode.lines_per_sync
+        if 'R' in scans:
+            rows = [numpy.stack((scans['R'], scans['G'], scans['B']), axis=1)]
+        elif mode.chroma != None:
+            # Robot 36: V on even lines, U on odd, each pair of lines
+            # sharing both.
+            self.chroma[mode.chroma[row % 2]] = scans['C']
+            self.chroma.setdefault(mode.chroma[(row + 1) % 2], scans['C'])
+            rows = [self.yuv(scans['Y'], self.chroma['U'], self.chroma['V'])]
+        elif 'Y0' in scans:
+            rows = [self.yuv(scans['Y0'], scans['U'], scans['V']),
+                    self.yuv(scans['Y1'], scans['U'], scans['V'])]
+        else:
+            rows = [self.yuv(scans['Y'], scans['U'], scans['V'])]
+        for k, pixels in enumerate(rows):
+            if row + k < mode.height:
+                self.image[row + k] = pixels.astype(numpy.uint8)
+        if mode.chroma != None and row % 2 == 1:
+            # The line before only had the one chroma, its own; now both
+            # are known it is redone.
+            self.image[row - 1] = self.yuv(self.previous_y, self.chroma['U'],
+                                           self.chroma['V']).astype(numpy.uint8)
+            self.on_lines(row - 1, self.image[row - 1:row + 1])
+        else:
+            if mode.chroma != None:
+                self.previous_y = scans['Y']
+            self.on_lines(row, self.image[row:row + len(rows)])
+
+    def yuv(self, y, u, v):
+        # The studio-range conversion SSTV senders use.
+        y = 298.082 * (y - 16)
+        r = (y + 408.583 * (v - 128)) / 256
+        g = (y - 100.291 * (u - 128) - 208.120 * (v - 128)) / 256
+        b = (y + 516.411 * (u - 128)) / 256
+        return numpy.clip(numpy.stack((r, g, b), axis=1), 0, 255)
+
+    def finish(self, complete):
+        mode = self.mode
+        self.mode = None
+        self.vis_from = int(self.next_sync)
+        self.on_end(mode, complete)
+
+class SSTVSignals(QObject):
+    # From the SSTV decoder's thread to the Qt thread, where the window is.
+    started = pyqtSignal(object)
+    lines = pyqtSignal(int, object)
+    ended = pyqtSignal(object, bool)
+
+class SSTV(Widget):
+    # A window showing slow-scan TV pictures as they come in, each saved
+    # when it ends. The K4 does no SSTV of its own, so the app decodes it,
+    # from the receive audio, on a thread of its own (see SSTVDecoder).
+    #
+    # SSTV is a mode of the app's, picked from a VFO's mode dropdown,
+    # which tells the app, through !SSTV for the main receiver or !SSTV$
+    # for the sub, to decode that receiver. The VFO is put in the
+    # sideband SSTV uses where it is, USB from 14 MHz up and LSB below,
+    # and kept there as it is tuned. SSTV ends when USB or LSB is picked
+    # instead, when the VFO leaves both, or when the window is closed;
+    # and it is remembered, coming back at the next start if the VFO is
+    # still in either.
+    singleton = None
+    settings_section = 'SSTV'
+    receivers = ('main', 'sub')
+    directives = ('!SSTV', '!SSTV$')
+    modes = ('MD', 'MD$')
+    frequencies = ('FA', 'FB')
+    lsb = '1'
+    usb = '2'
+    usb_from_hz = 14000000
+    # The filter SSTV is set to when picked, or a frequency is: 2.8 kHz,
+    # in BW's hundredths of a kilohertz.
+    bandwidths = ('BW', 'BW$')
+    bandwidth = '0280'
+    # When the K4 is asked again, after SSTV or a frequency is picked,
+    # what mode and filter it ended up in; and for how long after a
+    # filter it has put back is set to SSTV's again. Moving band, it
+    # puts back the mode and filter it last had there, and that can come
+    # after the SSTV ones it was sent.
+    check_ms = (400, 1200)
+    filter_hold_seconds = 2
+    # What the Frequency dropdown offers: the middle of where SSTV
+    # usually is on 80, 40, 20, 15, 10 and 6 m, and 80 m's in Region 1.
+    calling_hz = (3730000, 3845000, 7171000, 14230000, 21340000, 28680000, 50680000)
+    # The widest the picture is shown; wider modes are scaled down.
+    display_width = 640
+    # How much of a picture has to have come in for it to be saved.
+    save_fraction = .1
+    # Autotune: the VFO moved so that the SSTV signal coming in sits where
+    # its tones belong. What is measured is its sync pulses, at sync_hz:
+    # below black's 1500 Hz, nothing else in a picture is there. Over the
+    # last autotune_seconds of the receiver's audio, its frequency,
+    # averaged over autotune_smooth_ms, is counted wherever it is within
+    # autotune_search_hz of sync_hz, in autotune_bin_hz bins; the syncs
+    # are where most of it is. Left out is any tone held longer than a
+    # sync pulse is, autotune_longest_ms -- within autotune_held_hz,
+    # noise and all, for that much of the autotune_longest_ms either side
+    # of it: the VIS code's bits, at 1100 and 1300 Hz, would otherwise
+    # outweigh the syncs of the slower modes. They are believed if at least
+    # autotune_min_ms of them are there, autotune_peak times what is
+    # usual elsewhere in the search (noise spreads evenly across it), and
+    # no more than autotune_max_fraction of the audio (a carrier would
+    # be all of it). After a move, the audio being behind the radio,
+    # what came before autotune_settle_seconds is not looked at again.
+    sync_hz = 1200
+    autotune_seconds = 4
+    autotune_search_hz = 130
+    autotune_smooth_ms = 3
+    autotune_bin_hz = 5
+    autotune_longest_ms = 24
+    autotune_held_hz = 15
+    autotune_min_ms = 6
+    autotune_peak = 3.5
+    autotune_max_fraction = .2
+    autotune_settle_seconds = 1.0
+    # How long what Autotune did is shown in the status line.
+    autotune_note_seconds = 4
+
+    @classmethod
+    def close_window(cls):
+        if cls.singleton != None:
+            cls.singleton.close()
+
+    @classmethod
+    def feed_audio(cls, stereo):
+        # From the receive audio thread: the K4's audio as decoded,
+        # interleaved main and sub, while SSTV is on.
+        self = cls.singleton
+        if self != None:
+            index = self.receiver_index
+            if index != None:
+                samples = stereo[index::2].copy()
+                self.audio_queue.put(samples)
+                # And kept for Autotune.
+                audio = self.autotune_audio
+                audio.append(samples)
+                keep = self.autotune_seconds * SSTVDecoder.sample_rate
+                while sum(len(chunk) for chunk in audio) - len(audio[0]) >= keep:
+                    audio.popleft()
+
+    def __init__(self, config_info, container):
+        required = ['item']
+        optional = ['bg', 'fg', 'font', 'label', 'leading', 'padx', 'pady']
+        validate_options(config_info, required, optional)
+
+        super().__init__(config_info, container)
+
+        SSTV.singleton = self
+        # Which receiver is being decoded, 0 main or 1 sub; None while
+        # SSTV is off.
+        self.receiver_index = None
+        self.restoring = False
+        # Set while a frequency picked is being sent: see
+        # on_frequency_selected.
+        self.selecting = False
+        self.filter_until = 0.0
+        self.is_open = False
+        self.closing = False
+        self.image = None
+        self.mode = None
+        # Whether a picture is coming in, its progress then shown in the
+        # status line rather than what is being listened on.
+        self.receiving = False
+        self.audio_queue = queue.SimpleQueue()
+        self.autotune_audio = collections.deque()
+        self.autotune_note = None
+        self.autotune_note_until = 0.0
+        self.status_text = None
+        self.thread = None
+        self.signals = SSTVSignals()
+        self.signals.started.connect(self.on_started)
+        self.signals.lines.connect(self.on_lines)
+        self.signals.ended.connect(self.on_ended)
+        self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+
+    def on_received_initial_parameters(self, response):
+        server = self.server
+        server.subscribe_responses('!SSTV;!SSTV$;', self.on_sstv_cmd)
+        server.subscribe_responses('MD;MD$;', self.on_mode_changed)
+        server.subscribe_responses('FA;FB;', self.on_frequency_changed)
+        server.subscribe_responses('BW;BW$;', self.on_bandwidth_changed)
+        saved = Server.settings.get(self.settings_section, 'receiver', '')
+        # Coming back on by itself rather than picked, the filter is left
+        # as the radio has it.
+        self.restoring = True
+        for index, directive in enumerate(self.directives):
+            on = (saved == self.receivers[index]
+                  and server.k4_parameter(self.modes[index]) in (self.lsb, self.usb))
+            server.update_k4_parameter(directive, 'ENABLE' if on else 'DISABLE')
+        self.restoring = False
+
+    def on_sstv_cmd(self, response):
+        if self.closing:
+            return
+        index = self.directives.index(cmd_base(response))
+        enabled = cmd_parameter(response).rstrip(';') == 'ENABLE'
+        if enabled:
+            if self.receiver_index == index:
+                return
+            previous = self.receiver_index
+            self.receiver_index = index
+            self.autotune_audio.clear()
+            Server.settings.put_save(self.settings_section, 'receiver', self.receivers[index])
+            if previous != None:
+                # One receiver at a time: the other's dropdown goes back
+                # to its sideband, and what was coming in on it ends.
+                self.server.update_k4_parameter(self.directives[previous], 'DISABLE')
+                self.audio_queue.put(None)
+            self.set_sideband(index)
+            if not self.restoring:
+                self.set_bandwidth(index)
+            self.show()
+        elif self.receiver_index == index:
+            self.receiver_index = None
+            Server.settings.put_save(self.settings_section, 'receiver', '')
+            self.hide()
+
+    def on_mode_changed(self, response):
+        # The VFO SSTV is on leaving the sidebands, from the panel or a
+        # dropdown, ends it.
+        index = self.modes.index(cmd_base(response))
+        if index != self.receiver_index:
+            return
+        mode = cmd_parameter(response).rstrip(';')
+        if mode == '':
+            # A query sent, not a mode.
+            return
+        if mode not in (self.lsb, self.usb):
+            self.server.update_k4_parameter(self.directives[index], 'DISABLE')
+            return
+        if mode != self.sideband(index):
+            # The other sideband, from the K4's memory of the band it has
+            # just moved to, say: SSTV's, put back. USB or LSB picked
+            # from a dropdown ends SSTV first, so isn't seen here.
+            self.set_sideband(index)
+        elif self.is_open and not self.receiving:
+            # Which sideband is said while listening.
+            self.show_status()
+
+    def on_frequency_changed(self, response):
+        # Tuned or moved to another band across 14 MHz: the other side.
+        index = self.frequencies.index(cmd_base(response))
+        if index == self.receiver_index and not self.selecting:
+            self.set_sideband(index)
+            if self.is_open:
+                self.show_frequency()
+
+    def sideband(self, index):
+        # The one SSTV uses at the VFO's frequency.
+        try:
+            hz = int(self.server.k4_parameter(self.frequencies[index]))
+        except (TypeError, ValueError):
+            return self.usb
+        return self.usb if hz >= self.usb_from_hz else self.lsb
+
+    def set_bandwidth(self, index):
+        self.server.send_cmds(f'{self.bandwidths[index]}{self.bandwidth};')
+        self.check_later(index)
+
+    def check_later(self, index):
+        # Asks the K4 what it ended up in, a little after: what comes back
+        # goes through on_mode_changed and on_bandwidth_changed.
+        self.filter_until = time.monotonic() + self.filter_hold_seconds
+        for ms in self.check_ms:
+            QTimer.singleShot(ms, lambda index=index: self.check(index))
+
+    def check(self, index):
+        server = self.server
+        if index != self.receiver_index or not server.connected:
+            return
+        # Sent as they are: through send_cmds the empty answers a query
+        # is recorded as would be taken for the mode and filter.
+        server.send_str(f'{self.modes[index]};{self.bandwidths[index]};')
+
+    def on_bandwidth_changed(self, response):
+        # The K4 putting back the filter it last had on the band moved to,
+        # just after SSTV's was set: SSTV's again. After that the filter
+        # is the operator's.
+        index = self.bandwidths.index(cmd_base(response))
+        bandwidth = cmd_parameter(response).rstrip(';')
+        if (index == self.receiver_index and bandwidth not in ('', self.bandwidth)
+                and time.monotonic() < self.filter_until):
+            self.server.send_cmds(f'{self.bandwidths[index]}{self.bandwidth};')
+
+    def set_sideband(self, index):
+        wanted = self.sideband(index)
+        if self.server.k4_parameter(self.modes[index]) != wanted:
+            self.server.send_cmds(f'{self.modes[index]}{wanted};')
+
+    # ------------------------------------------------------- the window
+
+    def open(self):
+        if self.is_open:
+            return
+        self.is_open = True
+        self.top_level = QDialog(qt_top_level_parent(), Qt.WindowType.Window)
+        self.top_level.setWindowTitle(f'{Page.top.windowTitle()} SSTV')
+
+        def _close_event(event):
+            if self.receiver_index != None:
+                self.server.update_k4_parameter(self.directives[self.receiver_index], 'DISABLE')
+            event.ignore()
+        self.top_level.closeEvent = _close_event
+
+        layout = QVBoxLayout(self.top_level)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
+
+        controls = QWidget()
+        controls_grid = QGridLayout(controls)
+        controls_grid.setContentsMargins(0, 0, 0, 0)
+        self.status = QLabel()
+        self.status.setFont(self.font())
+        controls_grid.addWidget(self.status, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        controls_grid.addWidget(self.receiver_toggle(), 0, 1,
+                                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        controls_grid.addWidget(self.frequency_dropdown(), 0, 2,
+                                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        for column, (text, handler) in enumerate((('Autotune', self.autotune),
+                                                  ('Clear', self.on_clear))):
+            button = QPushButton(text)
+            button.setFont(self.font())
+            button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.abg, self.afg))
+            button.clicked.connect(lambda checked=False, handler=handler: handler())
+            controls_grid.addWidget(button, 0, column + 3,
+                                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        controls_grid.setColumnStretch(0, 1)
+        controls_grid.setHorizontalSpacing(2 * QFontMetrics(self.font()).averageCharWidth())
+        layout.addWidget(controls)
+
+        self.picture = QLabel()
+        self.picture.setFixedSize(self.display_width, self.display_width * 3 // 4)
+        self.picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.picture.setStyleSheet('QLabel { background-color: black; }')
+        layout.addWidget(self.picture)
+
+        self.saved = QLabel()
+        self.saved.setFont(self.label_font())
+        layout.addWidget(self.saved)
+
+        self.show_status()
+        self.set_geometry()
+
+    def receiver_toggle(self):
+        # Main or Sub, each doing what picking SSTV from that VFO's mode
+        # dropdown does: SSTV moved to its receiver, and the VFO put in
+        # its sideband, so the dropdowns follow. And shown from the same
+        # state, so it follows them.
+        frame = QWidget()
+        grid = QGridLayout(frame)
+        grid.setContentsMargins(0, 0, 0, 0)
+        label = QLabel('Receiver: ')
+        label.setFont(self.font())
+        grid.addWidget(label, 0, 0, Qt.AlignmentFlag.AlignVCenter)
+        toggle_frame = QWidget()
+        QGridLayout(toggle_frame).setContentsMargins(0, 0, 0, 0)
+        grid.addWidget(toggle_frame, 0, 1, Qt.AlignmentFlag.AlignVCenter)
+        options = {
+            'selections': [
+                {'text': 'Main', 'cmd': '!SSTVENABLE;'},
+                {'text': 'Sub', 'cmd': '!SSTV$ENABLE;'},
+            ],
+            'width': 4, 'bg': self.bg, 'fg': self.fg, 'font': self.font(),
+        }
+        self.receiver_buttons = ToggleWidget(self, toggle_frame, options)
+        # It only hears of changes from now on; this is where things are.
+        self.receiver_buttons.on_response_received('')
+        return frame
+
+    def frequency_dropdown(self):
+        # Tunes the VFO SSTV is on to the frequency picked; the sideband
+        # follows from it. Shows the frequency the VFO is near, and
+        # nothing away from them all.
+        frame = QWidget()
+        grid = QGridLayout(frame)
+        grid.setContentsMargins(0, 0, 0, 0)
+        label = QLabel('Frequency: ')
+        label.setFont(self.font())
+        grid.addWidget(label, 0, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.frequency_dropdown_ = FrequencyDropdown(self.font(), self.bg, self.fg, self.calling_hz,
+                                                     self.on_frequency_selected)
+        self.frequency_combobox = self.frequency_dropdown_.combobox
+        grid.addWidget(self.frequency_combobox, 0, 1, Qt.AlignmentFlag.AlignVCenter)
+        self.show_frequency()
+        return frame
+
+    def on_frequency_selected(self, hz):
+        if self.receiver_index == None:
+            return
+        index = self.receiver_index
+        # The sideband and the filter again after the frequency: moving
+        # band, the K4 puts back the mode and filter it last had there.
+        sideband = self.usb if hz >= self.usb_from_hz else self.lsb
+        # Not the sideband for the new frequency as soon as it is recorded,
+        # as on_frequency_changed would: that goes out ahead of the
+        # frequency, so the K4 sets it on the band being left, and
+        # remembers it there.
+        self.selecting = True
+        try:
+            self.server.send_cmds(f'{self.frequencies[index]}{hz:011d};'
+                                  f'{self.modes[index]}{sideband};'
+                                  f'{self.bandwidths[index]}{self.bandwidth};')
+        finally:
+            self.selecting = False
+        self.check_later(index)
+        self.show_frequency()
+
+    def show_frequency(self):
+        index = self.receiver_index if self.receiver_index != None else 0
+        self.frequency_dropdown_.show(self.server.k4_parameter(self.frequencies[index]))
+
+    def show(self):
+        self.start_thread()
+        self.open()
+        self.show_status()
+        self.show_frequency()
+        self.top_level.show()
+        self.top_level.raise_()
+
+    def hide(self):
+        self.stop_thread()
+        if self.is_open:
+            self.save_geometry()
+            self.top_level.hide()
+
+    def close(self):
+        self.closing = True
+        self.receiver_index = None
+        self.stop_thread()
+        if not self.is_open:
+            return
+        self.is_open = False
+        self.save_geometry()
+        self.top_level.deleteLater()
+
+    def set_geometry(self):
+        geometry = Server.settings.get('Window', f'{self.settings_section}.geometry')
+        if geometry == None:
+            return
+        w, h, x, y = split_geometry(geometry)
+        screen = QApplication.primaryScreen().availableGeometry()
+        x = max(0, min(x, screen.width() - w))
+        y = max(0, min(y, screen.height() - h))
+        self.top_level.move(x, y)
+
+    def save_geometry(self):
+        top = self.top_level
+        geometry = f'{top.width()}x{top.height()}{top.x():+}{top.y():+}'
+        Server.settings.put_save('Window', f'{self.settings_section}.geometry', geometry)
+
+    def on_clear(self):
+        self.image = None
+        self.mode = None
+        self.picture.clear()
+        self.saved.setText('')
+        self.show_status()
+
+    def show_status(self, text=None):
+        # Kept, for what Autotune did to be added to it and taken away;
+        # None for what is being listened on.
+        self.status_text = text
+        if text == None:
+            index = self.receiver_index if self.receiver_index != None else 0
+            sideband = 'USB' if self.sideband(index) == self.usb else 'LSB'
+            text = f'SSTV ({sideband})'
+        if self.autotune_note != None:
+            if time.monotonic() < self.autotune_note_until:
+                text = f'{text}  {self.autotune_note}'
+            else:
+                self.autotune_note = None
+        self.status.setText(text)
+
+    # --------------------------------------------------------- Autotune
+
+    def sync_error(self):
+        # How far the sync pulses coming in are from sync_hz, in hertz of
+        # audio, or None where they can't be found clearly enough.
+        rate = SSTVDecoder.sample_rate
+        chunks = list(self.autotune_audio)
+        if not chunks:
+            return None
+        samples = numpy.concatenate(chunks)[-int(self.autotune_seconds * rate):]
+        if len(samples) < rate:
+            return None
+        freq = SSTVDecoder.frequency(samples.astype(numpy.float64))
+        smooth = int(self.autotune_smooth_ms * rate / 1000)
+        freq = numpy.convolve(freq, numpy.ones(smooth) / smooth, mode='valid')
+        search = self.autotune_search_hz
+        width = self.autotune_bin_hz
+        # Each sample's bin, -1 outside the search.
+        bins = numpy.round((freq - (self.sync_hz - search)) / width).astype(int)
+        bins[(bins < 0) | (bins > 2 * search // width)] = -1
+        longest = int(self.autotune_longest_ms * rate / 1000)
+        held = numpy.zeros(len(freq), dtype=bool)
+        for b in numpy.unique(bins[bins >= 0]):
+            # How much of the time around each sample is near this bin.
+            near = (numpy.abs(bins - b) <= self.autotune_held_hz // width) & (bins >= 0)
+            running = numpy.concatenate(([0], numpy.cumsum(near)))
+            ends = numpy.arange(len(freq))
+            total = (running[numpy.minimum(ends + longest + 1, len(freq))]
+                     - running[numpy.maximum(ends - longest, 0)])
+            held |= (bins == b) & (total > longest)
+        values = freq[(bins >= 0) & ~held]
+        counts, edges = numpy.histogram(values, numpy.arange(self.sync_hz - search,
+                                                             self.sync_hz + search + 2 * width, width))
+        # Smoothed over three bins, a peak straddling two being one.
+        counts = numpy.convolve(counts, numpy.ones(3), mode='same')
+        peak = int(numpy.argmax(counts))
+        if counts[peak] < self.autotune_peak * max(numpy.median(counts), 1):
+            return None
+        middle = (edges[peak] + edges[peak + 1]) / 2
+        near = values[numpy.abs(values - middle) <= 2 * width]
+        if (len(near) < self.autotune_min_ms * rate / 1000
+                or len(near) > self.autotune_max_fraction * len(freq)):
+            return None
+        return float(near.mean()) - self.sync_hz
+
+    def autotune(self):
+        # The VFO moved to where the signal is received -- its frequency,
+        # plus RIT's offset if RIT is on, plus how far off the syncs are --
+        # and RIT set to nothing. Syncs high in USB mean the VFO is low,
+        # in LSB that it is high.
+        server = self.server
+        index = self.receiver_index
+        if index == None or not server.connected:
+            return
+        error = self.sync_error()
+        if error == None:
+            self.note_autotune('Autotune: no sync found.')
+            return
+        try:
+            frequency = int(server.k4_parameter(self.frequencies[index]))
+        except (TypeError, ValueError):
+            return
+        vfo = '$' if index else ''
+        offset = 0
+        cmds = ''
+        if server.k4_parameter(f'RT{vfo}') == '1':
+            try:
+                offset = int(server.k4_parameter(f'RO{vfo}') or 0)
+            except ValueError:
+                pass
+            cmds = f'RO{vfo}+0000;'
+        move = round(error) if server.k4_parameter(self.modes[index]) != self.lsb else -round(error)
+        server.send_cmds(f'{self.frequencies[index]}{frequency + offset + move:011d};' + cmds)
+        self.note_autotune(f'Autotune: {round(error):+d} Hz.')
+        # What came in before the move, and while it takes effect, isn't
+        # looked at again.
+        self.autotune_audio.clear()
+        QTimer.singleShot(int(self.autotune_settle_seconds * 1000), self.autotune_audio.clear)
+
+    def note_autotune(self, note):
+        self.autotune_note = note
+        self.autotune_note_until = time.monotonic() + self.autotune_note_seconds
+        self.show_status(self.status_text)
+        QTimer.singleShot(int(self.autotune_note_seconds * 1000) + 50, self.clear_autotune_note)
+
+    def clear_autotune_note(self):
+        if self.autotune_note != None and time.monotonic() >= self.autotune_note_until:
+            self.autotune_note = None
+            if self.is_open:
+                self.show_status(self.status_text)
+
+    # ------------------------------------------------ the decoder thread
+
+    def start_thread(self):
+        if self.thread != None:
+            return
+        self.audio_queue = queue.SimpleQueue()
+        self.thread = threading.Thread(target=self.run, name='sstv_decoder', daemon=True)
+        self.thread.start()
+
+    def stop_thread(self):
+        if self.thread == None:
+            return
+        self.audio_queue.put(False)
+        self.thread.join()
+        self.thread = None
+
+    def run(self):
+        signals = self.signals
+        decoder = SSTVDecoder(signals.started.emit,
+                              lambda first, rows: signals.lines.emit(first, rows.copy()),
+                              signals.ended.emit)
+        while True:
+            samples = self.audio_queue.get()
+            if samples is False:
+                decoder.end()
+                return
+            if samples is None:
+                decoder.end()
+                continue
+            decoder.feed(samples)
+
+    # ---------------------------------------------- on the Qt thread
+
+    def on_started(self, mode):
+        self.mode = mode
+        self.receiving = True
+        self.image = numpy.zeros((mode.height, mode.width, 3), dtype=numpy.uint8)
+        self.lines_received = 0
+        self.saved.setText('')
+        self.show_status(f'{mode.name}: receiving.')
+
+    def on_lines(self, first, rows):
+        if self.image is None or not self.is_open:
+            return
+        self.image[first:first + len(rows)] = rows
+        self.lines_received = max(self.lines_received, first + len(rows))
+        self.show_status(f'{self.mode.name}: line {self.lines_received} of {self.mode.height}.')
+        self.show_picture()
+
+    def show_picture(self):
+        height, width = self.image.shape[:2]
+        image = QImage(self.image.tobytes(), width, height, 3 * width, QImage.Format.Format_RGB888)
+        pixmap = QPixmap.fromImage(image)
+        if width > self.display_width:
+            pixmap = pixmap.scaledToWidth(self.display_width,
+                                          Qt.TransformationMode.SmoothTransformation)
+        self.picture.setPixmap(pixmap)
+
+    def on_ended(self, mode, complete):
+        self.receiving = False
+        if self.image is None or not self.is_open:
+            return
+        state = 'complete' if complete else f'ended at line {self.lines_received}'
+        if self.lines_received >= self.save_fraction * mode.height:
+            path = self.save_picture(mode)
+            self.saved.setText(f'Saved {path}' if path else 'Could not save the picture.')
+        self.show_status(f'{mode.name}: {state}.')
+
+    def save_picture(self, mode):
+        folder = os.path.join(
+            QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation),
+            'K4-Companion SSTV')
+        try:
+            os.makedirs(folder, exist_ok=True)
+        except OSError:
+            return None
+        name = f'{time.strftime("%Y-%m-%d %H.%M.%S")} {mode.name}.png'
+        path = os.path.join(folder, name)
+        height, width = self.image.shape[:2]
+        image = QImage(self.image.tobytes(), width, height, 3 * width, QImage.Format.Format_RGB888)
+        return path if image.save(path) else None
+
 class FrequencyDropdown():
-    # A choice of frequencies for a mode -- where RTTY usually is, band
-    # by band -- in megahertz, picking one calling on_selected with it
-    # in hertz. It shows the VFO's own frequency, to the nearest
+    # A choice of frequencies for a mode -- where SSTV or RTTY usually
+    # is, band by band -- in megahertz, picking one calling on_selected
+    # with it in hertz. It shows the VFO's own frequency, to the nearest
     # kilohertz, whether or not it is one of them: as the placeholder a
     # combobox shows while nothing in it is selected.
 
@@ -12984,7 +13943,7 @@ class RTTY(Digital):
         # Moved to another band, the K4 puts back the mode it last had
         # there: RTTY's again, for a while after it was set up. Only what
         # the K4 reports, though: another mode picked in the app, from a
-        # dropdown say, is the operator's, and ends that.
+        # dropdown or by SSTV, is the operator's, and ends that.
         index = 1 if cmd_base(response) == 'MD$' else 0
         mode = cmd_parameter(response).rstrip(';')
         if mode in ('', '6', '9') or time.monotonic() > self.sub_mode_until[index]:
@@ -16761,6 +17720,7 @@ def clean_up(exit=False):
     CW.close_window()
     RTTY.close_window()
     Macros.close_window()
+    SSTV.close_window()
     # Both of the above end with top_level.deleteLater(), which only
     # *schedules* the actual C++ destruction for the next event-loop
     # pass -- it does not run immediately. quit() (see exit(), below)
@@ -17572,6 +18532,7 @@ config_data = '''
     #include cw-window
     #include rtty-window
     #include macros-window
+    #include sstv-window
     #}
 #end
 
@@ -18043,12 +19004,13 @@ config_data = '''
   selections: #{
     - { text: "  CW", cmd: MD3; }
     - { text: "CW-R", cmd: MD7; }
-    - { text: " USB", cmd: MD2; }
-    - { text: " LSB", cmd: MD1; }
+    - { text: " USB", cmd: '!SSTVDISABLE;MD2;' }
+    - { text: " LSB", cmd: '!SSTVDISABLE;MD1;' }
     - { text: "  AM", cmd: MD5; }
     - { text: "  FM", cmd: MD4; }
-    - { text: "RTTY", cmd: MD6;DT2; }
-    - { text: "RT-R", cmd: MD9;DT2; }
+    - { text: "RTTY", cmd: '!RTTY6;', response: MD6;DT2; }
+    - { text: "RT-R", cmd: '!RTTY9;', response: MD9;DT2; }
+    - { text: "SSTV", cmd: '!SSTVENABLE;' }
     - { text: "DATA", cmd: MD6; }
     - { text: "DT-R", cmd: MD9; }
   #}
@@ -18254,12 +19216,13 @@ config_data = '''
   selections: #{
     - { text: "  CW", cmd: MD$3; }
     - { text: "CW-R", cmd: MD$7; }
-    - { text: " USB", cmd: MD$2; }
-    - { text: " LSB", cmd: MD$1; }
+    - { text: " USB", cmd: '!SSTV$DISABLE;MD$2;' }
+    - { text: " LSB", cmd: '!SSTV$DISABLE;MD$1;' }
     - { text: "  AM", cmd: MD$5; }
     - { text: "  FM", cmd: MD$4; }
-    - { text: "RTTY", cmd: MD$6;DT$2; }
-    - { text: "RT-R", cmd: MD$9;DT$2; }
+    - { text: "RTTY", cmd: '!RTTY$6;', response: MD$6;DT$2; }
+    - { text: "RT-R", cmd: '!RTTY$9;', response: MD$9;DT$2; }
+    - { text: "SSTV", cmd: '!SSTV$ENABLE;' }
     - { text: "DATA", cmd: MD$6; }
     - { text: "DT-R", cmd: MD$9; }
   #}
@@ -18841,6 +19804,10 @@ config_data = '''
 
 #define macros-window
 - item: macros
+#end
+
+#define sstv-window
+- item: sstv
 #end
 
 #define equalizers
