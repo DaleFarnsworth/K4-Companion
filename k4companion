@@ -9842,6 +9842,8 @@ class Settings():
         self.settings.optionxform = str
         self.settings_loaded = False
         self.settings_changed = False
+        # Set once the file has been removed: see remove_file.
+        self.removed = False
 
         main_pathname = Settings.settings_pathname('main')
         if index == 'main':
@@ -9925,7 +9927,7 @@ class Settings():
         self.settings.remove_section(section)
 
     def save(self):
-        if not self.settings_changed:
+        if not self.settings_changed or self.removed:
             return
 
         with open(self.pathname, 'w') as settingsfile:
@@ -9986,6 +9988,11 @@ class Settings():
         return name
 
     def remove_file(self):
+        # Never written again: what is still held in memory would put the
+        # server back -- the restart that follows a removal saves window
+        # geometry as it closes -- and once the files after it have been
+        # renamed down, this pathname is another server's.
+        self.removed = True
         if os.path.exists(self.pathname):
             os.remove(self.pathname)
 
