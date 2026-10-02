@@ -1174,13 +1174,16 @@ class Server():
         self.send_cmds(cmd)
 
     def send_cmds(self, cmds):
-        send = True
-        adjust = False
         if isinstance(cmds, str):
             cmds = Server.split_cmd(cmds)
         for cmd in cmds:
             if cmd == '':
                 continue
+            # Each command's own: set once for the whole call, an app-only
+            # command (!MACROSDISABLE, say) stopped every one after it from
+            # being sent too.
+            send = True
+            adjust = False
             base = cmd_base(cmd)
             if self.is_directive(base):
                 self.directive(base, cmd)
