@@ -5,24 +5,17 @@ possible implementation.
 
 Add a tab for K4 status as returned by the SI* responses.
 
-Reconnect on connect failure without redrawing the GUI widgets.
-
-See if we can recover from audio output_stream being None.
-
 Support PCM audio for systems that have difficulty with opus.
-
-Handle: ER43: Status Standby and ER44:Status Operate.
 
 Add per-band ATU on/off setting.
 
 Import/export server settings.
 
-A connection-poll option that will connect to a K4 when it becomes
-available on the network.
+Add K-Pod support
 
-Make mouse wheel behave like up/down arrows on fields like BW and Power.
+Add RTTY mode with a window similar to CW's window
 
-Fix up/down arrows (and mouse wheel) on RF Gain
+Add a slow-scan TV mode.
 
 If you have made requests or suggestions that have not made it to
 this list (or been rejected), I apologize. Please resend it to me.
