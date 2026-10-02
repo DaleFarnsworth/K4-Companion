@@ -38,6 +38,7 @@
     #include main-tab-row2
     #include main-tab-row3
     #include cw-window
+    #include rtty-window
     #include macros-window
     #}
 #end
@@ -514,6 +515,7 @@
     - { text: " LSB", cmd: MD1; }
     - { text: "  AM", cmd: MD5; }
     - { text: "  FM", cmd: MD4; }
+    - { text: "RTTY", cmd: '!RTTY6;', response: MD6;DT2; }
     - { text: "DATA", cmd: MD6; }
     - { text: "DT-R", cmd: MD9; }
   #}
@@ -723,6 +725,7 @@
     - { text: " LSB", cmd: MD$1; }
     - { text: "  AM", cmd: MD$5; }
     - { text: "  FM", cmd: MD$4; }
+    - { text: "RTTY", cmd: '!RTTY$6;', response: MD$6;DT$2; }
     - { text: "DATA", cmd: MD$6; }
     - { text: "DT-R", cmd: MD$9; }
   #}
@@ -1294,6 +1297,11 @@
 
 #define cw-window
 - item: cw
+  selectbg: pink
+#end
+
+#define rtty-window
+- item: rtty
   selectbg: pink
 #end
 
