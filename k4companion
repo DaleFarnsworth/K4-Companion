@@ -11933,7 +11933,7 @@ class CW(TextButtons):
                 self.enable_keyer_controls_frame()
             else:
                 self.disable_keyer_controls_frame()
-        if Keyer.device_type_MoMIDI:
+        if Keyer.device_type_MIDI:
             self.enable_midi_device_frame()
             self.keyer_dit_paddle_note()
             self._show(self.keyer_settings_frame, self.midi_note_frame, 2, 0)
@@ -12063,8 +12063,8 @@ class CW(TextButtons):
 
         device_types = (
             'None',
-            'MoMIDI Straight Key',
-            'MoMIDI Paddles',
+            'MIDI Straight Key',
+            'MIDI Paddles',
             'Serial Straight Key',
             'Serial Paddles',
             'Vail Adapter',
@@ -12777,7 +12777,7 @@ class MidiInput():
         Poll.add(self.poll_interval, self.poll_new_device)
 
     def poll_new_device(self):
-        if not Keyer.device_type_MoMIDI:
+        if not Keyer.device_type_MIDI:
             return
 
         # Do we need to close/reopen if the port_index changes?
@@ -13157,7 +13157,7 @@ class Keyer():
     unmute_sidetone_monitor_extra_delay = 0.5
     device_type = None
     device_type_straight_key = False
-    device_type_MoMIDI = False
+    device_type_MIDI = False
     device_type_serial = False
     device_type_vail_adapter = False
     device_type_internal_keyer = False
@@ -13454,7 +13454,7 @@ class Keyer():
             return
 
         cls.cancel_message_callback()
-        if cls.device_type_MoMIDI:
+        if cls.device_type_MIDI:
             MidiInput.set_message_callback(self.midi_message_callback)
         if cls.device_type_serial:
             SerialInput.set_message_callback(self.serial_message_callback)
@@ -13477,7 +13477,7 @@ class Keyer():
             if 'Vail Adapter' in typ:
                 cls.device_type_vail_adapter = True
                 cls.straight_keying = True
-                cls.device_type_MoMIDI = True
+                cls.device_type_MIDI = True
                 cls.device_type_serial = False
                 cls.device_type_internal_keyer = False
             else:
@@ -13490,14 +13490,14 @@ class Keyer():
                     cls.device_type_internal_keyer = True
                     cls.device_type_straight_key = False
                     cls.straight_keying = False
-                cls.device_type_MoMIDI = 'MoMIDI' in typ
+                cls.device_type_MIDI = 'MIDI' in typ
                 cls.device_type_serial = 'Serial' in typ
             cls.set_message_callback()
         else:
             cls.device_type_straight_key = False
             cls.device_type_internal_keyer = False
             cls.straight_keying = False
-            cls.device_type_MoMIDI = False
+            cls.device_type_MIDI = False
             cls.device_type_serial = False
             cls.device_type_vail_adapter = False
             cls.cancel_message_callback()
@@ -13505,12 +13505,12 @@ class Keyer():
         # Whichever of these the type no longer uses has to let its
         # device go. poll_new_device stops polling when the type changes
         # but never closes the port, so the old device stayed open: a
-        # MoMIDI adapter that presents a serial port as well could not be
+        # MIDI adapter that presents a serial port as well could not be
         # opened while its serial side was still held, nor the other way
         # round.
         if not cls.device_type_serial:
             SerialInput.release_port()
-        if not cls.device_type_MoMIDI:
+        if not cls.device_type_MIDI:
             MidiInput.release_port()
 
         # A paddle held across the change is held on a device the keyer
@@ -13696,8 +13696,8 @@ class Keyer():
         if midi_delta_time >= 0.001:
             self.midi_delta_time = midi_delta_time
 
-        # 0xb0 is for the older MoMIDI spec, control change
-        # 0xa0 is for the MoMIDI spec v0.1, polyphonic aftertouch
+        # 0xb0 is for the older MIDI spec, control change
+        # 0xa0 is for the MIDI spec v0.1, polyphonic aftertouch
         if event == 0xb0 or event == 0xa0:
             self.delta = (velocity * 126) / 1000
             return
