@@ -17271,12 +17271,12 @@ config_data = '''
 - item: group
   label: Audio
   contains: #{
-    #include audio-effects-togglebutton
+    #include audio-effects-dropdownbutton
   #}
 #end
 
-#define audio-effects-togglebutton
-- item: togglebutton
+#define audio-effects-dropdownbutton
+- item: dropdownbutton
   label: Effects
   leading: 0
   selections: #{
