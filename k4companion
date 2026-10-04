@@ -16223,7 +16223,7 @@ config_data = '''
 # row lines up with the VFO panels above it.
 - item: group
   sticky: fill
-  leading: 1
+  leading: 3
   contains: #{
     #include antenna-select-group
     #}
