@@ -129,9 +129,28 @@ def quiet_stderr():
 
 _qt_font_weights = {'normal': QFont.Weight.Normal, 'bold': QFont.Weight.Bold}
 
+# 'Helvetica' is what every font/size figure in the config below (down
+# to the Band/Mode/BW dropdowns' own width math and the VFO's 31pt) was
+# chosen against -- on Linux, fontconfig resolves it to a Nimbus
+# Sans/Liberation Sans-class font, metrically close to actual Helvetica.
+# Windows has no 'Helvetica', and confirmed against this machine's Qt
+# (QFontInfo(QFont('Helvetica', 10)).family()), what it falls back to
+# instead is Tahoma -- a visibly wider font, which pads out every label
+# and widens every dropdown sized from its own text (see DropdownWidget)
+# well past what those figures assumed. Arial is Windows' own
+# metrically-compatible match for Helvetica (drawn to the same metrics
+# for exactly this kind of cross-platform substitution) and is present
+# on every Windows install, so it's substituted in here -- one place
+# fixes every font in the app -- rather than in the config, and only on
+# win32: Linux (and Mac, where 'Helvetica' is a real installed font)
+# keeps asking for exactly what it always has.
+_qt_font_substitutions = {'win32': {'Helvetica': 'Arial'}}
+
 def qt_font(family, size, weight='normal'):
     if family == 'FixedFont':
         family = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont).family()
+    else:
+        family = _qt_font_substitutions.get(sys.platform, {}).get(family, family)
 
     font = QFont(family, size)
     if isinstance(weight, str):
@@ -213,9 +232,36 @@ def qt_combobox_stylesheet(bg, fg, selectbg, selectfg):
     # width the rest no longer matches. This is what the Main tab's
     # dropdowns have always carried; it is here so that every combobox
     # carries it, and so that there is one place to change it.
+    #
+    # win32 only, further: the switch to the CSS box model above still
+    # leaves `border` unspecified, so Qt falls back to the base style's
+    # own border/frame metrics there -- on Windows11 (this style's name,
+    # not a version claim: it's what Qt calls its Windows 11 widget
+    # style) measurably bulkier than what the same fallback costs on
+    # Linux's own default style, which is what made every DropdownWidget
+    # box compare wide against the Linux manual's screenshots despite
+    # carrying the same declared padding and arrow width. Spelling out
+    # `border: 0px` finishes what padding already started -- nothing
+    # left undeclared for the native style to pad out -- and the arrow
+    # can come in further too, to 9px, now that it alone (not padding on
+    # top of it) is what separates the text from the box edge. Measured
+    # against DropdownWidget's own BW list ('5.00'..'0.05'): 21px of
+    # sizeHint() overhead above the widest text's own advance before
+    # this, 12px after -- nearly half, and the reason this is here
+    # rather than folded into win32's own DropdownWidget-local margin:
+    # every combobox built through this function gets it, not just
+    # DropdownWidget's.
+    if sys.platform == 'win32':
+        padding = '0px 0px 0px 1px'
+        border = 'border: 0px;'
+        arrow_width = 9
+    else:
+        padding = '0px 1px 0px 2px'
+        border = ''
+        arrow_width = 12
     return (
-        f'QComboBox {{ background-color: {bg}; color: {fg}; padding: 0px 1px 0px 2px; }}'
-        'QComboBox::drop-down { width: 12px; }'
+        f'QComboBox {{ background-color: {bg}; color: {fg}; padding: {padding}; {border} }}'
+        f'QComboBox::drop-down {{ width: {arrow_width}px; }}'
         f'QComboBox QAbstractItemView {{ background-color: {selectbg}; color: {selectfg}; }}')
 
 def qt_tight_groupbox_stylesheet(title, font, selector='QGroupBox'):
@@ -2201,6 +2247,26 @@ def qt_button_stylesheet(bg, fg, abg, afg):
         f'QPushButton:pressed {{ background-color: {abg}; color: {afg}; }}'
     )
 
+def qt_style_bargraph(progressbar):
+    # win32 only: a Bargraph's thickness_percent (see Bargraph.__init__)
+    # resizes the QProgressBar's own box, on the understanding that its
+    # groove/chunk fill that box -- true of Qt's styles generally, but
+    # this one (Windows 11's) paints a fixed-thin indicator regardless of
+    # the box's size, confirmed by setting the S-meter's thicknesspercent
+    # to 1000 and watching the reserved space balloon while the painted
+    # bar itself stayed exactly as thin as before. QSS is what it takes
+    # to make Qt actually paint to the box's real size (the same
+    # "switches to the CSS box model" rule as the combobox/slider fixes
+    # above), so this needs colors spelled out too, same reasoning as
+    # qt_style_slider. Every Bargraph gets this, not just the S-meter --
+    # thicknesspercent is meaningless on this style without it.
+    if sys.platform != 'win32':
+        return
+    progressbar.setStyleSheet(
+        'QProgressBar { background: #eee; border: 1px solid #888; border-radius: 2px; }'
+        'QProgressBar::chunk { background: DodgerBlue; border-radius: 2px; }'
+    )
+
 class ButtonWidget():
     def __init__(self, caller, frame, options):
         self.caller = caller
@@ -3232,6 +3298,7 @@ class Bargraph(Widget):
             self.progressbar.setFixedWidth(self.length)
         else:
             self.progressbar.setFixedHeight(self.length)
+        qt_style_bargraph(self.progressbar)
 
         bar_grid.addWidget(self.progressbar, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
@@ -3474,9 +3541,10 @@ class DropdownWidget():
         if height == 0:
             height = len(texts)
 
-        if sys.platform == 'win32':
-            width += 5 * QFontMetrics(font).averageCharWidth()
-        elif sys.platform == 'darwin':
+        if sys.platform == 'darwin':
+            # Untested platform-specific chrome allowance -- left as the
+            # character-width approximation it always was. See the win32
+            # comment below for why that approximation doesn't hold up.
             width += 6 * QFontMetrics(font).averageCharWidth()
 
         # After the platform chrome above, so an explicit width is a
@@ -3499,8 +3567,40 @@ class DropdownWidget():
         self.combobox.view().setFont(font)
         self.combobox.setEditable(editable)
         self.combobox.setMaxVisibleItems(max(height, 1))
-        self.combobox.setMinimumWidth(width)
         self.set_bg(self.bg)
+
+        if sys.platform == 'win32':
+            # `width` above is exact text advance for the widest
+            # selection alone, with nothing for the chrome
+            # qt_combobox_stylesheet reserves on top of it (the 12px
+            # drop-down arrow plus its padding/border) -- left at that,
+            # the box clips its own widest value (confirmed against BW's
+            # own '2.80'/'0.30'). A character-width multiple was tried
+            # here first (4.5, after 5 chars-worth stopped being needed
+            # once the font fix above replaced Tahoma with Arial), but
+            # that's still a guess at a cost that doesn't actually scale
+            # with character width -- the arrow and border are a fixed
+            # pixel chrome regardless of font, so it overshoots further
+            # the shorter the text is (confirmed: ~32px from 4.5 chars
+            # against a real ~20px overhead measured across '2.80',
+            # 'CW-REV' and '40' alike -- stable regardless of text).
+            #
+            # Once the stylesheet above is applied, Qt's own sizeHint()
+            # already answers what the real overhead is, so ask it
+            # instead of re-approximating the same number by hand -- but
+            # it isn't quite trustworthy at face value either: taken
+            # literally it still clipped BW's own '2.80'/'0.30' by about
+            # a character's width (a QSS/HiDPI sizeHint rounding gap,
+            # confirmed by comparing the box's actual rendered width to
+            # what was asked for -- they matched, so the shortfall is in
+            # what Qt itself reported as enough, not in applying it). +10
+            # covers that gap with a little to spare, confirmed clean
+            # against the same two values, and is still far short of the
+            # ~32px the char-width guess cost every box regardless of how
+            # short its text was.
+            width = max(width, self.combobox.sizeHint().width() + 10)
+
+        self.combobox.setMinimumWidth(width)
         qt_tighten_combobox_popup(self.combobox)
 
         if editable:
@@ -16130,9 +16230,18 @@ config_data = '''
 #end
 
 #define main-tab-row3
+# Same technique as antenna-select-group: sticky: fill hands this group
+# the row's full width, and the spacer between the two columns is what
+# spends it -- pushing the Audio Mix/Power/Macros/ATU block to the right
+# edge of the window, VFOs left where it was. Unlike the padx/pady
+# spacing tried here before (reverted -- it changed Linux's layout more
+# than wanted), this is the same cross-platform fill/spacer mechanism
+# the antenna row already uses on both, so it's wanted on both here too.
 - item: group
+  sticky: fill
   contains: #{
     #include main-tab-row3-column1
+    - item: spacer
     #include main-tab-row3-column2
     #}
 #end
@@ -16482,7 +16591,7 @@ config_data = '''
   leading: 1
   maximum: 42
   lengthpercent: 98
-  thicknesspercent: 50
+  thicknesspercent: 40
   cmd: SM1;
   font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ' '
@@ -16497,7 +16606,7 @@ config_data = '''
   label: Power out
   evalmaximum: "0 if self.len_k4param('PC') < 4 else 11.7 if self.k4param('PC')[3] == 'L' else 117"
   lengthpercent: 100
-  thicknesspercent: 50
+  thicknesspercent: 40
   cmd: TM1;PC;
   font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ''
@@ -16510,7 +16619,7 @@ config_data = '''
   label: ALC
   maximum: 7
   lengthpercent: 93
-  thicknesspercent: 50
+  thicknesspercent: 40
   cmd: TM1;
   font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ''
@@ -16524,7 +16633,7 @@ config_data = '''
   leading: 2
   maximum: 32
   lengthpercent: 96
-  thicknesspercent: 50
+  thicknesspercent: 40
   cmd: TM1;
   font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ''
@@ -16537,7 +16646,7 @@ config_data = '''
   label: SWR
   maximum: 35
   lengthpercent: 100
-  thicknesspercent: 50
+  thicknesspercent: 40
   cmd: TM1;TQ;TU;
   font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ' '
@@ -16745,7 +16854,7 @@ config_data = '''
   leading: 1
   maximum: 42
   lengthpercent: 98
-  thicknesspercent: 50
+  thicknesspercent: 40
   cmd: SM1;
   font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ' '

@@ -63,9 +63,18 @@
 #end
 
 #define main-tab-row3
+# Same technique as antenna-select-group: sticky: fill hands this group
+# the row's full width, and the spacer between the two columns is what
+# spends it -- pushing the Audio Mix/Power/Macros/ATU block to the right
+# edge of the window, VFOs left where it was. Unlike the padx/pady
+# spacing tried here before (reverted -- it changed Linux's layout more
+# than wanted), this is the same cross-platform fill/spacer mechanism
+# the antenna row already uses on both, so it's wanted on both here too.
 - item: group
+  sticky: fill
   contains: #{
     #include main-tab-row3-column1
+    - item: spacer
     #include main-tab-row3-column2
     #}
 #end
@@ -415,7 +424,7 @@
   leading: 1
   maximum: 42
   lengthpercent: 98
-  thicknesspercent: 50
+  thicknesspercent: 40
   cmd: SM1;
   font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ' '
@@ -430,7 +439,7 @@
   label: Power out
   evalmaximum: "0 if self.len_k4param('PC') < 4 else 11.7 if self.k4param('PC')[3] == 'L' else 117"
   lengthpercent: 100
-  thicknesspercent: 50
+  thicknesspercent: 40
   cmd: TM1;PC;
   font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ''
@@ -443,7 +452,7 @@
   label: ALC
   maximum: 7
   lengthpercent: 93
-  thicknesspercent: 50
+  thicknesspercent: 40
   cmd: TM1;
   font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ''
@@ -457,7 +466,7 @@
   leading: 2
   maximum: 32
   lengthpercent: 96
-  thicknesspercent: 50
+  thicknesspercent: 40
   cmd: TM1;
   font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ''
@@ -470,7 +479,7 @@
   label: SWR
   maximum: 35
   lengthpercent: 100
-  thicknesspercent: 50
+  thicknesspercent: 40
   cmd: TM1;TQ;TU;
   font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ' '
@@ -678,7 +687,7 @@
   leading: 1
   maximum: 42
   lengthpercent: 98
-  thicknesspercent: 50
+  thicknesspercent: 40
   cmd: SM1;
   font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ' '
