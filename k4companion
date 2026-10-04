@@ -82,9 +82,17 @@ from PyQt6.QtWidgets import (
     QSplitter, QStyledItemDelegate,
 )
 
-# Modify the path to find .\opus.dll on Windows
+# Modify the path to find opus.dll on Windows, which opuslib looks for
+# along PATH: in PyInstaller's unpacked bundle, beside k4companion.exe
+# (or the script), or in the current folder. The current folder alone
+# found it only when a shortcut happened to start in the right one.
 original_path = os.environ.get('PATH', '')
-os.environ['PATH'] = '.' + os.pathsep + original_path
+if getattr(sys, 'frozen', False):
+    program_folder = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    program_folder = os.path.dirname(os.path.abspath(__file__))
+dll_folders = [getattr(sys, '_MEIPASS', None), program_folder, '.']
+os.environ['PATH'] = os.pathsep.join([f for f in dll_folders if f] + [original_path])
 import opuslib
 os.environ['PATH'] = original_path
 
