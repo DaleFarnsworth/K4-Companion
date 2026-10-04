@@ -39,7 +39,6 @@ FunctionEnd
 Section
 Setoutpath $INSTDIR
   File ..\Windows\k4companion.exe
-  File ..\example_config_files\k4companion.yaml
   File ..\Windows\k4companion.ico
   File "..\Documentation\K4 Companion User Manual.pdf"
   File ..\Contributions\opus.dll
@@ -108,6 +107,7 @@ Section "Uninstall"
 
   ; Remove files and uninstaller
   Delete "$INSTDIR\k4companion.exe"
+  ; Installed by versions before 2.1, which needed it
   Delete "$INSTDIR\k4companion.yaml"
   Delete "$INSTDIR\k4companion.ico"
   Delete "$INSTDIR\K4 Companion User Manual.pdf"
