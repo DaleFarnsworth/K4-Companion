@@ -10,7 +10,7 @@ linux: clean
 
 windows: clean k4companion-$(VERSION)-installer.exe
 
-k4companion-$(VERSION)-installer.exe: Windows/k4companion.exe tools/k4companion.nsi Contributions/opus.dll
+k4companion-$(VERSION)-installer.exe: Windows/k4companion.exe Windows/k4companion-debug.exe tools/k4companion.nsi Contributions/opus.dll
 	makensis -DVERSION=$(VERSION) tools/k4companion.nsi
 
 macOS: clean darwin
