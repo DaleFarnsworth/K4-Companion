@@ -1,0 +1,75 @@
+# Builds k4companion.exe and its installer on a Windows runner.
+#
+# Run it by hand from the Actions tab (Build Windows, Run workflow) or
+# with "gh workflow run build-windows.yml --ref <branch>"; the files are
+# then under the run's Artifacts. Alongside k4companion.exe it builds
+# k4companion-debug.exe, the same program with a console, so that -d
+# and --da output can be seen on Windows; the installer installs both.
+
+name: Build Windows
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 3.13 or later is needed for the encrypted connection on port 9204.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      # hidapi is for the K-Pod; PyInstaller bundles only what the
+      # program imports, so it costs nothing where it isn't used.
+      - name: Install the Python packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller PyQt6 pyqtgraph pyyaml opuslib numpy sounddevice \
+              PySocks python-rtmidi pyserial hidapi
+
+      - name: Read the version
+        id: version
+        run: |
+          version=$(sed -n '/version =/{s/^[^"]*"//;s/".*//p;q}' example_config_files/k4companion.yaml)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version $version"
+
+      # As ./run does: the configuration copied into the program, so that
+      # it needs no file of its own.
+      - name: Embed the configuration
+        run: python tools/add_data_variable -i k4companion -o k4companion.py example_config_files/k4companion.yaml
+
+      # opus.dll goes into the bundle as well as beside the .exe (the
+      # installer puts it there), so that either way it is found.
+      - name: Build k4companion.exe
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --name k4companion \
+              --icon Windows/k4companion.ico --add-binary "Contributions/opus.dll;." k4companion.py
+
+      - name: Build k4companion-debug.exe
+        run: |
+          pyinstaller --noconfirm --onefile --console --name k4companion-debug \
+              --icon Windows/k4companion.ico --add-binary "Contributions/opus.dll;." k4companion.py
+
+      - name: Build the installer
+        run: |
+          choco install nsis --yes --no-progress
+          cp dist/k4companion.exe dist/k4companion-debug.exe Windows/
+          "/c/Program Files (x86)/NSIS/makensis.exe" -DVERSION=${{ steps.version.outputs.version }} tools/k4companion.nsi
+          mv k4companion-installer.exe dist/k4companion-${{ steps.version.outputs.version }}-installer.exe
+
+      - name: Keep the files with the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: k4companion-windows
+          path: dist/*.exe
