@@ -50,10 +50,12 @@ jobs:
           pip install pyinstaller pillow pyobjc-framework-Cocoa PyQt6 pyqtgraph pyyaml \
               opuslib numpy sounddevice PySocks python-rtmidi pyserial hidapi
 
+      # awk, not the sed the Windows build uses: macOS's BSD sed wants a
+      # semicolon after q inside braces, where GNU sed takes it without.
       - name: Read the version
         id: version
         run: |
-          version=$(sed -n '/version =/{s/^[^"]*"//;s/".*//p;q}' example_config_files/k4companion.yaml)
+          version=$(awk -F'"' '/version =/ {print $2; exit}' example_config_files/k4companion.yaml)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Version $version"
 
