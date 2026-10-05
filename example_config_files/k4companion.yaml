@@ -421,7 +421,7 @@
 
 #define s-meter-a-bargraph
 - item: bargraph
-  leading: 1
+  leading: 3
   maximum: 42
   lengthpercent: 98
   thicknesspercent: 40
@@ -683,7 +683,7 @@
 
 #define s-meter-b-bargraph
 - item: bargraph
-  leading: 1
+  leading: 3
   maximum: 42
   lengthpercent: 98
   thicknesspercent: 40
