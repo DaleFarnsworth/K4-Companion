@@ -31,8 +31,12 @@ The
 [Windows Quick Start Guide](https://github.com/DaleFarnsworth/K4-Companion/blob/main/Documentation/K4%20Companion%20Windows%20Quick%20Start.pdf)
 should ease the initial installation on Windows.
 
-Some work has been done on porting K4-Companion to MacOS, but its installation
-is not yet sufficiently straight-forward enough to recommend.
+On macOS, K4 Companion.app is available as a disk image for
+[Apple Silicon](https://github.com/DaleFarnsworth/K4-Companion/blob/main/MacOS/k4companion-macos-arm64.dmg)
+and for
+[Intel](https://github.com/DaleFarnsworth/K4-Companion/blob/main/MacOS/k4companion-macos-x86_64.dmg)
+Macs: open it and drag the app to Applications. The app is not signed,
+so the first time it is opened, Control-click it and choose Open.
 
 Code found in the _main_ branch is considered ready for wide use.
 Code in any other branches, including _dev_ is pre-release. These
