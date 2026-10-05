@@ -86,15 +86,23 @@ from PyQt6.QtWidgets import (
 # along PATH: in PyInstaller's unpacked bundle, beside k4companion.exe
 # (or the script), or in the current folder. The current folder alone
 # found it only when a shortcut happened to start in the right one.
-original_path = os.environ.get('PATH', '')
+# On macOS it looks along DYLD_LIBRARY_PATH instead, for the
+# libopus.dylib the app bundle carries in its Frameworks folder (which
+# _MEIPASS is there), so that is given the same folders.
 if getattr(sys, 'frozen', False):
     program_folder = os.path.dirname(os.path.abspath(sys.executable))
 else:
     program_folder = os.path.dirname(os.path.abspath(__file__))
-dll_folders = [getattr(sys, '_MEIPASS', None), program_folder, '.']
-os.environ['PATH'] = os.pathsep.join([f for f in dll_folders if f] + [original_path])
+dll_folders = [f for f in (getattr(sys, '_MEIPASS', None), program_folder, '.') if f]
+original_paths = {name: os.environ.get(name) for name in ('PATH', 'DYLD_LIBRARY_PATH')}
+for name, original in original_paths.items():
+    os.environ[name] = os.pathsep.join(dll_folders + ([original] if original else []))
 import opuslib
-os.environ['PATH'] = original_path
+for name, original in original_paths.items():
+    if original == None:
+        del os.environ[name]
+    else:
+        os.environ[name] = original
 
 appname = 'k4companion'
 version = "2.0"
