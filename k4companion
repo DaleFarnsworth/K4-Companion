@@ -16694,7 +16694,6 @@ config_data = '''
 #define cmp-bargraph
 - item: bargraph
   label: CMP
-  leading: 2
   maximum: 32
   lengthpercent: 96
   thicknesspercent: 40
