@@ -49,17 +49,12 @@ jobs:
       - name: Embed the configuration
         run: python tools/add_data_variable -i k4companion -o k4companion.py example_config_files/k4companion.yaml
 
-      # opus.dll goes into the bundle as well as beside the .exe (the
-      # installer puts it there), so that either way it is found.
-      - name: Build k4companion.exe
-        run: |
-          pyinstaller --noconfirm --onefile --windowed --name k4companion \
-              --icon Windows/k4companion.ico --add-binary "Contributions/opus.dll;." k4companion.py
-
-      - name: Build k4companion-debug.exe
-        run: |
-          pyinstaller --noconfirm --onefile --console --name k4companion-debug \
-              --icon Windows/k4companion.ico --add-binary "Contributions/opus.dll;." k4companion.py
+      # Both programs from one analysis, without the parts of Qt the
+      # program never uses (see the spec). opus.dll goes into the bundle
+      # as well as beside the .exe (the installer puts it there), so
+      # that either way it is found.
+      - name: Build k4companion.exe and k4companion-debug.exe
+        run: pyinstaller --noconfirm tools/k4companion.spec
 
       - name: Build the installer
         run: |
