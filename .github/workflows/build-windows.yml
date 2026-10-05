@@ -62,7 +62,7 @@ jobs:
           choco install nsis --yes --no-progress
           cp dist/k4companion.exe dist/k4companion-debug.exe Windows/
           "/c/Program Files (x86)/NSIS/makensis.exe" -DVERSION=${{ steps.version.outputs.version }} tools/k4companion.nsi
-          mv k4companion-installer.exe dist/k4companion-${{ steps.version.outputs.version }}-installer.exe
+          mv k4companion-installer.exe dist/k4companion-installer.exe
 
       - name: Keep the files with the run
         uses: actions/upload-artifact@v4

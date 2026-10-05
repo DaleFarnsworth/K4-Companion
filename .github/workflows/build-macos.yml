@@ -76,7 +76,7 @@ jobs:
           cp -R "dist/K4 Companion.app" dmg/
           ln -s /Applications dmg/Applications
           hdiutil create -volname "K4 Companion" -srcfolder dmg -ov -format UDZO \
-              "dist/k4companion-${{ steps.version.outputs.version }}-macos-${{ matrix.arch }}.dmg"
+              "dist/k4companion-macos-${{ matrix.arch }}.dmg"
 
       - name: Keep the .dmg with the run
         uses: actions/upload-artifact@v4
