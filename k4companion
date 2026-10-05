@@ -88,12 +88,16 @@ from PyQt6.QtWidgets import (
 # found it only when a shortcut happened to start in the right one.
 # On macOS it looks along DYLD_LIBRARY_PATH instead, for the
 # libopus.dylib the app bundle carries in its Frameworks folder (which
-# _MEIPASS is there), so that is given the same folders.
+# _MEIPASS is there), so that is given the same folders. Run from the
+# source, it also finds Homebrew's: on Apple Silicon Macs that is in
+# /opt/homebrew/lib, which isn't searched as /usr/local/lib is.
 if getattr(sys, 'frozen', False):
     program_folder = os.path.dirname(os.path.abspath(sys.executable))
 else:
     program_folder = os.path.dirname(os.path.abspath(__file__))
 dll_folders = [f for f in (getattr(sys, '_MEIPASS', None), program_folder, '.') if f]
+if sys.platform == 'darwin':
+    dll_folders.append('/opt/homebrew/lib')
 original_paths = {name: os.environ.get(name) for name in ('PATH', 'DYLD_LIBRARY_PATH')}
 for name, original in original_paths.items():
     os.environ[name] = os.pathsep.join(dll_folders + ([original] if original else []))
