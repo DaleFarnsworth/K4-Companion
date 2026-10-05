@@ -7895,10 +7895,11 @@ class Audio():
                 return None
 
     @classmethod
-    def schedule_sidetone_down(cls, down_at):
+    def schedule_sidetone_down(cls, down_at, late=False):
         # An element's key down, as a perf_counter time, queued before it
         # has happened. schedule_sidetone_up queues its key up, once the
-        # keyer knows what the element is.
+        # keyer knows what the element is. late says the keyer is
+        # queueing it after its block's deadline (see next_key_edge).
         #
         # An edge that reaches the output callback before the block
         # carrying it has been filled is placed on its exact frame. One
@@ -7929,6 +7930,9 @@ class Audio():
             return False
         self.sidetone_schedule_offset = stream_now - time.perf_counter()
         self.sidetone_down_asked = down_at + self.sidetone_schedule_offset
+        # Before the edge is queued, so the callback never sees one
+        # without the other.
+        self.sidetone_down_late = self.sidetone_down_asked if late else None
         self.key_event_queue.put((self.sidetone_down_asked, True))
         return True
 
@@ -9296,6 +9300,20 @@ class Audio():
                 if offset >= frames:
                     self.pending_key_event = event
                     return None
+            elif key_down and event_time == self.sidetone_down_late:
+                # Late because the keyer queued it late -- its sleep ran
+                # past the deadline, which macOS's timer coalescing does
+                # by several milliseconds -- and not because the audio
+                # needs more delay. Dragged without raising the lag: that
+                # one tone starts a little late and is that much shorter,
+                # its key up being queued from where it should have
+                # started. Raised, every element after it would be heard
+                # that much later too, and on a machine where most wakes
+                # are late the lag climbed by a millisecond or two an
+                # element, 224 ms in 40 seconds of sending, far faster
+                # than ease_sidetone_lag gives it back.
+                dragged = True
+                offset = start
             elif key_down:
                 # Check if the host has skipped blocks. When the host fills
                 # multiple blocks in one callback (WASAPI with a host period
@@ -9577,6 +9595,9 @@ class Audio():
         # was asked for. See cancel_sidetone_down.
         self.sidetone_down_cancelled = None
         self.sidetone_down_dropped = None
+        # A key down the keyer queued after its block's deadline, by the
+        # stream time it was asked for. See next_key_edge.
+        self.sidetone_down_late = None
         # How far behind the operator's key edges this burst is being
         # rendered, in seconds. See next_key_edge().
         self.sidetone_lag = 0.0
@@ -14825,15 +14846,18 @@ class Keyer():
             self.burst_end_due = due
             self.element_sidetone_queued = False
             return False
-        self.element_sidetone_queued = Audio.schedule_sidetone_down(
-            sidetone_start)
-
         # Queued past the deadline: this thread woke late, and the key
-        # down will land late by up to what it missed by. A callback
-        # that fills the block sooner than block_lead said it would has
-        # the same effect and is not seen here; it shows as
+        # down will land late by up to what it missed by. Said so, so
+        # that the audio does not take it for a delay it needs and hold
+        # every later element back by it (see Audio.next_key_edge). A
+        # callback that fills the block sooner than block_lead said it
+        # would has the same effect and is not seen here; it shows as
         # sidetone_delay rising at the element after.
-        if check_at != None and read_at > check_at:
+        late = check_at != None and read_at > check_at
+        self.element_sidetone_queued = Audio.schedule_sidetone_down(
+            sidetone_start, late)
+
+        if late:
             _, lead = Audio.block_timing()
             dprint_keying(f'{read_at:.4f} sidetone down queued late:'
                           f' woke={(read_at - wake_at) * 1000:.1f}ms late'

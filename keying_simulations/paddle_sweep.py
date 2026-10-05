@@ -130,6 +130,7 @@ def sim(tap_at, tap_length=.005):
         sidetone_lag=0.0, sidetone_edge_shift=None, sidetone_schedule_offset=None,
         sidetone_down_asked=None, sidetone_down_placed=None,
         sidetone_down_cancelled=None, sidetone_down_dropped=None,
+        sidetone_down_late=None,
         sidetone_block_timing=None, block_lead_current=0.0,
         block_lead_previous=0.0, block_lead_window_end=None,
         block_lead_window_seconds=.5,
