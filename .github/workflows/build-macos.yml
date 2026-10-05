@@ -1,0 +1,85 @@
+# Builds K4 Companion.app, in a .dmg, on macOS runners: one for Apple
+# Silicon and one for Intel Macs. A single universal app isn't practical,
+# numpy and others publishing a separate wheel for each.
+#
+# Run it by hand from the Actions tab (Build macOS, Run workflow) or
+# with "gh workflow run build-macos.yml --ref <branch>"; the .dmg files
+# are then under the run's Artifacts.
+#
+# Unsigned: Gatekeeper blocks it the first time, until it is opened with
+# Control-click, Open, or "xattr -d com.apple.quarantine" is run on it.
+# Signing and notarizing it needs an Apple Developer ID.
+
+name: Build macOS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 3.13 or later is needed for the encrypted connection on port 9204.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      # The Opus codec, which macOS doesn't have; the app carries it.
+      - name: Install Opus
+        run: brew install opus
+
+      # As for Windows, and besides: pyobjc's Cocoa, which finds where
+      # the settings go (see Settings.platform_settings_dirname), and
+      # Pillow, which turns the .ico into the .icns an app's icon is.
+      - name: Install the Python packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pillow pyobjc-framework-Cocoa PyQt6 pyqtgraph pyyaml \
+              opuslib numpy sounddevice PySocks python-rtmidi pyserial hidapi
+
+      - name: Read the version
+        id: version
+        run: |
+          version=$(sed -n '/version =/{s/^[^"]*"//;s/".*//p;q}' example_config_files/k4companion.yaml)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version $version"
+
+      # As ./run does: the configuration copied into the program, so that
+      # it needs no file of its own.
+      - name: Embed the configuration
+        run: python tools/add_data_variable -i k4companion -o k4companion.py example_config_files/k4companion.yaml
+
+      - name: Build K4 Companion.app
+        env:
+          K4COMPANION_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          export OPUS_DYLIB="$(brew --prefix opus)/lib/libopus.dylib"
+          pyinstaller --noconfirm tools/k4companion.spec
+
+      # The app beside a link to Applications, to be dragged onto it.
+      - name: Build the .dmg
+        run: |
+          mkdir dmg
+          cp -R "dist/K4 Companion.app" dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "K4 Companion" -srcfolder dmg -ov -format UDZO \
+              "dist/k4companion-${{ steps.version.outputs.version }}-macos-${{ matrix.arch }}.dmg"
+
+      - name: Keep the .dmg with the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: k4companion-macos-${{ matrix.arch }}
+          path: dist/*.dmg
