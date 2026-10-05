@@ -13229,6 +13229,17 @@ class Keyer():
     # and the work done after waking before it gets that far.
     sidetone_edge_margin_seconds = .002
 
+    # The sleep can overrun by far more than that margin: on macOS,
+    # whose timers are coalesced, a key down's sleep woke 3 to 5 ms late
+    # on most elements, past the deadline every time. So what it has
+    # lately overrun by is learned and woken that much earlier as well:
+    # the most of it seen, let go of by wake_overrun_decay at each
+    # element after, so that one long overrun is forgotten over a few
+    # dozen and a steady one is kept. No more than max_wake_overrun,
+    # which is reading the paddles that much before the gap is out.
+    wake_overrun_decay = .98
+    max_wake_overrun = .010
+
     # How far apart two MIDI paddle events can be, by the device's own
     # count, and still have the second timed from the first; and how far
     # behind its arrival an event can be timed before it is taken to be
@@ -13686,6 +13697,9 @@ class Keyer():
         # Lowered by a better reading and never raised by a worse one,
         # but never held under what the device is asking for either.
         self.inherent_sidetone_lag = 0.0
+        # What the sleep before queueing a key down has lately overrun
+        # by. See wake_overrun_decay.
+        self.wake_overrun = 0.0
         # The gap the KZD most recently sent carried, which is what says
         # whether an element was one of those.
         self.last_kzd_ms = None
@@ -14448,10 +14462,13 @@ class Keyer():
 
     @staticmethod
     def sleep_until(when):
-        # A perf_counter time; nothing at all once it has gone by.
+        # A perf_counter time; nothing at all once it has gone by. How far
+        # past it the sleep ran, or None where there was nothing to sleep.
         wait = when - time.perf_counter()
         if wait > 0:
             time.sleep(wait)
+            return time.perf_counter() - when
+        return None
 
     def start_element(self, first_element, wanted):
         # The first half of an element: the sidetone's key down and the
@@ -14832,14 +14849,17 @@ class Keyer():
         # where there is a sidetone to queue it to.
         check_at = Audio.sidetone_down_deadline(sidetone_start)
         if check_at != None:
-            wake_at = check_at - self.sidetone_edge_margin_seconds
+            wake_at = check_at - self.sidetone_edge_margin_seconds - self.wake_overrun
         else:
             # No tone to be in time for -- the sidetone is off, or no
             # stream is open -- so the reading is taken at the grid
             # start itself, which is where it belongs anyway.
             wake_at = self.element_timestamp
-        self.sleep_until(wake_at)
+        overrun = self.sleep_until(wake_at)
         read_at = time.perf_counter()
+        if check_at != None and overrun != None:
+            self.wake_overrun = min(self.max_wake_overrun,
+                                    max(overrun, self.wake_overrun * self.wake_overrun_decay))
         due = min(read_at, wake_at - grid_shift)
         if not wanted(due):
             # The burst ends here, as of then. See missed_first_element.
@@ -14863,7 +14883,8 @@ class Keyer():
                           f' woke={(read_at - wake_at) * 1000:.1f}ms late'
                           f' past_deadline={(read_at - check_at) * 1000:.1f}ms'
                           f' deadline={check_at:.4f}'
-                          f' block_lead={None if lead == None else round(lead, 4)}')
+                          f' block_lead={None if lead == None else round(lead, 4)}'
+                          f' wake_overrun={self.wake_overrun * 1000:.1f}ms')
         return True
 
     def element_sidetone(self, element_seconds):
