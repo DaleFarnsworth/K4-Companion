@@ -6,6 +6,12 @@
 
 ;--------------------------------
 
+; Compressed as one block, with a dictionary larger than k4companion.exe,
+; so that k4companion-debug.exe, nearly the same file, adds almost
+; nothing: about half the size of compressing each file on its own.
+SetCompressor /SOLID lzma
+SetCompressorDictSize 64
+
 ; The name of the installer
 Name "k4companion"
 
