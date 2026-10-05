@@ -3304,6 +3304,17 @@ class Bargraph(Widget):
                 self.progressbar.setFixedWidth(max(1, round(natural * self.thickness_percent / 100.0)))
         if orientation == Qt.Orientation.Horizontal:
             self.progressbar.setFixedWidth(self.length)
+            # The left text beside a horizontal bar takes its width and
+            # none of its own height: in the label font, with its
+            # margins, it stood taller than a thinned bar, and a bargraph
+            # with it came out taller than one without -- SWR beside
+            # CMP, a few pixels. Kept to the bar's height, it is clipped
+            # rather than grown around, which a space, all lefttext has
+            # been, never shows.
+            if self.left_text != '':
+                bar_height = self.progressbar.minimumHeight() or self.progressbar.sizeHint().height()
+                self.left_frame.setFixedHeight(bar_height)
+                self.left_frame.layout().setContentsMargins(0, 0, 0, 0)
         else:
             self.progressbar.setFixedHeight(self.length)
         qt_style_bargraph(self.progressbar)
