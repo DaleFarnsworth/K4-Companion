@@ -222,6 +222,32 @@ _tight_combobox_delegate = _TightComboBoxDelegate()
 def qt_tighten_combobox_popup(combobox):
     combobox.setItemDelegate(_tight_combobox_delegate)
 
+def qt_fit_combobox_width(combobox):
+    # Windows only: with qt_combobox_stylesheet applied, Qt's own
+    # sizeHint() comes up about 10px short there, clipping the widest
+    # value -- as Dropdown_Widget's own +10 allows for. Called again
+    # whenever the items change, so the width follows them; hence
+    # AdjustToContents, without which the hint isn't recomputed once
+    # the box has been shown.
+    if sys.platform != 'win32':
+        return
+    combobox.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+    combobox.setMinimumWidth(combobox.sizeHint().width() + 10)
+
+def qt_list_width(listwidget, texts, font):
+    # The width that shows a QListWidget's widest item and its
+    # scrollbar. On Windows the item view pads each item beyond its
+    # text, so the list's own measure of its column is taken where it
+    # is the larger.
+    fm = QFontMetrics(font)
+    text_width = max((fm.horizontalAdvance(text) for text in texts), default=0)
+    if sys.platform == 'win32':
+        listwidget.ensurePolished()
+        text_width = max(text_width, listwidget.sizeHintForColumn(0))
+    frame = 2 * listwidget.frameWidth()
+    scrollbar_width = listwidget.verticalScrollBar().sizeHint().width()
+    return text_width + frame + scrollbar_width + 12
+
 def qt_combobox_stylesheet(bg, fg, selectbg, selectfg):
     # The colours every combobox in the app wants, and the tightening
     # that goes with them.
@@ -377,6 +403,7 @@ def qt_labeled_readonly_combobox(title, font, box_font, values, current_value, b
     if combobox.lineEdit() != None:
         combobox.lineEdit().setAlignment(qt_justify(justify))
     combobox.setStyleSheet(qt_combobox_stylesheet(bg, fg, selectbg, selectfg))
+    qt_fit_combobox_width(combobox)
     qt_tighten_combobox_popup(combobox)
     combobox.setCurrentText(str(current_value))
     grid.addWidget(combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -4044,6 +4071,7 @@ class Equalizers(Widget):
     def _style_combobox(self, combobox):
         combobox.setStyleSheet(qt_combobox_stylesheet(
             self.bg, self.fg, self.selectbg, self.selectfg))
+        qt_fit_combobox_width(combobox)
         qt_tighten_combobox_popup(combobox)
 
     def _reload_combobox_items(self, combobox, items):
@@ -4060,6 +4088,7 @@ class Equalizers(Widget):
         if current in items:
             combobox.setCurrentText(current)
         combobox.blockSignals(False)
+        qt_fit_combobox_width(combobox)
 
     def on_received_initial_parameters(self, response):
         self.server.subscribe_responses('TR;MD;MD$;FT;', self.on_k4_mode_changed)
@@ -4534,11 +4563,8 @@ class Menu_definition():
         row_height = QFontMetrics(self.menu.font()).height() + 2
         self.widget.setFixedHeight(len(self.values) * row_height + 4)
 
-        fm = QFontMetrics(self.menu.font())
-        text_width = max((fm.horizontalAdvance(str(value)) for value in self.values), default=0)
-        frame = 2 * self.widget.frameWidth()
-        scrollbar_width = self.widget.verticalScrollBar().sizeHint().width()
-        self.widget.setFixedWidth(text_width + frame + scrollbar_width + 12)
+        self.widget.setFixedWidth(qt_list_width(self.widget,
+            [str(value) for value in self.values], self.menu.font()))
 
         self.widget.setCurrentRow(self.current)
 
@@ -4834,11 +4860,8 @@ class Menu(Widget):
         # listbox.configure(width=...) based on the longest description)
         # instead of the QListWidget default, which stretches to fill
         # whatever space the layout offers.
-        fm = QFontMetrics(self.font())
-        text_width = max((fm.horizontalAdvance(md.desc) for md in self.definitions), default=0)
-        frame = 2 * self.listbox.frameWidth()
-        scrollbar_width = self.listbox.verticalScrollBar().sizeHint().width()
-        self.listbox.setFixedWidth(text_width + frame + scrollbar_width + 12)
+        self.listbox.setFixedWidth(qt_list_width(self.listbox,
+            [md.desc for md in self.definitions], self.font()))
 
     def received_all_definitions(self):
         self.server.subscribe_response('ME;', self.on_received_current, send=False)
@@ -10685,6 +10708,7 @@ class Dropdown_Widget():
             if current != '':
                 self.combobox.setCurrentText(current)
             self.combobox.blockSignals(False)
+            qt_fit_combobox_width(self.combobox)
 
 class Antenna(Widget):
     def __init__(self, config_info, container):
