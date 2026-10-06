@@ -31,10 +31,11 @@ jobs:
 
       # hidapi is for the K-Pod; PyInstaller bundles only what the
       # program imports, so it costs nothing where it isn't used.
+      # Pillow is for the build alone: it scales the splash screen.
       - name: Install the Python packages
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller PyQt6 pyqtgraph pyyaml opuslib numpy sounddevice \
+          pip install pyinstaller pillow PyQt6 pyqtgraph pyyaml opuslib numpy sounddevice \
               PySocks python-rtmidi pyserial hidapi
 
       - name: Read the version

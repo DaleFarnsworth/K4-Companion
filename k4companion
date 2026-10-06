@@ -7126,8 +7126,12 @@ class PanadapterProcess(QObject):
             argv = [sys.executable, os.path.abspath(__file__)]
         argv += ['--panadapter', receiver]
 
+        # Without the splash screen the .exe otherwise shows at each start,
+        # which is for the program's own start, not a panadapter window's.
+        env = dict(os.environ, PYINSTALLER_SUPPRESS_SPLASH_SCREEN='1')
+
         self.process = subprocess.Popen(argv, stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE)
+            stdout=subprocess.PIPE, env=env)
 
         # Bounded, and dropped rather than blocked on when full: writing
         # straight from received_pan() would put the pipe's flow control

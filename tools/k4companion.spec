@@ -46,10 +46,21 @@ a.datas = [entry for entry in a.datas if used(entry)]
 
 pyz = PYZ(a.pure)
 
+# Shown by the .exe while it unpacks itself and Python imports Qt and
+# the rest, until close_splash_screen() takes it down. Scaled to fit
+# 760x480, which takes Pillow at build time.
+splash = Splash(
+    os.path.join(root, 'tools', 'k4_splash.png'),
+    binaries=a.binaries,
+    datas=a.datas,
+)
+
 for name, console in (('k4companion', False), ('k4companion-debug', True)):
     EXE(
         pyz,
         a.scripts,
+        splash,
+        splash.binaries,
         a.binaries,
         a.datas,
         [],
