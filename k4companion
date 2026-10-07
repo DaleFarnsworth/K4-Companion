@@ -9042,6 +9042,10 @@ class Audio():
         self.write_outdata(outdata, data[:needed])
         self.fade_in_k4(outdata, frames, written)
 
+        # Before the sidetone, so that while a tone is keyed the spot is
+        # crossfaded away with the K4 audio, as it is under the K4's own
+        # sidetone.
+        self.mix_spot(outdata, frames)
         self.mix_sidetone(outdata, frames, block_start_frame, time_info)
 
     def key_up_due(self, frames, time_info):
@@ -9571,6 +9575,45 @@ class Audio():
             self.sidetone_ramp = numpy.arange(1, frames + 1, dtype=numpy.float32)
         return self.sidetone_ramp[:frames]
 
+    # Whether the spot tone is wanted, kept here as well, so that the
+    # Audio made for a new connection starts with it as it was.
+    spot_wanted = False
+
+    @classmethod
+    def set_spot(cls, on):
+        # From the CW window's Spot button. The output callback takes it
+        # from here; nothing else needs doing.
+        cls.spot_wanted = bool(on)
+        if cls.singleton != None:
+            cls.singleton.spot_on = bool(on)
+
+    def mix_spot(self, outdata, frames):
+        # The spot tone, for zero-beating a CW signal by ear as the K4's
+        # SPOT does: a steady tone at the CW pitch, at the sidetone's
+        # volume, added to the receive audio rather than replacing it.
+        # The K4 has no spot tone for a remote client, so it is made here,
+        # from the sidetone's own rendered tone. It comes up and goes
+        # away as the sidetone does, over a raised cosine, so that turning
+        # it on and off doesn't click.
+        shape = self.sidetone_shape
+        if shape == None or frames <= 0:
+            return
+        if not self.spot_on and self.spot_position <= 0:
+            return
+        sample_rate, rise_step, fall_step, period, cycle = shape
+        index = self.spot_cycle_index
+        self.spot_cycle_index = (index + frames) % period
+        if index + frames <= len(cycle):
+            tone = cycle[index:index + frames]
+        else:
+            tone = numpy.take(cycle, numpy.arange(index, index + frames) % period, mode='wrap')
+        if self.spot_on and self.spot_position >= 1:
+            outdata += tone.reshape(frames, 1)
+            return
+        ramp = self.envelope_ramp(self.spot_position, rise_step if self.spot_on else -fall_step, frames)
+        self.spot_position = float(ramp[-1])
+        outdata += (tone * self.raised_cosine(ramp)).reshape(frames, 1)
+
     def envelope_ramp(self, position, step, frames):
         # frames of an envelope moving on from position by step a frame,
         # held between nothing (0) and full (1).
@@ -9716,6 +9759,12 @@ class Audio():
         self.sidetone_keyed = False
         self.sidetone_envelope_position = 0.0
         self.sidetone_cycle_index = 0
+        # The spot tone: on or off, where its envelope is, and where in the
+        # tone it is, its own so as not to move the sidetone's. See
+        # mix_spot.
+        self.spot_on = Audio.spot_wanted
+        self.spot_position = 0.0
+        self.spot_cycle_index = 0
         # How far the output callback displaced the most recent edge
         # from the time it was scheduled for. None until one has been
         # rendered.
@@ -14169,6 +14218,21 @@ class CW(Digital):
                 }
                 DropdownWidget(self, frame, options)
 
+        # Spot: a tone at the CW pitch, made here and mixed with the
+        # receive audio (see Audio.mix_spot), for tuning a signal to the
+        # same pitch by ear -- the K4's own spot tone isn't sent to a
+        # remote client.
+        spot_frame, spot_grid = qt_group_box('Spot', self.label_font())
+        decode_grid.addWidget(spot_frame, 0, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.spot_button = QPushButton()
+        self.spot_button.setFont(self.font())
+        self.spot_button.setMinimumWidth(4 * QFontMetrics(self.font()).averageCharWidth())
+        self.spot_button.clicked.connect(lambda checked=False: self.set_spot(not Audio.spot_wanted))
+        self.spot_button.setToolTip('A tone at the CW pitch, mixed with the receive audio: tune a signal\n'
+                                    'until its pitch matches it.')
+        spot_grid.addWidget(self.spot_button, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.show_spot()
+
     @staticmethod
     def decode_selections(base):
         # The decode dropdowns' selections, for TD (main) or TD$ (sub).
@@ -14252,6 +14316,25 @@ class CW(Digital):
             button.clicked.connect(lambda checked=False, cmd=cmd: self.server.send_cmds(cmd))
             autospot_grid.addWidget(button, 0, column, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
             setattr(self, f'{text.lower()}_spot_button', button)
+
+    def set_spot(self, on):
+        Audio.set_spot(on)
+        self.show_spot()
+
+    def show_spot(self):
+        on = Audio.spot_wanted
+        self.spot_button.setText('On' if on else 'Off')
+        bg = 'yellow' if on else self.bg
+        self.spot_button.setStyleSheet(qt_button_stylesheet(bg, self.fg, self.abg, self.afg))
+
+    def hide(self):
+        # Out of CW, or the window closed: no spot tone left sounding.
+        Audio.set_spot(False)
+        super().hide()
+
+    def close(self):
+        Audio.set_spot(False)
+        super().close()
 
     def on_keyer_speed_change(self, response=None):
         # The length of a dit in seconds is 1.2 / wpm,
