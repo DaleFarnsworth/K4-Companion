@@ -9731,6 +9731,14 @@ class Audio():
     def on_transmit_changed(self, server, response):
         transmit = server.k4_parameters.get('TR') == 'T'
         tune = server.k4_parameters.get('TU', "0") != '0'
+        if transmit and not tune and self.transmission != None:
+            # Audio made here, SSTV's or AFSK's, goes out whatever the mode:
+            # in DATA's audio sub-modes the K4 takes it as it takes the
+            # microphone's in voice modes (seen on its ALC meter in TX TEST).
+            if not self.transmit_audio:
+                self.transmit_audio = True
+                self.start_k4_tx_audio_thread(server)
+            return
         if transmit and not tune:
             split = server.k4_parameters.get('FT') == '1'
             if split:
@@ -11951,6 +11959,160 @@ class SSTVTransmission():
         sent = self.position - int(self.lead_seconds * SSTVEncoder.sample_rate)
         return min(max(sent / self.picture_samples, 0.0), 1.0)
 
+class RttyAfsk():
+    # RTTY sent as audio, AFSK, made here and sent in place of the
+    # microphone's by the transmit audio thread (Audio.k4_tx_generated_loop),
+    # where the K4 can't send it itself: in its AFSK A data sub-mode. Text
+    # is added as it is typed or a button is pressed, from the Qt thread,
+    # and turned into audio a character at a time as the thread reads it:
+    # five-bit Baudot (ITA2, with the US figures), a start bit, the bits
+    # least significant first and a stop bit and a half, at the data
+    # rate, mark the mark tone and space the tone shift_hz above it, as
+    # the K4's own are. The K4's sideband, LSB for DATA, and the other
+    # for DATA REV, puts the space below the mark on the air, as RTTY's
+    # is. The frequency moves from one tone to the other over shape_ms,
+    # its phase carried on, keeping the signal narrow.
+    #
+    # It starts with lead_seconds of mark, for the K4 to change over, and
+    # two LTRS; while there is nothing to send, LTRS are sent, as fldigi
+    # does, for the receiving end to stay in step, and after hang_seconds
+    # of that it ends, with tail_seconds of mark. A figure after a space
+    # has FIGS sent again first, for receivers that go back to letters at
+    # a space (unshift on space).
+    letters = '\0E\nA SIU\rDRJNFCKTZLWHYPQOBG MXV '
+    figures = '\x003\n- \a87\r$4\',!:(5")2#6019?& ./; '
+    LTRS = 31
+    FIGS = 27
+    sample_rate = 12000
+    lead_seconds = .15
+    tail_seconds = .1
+    hang_seconds = 2.0
+    shape_ms = 6
+
+    def __init__(self, baud, mark_hz, level, shift_hz=170):
+        self.level = level
+        self.mark_hz = mark_hz
+        self.space_hz = mark_hz + shift_hz
+        self.samples_per_bit = self.sample_rate / baud
+        # Text to send, added to from the Qt thread and taken from by the
+        # transmit audio thread.
+        self.text = collections.deque()
+        # How many of the characters added have gone into the audio.
+        self.sent = 0
+        self.added = 0
+        self.stopping = False
+        self.done = False
+        self.shift = None
+        self.idle_samples = 0
+        # The frequency of each sample made and not yet read, and the
+        # bit times' fractions carried from one character to the next.
+        self.pending = numpy.zeros(0)
+        self.bit_clock = 0.0
+        self.phase = 0.0
+        self.last_hz = mark_hz
+        width = max(1, int(self.shape_ms * self.sample_rate / 1000))
+        self.shape = numpy.hanning(width + 2)[1:-1]
+        self.shape /= self.shape.sum()
+        self.ended = False
+        self.add_tone(True, self.lead_seconds * self.sample_rate)
+        self.add_code(self.LTRS)
+        self.add_code(self.LTRS)
+        self.shift = 'letters'
+
+    def add_text(self, text):
+        # From the Qt thread: more to send. Coming as the end is being
+        # sent, it goes on after it, unless the audio has already ended
+        # (see RTTY.end_afsk).
+        for c in text.upper():
+            self.text.append(c)
+        self.added += len(text)
+        if not self.stopping:
+            self.ended = False
+
+    def unsent(self):
+        return self.added - self.sent
+
+    def stop(self):
+        # From the Qt thread: end now, whatever is left.
+        self.stopping = True
+
+    def add_tone(self, mark, samples):
+        # samples, fractions carried, of mark or space.
+        self.bit_clock += samples
+        count = int(self.bit_clock)
+        self.bit_clock -= count
+        hz = self.mark_hz if mark else self.space_hz
+        self.pending = numpy.concatenate((self.pending, numpy.full(count, hz)))
+
+    def add_code(self, code):
+        bit = self.samples_per_bit
+        self.add_tone(False, bit)
+        for k in range(5):
+            self.add_tone(bool(code >> k & 1), bit)
+        self.add_tone(True, 1.5 * bit)
+
+    def add_char(self, c):
+        # c in Baudot, with LTRS or FIGS ahead of it where the shift
+        # changes, or nothing for a character Baudot hasn't.
+        if c in ' \r\n':
+            self.add_code(self.letters.index(c))
+            if c == ' ':
+                # Unshift on space, at the receiving end.
+                self.shift = 'letters'
+            return
+        if c in self.letters and c not in '\0\a':
+            if self.shift != 'letters':
+                self.add_code(self.LTRS)
+                self.shift = 'letters'
+            self.add_code(self.letters.index(c))
+        elif c in self.figures and c not in '\0\a':
+            if self.shift != 'figures':
+                self.add_code(self.FIGS)
+                self.shift = 'figures'
+            self.add_code(self.figures.index(c))
+
+    def make(self, count):
+        # At least count samples' frequencies pending, from the text, or
+        # LTRS while there is none, or the end.
+        while len(self.pending) < count and not self.ended:
+            if self.stopping:
+                self.text.clear()
+                self.sent = self.added
+                self.end()
+            elif self.text:
+                self.add_char(self.text.popleft())
+                self.sent += 1
+                self.idle_samples = 0
+            elif self.idle_samples >= self.hang_seconds * self.sample_rate:
+                self.end()
+            else:
+                before = len(self.pending)
+                self.add_code(self.LTRS)
+                self.shift = 'letters'
+                self.idle_samples += len(self.pending) - before
+
+    def end(self):
+        self.add_tone(True, self.tail_seconds * self.sample_rate)
+        self.ended = True
+
+    def read(self, count):
+        # The next count samples, or None once all of it has been read.
+        self.make(count + len(self.shape))
+        if len(self.pending) == 0:
+            return None
+        hz = self.pending[:count]
+        if len(hz) < count:
+            hz = numpy.concatenate((hz, numpy.full(count - len(hz), self.mark_hz)))
+        # Each change of tone eased over shape_ms: the frequencies
+        # smoothed, from the last read's on.
+        joined = numpy.concatenate((numpy.full(len(self.shape) - 1, self.last_hz), hz))
+        smooth = numpy.convolve(joined, self.shape, mode='valid')
+        self.last_hz = hz[-1]
+        self.pending = self.pending[count:]
+        phases = self.phase + 2 * numpy.pi * numpy.cumsum(smooth) / self.sample_rate
+        self.phase = float(phases[-1] % (2 * numpy.pi))
+        return numpy.sin(phases).astype(numpy.float32)
+
 class CatServer():
     # Other programs' CAT -- logging and digital-mode programs through
     # hamlib's K4 backend, say -- on TCP port 9200, as if it were the
@@ -13682,6 +13844,10 @@ class Digital(TextButtons):
 
         self._set_underline_position(self.tx_text, sending_offset)
 
+    def send_stop(self):
+        # What ends sending at once: the mode's stop command to the K4.
+        self.server.send_cmds(self.stop_cmd)
+
     def on_transmit_ack(self, response):
         self.sending = False
 
@@ -13758,7 +13924,7 @@ class Digital(TextButtons):
         return True
 
     def stop_sending(self, event=None):
-        self.server.send_cmds(self.stop_cmd)
+        self.send_stop()
 
         if self.tx_remaining_count == 0:
             return
@@ -14692,6 +14858,12 @@ class RTTY(Digital):
     # The data sub-modes the window shows in, and the one it can send in.
     shown_sub_modes = ('1', '2')        # AFSK A, FSK D
     sending_sub_mode = '2'              # FSK D
+    # And the one it sends in as audio made here, which the K4 can't
+    # send in itself: see RttyAfsk.
+    afsk_sub_mode = '1'                 # AFSK A
+    # The AFSK level's share of tx_full_level (SSTV's): about 8 bars of
+    # the K4's ALC, at its usual settings, at 50%.
+    afsk_level_default = 40
 
     mode_subscriptions = (
         ('DR;', 'on_data_rate_change'),
@@ -14738,6 +14910,8 @@ class RTTY(Digital):
         if self.squelch_level not in self.squelch_levels:
             self.squelch_level = self.squelch_level_default
         self.squelch_timer = None
+        self.afsk_level = Server.settings.getint('RTTY', 'afsk_level', self.afsk_level_default,
+                                                 minimum=5, maximum=100)
         self.signal_seen = [0.0, 0.0]
         self.held_text = [collections.deque(), collections.deque()]
         self.choosing_decoding = False
@@ -14764,13 +14938,143 @@ class RTTY(Digital):
 
     def can_send(self):
         mode, sub_mode = self.tx_sub_mode()
-        return mode in ('DATA', 'DATA-R') and sub_mode == self.sending_sub_mode
+        return mode in ('DATA', 'DATA-R') and sub_mode in (self.sending_sub_mode, self.afsk_sub_mode)
 
     def cannot_send_message(self):
         mode, sub_mode = self.tx_sub_mode()
         if mode in ('DATA', 'DATA-R'):
-            return 'The K4 sends RTTY text only in the FSK D data sub-mode.'
+            return 'RTTY is sent only in the FSK D and AFSK A data sub-modes.'
         return f'Cannot transmit RTTY in {mode} mode.'
+
+    # ------------------------------------------------------ AFSK sending
+
+    # In AFSK A the text goes out as audio made here (RttyAfsk) rather
+    # than through the K4's KY: the K4 is put in transmit, sent the audio
+    # in place of the microphone's, and put back to receive once the
+    # audio has ended -- after hang_seconds with nothing to send, or at
+    # once with Escape. What is waiting to go is shown in the Tx field as
+    # it is for the K4's own sending, the count of what is left kept from
+    # the audio's.
+    afsk_poll_ms = 100
+    afsk = None
+    afsk_timer = None
+
+    def afsk_mode(self):
+        mode, sub_mode = self.tx_sub_mode()
+        return mode in ('DATA', 'DATA-R') and sub_mode == self.afsk_sub_mode
+
+    def send_text(self):
+        if self.afsk != None or (self.is_open and self.afsk_mode()):
+            self.send_afsk()
+        else:
+            super().send_text()
+
+    def send_afsk(self):
+        if not self.is_open:
+            return
+        server = self.server
+        full_text = self.tx_text.text()
+        new_text = full_text[self.tx_send_offset:]
+        if new_text == '':
+            return
+        if self.afsk == None:
+            if not server.connected or server.k4_parameter('TR') == 'T':
+                return
+            split = server.k4_parameter('FT') == '1'
+            baud = 75 if server.k4_parameter('DR$' if split else 'DR') == '1' else 45.45
+            mark = self.afc_target() - self.afc_shift_hz / 2
+            level = self.afsk_level / 100 * SSTV.tx_full_level
+            self.afsk = RttyAfsk(baud, mark, level, shift_hz=self.afc_shift_hz)
+            # Before the K4 is put in transmit, which starts the transmit
+            # audio thread, so that it sends this.
+            Audio.set_transmission(self.afsk)
+            server.send_cmds('TRT;')
+            self.afsk_timer = QTimer()
+            self.afsk_timer.timeout.connect(self.poll_afsk)
+            self.afsk_timer.start(self.afsk_poll_ms)
+        self.afsk.add_text(new_text)
+        self.tx_send_offset += len(new_text)
+        self.tx_remaining_count = self.afsk.unsent()
+        # Kept set while the audio goes out, so that the K4's TB
+        # responses, which count only its own sending, leave the count
+        # of what is left alone.
+        self.sending = True
+        self.update_sending_offset()
+
+    def poll_afsk(self):
+        afsk = self.afsk
+        if afsk == None:
+            return
+        server = self.server
+        if afsk.done or not server.connected or server.k4_parameter('TR') != 'T':
+            self.end_afsk()
+            return
+        self.tx_remaining_count = afsk.unsent()
+        if self.is_open:
+            self.update_sending_offset()
+
+    def end_afsk(self):
+        afsk = self.afsk
+        if afsk == None:
+            return
+        self.afsk = None
+        # What was added as the audio ended, and so never went out, is
+        # sent again, once the K4 is back to receive.
+        leftover = 0 if afsk.stopping else afsk.unsent()
+        afsk.stop()
+        if self.afsk_timer != None:
+            self.afsk_timer.stop()
+            self.afsk_timer = None
+        if self.server.connected and self.server.k4_parameter('TR') == 'T':
+            # Stops the transmit audio thread, if it hasn't stopped.
+            self.server.send_cmds('TRR;')
+        Audio.set_transmission(None)
+        self.sending = False
+        self.tx_remaining_count = 0
+        if self.is_open:
+            self.update_sending_offset()
+            if leftover > 0:
+                self.tx_send_offset -= leftover
+                QTimer.singleShot(self.afsk_restart_ms, self.send_text)
+
+    # How long after the K4 is put back to receive the rest is started.
+    afsk_restart_ms = 300
+
+    def send_stop(self):
+        if self.afsk != None:
+            # At once: the audio ends, and the poll puts the K4 back to
+            # receive.
+            self.afsk.stop()
+        else:
+            super().send_stop()
+
+    def add_config_vars(self, parent_frame):
+        super().add_config_vars(parent_frame)
+        self.afsk_level_entry = self._labeled_entry(parent_frame.layout(), 4, 0, 'AFSK Level %:',
+                                                    self.afsk_level, width=3)
+        self.afsk_level_entry.setToolTip('How loud AFSK is sent, in AFSK A: set it so the K4\'s ALC\n'
+                                         'stays just below its 5 mark while sending.')
+
+    def on_save_button(self):
+        try:
+            self.afsk_level = max(5, min(100, int(self.afsk_level_entry.text())))
+            Server.settings.put_save(self.settings_section, 'afsk_level', self.afsk_level)
+        except ValueError:
+            pass
+        self.afsk_level_entry.setText(str(self.afsk_level))
+        super().on_save_button()
+
+    def on_cancel_button(self):
+        self.afsk_level_entry.setText(str(self.afsk_level))
+        super().on_cancel_button()
+
+    def hide(self):
+        self.end_afsk()
+        super().hide()
+
+    def close(self):
+        self.end_afsk()
+        super().close()
 
     # RTTY picked from a VFO's mode dropdown: !RTTY6 for DATA or !RTTY9
     # for DATA REV, !RTTY$ for VFO B. The mode is sent, then FSK D; but
