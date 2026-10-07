@@ -80,7 +80,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
     QButtonGroup, QSlider, QProgressBar, QTabWidget, QDialog, QLineEdit,
     QComboBox, QListWidget, QLayout, QPlainTextEdit, QProxyStyle, QStyle,
-    QSplitter, QStyledItemDelegate,
+    QSplitter, QStyledItemDelegate, QFileDialog,
 )
 
 # Modify the path to find opus.dll on Windows, which opuslib looks for
@@ -8571,6 +8571,9 @@ class Audio():
         self.sub_on = True
         self.ab = 'a.b'
         self.transmit_audio = False
+        # Audio to transmit in place of the microphone's, an SSTV picture
+        # (SSTVTransmission), while set: see set_transmission.
+        self.transmission = None
         self.cw_pitch = 600
         self.sidetone_volume = 30
 
@@ -9748,11 +9751,55 @@ class Audio():
         self.ab = response[2:].lower().rstrip(';')
         self.generate_sidetone_envelopes()
 
+    @classmethod
+    def set_transmission(cls, transmission):
+        # What the next transmit sends instead of the microphone, until it
+        # is set back to None. Set before the K4 is put in transmit.
+        cls.get_singleton().transmission = transmission
+
     def start_k4_tx_audio_thread(self, server):
-        if self.input_device_index < 0:
+        transmission = self.transmission
+        if transmission != None:
+            target = lambda: self.k4_tx_generated_loop(server, transmission)
+        elif self.input_device_index < 0:
             return
-        self.k4_tx_audio_thread = threading.Thread(target=lambda: self.k4_tx_audio_loop(server), name='audio_k4_tx_audio_thread')
+        else:
+            target = lambda: self.k4_tx_audio_loop(server)
+        self.k4_tx_audio_thread = threading.Thread(target=target, name='audio_k4_tx_audio_thread')
         self.k4_tx_audio_thread.start()
+
+    # How far ahead of when it is due a generated frame is sent: enough
+    # for this thread being woken late now and then, as the microphone's
+    # frames come with the device's own jitter.
+    generated_lead_seconds = .04
+
+    def k4_tx_generated_loop(self, server, transmission):
+        # As k4_tx_audio_loop, but the audio is the transmission's rather
+        # than the microphone's, and so it is the clock that paces it: a
+        # frame sent as each frame's worth of time comes round. Level is
+        # the transmission's own, not the microphone gain's.
+        opus = opuslib.Encoder(Audio.k4_sample_rate, Audio.k4_input_channels, 'audio')
+        frame_size = Audio.input_frame_size
+        period = frame_size / Audio.k4_sample_rate
+        start = time.perf_counter()
+        sent = 0
+        try:
+            while self.transmit_audio:
+                samples = transmission.read(frame_size)
+                if samples is None:
+                    break
+                delay = start + sent * period - self.generated_lead_seconds - time.perf_counter()
+                if delay > 0:
+                    time.sleep(delay)
+                if not self.transmit_audio:
+                    break
+                samples = (samples * transmission.level).astype(numpy.float32)
+                # Doubled up, as the microphone's are: see k4_tx_audio_loop.
+                audio_packet = opus.encode_float(samples.repeat(2).tobytes(), frame_size)
+                server.send_audio_packet(audio_packet, self.input_encode_mode, frame_size)
+                sent += 1
+        finally:
+            transmission.done = True
 
     def k4_tx_audio_loop(self, server):
         input_stream = None
@@ -11391,10 +11438,13 @@ class SSTVMode():
     # components is (channel, offset, duration) for each scan, the
     # channel one of R, G, B for the RGB modes, or Y, Y0, Y1 (luminance;
     # the two lines a PD sync carries), U (B-Y) and V (R-Y). chroma, for
-    # Robot 36, which sends one of U and V a line, alternately.
+    # Robot 36, which sends one of U and V a line, alternately. family,
+    # one of martin, scottie, pd, robot36 and robot72, is for sending:
+    # how a line is laid out between the scans (see SSTVEncoder).
     def __init__(self, name, vis, width, height, line_ms, sync_ms, components,
-                 lines_per_sync=1, first_sync_ms=0.0, chroma=None):
+                 lines_per_sync=1, first_sync_ms=0.0, chroma=None, family=None):
         self.name = name
+        self.family = family
         self.vis = vis
         self.width = width
         self.height = height
@@ -11414,7 +11464,7 @@ def _martin(name, vis, scan):
     b = g + scan + .572
     r = b + scan + .572
     return SSTVMode(name, vis, 320, 256, r + scan + .572, 4.862,
-                    (('G', g, scan), ('B', b, scan), ('R', r, scan)))
+                    (('G', g, scan), ('B', b, scan), ('R', r, scan)), family='martin')
 
 def _scottie(name, vis, scan):
     # A line is separator, green, separator, blue, sync, porch, red, and
@@ -11422,14 +11472,14 @@ def _scottie(name, vis, scan):
     sync_at = 1.5 + scan + 1.5 + scan
     return SSTVMode(name, vis, 320, 256, sync_at + 9 + 1.5 + scan, 9,
                     (('G', 1.5 - sync_at, scan), ('B', -scan, scan), ('R', 10.5, scan)),
-                    first_sync_ms=9 + sync_at)
+                    first_sync_ms=9 + sync_at, family='scottie')
 
 def _pd(name, vis, width, height, scan):
     y0 = 20 + 2.08
     return SSTVMode(name, vis, width, height, y0 + 4 * scan, 20,
                     (('Y0', y0, scan), ('V', y0 + scan, scan),
                      ('U', y0 + 2 * scan, scan), ('Y1', y0 + 3 * scan, scan)),
-                    lines_per_sync=2)
+                    lines_per_sync=2, family='pd')
 
 SSTV_MODES = {mode.vis: mode for mode in (
     _martin('Martin M1', 44, 146.432),
@@ -11438,9 +11488,9 @@ SSTV_MODES = {mode.vis: mode for mode in (
     _scottie('Scottie S2', 56, 88.064),
     _scottie('Scottie DX', 76, 345.6),
     SSTVMode('Robot 36', 8, 320, 240, 150, 9, (('Y', 12, 88), ('C', 106, 44)),
-             chroma=('V', 'U')),
+             chroma=('V', 'U'), family='robot36'),
     SSTVMode('Robot 72', 12, 320, 240, 300, 9,
-             (('Y', 12, 138), ('V', 156, 69), ('U', 231, 69))),
+             (('Y', 12, 138), ('V', 156, 69), ('U', 231, 69)), family='robot72'),
     _pd('PD 50', 93, 320, 256, 91.52),
     _pd('PD 90', 99, 320, 256, 170.24),
     _pd('PD 120', 95, 640, 496, 121.6),
@@ -11736,6 +11786,168 @@ class SSTVDecoder():
         self.vis_from = int(self.next_sync)
         self.on_end(mode, complete)
 
+class SSTVEncoder():
+    # A picture as SSTV audio, the reverse of SSTVDecoder: the VIS code
+    # naming the mode, then the lines, each a run of tones -- 1200 Hz
+    # sync, the porches and separators, and a tone a pixel from 1500 Hz
+    # for black to 2300 for white. Built as a list of (frequency,
+    # milliseconds) and turned into samples all at once, each tone
+    # starting at the sample its time falls on, so that rounding never
+    # adds up along a picture; and with the phase carried on across
+    # every change of frequency, so there are no clicks.
+    sample_rate = SSTVDecoder.sample_rate
+
+    @classmethod
+    def audio(cls, mode, image):
+        # image is mode.height rows of mode.width (R, G, B), 0 to 255.
+        image = numpy.asarray(image, dtype=numpy.float64)
+        freqs = []
+        durations = []
+
+        def tone(hz, ms):
+            freqs.append(numpy.array([hz], dtype=numpy.float64))
+            durations.append(numpy.array([ms], dtype=numpy.float64))
+
+        def scan(values, ms):
+            freqs.append(1500 + numpy.clip(values, 0, 255) * 800 / 255)
+            durations.append(numpy.full(len(values), ms / len(values)))
+
+        # The VIS code: leader, break, leader, start bit, seven bits least
+        # significant first (1100 Hz a one, 1300 a nought), even parity,
+        # stop bit.
+        tone(1900, 300)
+        tone(1200, 10)
+        tone(1900, 300)
+        tone(1200, 30)
+        bits = [(mode.vis >> k) & 1 for k in range(7)]
+        for bit in bits + [sum(bits) % 2]:
+            tone(1100 if bit else 1300, 30)
+        tone(1200, 30)
+
+        rows = len(image)
+        red, green, blue = image[:, :, 0], image[:, :, 1], image[:, :, 2]
+        # The Y, U (B-Y) and V (R-Y) the YUV modes send, full range as
+        # MMSSTV and QSSTV send them: the reverse of SSTVDecoder.yuv.
+        y = .30 * red + .59 * green + .11 * blue
+        u = 127.5 + (blue - y) / 1.78
+        v = 127.5 + (red - y) / 1.40
+        scan_ms = {channel: duration for channel, offset, duration in mode.components}
+
+        if mode.family == 'martin':
+            s = scan_ms['G']
+            for row in range(rows):
+                tone(1200, 4.862)
+                tone(1500, .572)
+                scan(green[row], s)
+                tone(1500, .572)
+                scan(blue[row], s)
+                tone(1500, .572)
+                scan(red[row], s)
+                tone(1500, .572)
+        elif mode.family == 'scottie':
+            s = scan_ms['G']
+            # The first line's own sync, ahead of everything else.
+            tone(1200, 9)
+            for row in range(rows):
+                tone(1500, 1.5)
+                scan(green[row], s)
+                tone(1500, 1.5)
+                scan(blue[row], s)
+                tone(1200, 9)
+                tone(1500, 1.5)
+                scan(red[row], s)
+        elif mode.family == 'robot36':
+            # Each pair of lines shares its chroma: V sent on the first,
+            # U on the second, each the pair's average.
+            for row in range(rows):
+                pair = slice(row - row % 2, row - row % 2 + 2)
+                odd = row % 2
+                tone(1200, 9)
+                tone(1500, 3)
+                scan(y[row], scan_ms['Y'])
+                tone(2300 if odd else 1500, 4.5)
+                tone(1900, 1.5)
+                scan((u if odd else v)[pair].mean(axis=0), scan_ms['C'])
+        elif mode.family == 'robot72':
+            for row in range(rows):
+                tone(1200, 9)
+                tone(1500, 3)
+                scan(y[row], scan_ms['Y'])
+                tone(1500, 4.5)
+                tone(1900, 1.5)
+                scan(v[row], scan_ms['V'])
+                tone(2300, 4.5)
+                tone(1900, 1.5)
+                scan(u[row], scan_ms['U'])
+        elif mode.family == 'pd':
+            # Two lines a sync, sharing their chroma.
+            s = scan_ms['Y0']
+            for row in range(0, rows, 2):
+                pair = slice(row, row + 2)
+                tone(1200, 20)
+                tone(1500, 2.08)
+                scan(y[row], s)
+                scan(v[pair].mean(axis=0), s)
+                scan(u[pair].mean(axis=0), s)
+                scan(y[min(row + 1, rows - 1)], s)
+        else:
+            raise ValueError(f'SSTV mode {mode.name} cannot be sent')
+
+        freq = numpy.concatenate(freqs)
+        ends = numpy.cumsum(numpy.concatenate(durations)) / 1000
+        count = int(numpy.ceil(ends[-1] * cls.sample_rate))
+        times = numpy.arange(count) / cls.sample_rate
+        which = numpy.minimum(numpy.searchsorted(ends, times, side='right'), len(freq) - 1)
+        phase = 2 * numpy.pi * numpy.cumsum(freq[which]) / cls.sample_rate
+        return numpy.sin(phase).astype(numpy.float32)
+
+    @staticmethod
+    def seconds(mode):
+        # How long a picture in mode takes to send: the VIS code's 910 ms,
+        # Scottie's first sync, and the lines.
+        first_sync = 9 if mode.family == 'scottie' else 0
+        return (910 + first_sync + mode.syncs() * mode.line_ms) / 1000
+
+class SSTVTransmission():
+    # The audio of a picture being sent, read a frame at a time by the
+    # transmit audio thread (Audio.k4_tx_generated_loop) and watched from
+    # the Qt thread for how far it has got. Quiet before it, while the K4
+    # changes over to transmit, and after it, for what the K4 still has
+    # in hand to go out before it is put back to receive.
+    lead_seconds = .15
+    tail_seconds = .3
+
+    def __init__(self, mode, samples, level):
+        self.mode = mode
+        # What the samples are multiplied by on their way to the K4.
+        self.level = level
+        rate = SSTVEncoder.sample_rate
+        self.picture_samples = len(samples)
+        self.samples = numpy.concatenate((
+            numpy.zeros(int(self.lead_seconds * rate), dtype=numpy.float32),
+            samples,
+            numpy.zeros(int(self.tail_seconds * rate), dtype=numpy.float32)))
+        self.position = 0
+        # Set by the transmit audio thread when all of it has been sent,
+        # or when it stopped short.
+        self.done = False
+
+    def read(self, count):
+        # The next count samples, padded with quiet at the end, or None
+        # once there are none left.
+        if self.position >= len(self.samples):
+            return None
+        chunk = self.samples[self.position:self.position + count]
+        self.position += count
+        if len(chunk) < count:
+            chunk = numpy.concatenate((chunk, numpy.zeros(count - len(chunk), dtype=numpy.float32)))
+        return chunk
+
+    def fraction(self):
+        # How much of the picture itself has gone out, 0 to 1.
+        sent = self.position - int(self.lead_seconds * SSTVEncoder.sample_rate)
+        return min(max(sent / self.picture_samples, 0.0), 1.0)
+
 class CatServer():
     # Other programs' CAT -- logging and digital-mode programs through
     # hamlib's K4 backend, say -- on TCP port 9200, as if it were the
@@ -11884,9 +12096,14 @@ class SSTVSignals(QObject):
     ended = pyqtSignal(object, bool)
 
 class SSTV(Widget):
-    # A window showing slow-scan TV pictures as they come in, each saved
-    # when it ends. The K4 does no SSTV of its own, so the app decodes it,
-    # from the receive audio, on a thread of its own (see SSTVDecoder).
+    # A window for slow-scan TV, with a tab for each way. Receive shows
+    # the pictures as they come in, each saved when it ends. The K4 does
+    # no SSTV of its own, so the app decodes it, from the receive audio,
+    # on a thread of its own (see SSTVDecoder). Transmit sends a picture
+    # loaded from a file, or the last one received, in the mode picked:
+    # the app makes the audio (SSTVEncoder), puts the K4 in transmit, and
+    # sends it in place of the microphone's (Audio.k4_tx_generated_loop),
+    # putting the K4 back to receive at the end.
     #
     # SSTV is a mode of the app's, picked from a VFO's mode dropdown,
     # which tells the app, through !SSTV for the main receiver or !SSTV$
@@ -11952,6 +12169,19 @@ class SSTV(Widget):
     autotune_settle_seconds = 1.0
     # How long what Autotune did is shown in the status line.
     autotune_note_seconds = 4
+    # Transmit. The Level dropdown is a percentage of tx_full_level, the
+    # most the microphone's audio is ever sent at (full scale with the
+    # microphone gain at its highest). What it should be is whatever
+    # brings the K4's ALC just up, which depends on the K4's own settings.
+    tx_full_level = 1 / 8
+    tx_levels = tuple(range(5, 105, 5))
+    tx_level_default = 50
+    tx_mode_default = 'Martin M1'
+    # The transmitting VFO's modes the transmit audio goes out in, as
+    # Audio.on_transmit_changed has them: LSB, USB, FM and AM.
+    tx_audio_modes = ('1', '2', '4', '5')
+    # How often how far a picture has got is shown.
+    tx_poll_ms = 250
 
     @classmethod
     def close_window(cls):
@@ -12003,6 +12233,11 @@ class SSTV(Widget):
         self.autotune_note = None
         self.autotune_note_until = 0.0
         self.status_text = None
+        # The picture to send, as loaded (a QImage), before it is fitted
+        # to a mode; and the picture being sent, while one is.
+        self.tx_source = None
+        self.transmission = None
+        self.tx_timer = None
         self.thread = None
         self.signals = SSTVSignals()
         self.signals.started.connect(self.on_started)
@@ -12139,9 +12374,19 @@ class SSTV(Widget):
             event.ignore()
         self.top_level.closeEvent = _close_event
 
-        layout = QVBoxLayout(self.top_level)
+        window_layout = QVBoxLayout(self.top_level)
+        window_layout.setContentsMargins(4, 4, 4, 4)
+        window_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
+        tabs = QTabWidget()
+        tabs.setFont(self.label_font())
+        window_layout.addWidget(tabs)
+
+        receive_tab = QWidget()
+        layout = QVBoxLayout(receive_tab)
         layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
+        tabs.addTab(receive_tab, 'Receive')
+        transmit_tab = QWidget()
+        tabs.addTab(transmit_tab, 'Transmit')
 
         controls = QWidget()
         controls_grid = QGridLayout(controls)
@@ -12175,8 +12420,38 @@ class SSTV(Widget):
         self.saved.setFont(self.label_font())
         layout.addWidget(self.saved)
 
+        self.transmit_controls(transmit_tab)
+
         self.show_status()
         self.set_geometry()
+
+    def button(self, text, handler):
+        button = QPushButton(text)
+        button.setFont(self.font())
+        button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.abg, self.afg))
+        button.clicked.connect(lambda checked=False: handler())
+        return button
+
+    def labeled_dropdown(self, text, values, current, on_changed):
+        # A label and a dropdown beside it, as the Receive tab's Frequency.
+        frame = QWidget()
+        grid = QGridLayout(frame)
+        grid.setContentsMargins(0, 0, 0, 0)
+        label = QLabel(text)
+        label.setFont(self.font())
+        grid.addWidget(label, 0, 0, Qt.AlignmentFlag.AlignVCenter)
+        combobox = QComboBox()
+        combobox.setFont(self.font())
+        combobox.view().setFont(self.font())
+        combobox.addItems(values)
+        combobox.setStyleSheet(qt_combobox_stylesheet(self.bg, self.fg, self.bg, self.fg))
+        qt_fit_combobox_width(combobox)
+        qt_tighten_combobox_popup(combobox)
+        if current in values:
+            combobox.setCurrentText(current)
+        combobox.currentTextChanged.connect(on_changed)
+        grid.addWidget(combobox, 0, 1, Qt.AlignmentFlag.AlignVCenter)
+        return frame, combobox
 
     def receiver_toggle(self):
         # Main or Sub, each doing what picking SSTV from that VFO's mode
@@ -12255,12 +12530,14 @@ class SSTV(Widget):
         self.top_level.raise_()
 
     def hide(self):
+        self.on_stop_transmit()
         self.stop_thread()
         if self.is_open:
             self.save_geometry()
             self.top_level.hide()
 
     def close(self):
+        self.on_stop_transmit()
         self.closing = True
         self.receiver_index = None
         self.stop_thread()
@@ -12398,6 +12675,227 @@ class SSTV(Widget):
             if self.is_open:
                 self.show_status(self.status_text)
 
+    # --------------------------------------------------------- Transmit
+
+    def transmit_controls(self, tab):
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(4, 4, 4, 4)
+
+        controls = QWidget()
+        grid = QGridLayout(controls)
+        grid.setContentsMargins(0, 0, 0, 0)
+        self.tx_status = QLabel()
+        self.tx_status.setFont(self.font())
+        grid.addWidget(self.tx_status, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        names = [mode.name for mode in SSTV_MODES.values() if mode.family != None]
+        saved_mode = Server.settings.get(self.settings_section, 'tx_mode', self.tx_mode_default)
+        frame, self.tx_mode_combobox = self.labeled_dropdown(
+            'Mode: ', names, saved_mode, self.on_tx_mode_changed)
+        grid.addWidget(frame, 0, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        levels = [f'{level}%' for level in self.tx_levels]
+        saved_level = Server.settings.getint(self.settings_section, 'tx_level', self.tx_level_default,
+                                             minimum=self.tx_levels[0], maximum=self.tx_levels[-1])
+        frame, self.tx_level_combobox = self.labeled_dropdown(
+            'Level: ', levels, f'{saved_level}%', self.on_tx_level_changed)
+        tooltip = ('How loud the picture is sent. Set it so that the K4\'s ALC\n'
+                   'just shows while sending, as for the microphone.')
+        frame.setToolTip(tooltip)
+        self.tx_level_combobox.setToolTip(tooltip)
+        grid.addWidget(frame, 0, 2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        self.tx_buttons = {}
+        for column, (text, handler) in enumerate((('Load Picture', self.on_load_picture),
+                                                  ('Use Received', self.on_use_received),
+                                                  ('Transmit', self.on_transmit),
+                                                  ('Stop', self.on_stop_transmit))):
+            self.tx_buttons[text] = self.button(text, handler)
+            grid.addWidget(self.tx_buttons[text], 0, column + 3,
+                           Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        grid.setColumnStretch(0, 1)
+        grid.setHorizontalSpacing(2 * QFontMetrics(self.font()).averageCharWidth())
+        layout.addWidget(controls)
+
+        self.tx_picture = QLabel()
+        self.tx_picture.setFixedSize(self.display_width, self.display_width * 3 // 4)
+        self.tx_picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.tx_picture.setStyleSheet('QLabel { background-color: black; }')
+        layout.addWidget(self.tx_picture)
+
+        self.tx_source_label = QLabel()
+        self.tx_source_label.setFont(self.label_font())
+        layout.addWidget(self.tx_source_label)
+
+        # The picture last sent from a file, back again.
+        path = Server.settings.get(self.settings_section, 'tx_picture', '')
+        if path and os.path.isfile(path):
+            image = QImage(path)
+            if not image.isNull():
+                self.set_tx_source(image, path)
+        self.show_tx_state()
+
+    def tx_mode(self):
+        for mode in SSTV_MODES.values():
+            if mode.name == self.tx_mode_combobox.currentText():
+                return mode
+        return None
+
+    def tx_level(self):
+        try:
+            return int(self.tx_level_combobox.currentText().rstrip('%'))
+        except ValueError:
+            return self.tx_level_default
+
+    def on_tx_mode_changed(self, name):
+        Server.settings.put_save(self.settings_section, 'tx_mode', name)
+        self.show_tx_picture()
+        self.show_tx_state()
+
+    def on_tx_level_changed(self, text):
+        Server.settings.put_save(self.settings_section, 'tx_level', self.tx_level())
+
+    def on_load_picture(self):
+        folder = os.path.dirname(Server.settings.get(self.settings_section, 'tx_picture', '') or '')
+        if not os.path.isdir(folder):
+            folder = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation)
+        path, _ = QFileDialog.getOpenFileName(
+            self.top_level, 'Picture to Send', folder,
+            'Pictures (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*)')
+        if not path:
+            return
+        image = QImage(path)
+        if image.isNull():
+            self.show_tx_state(f'Could not read {os.path.basename(path)}.')
+            return
+        Server.settings.put_save(self.settings_section, 'tx_picture', path)
+        self.set_tx_source(image, path)
+        self.show_tx_state()
+
+    def on_use_received(self):
+        # The picture on the Receive tab, to send back.
+        if self.image is None:
+            self.show_tx_state('No picture has been received.')
+            return
+        height, width = self.image.shape[:2]
+        image = QImage(self.image.tobytes(), width, height, 3 * width,
+                       QImage.Format.Format_RGB888).copy()
+        self.set_tx_source(image, f'The picture received in {self.mode.name}')
+        self.show_tx_state()
+
+    def set_tx_source(self, image, description):
+        self.tx_source = image.convertToFormat(QImage.Format.Format_RGB888)
+        self.tx_source_label.setText(description)
+        self.show_tx_picture()
+
+    def fitted_picture(self, mode):
+        # The picture to send, filling mode's size: scaled to cover it,
+        # and what is left over either side cut off evenly.
+        width, height = mode.width, mode.height
+        image = self.tx_source.scaled(width, height, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                                      Qt.TransformationMode.SmoothTransformation)
+        image = image.copy((image.width() - width) // 2, (image.height() - height) // 2, width, height)
+        image = image.convertToFormat(QImage.Format.Format_RGB888)
+        bits = image.constBits()
+        bits.setsize(image.sizeInBytes())
+        rows = numpy.frombuffer(bits, dtype=numpy.uint8).reshape(height, image.bytesPerLine())
+        return rows[:, :3 * width].reshape(height, width, 3).copy()
+
+    def show_tx_picture(self):
+        mode = self.tx_mode()
+        if self.tx_source is None or mode == None:
+            self.tx_picture.clear()
+            return
+        self.tx_picture.setPixmap(self.pixmap(self.fitted_picture(mode)))
+
+    def show_tx_state(self, text=None):
+        # What is being sent, or text, or what would be.
+        if text == None:
+            mode = self.tx_mode()
+            if self.transmission != None:
+                text = f'{self.transmission.mode.name}: transmitting.'
+            elif self.tx_source is None:
+                text = 'Load a picture to send.'
+            elif mode != None:
+                text = f'{mode.name}: {SSTVEncoder.seconds(mode):.0f} seconds to send.'
+        self.tx_status.setText(text or '')
+        sending = self.transmission != None
+        for name, button in self.tx_buttons.items():
+            button.setEnabled(sending if name == 'Stop' else not sending)
+        self.tx_mode_combobox.setEnabled(not sending)
+
+    def on_transmit(self):
+        server = self.server
+        mode = self.tx_mode()
+        if self.transmission != None or mode == None:
+            return
+        if not server.connected:
+            self.show_tx_state('Not connected to the K4.')
+            return
+        if self.tx_source is None:
+            self.show_tx_state('Load a picture to send.')
+            return
+        if server.k4_parameter('TR') == 'T':
+            self.show_tx_state('The K4 is already transmitting.')
+            return
+        # The VFO the K4 transmits on: B when split.
+        tx_mode = server.k4_parameter('MD$' if server.k4_parameter('FT') == '1' else 'MD')
+        if tx_mode not in self.tx_audio_modes:
+            self.show_tx_state('The transmitting VFO has to be in USB, LSB, FM or AM.')
+            return
+        samples = SSTVEncoder.audio(mode, self.fitted_picture(mode))
+        self.transmission = SSTVTransmission(mode, samples,
+                                             self.tx_level() / 100 * self.tx_full_level)
+        # Before the K4 is put in transmit, which is what starts the
+        # transmit audio thread, so that it sends the picture.
+        Audio.set_transmission(self.transmission)
+        server.send_cmds('TRT;')
+        self.tx_timer = QTimer()
+        self.tx_timer.timeout.connect(self.poll_transmission)
+        self.tx_timer.start(self.tx_poll_ms)
+        self.show_tx_state()
+
+    def on_stop_transmit(self):
+        if self.transmission == None:
+            return
+        if self.server.k4_parameter('TR') == 'T':
+            # Stops the transmit audio thread, which marks it done.
+            self.server.send_cmds('TRR;')
+        self.end_transmission()
+
+    def poll_transmission(self):
+        transmission = self.transmission
+        if transmission == None:
+            return
+        if (transmission.done or not self.server.connected
+                or self.server.k4_parameter('TR') != 'T'):
+            # All of it sent, or the K4 put back to receive, or the
+            # connection gone, another way.
+            if self.server.connected and self.server.k4_parameter('TR') == 'T':
+                self.server.send_cmds('TRR;')
+            self.end_transmission()
+            return
+        fraction = transmission.fraction()
+        left = (1 - fraction) * SSTVEncoder.seconds(transmission.mode)
+        self.show_tx_state(f'{transmission.mode.name}: transmitting, {fraction:.0%}, '
+                           f'{left:.0f} seconds left.')
+
+    def end_transmission(self):
+        transmission = self.transmission
+        if transmission == None:
+            return
+        self.transmission = None
+        Audio.set_transmission(None)
+        if self.tx_timer != None:
+            self.tx_timer.stop()
+            self.tx_timer = None
+        fraction = transmission.fraction()
+        if self.is_open:
+            if fraction >= 1:
+                self.show_tx_state(f'{transmission.mode.name}: sent.')
+            else:
+                self.show_tx_state(f'{transmission.mode.name}: stopped at {fraction:.0%}.')
+
     # ------------------------------------------------ the decoder thread
 
     def start_thread(self):
@@ -12448,13 +12946,18 @@ class SSTV(Widget):
         self.show_picture()
 
     def show_picture(self):
-        height, width = self.image.shape[:2]
-        image = QImage(self.image.tobytes(), width, height, 3 * width, QImage.Format.Format_RGB888)
+        self.picture.setPixmap(self.pixmap(self.image))
+
+    def pixmap(self, rgb):
+        # A picture, rows of (R, G, B), to be shown: wider modes than the
+        # window scaled down.
+        height, width = rgb.shape[:2]
+        image = QImage(rgb.tobytes(), width, height, 3 * width, QImage.Format.Format_RGB888)
         pixmap = QPixmap.fromImage(image)
         if width > self.display_width:
             pixmap = pixmap.scaledToWidth(self.display_width,
                                           Qt.TransformationMode.SmoothTransformation)
-        self.picture.setPixmap(pixmap)
+        return pixmap
 
     def on_ended(self, mode, complete):
         self.receiving = False
