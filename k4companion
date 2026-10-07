@@ -20343,7 +20343,10 @@ def main():
             QTimer.singleShot(geo_delay, lambda: top.move(x, y))
     app.exec()
 
-config_data = '''
+# Raw, so the config's own escapes (a tooltip's or a button's \n) reach
+# the YAML parser as they are in the file rather than as Python makes
+# them: a real line break inside a quoted YAML string folds to a space.
+config_data = r'''
 ---
 
 # version = "2.1-rc3"
