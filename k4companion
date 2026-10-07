@@ -14457,6 +14457,11 @@ class RTTY(Digital):
         self.afc_wait_until = 0.0
         self.afc_last = None
         self.afc_pending = None
+        # Moves in a row that made things worse: see afc_check.
+        self.afc_worse = 0
+        self.afc_speed = Server.settings.get('RTTY', 'afc_speed', self.afc_speed_default)
+        if self.afc_speed not in dict(self.afc_speeds):
+            self.afc_speed = self.afc_speed_default
         # Squelch: see squelch_check.
         self.squelch_on = Server.settings.getbool('RTTY', 'squelch', False)
         self.squelch_level = Server.settings.getint('RTTY', 'squelch_level', self.squelch_level_default,
@@ -14676,11 +14681,23 @@ class RTTY(Digital):
         self.afc_button.setMinimumWidth(4 * QFontMetrics(self.font()).averageCharWidth())
         self.afc_button.clicked.connect(lambda checked=False: self.set_afc(not self.afc_on))
         frame_grid.addWidget(self.afc_button, 0, 0)
+        speed = QComboBox()
+        speed.setFont(self.font())
+        speed.view().setFont(self.font())
+        speed.addItems([name for name, gain in self.afc_speeds])
+        speed.setStyleSheet(qt_combobox_stylesheet(self.bg, self.fg, self.bg, self.fg))
+        qt_fit_combobox_width(speed)
+        qt_tighten_combobox_popup(speed)
+        speed.setCurrentText(self.afc_speed)
+        speed.currentTextChanged.connect(self.on_afc_speed_changed)
+        speed.setToolTip('How quickly AFC follows: Slow rides through a signal\'s wobble,\n'
+                         'Fast catches a drifting one sooner.')
+        frame_grid.addWidget(speed, 0, 1)
         autotune = QPushButton('Autotune')
         autotune.setFont(self.font())
         autotune.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.abg, self.afg))
         autotune.clicked.connect(lambda checked=False: self.autotune())
-        frame_grid.addWidget(autotune, 0, 1)
+        frame_grid.addWidget(autotune, 0, 2)
         self.afc_timer = QTimer(self.afc_button)
         self.afc_timer.timeout.connect(self.afc_check)
         self.set_afc(self.afc_on)
@@ -14847,11 +14864,17 @@ class RTTY(Digital):
     # whose middle is afc_target. Every afc_check_ms, the last
     # afc_window_seconds of that receiver's audio is looked at for two
     # tones afc_shift_hz apart within afc_search_hz of there, and RIT
-    # moved by afc_gain of how far off they are, if more than
-    # afc_deadband_hz; then left for afc_settle_seconds, the audio being
-    # behind the radio, before looking again. Which way RIT moves the
-    # tones depends on the sideband, DATA's or DATA REV's: if a move
-    # makes things worse, the other way, remembered for that mode.
+    # moved by the speed's share of how far off they are (afc_speeds:
+    # Slow, Normal or Fast), if more than afc_deadband_hz; then left for
+    # afc_settle_seconds, the audio being behind the radio, before
+    # looking again.
+    #
+    # Which way RIT moves the tones depends on the sideband: DATA's is
+    # USB, as the panadapter's passband has it, where raising RIT lowers
+    # the tones, and DATA REV's LSB, where it raises them (afc_directions).
+    # As a safeguard, if two moves in a row each make things worse, the
+    # other way is taken, and remembered for that mode; one alone could
+    # be the other station moving.
     #
     # A pair is followed only if it is at least the squelch's level above
     # the noise while the squelch is on, or afc_min_snr_db while it is
@@ -14864,7 +14887,14 @@ class RTTY(Digital):
     afc_check_ms = 600
     afc_settle_seconds = 1.3
     afc_deadband_hz = 4
-    afc_gain = .8
+    # Each speed's share of how far off the pair is that one move takes
+    # out: Slow rides through a signal's wobble, Fast catches a drifting
+    # one sooner.
+    afc_speeds = (('Slow', .3), ('Normal', .8), ('Fast', 1.0))
+    afc_speed_default = 'Normal'
+    # RIT moved by this for each hertz the tones are too high: -1 where
+    # raising RIT lowers them (USB), 1 where it raises them (LSB).
+    afc_directions = {'6': -1, '9': 1}
     afc_min_snr_db = 6
     afc_agree_hz = 10
     # How near each other the two tones' strengths have to be, so that a
@@ -14977,9 +15007,19 @@ class RTTY(Digital):
         return self.afc_measure(samples, self.afc_target())
 
     def afc_direction(self, index):
-        # Which way RIT, or the VFO, moves the tones in this mode.
+        # Which way RIT, or the VFO, moves the tones in this mode: the
+        # sideband's way, unless moves have shown it to be the other.
         mode = self.server.k4_parameter('MD$' if index else 'MD') or '6'
-        return Server.settings.getint(self.settings_section, f'afc_direction_{mode}', 1)
+        return Server.settings.getint(self.settings_section, f'afc_direction_{mode}',
+                                      self.afc_directions.get(mode, -1))
+
+    def afc_gain(self):
+        return dict(self.afc_speeds).get(self.afc_speed, dict(self.afc_speeds)[self.afc_speed_default])
+
+    def on_afc_speed_changed(self, speed):
+        if speed in dict(self.afc_speeds):
+            self.afc_speed = speed
+            Server.settings.put_save(self.settings_section, 'afc_speed', speed)
 
     def autotune(self):
         # The VFO moved to where the signal is received -- its frequency,
@@ -15041,19 +15081,29 @@ class RTTY(Digital):
             last_index, last_error = self.afc_last
             if (last_index == index and abs(last_error) >= 15
                     and abs(error) > .8 * abs(last_error)):
-                # The last move made it worse: RIT moves the tones the
-                # other way in this mode.
-                direction = -direction
-                Server.settings.put_save(self.settings_section, setting, direction)
+                # The last move made it worse. RIT moves the tones the
+                # other way in this mode if it made it worse by about as
+                # much as it should have made it better -- what a move
+                # the wrong way does, and the other station moving seldom
+                # does -- or if it happens twice in a row.
+                self.afc_worse += 1
+                wrong_way = abs(error) >= abs(last_error) * (1 + self.afc_gain() / 2)
+                if wrong_way or self.afc_worse >= 2:
+                    direction = -direction
+                    Server.settings.put_save(self.settings_section, setting, direction)
+                    self.afc_worse = 0
+            else:
+                self.afc_worse = 0
         if abs(error) <= self.afc_deadband_hz:
             self.afc_last = None
+            self.afc_worse = 0
             return
         vfo = '$' if index else ''
         try:
             offset = int(server.k4_parameter(f'RO{vfo}') or 0)
         except ValueError:
             offset = 0
-        offset = max(-9999, min(9999, offset - round(direction * self.afc_gain * error)))
+        offset = max(-9999, min(9999, offset - round(direction * self.afc_gain() * error)))
         cmds = '' if server.k4_parameter(f'RT{vfo}') == '1' else f'RT{vfo}1;'
         server.send_cmds(cmds + f'RO{vfo}{offset:+05d};')
         self.afc_last = (index, error)
