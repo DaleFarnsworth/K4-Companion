@@ -14648,6 +14648,7 @@ class RTTY(Digital):
     mode_subscriptions = (
         ('DR;', 'on_data_rate_change'),
         ('FA;', 'on_main_frequency_changed'),
+        ('ME;', 'on_menu_value'),
     )
 
     # What the Frequency dropdown offers: where RTTY usually is on 80,
@@ -14990,7 +14991,8 @@ class RTTY(Digital):
         self.snr_label.setToolTip('How far the strongest RTTY signal near the K4\'s tones is above\n'
                                   'the noise, on the receiver AFC follows.')
         # As wide as it will ever be, so the window doesn't change size.
-        self.snr_label.setMinimumWidth(QFontMetrics(self.font()).horizontalAdvance(' S/N 99 dB '))
+        metrics = QFontMetrics(self.font())
+        self.snr_label.setMinimumWidth(metrics.horizontalAdvance(' S/N 99 dB ') + 2 * metrics.averageCharWidth())
         frame_grid.addWidget(self.snr_label, 0, 2)
         self.squelch_timer = QTimer(self.squelch_button)
         self.squelch_timer.timeout.connect(self.squelch_check)
@@ -15012,8 +15014,24 @@ class RTTY(Digital):
             frame_grid.addWidget(button, 0, column)
         self.search_label = QLabel()
         self.search_label.setFont(self.font())
-        self.search_label.setMinimumWidth(QFontMetrics(self.font()).horizontalAdvance(' Wait a moment '))
+        self.search_label.setMinimumWidth(QFontMetrics(self.font()).horizontalAdvance(' None found '))
         frame_grid.addWidget(self.search_label, 0, 2)
+
+        # The K4's FSK Dual-Tone RX Filter (MENU, 0064): separate mark and
+        # space filters, which may improve copy, only with a 915 Hz mark
+        # tone. Shown from, and set by, the K4's menu value; which number
+        # means on is the K4's own value list's to say.
+        frame, frame_grid = qt_group_box('Dual-Tone', self.label_font())
+        row_grid.addWidget(frame, 0, 4, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.dual_tone_button = QPushButton()
+        self.dual_tone_button.setFont(self.font())
+        self.dual_tone_button.setMinimumWidth(4 * QFontMetrics(self.font()).averageCharWidth())
+        self.dual_tone_button.clicked.connect(lambda checked=False: self.set_dual_tone(not self.dual_tone_on()))
+        self.dual_tone_button.setToolTip('The K4\'s FSK Dual-Tone RX Filter: separate mark and space filters,\n'
+                                         'which may improve copy. Only with the 915 Hz mark tone.')
+        frame_grid.addWidget(self.dual_tone_button, 0, 0)
+        self.show_dual_tone()
+        self.server.send_str(f'ME{self.dual_tone_menu:04d};')
 
     def on_squelch_level_changed(self, text):
         try:
@@ -15417,7 +15435,7 @@ class RTTY(Digital):
             return
         found = self.search_spectrum()
         if found == None:
-            self.show_search('Wait a moment')
+            self.show_search('Wait')
             return
         frames, centre_hz, hz_per_bin = found
         mode = server.k4_parameter('MD') or '6'
@@ -15472,6 +15490,51 @@ class RTTY(Digital):
     def clear_search_note(self, text):
         if self.is_open and self.search_label.text() == text:
             self.search_label.setText('')
+
+    # The Dual-Tone button: the K4's menu entry dual_tone_menu, as last
+    # reported (dual_tone_value), the value list from its definition
+    # saying which value is on.
+    dual_tone_menu = 64
+    dual_tone_value = None
+
+    def dual_tone_values(self):
+        # The values for off and for on, as the K4's definition of the
+        # entry names them; 0 and 1 where the definition isn't to hand.
+        entry = Menu.entry(self.dual_tone_menu) if Menu.singleton != None else None
+        names = [str(value).strip().upper() for value in getattr(entry, 'values', [])]
+        if 'ON' in names and 'OFF' in names:
+            return names.index('OFF'), names.index('ON')
+        return 0, 1
+
+    def dual_tone_on(self):
+        return self.dual_tone_value == self.dual_tone_values()[1]
+
+    def on_menu_value(self, response):
+        # MEiiii.nnnn; for any menu entry: this one's value kept and shown.
+        try:
+            index, value = response[2:].rstrip(';').split('.', 1)
+            if int(index) != self.dual_tone_menu:
+                return
+            self.dual_tone_value = int(value)
+        except ValueError:
+            return
+        if self.is_open:
+            self.show_dual_tone()
+
+    def set_dual_tone(self, on):
+        if not self.server.connected:
+            return
+        value = self.dual_tone_values()[1 if on else 0]
+        # Sent as it is: the K4 answers with the value it took, which is
+        # what the button then shows.
+        self.server.send_str(f'ME{self.dual_tone_menu:04d}.{value:04d};')
+        self.server.send_str(f'ME{self.dual_tone_menu:04d};')
+
+    def show_dual_tone(self):
+        on = self.dual_tone_on()
+        self.dual_tone_button.setText('?' if self.dual_tone_value == None else 'On' if on else 'Off')
+        bg = 'yellow' if on else self.bg
+        self.dual_tone_button.setStyleSheet(qt_button_stylesheet(bg, self.fg, self.abg, self.afg))
 
     # Squelch: decoded text shown only while an RTTY signal is coming in
     # on that receiver -- two tones afc_shift_hz apart near the K4's, at
