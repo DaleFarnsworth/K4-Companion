@@ -12991,6 +12991,54 @@ class SSTV(Widget):
         image = QImage(self.image.tobytes(), width, height, 3 * width, QImage.Format.Format_RGB888)
         return path if image.save(path) else None
 
+class TuningIndicator(QWidget):
+    # A strip of the receive audio's spectrum around the K4's RTTY tones,
+    # with a line at each, for tuning by eye as fldigi's and MMTTY's
+    # tuning displays are used: an RTTY signal tuned in shows as two
+    # peaks on the two lines. The spectrum is drawn in dB above its own
+    # median, the noise, up to range_db, each new spectrum averaged in
+    # at a share of new_share, so that it reads steadily.
+    range_db = 30
+    new_share = .4
+
+    def __init__(self, width, height, bg='black', fg='#40ff40', marks='yellow'):
+        super().__init__()
+        self.setFixedSize(width, height)
+        self.colours = (QColor(bg), QColor(fg), QColor(marks))
+        self.levels = None
+        self.marks = ()
+
+    def set_spectrum(self, levels, marks):
+        # levels: dB across the strip, left to right, or None for nothing
+        # to show; marks: where the lines go, as fractions across it.
+        if levels is not None and self.levels is not None and len(levels) == len(self.levels):
+            levels = self.new_share * numpy.asarray(levels) + (1 - self.new_share) * self.levels
+        self.levels = None if levels is None else numpy.asarray(levels)
+        self.marks = marks
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        bg, fg, marks = self.colours
+        width, height = self.width(), self.height()
+        painter.fillRect(0, 0, width, height, bg)
+        painter.setPen(QPen(marks, 1))
+        for fraction in self.marks:
+            x = round(fraction * (width - 1))
+            painter.drawLine(x, 0, x, height - 1)
+        levels = self.levels
+        if levels is None or len(levels) < 2:
+            painter.end()
+            return
+        floor = float(numpy.median(levels))
+        heights = numpy.clip((numpy.asarray(levels) - floor) / self.range_db, 0, 1) * (height - 2)
+        xs = numpy.linspace(0, width - 1, len(levels))
+        ys = (height - 1 - heights).round().astype(int)
+        painter.setPen(QPen(fg, 1))
+        for i in range(1, len(levels)):
+            painter.drawLine(round(xs[i - 1]), int(ys[i - 1]), round(xs[i]), int(ys[i]))
+        painter.end()
+
 class FrequencyDropdown():
     # A choice of frequencies for a mode -- where SSTV or RTTY usually
     # is, band by band -- in megahertz, picking one calling on_selected
@@ -15017,6 +15065,12 @@ class RTTY(Digital):
         self.search_label.setMinimumWidth(QFontMetrics(self.font()).horizontalAdvance(' None found '))
         frame_grid.addWidget(self.search_label, 0, 2)
 
+        # The tuning indicator, on a row of its own above.
+        self.tuning = TuningIndicator(*self.tuning_size)
+        self.tuning.setToolTip('The receive audio around the K4\'s RTTY tones, which the lines mark:\n'
+                               'an RTTY signal tuned in shows as a peak on each.')
+        mode_grid.addWidget(self.tuning, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
         # The K4's FSK Dual-Tone RX Filter (MENU, 0064): separate mark and
         # space filters, which may improve copy, only with a 915 Hz mark
         # tone. Shown from, and set by, the K4's menu value; which number
@@ -15253,11 +15307,41 @@ class RTTY(Digital):
 
     def measure_receiver(self, index):
         # afc_measure of that receiver's latest audio.
+        samples = self.receiver_samples(index)
+        return None if samples is None else self.afc_measure(samples, self.afc_target())
+
+    def receiver_samples(self, index):
+        # That receiver's last afc_window_seconds of audio, or None.
         chunks = list(self.afc_audio[index])
         if not chunks:
             return None
-        samples = numpy.concatenate(chunks)[-int(self.afc_window_seconds * self.k4_sample_rate):]
-        return self.afc_measure(samples, self.afc_target())
+        return numpy.concatenate(chunks)[-int(self.afc_window_seconds * self.k4_sample_rate):]
+
+    # The tuning indicator's span, either side of the middle of the K4's
+    # tones, in hertz of audio, and its size.
+    tuning_span_hz = 250
+    tuning_size = (400, 40)
+
+    def show_tuning(self, index):
+        # The indicator, from that receiver's audio: its spectrum, 1 Hz a
+        # point smoothed over 9, in dB, with the K4's mark and space tones
+        # marked.
+        target = self.afc_target()
+        span = self.tuning_span_hz
+        half = self.afc_shift_hz / 2
+        marks = ((span - half) / (2 * span), (span + half) / (2 * span))
+        samples = self.receiver_samples(index)
+        rate = self.k4_sample_rate
+        if samples is None or len(samples) < rate // 4:
+            self.tuning.set_spectrum(None, marks)
+            return
+        power = numpy.abs(numpy.fft.rfft(samples * numpy.hanning(len(samples)), n=rate)) ** 2
+        power = numpy.convolve(power, numpy.ones(9) / 9, mode='same')
+        low, high = int(target - span), int(target + span)
+        if low < 0 or high >= len(power):
+            self.tuning.set_spectrum(None, marks)
+            return
+        self.tuning.set_spectrum(10 * numpy.log10(power[low:high + 1] + 1e-12), marks)
 
     def afc_direction(self, index):
         # Which way RIT, or the VFO, moves the tones in this mode: the
@@ -15579,6 +15663,7 @@ class RTTY(Digital):
                 self.signal_seen[index] = now
             if index == shown:
                 self.show_snr(None if measured == None else measured[1])
+                self.show_tuning(index)
             held = self.held_text[index]
             while held and now - held[0][0] >= self.squelch_hold_seconds:
                 held.popleft()
