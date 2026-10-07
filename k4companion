@@ -2290,11 +2290,21 @@ class Group(Container):
         required = ['item', 'contains']
         optional = ['columns', 'column', 'columnspan', 'rowspan', 'childwidth',
             'sticky', 'label_font', 'button_font', 'tabname', 'label', 'leading',
-            'padx', 'pady']
+            'padx', 'pady', 'tooltip']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
         self.tabname = config_info.get('tabname', '')
+
+        # For the whole group, its label included: Qt hands a hover on
+        # anything inside it without a tooltip of its own up to the
+        # nearest that has one. WA_Hover as for Togglebutton, where the
+        # same lines are.
+        tooltip = config_info.get('tooltip', '')
+        if tooltip:
+            for frame in (self.frame, self.outer_frame):
+                frame.setToolTip(tooltip)
+                frame.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
 
         self.show_widgets()
 
@@ -21832,6 +21842,7 @@ config_data = r'''
 #define main-ssnr-group
 - item: group
   label: SSNR
+  tooltip: "SSNR noise reduction: On/Off and its level.\nR turns SSNR on and resets its noise elimination function.\nAR does so on a quiet frequency nearby, then comes back."
   contains: #{
     #include main-ssnr-enable-togglebutton
     #include main-ssnr-dropdown-button
@@ -21841,6 +21852,7 @@ config_data = r'''
 #define sub-ssnr-group
 - item: group
   label: SSNR
+  tooltip: "SSNR noise reduction: On/Off and its level.\nR turns SSNR on and resets its noise elimination function.\nAR does so on a quiet frequency nearby, then comes back."
   contains: #{
     #include sub-ssnr-enable-togglebutton
     #include sub-ssnr-dropdown-button
@@ -21870,7 +21882,6 @@ config_data = r'''
   evalincrement: 1
   evalcmd: 'f"NRS{round(value):02d}{1 if self.k4param("NRS")[2] == "1" else 0};"'
   unexpectedresponse: value[3:5]
-  tooltip: "The SSNR level.\nR turns SSNR on and resets its noise elimination function.\nAR does so on a quiet frequency nearby, then comes back."
   selections: #{
     - { text: "20", cmd: NRS201;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
     - { text: "19", cmd: NRS191;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
@@ -21903,7 +21914,6 @@ config_data = r'''
   to: 20
   evalincrement: 1
   evalcmd: 'f"NRS${round((value)):02d}{1 if self.k4param("NRS$")[2] == "1" else 0};"'
-  tooltip: "The SSNR level.\nR turns SSNR on and resets its noise elimination function.\nAR does so on a quiet frequency nearby, then comes back."
   unexpectedresponse: value[4:6]
   selections: #{
     - { text: "20", cmd: NRS$201;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
