@@ -80,7 +80,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
     QButtonGroup, QSlider, QProgressBar, QTabWidget, QDialog, QLineEdit,
     QComboBox, QListWidget, QLayout, QPlainTextEdit, QProxyStyle, QStyle,
-    QSplitter, QStyledItemDelegate, QFileDialog,
+    QSplitter, QStyledItemDelegate, QFileDialog, QSizePolicy,
 )
 
 # Modify the path to find opus.dll on Windows, which opuslib looks for
@@ -12685,9 +12685,6 @@ class SSTV(Widget):
         controls = QWidget()
         grid = QGridLayout(controls)
         grid.setContentsMargins(0, 0, 0, 0)
-        self.tx_status = QLabel()
-        self.tx_status.setFont(self.font())
-        grid.addWidget(self.tx_status, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         names = [mode.name for mode in SSTV_MODES.values() if mode.family != None]
         saved_mode = Server.settings.get(self.settings_section, 'tx_mode', self.tx_mode_default)
@@ -12723,6 +12720,14 @@ class SSTV(Widget):
         self.tx_picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.tx_picture.setStyleSheet('QLabel { background-color: black; }')
         layout.addWidget(self.tx_picture)
+
+        # Under the picture, on a line of its own, and never widening the
+        # window: what it says changes as a picture is sent, and the
+        # window keeps the size it opened at.
+        self.tx_status = QLabel()
+        self.tx_status.setFont(self.font())
+        self.tx_status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        layout.addWidget(self.tx_status)
 
         self.tx_source_label = QLabel()
         self.tx_source_label.setFont(self.label_font())
