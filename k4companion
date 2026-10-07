@@ -14079,7 +14079,6 @@ class CW(Digital):
 
     def show_mode_controls(self):
         self._show(self.mode_controls_frame, self.apf_frame, 0, 2)
-        self._show(self.mode_controls_frame, self.autospot_frame, 0, 3)
 
     def _dropdown(self, parent, on_select, justify, **options):
         dropdown = Dropdown_Widget(parent, bd=2, bg=self.bg, fg=self.fg,
@@ -14222,6 +14221,20 @@ class CW(Digital):
         spot_grid.addWidget(self.spot_button, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.show_spot()
 
+        # Autospot, beside Spot: the K4's own, tuning the receiver to the
+        # CW signal it hears.
+        self.autospot_frame, autospot_grid = qt_group_box('Autospot', self.label_font())
+        decode_grid.addWidget(self.autospot_frame, 0, 3, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        for column, (text, cmd) in enumerate((('Main', 'SP3;'), ('Sub', 'SP$3;'))):
+            button = QPushButton(text)
+            button.setFont(self.font())
+            button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.abg, self.afg))
+            button.setMinimumWidth(5 * QFontMetrics(self.font()).averageCharWidth())
+            button.clicked.connect(lambda checked=False, cmd=cmd: self.server.send_cmds(cmd))
+            autospot_grid.addWidget(button, 0, column, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            setattr(self, f'{text.lower()}_spot_button', button)
+
     @staticmethod
     def decode_selections(base):
         # The decode dropdowns' selections, for TD (main) or TD$ (sub).
@@ -14293,18 +14306,6 @@ class CW(Digital):
                 'width': 6, 'bg': self.bg, 'fg': self.fg, 'font': self.font(),
             }
             ToggleWidget(self, apf_frame, apf_options)
-
-        self.autospot_frame, autospot_grid = qt_group_box('Autospot', self.label_font())
-        parent_frame.layout().addWidget(self.autospot_frame, 0, 3, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-
-        for column, (text, cmd) in enumerate((('Main', 'SP3;'), ('Sub', 'SP$3;'))):
-            button = QPushButton(text)
-            button.setFont(self.font())
-            button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.abg, self.afg))
-            button.setMinimumWidth(5 * QFontMetrics(self.font()).averageCharWidth())
-            button.clicked.connect(lambda checked=False, cmd=cmd: self.server.send_cmds(cmd))
-            autospot_grid.addWidget(button, 0, column, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-            setattr(self, f'{text.lower()}_spot_button', button)
 
     def set_spot(self, on):
         Audio.set_spot(on)
