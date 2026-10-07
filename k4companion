@@ -1480,6 +1480,7 @@ class Server():
         if len(data) < 2:
             return
         receiver = 'sub' if data[1] == 1 else 'main'
+        RTTY.keep_spectrum('pan', data)
         try:
             PanadapterProcess.received_pan(receiver, data)
         except Exception:
@@ -1495,6 +1496,7 @@ class Server():
         if len(data) < 2:
             return
         receiver = 'sub' if data[1] == 1 else 'main'
+        RTTY.keep_spectrum('minipan', data)
         try:
             PanadapterProcess.received_minipan(receiver, data)
         except Exception:
@@ -14409,6 +14411,67 @@ class CW(Digital):
         Server.settings.put_save('CW', 'weighting', f'{float(current_value):.2f}')
         Keyer.set_weighting(float(current_value))
 
+def find_rtty_pairs(frames, hz_per_bin, shift_hz=170, edge_bins=0, peak_z=4.0, gap_z=1.5,
+                    agree_hz=15):
+    # The RTTY signals in some spectrum frames (the K4's PAN or MINI-PAN
+    # bins, a frame a row), as (centre bin, strength), strongest first
+    # by nothing but position: two peaks shift_hz apart, both well above
+    # the noise, with less between them, each standing clear of what is
+    # around it as a narrow tone does and a voice's harmonics don't; and
+    # found in both halves of the frames in much the same place, as an
+    # RTTY signal is and a voice seldom is. Everything is measured against
+    # the frames' own spread, the two kinds of frame being on scales of
+    # their own. edge_bins at each end, where the K4 rolls the spectrum
+    # off, are left out.
+    frames = numpy.asarray(frames, dtype=float)
+    halves = (frames[:len(frames) // 2], frames[len(frames) // 2:])
+    first, second = (_rtty_pairs(h, hz_per_bin, shift_hz, edge_bins, peak_z, gap_z) for h in halves)
+    agree = max(1, int(round(agree_hz / hz_per_bin)))
+    return [(c, s) for c, s in _rtty_pairs(frames, hz_per_bin, shift_hz, edge_bins, peak_z, gap_z)
+            if any(abs(c - c1) <= agree for c1, s1 in first)
+            and any(abs(c - c2) <= agree for c2, s2 in second)]
+
+def _rtty_pairs(frames, hz_per_bin, shift_hz, edge_bins, peak_z, gap_z):
+    average = numpy.mean(frames, axis=0)
+    inner = average[edge_bins:len(average) - edge_bins] if edge_bins else average
+    floor = numpy.median(inner)
+    spread = 1.4826 * numpy.median(numpy.abs(inner - floor)) or 1.0
+    z = (average - floor) / spread
+    n = len(z)
+    half = int(round(shift_hz / 2 / hz_per_bin))
+    # Each tone's strength: the best within 10 Hz, the keying spreading it.
+    reach = max(1, int(round(10 / hz_per_bin)))
+    peak = numpy.array([z[max(0, i - reach):i + reach + 1].max() for i in range(n)])
+    # And how far it stands clear of what is 20 to 60 Hz either side.
+    near = max(reach + 1, int(round(20 / hz_per_bin)))
+    far = max(near + 1, int(round(60 / hz_per_bin)))
+    def stands_clear(i):
+        around = numpy.concatenate((z[max(0, i - far):max(0, i - near + 1)], z[i + near:i + far + 1]))
+        return len(around) > 0 and peak[i] - numpy.median(around) >= gap_z
+    found = []
+    for c in range(edge_bins + half + far, n - edge_bins - half - far):
+        weaker = min(peak[c - half], peak[c + half])
+        if weaker < peak_z:
+            continue
+        if weaker - numpy.median(z[c - half // 2:c + half // 2 + 1]) < gap_z:
+            continue
+        if not (stands_clear(c - half) and stands_clear(c + half)):
+            continue
+        found.append((c, weaker))
+    # One for each signal: the middle of each run of neighbouring centres
+    # that are as good as the run's best.
+    pairs = []
+    run = []
+    for c, s in found + [(None, None)]:
+        if run and (c == None or c - run[-1][0] > half):
+            best = max(s0 for c0, s0 in run)
+            tops = [c0 for c0, s0 in run if s0 >= best - .5]
+            pairs.append(((tops[0] + tops[-1]) // 2, best))
+            run = []
+        if c != None:
+            run.append((c, s))
+    return pairs
+
 class RTTY(Digital):
     # The Digital window for RTTY, sent and decoded by the K4 itself.
     # That takes the FSK D data sub-mode; AFSK A has the K4's decoder but
@@ -14781,6 +14844,21 @@ class RTTY(Digital):
         self.squelch_timer.start(self.squelch_check_ms)
         self.show_snr(None)
 
+        frame, frame_grid = qt_group_box('Search', self.label_font())
+        row_grid.addWidget(frame, 0, 3, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        for column, (text, up) in enumerate((('Down', False), ('Up', True))):
+            button = QPushButton(text)
+            button.setFont(self.font())
+            button.setStyleSheet(qt_button_stylesheet(self.bg, self.fg, self.abg, self.afg))
+            button.clicked.connect(lambda checked=False, up=up: self.search(up))
+            button.setToolTip(f'Tunes VFO A to the next RTTY signal {"up" if up else "down"},\n'
+                              'found in the K4\'s spectrum.')
+            frame_grid.addWidget(button, 0, column)
+        self.search_label = QLabel()
+        self.search_label.setFont(self.font())
+        self.search_label.setMinimumWidth(QFontMetrics(self.font()).horizontalAdvance(' Wait a moment '))
+        frame_grid.addWidget(self.search_label, 0, 2)
+
     def on_squelch_level_changed(self, text):
         try:
             self.squelch_level = int(text.split()[0])
@@ -15111,6 +15189,132 @@ class RTTY(Digital):
         self.afc_pending = None
         for audio in self.afc_audio:
             audio.clear()
+
+    # Search: VFO A moved to the next RTTY signal up or down, as fldigi's
+    # Search buttons move it, found in the K4's own spectrum (see
+    # find_rtty_pairs) rather than in the audio, which the RTTY filter
+    # leaves too little of. Of the two spectra the K4 sends, PAN across
+    # the panadapter's span and MINI-PAN across 3 kHz around the tones,
+    # whichever is finer is used, so long as it is no coarser than
+    # search_max_hz_per_bin, which a 170 Hz pair needs: PAN at a narrow
+    # span, MINI-PAN otherwise. search_frames of it are looked at, the
+    # last two seconds, needing search_min_frames at least; signals
+    # within search_skip_hz of where the K4's tones are now are passed
+    # over, being the one already tuned. The VFO is moved so the signal
+    # lands on the K4's tones, and RIT set to nothing, as Autotune does.
+    search_frames = 24
+    search_min_frames = 12
+    search_max_hz_per_bin = 25
+    search_skip_hz = 60
+    # The share of each end of a frame where the K4 rolls the spectrum
+    # off, left out.
+    search_edge_fraction = .06
+    # Which side of the VFO the tones are on: DATA's USB above it, DATA
+    # REV's LSB below.
+    sideband_signs = {'6': 1, '9': -1}
+    # The main receiver's last frames of each kind, as they came: see
+    # keep_spectrum.
+    spectrum = {'pan': collections.deque(maxlen=search_frames),
+                'minipan': collections.deque(maxlen=search_frames)}
+
+    @classmethod
+    def keep_spectrum(cls, kind, data):
+        # From the receive loop, on the main thread, for every PAN and
+        # MINI-PAN frame: kept as it is, for the main receiver while the
+        # window is open, and nothing more done with it until Search.
+        self = cls.singleton
+        if self != None and self.is_open and data[1] == 0:
+            cls.spectrum[kind].append(data)
+
+    @staticmethod
+    def parse_spectrum(data, kind):
+        parsed = parse_pan_frame(data, decode_offset=160 if kind == 'pan' else 0)
+        if parsed == None or not parsed[4]:
+            return None
+        receiver, centre_hz, sample_rate, noise_floor, bins = parsed
+        return centre_hz, sample_rate * 1000 / len(bins), bins
+
+    def search_spectrum(self):
+        # The finer of the two spectra, as (frames, centre_hz, hz_per_bin),
+        # or a reason why there is none to search.
+        best = None
+        for kind in ('pan', 'minipan'):
+            frames = [self.parse_spectrum(data, kind) for data in list(self.spectrum[kind])]
+            frames = [f for f in frames if f != None]
+            if len(frames) < self.search_min_frames:
+                continue
+            centre_hz, hz_per_bin, bins = frames[-1]
+            # Only those across the same frequencies as the last.
+            frames = [f for f in frames if f[0] == centre_hz and f[1] == hz_per_bin and len(f[2]) == len(bins)]
+            if len(frames) < self.search_min_frames:
+                continue
+            if hz_per_bin > self.search_max_hz_per_bin:
+                continue
+            if best == None or hz_per_bin < best[2]:
+                best = ([f[2] for f in frames], centre_hz, hz_per_bin)
+        return best
+
+    def search(self, up):
+        server = self.server
+        if not server.connected or not self.is_open:
+            return
+        found = self.search_spectrum()
+        if found == None:
+            self.show_search('Wait a moment')
+            return
+        frames, centre_hz, hz_per_bin = found
+        mode = server.k4_parameter('MD') or '6'
+        sign = self.sideband_signs.get(mode, 1)
+        try:
+            vfo = int(server.k4_parameter('FA'))
+        except (TypeError, ValueError):
+            return
+        rit = 0
+        if server.k4_parameter('RT') == '1':
+            try:
+                rit = int(server.k4_parameter('RO') or 0)
+            except ValueError:
+                pass
+        target = self.afc_target()
+        # Where the middle of the K4's tones is on the air now.
+        now = vfo + rit + sign * target
+        count = len(frames[0])
+        edge = int(count * self.search_edge_fraction)
+        pairs = find_rtty_pairs(frames, hz_per_bin, shift_hz=self.afc_shift_hz, edge_bins=edge)
+        signals = [centre_hz + (c - count / 2) * hz_per_bin for c, strength in pairs]
+        if up:
+            ahead = [hz for hz in signals if hz > now + self.search_skip_hz]
+            signal = min(ahead) if ahead else None
+        else:
+            ahead = [hz for hz in signals if hz < now - self.search_skip_hz]
+            signal = max(ahead) if ahead else None
+        if signal == None:
+            self.show_search('None found')
+            return
+        new_vfo = round(signal - sign * target)
+        cmds = f'FA{new_vfo:011d};'
+        if server.k4_parameter('RT') == '1':
+            cmds += 'RO+0000;'
+        server.send_cmds(cmds)
+        self.show_search(f'{round(signal - now):+d} Hz')
+        # What came before was of the old frequency.
+        for kind in self.spectrum:
+            self.spectrum[kind].clear()
+        self.afc_last = None
+        self.afc_pending = None
+        self.afc_wait_until = time.monotonic() + self.afc_settle_seconds
+        for audio in self.afc_audio:
+            audio.clear()
+
+    def show_search(self, text):
+        self.search_label.setText(text)
+        QTimer.singleShot(self.search_note_ms, lambda text=text: self.clear_search_note(text))
+
+    search_note_ms = 4000
+
+    def clear_search_note(self, text):
+        if self.is_open and self.search_label.text() == text:
+            self.search_label.setText('')
 
     # Squelch: decoded text shown only while an RTTY signal is coming in
     # on that receiver -- two tones afc_shift_hz apart near the K4's, at
