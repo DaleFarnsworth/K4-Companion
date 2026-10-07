@@ -1483,6 +1483,7 @@
 #define main-ssnr-group
 - item: group
   label: SSNR
+  tooltip: "SSNR noise reduction: On/Off and its level.\nR turns SSNR on and resets its noise elimination function.\nAR does so on a quiet frequency nearby, then comes back."
   contains: #{
     #include main-ssnr-enable-togglebutton
     #include main-ssnr-dropdown-button
@@ -1492,6 +1493,7 @@
 #define sub-ssnr-group
 - item: group
   label: SSNR
+  tooltip: "SSNR noise reduction: On/Off and its level.\nR turns SSNR on and resets its noise elimination function.\nAR does so on a quiet frequency nearby, then comes back."
   contains: #{
     #include sub-ssnr-enable-togglebutton
     #include sub-ssnr-dropdown-button
@@ -1521,7 +1523,6 @@
   evalincrement: 1
   evalcmd: 'f"NRS{round(value):02d}{1 if self.k4param("NRS")[2] == "1" else 0};"'
   unexpectedresponse: value[3:5]
-  tooltip: "The SSNR level.\nR turns SSNR on and resets its noise elimination function.\nAR does so on a quiet frequency nearby, then comes back."
   selections: #{
     - { text: "20", cmd: NRS201;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
     - { text: "19", cmd: NRS191;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
@@ -1554,7 +1555,6 @@
   to: 20
   evalincrement: 1
   evalcmd: 'f"NRS${round((value)):02d}{1 if self.k4param("NRS$")[2] == "1" else 0};"'
-  tooltip: "The SSNR level.\nR turns SSNR on and resets its noise elimination function.\nAR does so on a quiet frequency nearby, then comes back."
   unexpectedresponse: value[4:6]
   selections: #{
     - { text: "20", cmd: NRS$201;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
