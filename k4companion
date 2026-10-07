@@ -802,6 +802,7 @@ class Server():
 
     @staticmethod
     def split_cmd(cmd):
+        cmd = str(cmd)
         if cmd[-1] == ';':
             cmd = cmd[0:-1]
         return cmd.split(';')
