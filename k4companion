@@ -14674,8 +14674,10 @@ class RTTY(Digital):
         self.afc_wait_until = 0.0
         self.afc_last = None
         self.afc_pending = None
-        # Moves in a row that made things worse: see afc_check.
+        # Moves in a row that made things worse, and the modes where AFC
+        # has turned the other way since starting: see afc_check.
         self.afc_worse = 0
+        self.afc_turned = {}
         self.afc_speed = Server.settings.get('RTTY', 'afc_speed', self.afc_speed_default)
         if self.afc_speed not in dict(self.afc_speeds):
             self.afc_speed = self.afc_speed_default
@@ -15101,12 +15103,13 @@ class RTTY(Digital):
     # afc_settle_seconds, the audio being behind the radio, before
     # looking again.
     #
-    # Which way RIT moves the tones depends on the sideband: DATA's is
-    # USB, as the panadapter's passband has it, where raising RIT lowers
-    # the tones, and DATA REV's LSB, where it raises them (afc_directions).
-    # As a safeguard, if two moves in a row each make things worse, the
-    # other way is taken, and remembered for that mode; one alone could
-    # be the other station moving.
+    # Which way RIT moves the tones depends on the sideband: in AFSK and
+    # FSK, DATA's is LSB, as the K4's manual has it, where raising RIT
+    # raises the tones, and DATA REV's USB, where it lowers them
+    # (afc_directions). As a safeguard, the other way is taken if a move
+    # made things worse by about as much as it should have made them
+    # better, or two in a row made them worse; but only until K4
+    # Companion is restarted, so that a wrong turn is never kept.
     #
     # A pair is followed only if it is at least the squelch's level above
     # the noise while the squelch is on, or afc_min_snr_db while it is
@@ -15124,9 +15127,9 @@ class RTTY(Digital):
     # one sooner.
     afc_speeds = (('Slow', .3), ('Normal', .8), ('Fast', 1.0))
     afc_speed_default = 'Normal'
-    # RIT moved by this for each hertz the tones are too high: -1 where
-    # raising RIT lowers them (USB), 1 where it raises them (LSB).
-    afc_directions = {'6': -1, '9': 1}
+    # RIT moved by this for each hertz the tones are too high: 1 where
+    # raising RIT raises them (LSB), -1 where it lowers them (USB).
+    afc_directions = {'6': 1, '9': -1}
     afc_min_snr_db = 6
     afc_agree_hz = 10
     # How near each other the two tones' strengths have to be, so that a
@@ -15240,10 +15243,10 @@ class RTTY(Digital):
 
     def afc_direction(self, index):
         # Which way RIT, or the VFO, moves the tones in this mode: the
-        # sideband's way, unless moves have shown it to be the other.
+        # sideband's way, unless moves since the window opened have shown
+        # it to be the other.
         mode = self.server.k4_parameter('MD$' if index else 'MD') or '6'
-        return Server.settings.getint(self.settings_section, f'afc_direction_{mode}',
-                                      self.afc_directions.get(mode, -1))
+        return self.afc_turned.get(mode, self.afc_directions.get(mode, 1))
 
     def afc_gain(self):
         return dict(self.afc_speeds).get(self.afc_speed, dict(self.afc_speeds)[self.afc_speed_default])
@@ -15307,7 +15310,6 @@ class RTTY(Digital):
                 or abs(pending[1] - error) > self.afc_agree_hz):
             return
         mode = server.k4_parameter('MD$' if index else 'MD') or '6'
-        setting = f'afc_direction_{mode}'
         direction = self.afc_direction(index)
         if self.afc_last != None:
             last_index, last_error = self.afc_last
@@ -15322,7 +15324,7 @@ class RTTY(Digital):
                 wrong_way = abs(error) >= abs(last_error) * (1 + self.afc_gain() / 2)
                 if wrong_way or self.afc_worse >= 2:
                     direction = -direction
-                    Server.settings.put_save(self.settings_section, setting, direction)
+                    self.afc_turned[mode] = direction
                     self.afc_worse = 0
             else:
                 self.afc_worse = 0
@@ -15363,9 +15365,10 @@ class RTTY(Digital):
     # The share of each end of a frame where the K4 rolls the spectrum
     # off, left out.
     search_edge_fraction = .06
-    # Which side of the VFO the tones are on: DATA's USB above it, DATA
-    # REV's LSB below.
-    sideband_signs = {'6': 1, '9': -1}
+    # Where the middle of the K4's tones is on the air, from the VFO: in
+    # AFSK and FSK the VFO shows the mark frequency, and the space is
+    # 170 Hz below it in DATA, which is LSB, and above it in DATA REV.
+    tone_centre_signs = {'6': -1, '9': 1}
     # The main receiver's last frames of each kind, as they came: see
     # keep_spectrum.
     spectrum = {'pan': collections.deque(maxlen=search_frames),
@@ -15418,7 +15421,7 @@ class RTTY(Digital):
             return
         frames, centre_hz, hz_per_bin = found
         mode = server.k4_parameter('MD') or '6'
-        sign = self.sideband_signs.get(mode, 1)
+        sign = self.tone_centre_signs.get(mode, -1)
         try:
             vfo = int(server.k4_parameter('FA'))
         except (TypeError, ValueError):
@@ -15429,9 +15432,9 @@ class RTTY(Digital):
                 rit = int(server.k4_parameter('RO') or 0)
             except ValueError:
                 pass
-        target = self.afc_target()
+        half_shift = self.afc_shift_hz / 2
         # Where the middle of the K4's tones is on the air now.
-        now = vfo + rit + sign * target
+        now = vfo + rit + sign * half_shift
         count = len(frames[0])
         edge = int(count * self.search_edge_fraction)
         pairs = find_rtty_pairs(frames, hz_per_bin, shift_hz=self.afc_shift_hz, edge_bins=edge)
@@ -15445,7 +15448,7 @@ class RTTY(Digital):
         if signal == None:
             self.show_search('None found')
             return
-        new_vfo = round(signal - sign * target)
+        new_vfo = round(signal - sign * half_shift)
         cmds = f'FA{new_vfo:011d};'
         if server.k4_parameter('RT') == '1':
             cmds += 'RO+0000;'
