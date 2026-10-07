@@ -796,7 +796,7 @@ class Server():
                 server = Server.k4_server
                 server.send_cmds(cmds)
             elif server_name == 'delay':
-                delay = float(cmd_dict[server_name]) / 1000
+                delay = float(cmds[0]) / 1000
                 time.sleep(delay)
             else:
                 raise Exception("Unknown server name '{name}'".format(name=server_name))
@@ -1394,7 +1394,7 @@ class Server():
             ret = []
             for name in cmd_dict:
                 cmd = cmd_dict[name]
-                ret.append(name, Server.split_cmd(cmd_dict[name]))
+                ret.append([name, Server.split_cmd(cmd_dict[name])])
             return ret
         elif isinstance(cmds, list):
             ret = []
@@ -1403,7 +1403,7 @@ class Server():
                     raise Exception("Unknown server sub-command '{cmd}'".format(cmd=cmd_dict))
                 for name in cmd_dict:
                     cmd = cmd_dict[name]
-                    ret.append(name, Server.split_cmd(cmd_dict[name]))
+                    ret.append([name, Server.split_cmd(cmd_dict[name])])
             return ret
         else:
             raise Exception("Error: bad cmd format: '{cmds}'".format(cmds=cmds))
@@ -1573,7 +1573,7 @@ class Server():
                 if self.lost_connection('Receive select error'):
                     return
                 else:
-                    contineu
+                    continue
             if len(readable) == 0:
                 continue
 
