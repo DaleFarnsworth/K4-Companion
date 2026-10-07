@@ -13057,6 +13057,29 @@ class DigitalText(QPlainTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        # Called with the word clicked on, as the decoded text has it, by
+        # a click that doesn't select anything; None for none.
+        self.on_word_clicked = None
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if (self.on_word_clicked == None or event.button() != Qt.MouseButton.LeftButton
+                or self.textCursor().hasSelection()):
+            return
+        text = self.toPlainText()
+        position = self.cursorForPosition(event.position().toPoint()).position()
+        # The run of letters, figures and slashes the click is in, as a
+        # callsign is: a slash ends a word for Qt, but not a call.
+        def in_word(c):
+            return c.isalnum() or c == '/'
+        start = position
+        while start > 0 and in_word(text[start - 1]):
+            start -= 1
+        end = position
+        while end < len(text) and in_word(text[end]):
+            end += 1
+        if end > start:
+            self.on_word_clicked(text[start:end])
 
     def append(self, value):
         cursor = self.textCursor()
@@ -13142,6 +13165,20 @@ class Digital(TextButtons):
     stop_cmd = None
     characters = ''
     default_buttons = ()
+
+    # Tags a button can send, as fldigi's macros have them, each put in
+    # place as the button is pressed, from left to right: MYCALL the
+    # station's own call (the Configure tab's My Call), CALL, RST and
+    # CNTR the Call, RST and Nr fields above the buttons, INCR and DECR
+    # adding one to Nr or taking one away, and CLRLOG emptying Call and
+    # putting RST back to 599, ready for the next contact. The < and >
+    # they are written with can be sent in neither CW nor RTTY.
+    macro_tags = ('MYCALL', 'CALL', 'RST', 'CNTR', 'INCR', 'DECR', 'CLRLOG')
+    default_rst = '599'
+    # What clicking a word in the received text takes for a call, and so
+    # puts in the Call field: letters and figures, a figure among them
+    # after the first character, perhaps with a /portable part.
+    callsign_pattern = re.compile(r'(?:[A-Z0-9]{1,4}/)?[A-Z0-9]*[A-Z][A-Z0-9]*[0-9][A-Z0-9]*[A-Z](?:/[A-Z0-9]{1,4})?')
 
     # The responses the main tab listens to while it is open, and the
     # mode's own on top.
@@ -13271,6 +13308,7 @@ class Digital(TextButtons):
         self.add_mode_controls(self.mode_controls_frame)
 
         self.add_more_widgets(mode_grid)
+        self.add_qso_fields(mode_grid)
 
         self.buttons_and_text_frame, bat_grid = self._plain_frame()
         mode_grid.addWidget(self.buttons_and_text_frame, 4, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -13357,6 +13395,8 @@ class Digital(TextButtons):
 
         self.sub_frame, sub_grid = qt_group_box('Sub Rx', self.label_font())
         self.sub_text = self._add_text(sub_grid, self.rx_height, read_only=True)
+        for text in (self.main_text, self.sub_text):
+            text.on_word_clicked = self.on_rx_word_clicked
 
         self.config_text_fields()
 
@@ -13377,6 +13417,9 @@ class Digital(TextButtons):
         self.tx_height_entry = self._labeled_entry(grid, 2, 0, 'Tx lines:', self.tx_height)
         self.rx_height_entry = self._labeled_entry(grid, 2, 1, 'Rx lines:', self.rx_height)
         self.entry_height_entry = self._labeled_entry(grid, 3, 0, 'Entry lines:', self.entry_height)
+        self.my_call_entry = self._labeled_entry(grid, 3, 1, 'My Call:', self.my_call(), width=10)
+        self.my_call_entry.setToolTip('Your call, sent by <MYCALL> in a button,\n'
+                                      'in this window and the other text window alike.')
 
     def hide(self):
         if self.is_open:
@@ -13412,6 +13455,108 @@ class Digital(TextButtons):
         else:
             self.hide()
 
+    # ------------------------------------------- macro tags and the call
+
+    def expand_macro(self, value):
+        # value with its tags put in place, and whatever they do done.
+        def tag(match):
+            name = match.group(1).upper()
+            if name == 'MYCALL':
+                return self.my_call()
+            if name == 'CALL':
+                return self.call_entry.text().strip()
+            if name == 'RST':
+                return self.rst_entry.text().strip() or self.default_rst
+            if name == 'CNTR':
+                return str(self.serial)
+            if name in ('INCR', 'DECR'):
+                self.set_serial(self.serial + (1 if name == 'INCR' else -1))
+            elif name == 'CLRLOG':
+                self.call_entry.clear()
+                self.rst_entry.setText(self.default_rst)
+            return ''
+        return re.sub(r'<([A-Za-z]+)>', tag, value)
+
+    @staticmethod
+    def my_call():
+        # The station's own call: one for both windows, kept with each
+        # K4's settings.
+        return (Server.settings.get('Station', 'callsign', '') or '').strip().upper()
+
+    def add_qso_fields(self, grid):
+        # Call, RST and Nr, for the CALL, RST and CNTR tags: the call
+        # typed, or clicked in what is received.
+        frame, frame_grid = self._plain_frame()
+        grid.addWidget(frame, 3, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        width = QFontMetrics(self.font()).averageCharWidth()
+        fields = []
+        for column, (title, chars, value) in enumerate((('Call:', 12, ''),
+                                                        ('RST:', 4, self.default_rst),
+                                                        ('Nr:', 6, str(self.serial)))):
+            label = QLabel(title)
+            label.setFont(self.font())
+            frame_grid.addWidget(label, 0, 2 * column, Qt.AlignmentFlag.AlignVCenter)
+            entry = QLineEdit(value)
+            entry.setFont(self.font())
+            entry.setFixedWidth(chars * width + 12)
+            entry.setStyleSheet(f'QLineEdit {{ color: {self.fg}; background-color: white; }}')
+            frame_grid.addWidget(entry, 0, 2 * column + 1, Qt.AlignmentFlag.AlignVCenter)
+            fields.append(entry)
+        frame_grid.setHorizontalSpacing(width)
+        self.call_entry, self.rst_entry, self.serial_entry = fields
+        self.call_entry.setToolTip('The other station\'s call, sent by <CALL> in a button.\n'
+                                   'Click a call in the received text to put it here.')
+        self.rst_entry.setToolTip('The report sent by <RST> in a button.')
+        self.serial_entry.setToolTip('The serial number sent by <CNTR> in a button;\n'
+                                     '<INCR> adds one to it, <DECR> takes one away.')
+        for entry in (self.call_entry, self.rst_entry):
+            entry.textEdited.connect(lambda text, entry=entry: self.keep_sendable(entry))
+        self.serial_entry.editingFinished.connect(self.on_serial_edited)
+
+    def keep_sendable(self, entry):
+        # Upper case, and only what can be sent.
+        text = entry.text()
+        kept = ''.join(c for c in text.upper() if c in self.valid_characters and c != ' ')
+        if kept != text:
+            position = entry.cursorPosition()
+            entry.setText(kept)
+            entry.setCursorPosition(min(position, len(kept)))
+
+    def set_serial(self, serial):
+        self.serial = max(1, min(99999, serial))
+        Server.settings.put_save(self.settings_section, 'serial', self.serial)
+        if self.is_open:
+            self.serial_entry.setText(str(self.serial))
+
+    def on_serial_edited(self):
+        try:
+            self.set_serial(int(self.serial_entry.text()))
+        except ValueError:
+            self.serial_entry.setText(str(self.serial))
+
+    def on_rx_word_clicked(self, word):
+        word = word.upper()
+        if self.callsign_pattern.fullmatch(word) and word != self.my_call():
+            self.call_entry.setText(word)
+
+    def valid_button_value(self, buttons, i):
+        # As TextButtons checks it, but with the tags taken out first, and
+        # any tag that isn't one of macro_tags refused.
+        button = buttons[i]
+        label, value = self.button_label_value(button)
+        for name in re.findall(r'<([^<>]*)>', value):
+            if name.upper() not in self.macro_tags:
+                Popup.warning(f'Unknown tag "<{name}>" in Button {i+1}:\n'
+                              f'the tags are {", ".join("<" + t + ">" for t in self.macro_tags)}.')
+                self.load_button_value(buttons, i, edit=True)
+                return False
+        for c in re.sub(r'<[^<>]*>', '', value):
+            if c.upper() not in self.valid_characters:
+                Popup.warning(f'Character "{c}" not allowed in Button {i+1}')
+                self.load_button_value(buttons, i, edit=True)
+                return False
+        return True
+
     def append_tx_text(self, s):
         if self.can_send():
             self.tx_text.append(s)
@@ -13421,8 +13566,9 @@ class Digital(TextButtons):
             return False
 
     def send_button(self, index):
-        value = self.button_values[index]
-        if value == '':
+        value = self.expand_macro(self.button_values[index])
+        if value.strip() == '':
+            # Empty, or only tags that send nothing, INCR say.
             return
         value += ' '
         if self.tx_text.text() == '':
@@ -13601,6 +13747,12 @@ class Digital(TextButtons):
         super().on_save_button()
 
         self._read_entry_ints(('text_width', 'entry_height', 'tx_height', 'rx_height'))
+        my_call = self.my_call_entry.text().strip().upper()
+        if all(c in self.valid_characters and c != ' ' for c in my_call):
+            Server.settings.put_save('Station', 'callsign', my_call)
+        else:
+            Popup.warning(f'My Call "{my_call}" has a character {self.tab_name} cannot send.')
+        self.my_call_entry.setText(self.my_call())
         self.save_settings()
         self.config_text_fields()
         self.select_tab(self.tab_name)
@@ -13609,6 +13761,7 @@ class Digital(TextButtons):
         super().on_cancel_button()
 
         self._write_entry_ints(('entry_height', 'tx_height', 'rx_height'))
+        self.my_call_entry.setText(self.my_call())
         self.config_text_fields()
         self.select_tab(self.tab_name)
 
@@ -13619,6 +13772,7 @@ class Digital(TextButtons):
         self.entry_height = Server.settings.getint(section, 'entry_height', 3, minimum=1, maximum=20)
         self.tx_height = Server.settings.getint(section, 'tx_height', 3, minimum=1, maximum=20)
         self.rx_height = Server.settings.getint(section, 'rx_height', 3, minimum=1, maximum=20)
+        self.serial = Server.settings.getint(section, 'serial', 1, minimum=1, maximum=99999)
         self.load_button_settings(self.default_buttons)
 
     def save_settings(self):
