@@ -707,6 +707,7 @@ class Server():
         'QU': ['QUIT!'],
         'RE': ['RESTART!'],
         'SH': ['SHOW!'],
+        'SS': ['SSNRAUTO', 'SSNRRESET'],
         'TU': ['TUNE!'],
         'WP': ['WPAN'],
     }
@@ -1249,6 +1250,8 @@ class Server():
             self.tune_directive()
         elif lcmd == 'restart!':
             restart()
+        elif lbase in ('ssnrreset!', 'ssnrreset$!', 'ssnrauto!', 'ssnrauto$!'):
+            SSNR.start(self, sub='$' in lbase, auto=lbase.startswith('ssnrauto'))
         elif lbase == 'inject!':
             self.receive_k4_responses(cmd[7:].split(';'))
         elif lbase == 'show!':
@@ -1481,6 +1484,7 @@ class Server():
             return
         receiver = 'sub' if data[1] == 1 else 'main'
         RTTY.keep_spectrum('pan', data)
+        SSNR.keep_spectrum(data)
         try:
             PanadapterProcess.received_pan(receiver, data)
         except Exception:
@@ -3754,7 +3758,11 @@ class DropdownWidget():
             else:
                 current_index -= 1
             self.combobox.setCurrentIndex(current_index)
-            self.set_value(float(self.combobox.currentText()))
+            # A step onto R or AR, which aren't levels, goes no further.
+            try:
+                self.set_value(float(self.combobox.currentText()))
+            except ValueError:
+                pass
             return
 
         if key == Qt.Key.Key_Down:
@@ -3904,6 +3912,161 @@ class Dropdownbutton(Widget):
             config_info['width'] = self.container.childwidth
 
         DropdownWidget(self, self.frame, config_info)
+
+class SSNR():
+    # The SSNR dropdowns' R and AR, as the SSNRRESET! and SSNRAUTO!
+    # directives ($ for the sub receiver). R turns SSNR on at its level,
+    # has the K4 start learning the noise afresh (NRS~, the K4's own
+    # reset), and after learn_ms sets the level again, leaving SSNR on
+    # (and so LMS NR off, each turning the other off). AR does the same
+    # on the quietest frequency nearby, so what is learnt is noise
+    # rather than the signal being listened to, and goes back to the
+    # original frequency before the level is set again.
+    #
+    # The quiet frequency is found in the receiver's own PAN spectrum,
+    # averaged over the frames of the last average_seconds, which
+    # keep_spectrum holds: a single frame's noise is too ragged to tell
+    # a quiet stretch from a lucky moment, and older frames may be of
+    # another band or of conditions since changed. It is the place
+    # within the panadapter's span (#SPN, the middle of the wider frames
+    # the K4 sends, as the panadapter window shows them), clear of any
+    # of their rolled-off ends, where a stretch as wide as the receiver
+    # might be listening to (the AF centre pitch plus half the filter's
+    # width either side of the VFO, so either sideband is covered, and
+    # any RIT) has the least power in it. Any within quiet_tolerance_db
+    # of the quietest will do, and the nearest of those is taken.
+    learn_ms = 1000
+    settle_ms = 300
+    quiet_tolerance_db = 1.0
+    average_seconds = 2.0
+    min_frames = 4
+    edge_fraction = .06
+    # Enough for average_seconds at the K4's fastest frame rate.
+    frames = {0: collections.deque(maxlen=100), 1: collections.deque(maxlen=100)}
+    busy = False
+    server = None
+    suffix = ''
+    saved = {}
+
+    @classmethod
+    def keep_spectrum(cls, data):
+        # From the receive loop, for every PAN frame: kept as it came,
+        # with when it came, only parsed when AR wants it.
+        if data[1] in cls.frames:
+            cls.frames[data[1]].append((time.monotonic(), data))
+
+    @classmethod
+    def start(cls, server, sub, auto):
+        if cls.busy or server.warn_if_not_connected():
+            return
+        if server.k4_parameter('TR') == 'T':
+            Popup.warning('Not while transmitting')
+            return
+        s = '$' if sub else ''
+        nrs = server.k4_parameter('NRS' + s) or ''
+        if len(nrs) != 3 or not nrs.isdigit():
+            return
+        cls.server = server
+        cls.suffix = s
+        cls.saved = {'NRS': nrs, 'VFO': None}
+        vfo_base = 'FB' if sub else 'FA'
+        if auto:
+            try:
+                vfo = int(server.k4_parameter(vfo_base))
+            except (TypeError, ValueError):
+                return
+            quiet = cls.quietest(server, 1 if sub else 0, vfo)
+            if quiet == None:
+                Popup.warning('No quiet frequency found in the panadapter')
+                return
+            cls.saved['VFO'] = (vfo_base, vfo)
+            cls.busy = True
+            dprint1(f'SSNR: learning at {quiet} rather than {vfo}')
+            server.send_cmds(f'{vfo_base}{quiet:011d};')
+            Poll.call(cls.settle_ms, cls.reset)
+        else:
+            cls.busy = True
+            cls.reset()
+
+    @classmethod
+    def reset(cls):
+        s = cls.suffix
+        level = cls.saved['NRS'][0:2]
+        cls.server.send_cmds(f'NRS{s}{level}1;NRS{s}~;')
+        Poll.call(cls.learn_ms, cls.learnt)
+
+    @classmethod
+    def learnt(cls):
+        vfo = cls.saved['VFO']
+        if vfo == None:
+            cls.restore()
+            return
+        vfo_base, hz = vfo
+        cls.server.send_cmds(f'{vfo_base}{hz:011d};')
+        Poll.call(cls.settle_ms, cls.restore)
+
+    @classmethod
+    def restore(cls):
+        s = cls.suffix
+        level = cls.saved['NRS'][0:2]
+        cls.server.send_cmds(f'NRS{s}{level}1;')
+        cls.busy = False
+
+    @classmethod
+    def quietest(cls, server, rx, vfo):
+        frames = []
+        since = time.monotonic() - cls.average_seconds
+        for when, data in list(cls.frames[rx]):
+            if when < since:
+                continue
+            parsed = parse_pan_frame(data)
+            if parsed != None and parsed[4]:
+                receiver, centre_hz, sample_rate, noise_floor, bins = parsed
+                frames.append((centre_hz, sample_rate * 1000 / len(bins), bins))
+        if not frames:
+            return None
+        centre_hz, hz_per_bin, bins = frames[-1]
+        # Only those across the same frequencies as the last.
+        frames = [f[2] for f in frames if f[0] == centre_hz and f[1] == hz_per_bin and len(f[2]) == len(bins)]
+        if len(frames) < cls.min_frames:
+            return None
+        s = '$' if rx else ''
+        def tenths(base, default):
+            try:
+                return int(server.k4_parameter(base + s)) * 10
+            except (TypeError, ValueError):
+                return default
+        half_hz = tenths('IS', 1500) + tenths('BW', 3000) / 2
+        if server.k4_parameter('RT') == '1':
+            try:
+                half_hz += abs(int(server.k4_parameter('RO') or 0))
+            except ValueError:
+                pass
+        power = numpy.mean(10 ** (numpy.asarray(frames, dtype=float) / 10), axis=0)
+        count = len(power)
+        half = int(math.ceil(half_hz / hz_per_bin))
+        edge = int(count * cls.edge_fraction)
+        lo, hi = edge, count - edge
+        try:
+            span_hz = float(server.k4_parameter('#SPN' + s))
+        except (TypeError, ValueError):
+            span_hz = None
+        if span_hz:
+            shown = min(count, max(1, round(span_hz / hz_per_bin)))
+            start = (count - shown) // 2
+            lo, hi = max(lo, start), min(hi, start + shown)
+        sums = numpy.concatenate(([0], numpy.cumsum(power)))
+        def hz(c):
+            return centre_hz + (c - count / 2) * hz_per_bin
+        candidates = range(lo + half, hi - half)
+        if not candidates:
+            return None
+        score = {c: 10 * math.log10((sums[c + half + 1] - sums[c - half]) / (2 * half + 1))
+                 for c in candidates}
+        best = min(score.values())
+        quiet = [c for c in candidates if score[c] <= best + cls.quiet_tolerance_db]
+        c = min(quiet, key=lambda c: abs(hz(c) - vfo))
+        return int(round(hz(c), -1))
 
 class Spacer():
     # An empty grid cell that takes the width its row has spare.
@@ -21704,7 +21867,7 @@ config_data = '''
   evalincrement: 1
   evalcmd: 'f"NRS{round(value):02d}{1 if self.k4param("NRS")[2] == "1" else 0};"'
   unexpectedresponse: value[3:5]
-  tooltip: "The SSNR level.\nSelect R to reset the noise elimination function"
+  tooltip: "The SSNR level.\nR turns SSNR on and resets its noise elimination function.\nAR does so on a quiet frequency nearby, then comes back."
   selections: #{
     - { text: "20", cmd: NRS201;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
     - { text: "19", cmd: NRS191;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
@@ -21726,7 +21889,8 @@ config_data = '''
     - { text: "3", cmd: NRS031;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
     - { text: "2", cmd: NRS021;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
     - { text: "1", cmd: NRS011;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
-    - { text: "R", cmd: NRS~; }
+    - { text: "R", cmd: SSNRRESET!; }
+    - { text: "AR", cmd: SSNRAUTO!; }
   #}
 #end
 
@@ -21736,7 +21900,7 @@ config_data = '''
   to: 20
   evalincrement: 1
   evalcmd: 'f"NRS${round((value)):02d}{1 if self.k4param("NRS$")[2] == "1" else 0};"'
-  tooltip: "The SSNR level.\nSelect R to reset the noise elimination function"
+  tooltip: "The SSNR level.\nR turns SSNR on and resets its noise elimination function.\nAR does so on a quiet frequency nearby, then comes back."
   unexpectedresponse: value[4:6]
   selections: #{
     - { text: "20", cmd: NRS$201;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
@@ -21759,7 +21923,8 @@ config_data = '''
     - { text: "3", cmd: NRS$031;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
     - { text: "2", cmd: NRS$021;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
     - { text: "1", cmd: NRS$011;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
-    - { text: "R", cmd: NRS$~; }
+    - { text: "R", cmd: SSNRRESET$!; }
+    - { text: "AR", cmd: SSNRAUTO$!; }
   #}
 #end
 
