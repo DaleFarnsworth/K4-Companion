@@ -11734,11 +11734,11 @@ class SSTVDecoder():
             self.on_lines(row, self.image[row:row + len(rows)])
 
     def yuv(self, y, u, v):
-        # The studio-range conversion SSTV senders use.
-        y = 298.082 * (y - 16)
-        r = (y + 408.583 * (v - 128)) / 256
-        g = (y - 100.291 * (u - 128) - 208.120 * (v - 128)) / 256
-        b = (y + 516.411 * (u - 128)) / 256
+        # Full range, Y 0 to 255 from black to white, as MMSSTV and QSSTV
+        # send it, and as QSSTV and slowrx take it back.
+        r = y + 1.40 * (v - 127.5)
+        g = y - .71 * (v - 127.5) - .33 * (u - 127.5)
+        b = y + 1.78 * (u - 127.5)
         return numpy.clip(numpy.stack((r, g, b), axis=1), 0, 255)
 
     def finish(self, complete):
