@@ -7,16 +7,12 @@ and waterfall for each receiver. It also has a few enhancements, like
 per-mode equalizer settings and configurable CW and general macros.
 
 K4 Companion can also key the K4 from paddles or a straight key
-connected to the computer, through a MoMIDI interface, a serial port,
+connected to the computer, through a MIDI interface, a serial port,
 or a Vail adapter. Its built-in keyer offers plain Iambic, Iambic A,
 Iambic B and Ultimatic modes, and it plays its own sidetone, so you hear your
 sending without waiting for the audio to come back from the K4.
 
 Connections to the K4 are encrypted (TLS on port 9204) by default.
-
-K4 Companion began life as a simple macro-sending program called
-K4Macro-Python, created by Charles Powell, NK8O. It has now grown
-into a full-fledged remote control program for the K4.
 
 K4 Companion is a standalone python3 program downloadable
 [here](https://github.com/DaleFarnsworth/K4-Companion/blob/main/k4companion).
