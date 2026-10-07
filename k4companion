@@ -14456,8 +14456,14 @@ class RTTY(Digital):
         self.afc_timer = None
         self.afc_wait_until = 0.0
         self.afc_last = None
+        self.afc_pending = None
         # Squelch: see squelch_check.
         self.squelch_on = Server.settings.getbool('RTTY', 'squelch', False)
+        self.squelch_level = Server.settings.getint('RTTY', 'squelch_level', self.squelch_level_default,
+                                                    minimum=self.squelch_levels[0],
+                                                    maximum=self.squelch_levels[-1])
+        if self.squelch_level not in self.squelch_levels:
+            self.squelch_level = self.squelch_level_default
         self.squelch_timer = None
         self.signal_seen = [0.0, 0.0]
         self.held_text = [collections.deque(), collections.deque()]
@@ -14607,6 +14613,7 @@ class RTTY(Digital):
             # Tracking starts again from the frequency picked.
             self.server.send_cmds('RO+0000;')
             self.afc_last = None
+            self.afc_pending = None
         self.set_rtty(0, mode if mode in ('6', '9') else '6', with_bandwidth=False)
 
     def on_main_frequency_changed(self, response=None):
@@ -14728,9 +14735,44 @@ class RTTY(Digital):
         self.squelch_button.setMinimumWidth(4 * QFontMetrics(self.font()).averageCharWidth())
         self.squelch_button.clicked.connect(lambda checked=False: self.set_squelch(not self.squelch_on))
         frame_grid.addWidget(self.squelch_button, 0, 0)
+        # The level, and the S/N it is set against, as fldigi has them.
+        self.squelch_level_combobox = QComboBox()
+        self.squelch_level_combobox.setFont(self.font())
+        self.squelch_level_combobox.view().setFont(self.font())
+        self.squelch_level_combobox.addItems([f'{level} dB' for level in self.squelch_levels])
+        self.squelch_level_combobox.setStyleSheet(qt_combobox_stylesheet(self.bg, self.fg, self.bg, self.fg))
+        qt_fit_combobox_width(self.squelch_level_combobox)
+        qt_tighten_combobox_popup(self.squelch_level_combobox)
+        self.squelch_level_combobox.setCurrentText(f'{self.squelch_level} dB')
+        self.squelch_level_combobox.currentTextChanged.connect(self.on_squelch_level_changed)
+        self.squelch_level_combobox.setToolTip(
+            'How far above the noise an RTTY signal has to be for the squelch to open,\n'
+            'and for AFC to follow it while the squelch is on.')
+        frame_grid.addWidget(self.squelch_level_combobox, 0, 1)
+        self.snr_label = QLabel()
+        self.snr_label.setFont(self.font())
+        self.snr_label.setToolTip('How far the strongest RTTY signal near the K4\'s tones is above\n'
+                                  'the noise, on the receiver AFC follows.')
+        # As wide as it will ever be, so the window doesn't change size.
+        self.snr_label.setMinimumWidth(QFontMetrics(self.font()).horizontalAdvance(' S/N 99 dB '))
+        frame_grid.addWidget(self.snr_label, 0, 2)
         self.squelch_timer = QTimer(self.squelch_button)
         self.squelch_timer.timeout.connect(self.squelch_check)
         self.set_squelch(self.squelch_on)
+        # Always running, for the S/N shown, whether the squelch is on or
+        # not.
+        self.squelch_timer.start(self.squelch_check_ms)
+        self.show_snr(None)
+
+    def on_squelch_level_changed(self, text):
+        try:
+            self.squelch_level = int(text.split()[0])
+        except (ValueError, IndexError):
+            return
+        Server.settings.put_save(self.settings_section, 'squelch_level', self.squelch_level)
+
+    def show_snr(self, snr):
+        self.snr_label.setText(' S/N --' if snr == None else f' S/N {max(snr, 0):.0f} dB')
 
     def threshold_cmds(self, digit):
         # Each receiver's TD with the threshold changed, whether it decodes
@@ -14810,6 +14852,12 @@ class RTTY(Digital):
     # behind the radio, before looking again. Which way RIT moves the
     # tones depends on the sideband, DATA's or DATA REV's: if a move
     # makes things worse, the other way, remembered for that mode.
+    #
+    # A pair is followed only if it is at least the squelch's level above
+    # the noise while the squelch is on, or afc_min_snr_db while it is
+    # off (see afc_measure), and only once two looks in a row have found
+    # it within afc_agree_hz of the same place: noise passes for a pair
+    # now and then, but hardly ever twice in the same place.
     afc_shift_hz = 170
     afc_search_hz = 250
     afc_window_seconds = .8
@@ -14817,9 +14865,10 @@ class RTTY(Digital):
     afc_settle_seconds = 1.3
     afc_deadband_hz = 4
     afc_gain = .8
-    # How far above the noise the pair has to be to be followed, and how
-    # near each other the two tones' strengths, so that a carrier isn't.
-    afc_snr = 4
+    afc_min_snr_db = 6
+    afc_agree_hz = 10
+    # How near each other the two tones' strengths have to be, so that a
+    # carrier isn't taken for a pair.
     afc_balance = .2
     default_mark_hz = 915
 
@@ -14846,6 +14895,7 @@ class RTTY(Digital):
         bg = 'yellow' if on else self.bg
         self.afc_button.setStyleSheet(qt_button_stylesheet(bg, self.fg, self.abg, self.afg))
         self.afc_last = None
+        self.afc_pending = None
         for audio in self.afc_audio:
             audio.clear()
         if on:
@@ -14864,8 +14914,16 @@ class RTTY(Digital):
         return mark + self.afc_shift_hz / 2
 
     def afc_measure(self, samples, target):
-        # Where the middle of the RTTY pair is, in hertz, or None where
-        # there isn't one clearly enough.
+        # Where the middle of the likeliest RTTY pair is, in hertz, and how
+        # far above the noise its weaker tone is, in dB; or None where
+        # there is no audio to go by, or the two tones are too unequal to
+        # be a pair.
+        #
+        # The noise is measured as fldigi measures it, halfway between the
+        # two tones: inside the K4's filter, however narrow, where an RTTY
+        # signal puts little. Measured across the whole search instead,
+        # most of it outside a 300 Hz filter and nearly silent, it came
+        # out far too low, and noise alone passed for a pair.
         rate = self.k4_sample_rate
         if len(samples) < rate // 2:
             return None
@@ -14882,12 +14940,18 @@ class RTTY(Digital):
         centres = numpy.arange(low, high + 1)
         lower, upper = tone[centres - half], tone[centres + half]
         best = int(numpy.argmax(lower + upper))
-        noise = numpy.median(tone[low - half:high + half + 1])
-        if noise <= 0 or min(lower[best], upper[best]) < self.afc_snr * noise:
+        weaker = min(lower[best], upper[best])
+        if weaker < self.afc_balance * max(lower[best], upper[best]):
             return None
-        if min(lower[best], upper[best]) < self.afc_balance * max(lower[best], upper[best]):
+        noise = tone[centres[best]]
+        if noise <= 0 or weaker <= 0:
             return None
-        return float(centres[best])
+        return float(centres[best]), float(10 * numpy.log10(weaker / noise))
+
+    def signal_level(self):
+        # The S/N a pair has to have to be believed: the squelch's level
+        # while it is on.
+        return self.squelch_level if self.squelch_on else self.afc_min_snr_db
 
     def afc_receiver(self):
         # The sub's, decoding it alone; otherwise the main's.
@@ -14896,13 +14960,21 @@ class RTTY(Digital):
     def afc_error(self, index):
         # How far the RTTY pair coming in is from the K4's tones, in
         # hertz of audio, or None where there isn't one clearly enough.
+        measured = self.measure_receiver(index)
+        if measured == None:
+            return None
+        centre, snr = measured
+        if snr < self.signal_level():
+            return None
+        return centre - self.afc_target()
+
+    def measure_receiver(self, index):
+        # afc_measure of that receiver's latest audio.
         chunks = list(self.afc_audio[index])
         if not chunks:
             return None
         samples = numpy.concatenate(chunks)[-int(self.afc_window_seconds * self.k4_sample_rate):]
-        target = self.afc_target()
-        centre = self.afc_measure(samples, target)
-        return None if centre == None else centre - target
+        return self.afc_measure(samples, self.afc_target())
 
     def afc_direction(self, index):
         # Which way RIT, or the VFO, moves the tones in this mode.
@@ -14936,6 +15008,7 @@ class RTTY(Digital):
         server.send_cmds(f'{frequency_base}{frequency + offset:011d};RO{vfo}+0000;')
         # AFC starts again from there, once the audio has caught up.
         self.afc_last = None
+        self.afc_pending = None
         self.afc_wait_until = time.monotonic() + self.afc_settle_seconds
         for audio in self.afc_audio:
             audio.clear()
@@ -14952,6 +15025,14 @@ class RTTY(Digital):
         error = self.afc_error(index)
         if error == None:
             self.afc_last = None
+            self.afc_pending = None
+            return
+        # Not followed until the look before found it too, in much the
+        # same place.
+        pending = self.afc_pending
+        self.afc_pending = (index, error)
+        if (pending == None or pending[0] != index
+                or abs(pending[1] - error) > self.afc_agree_hz):
             return
         mode = server.k4_parameter('MD$' if index else 'MD') or '6'
         setting = f'afc_direction_{mode}'
@@ -14977,20 +15058,29 @@ class RTTY(Digital):
         server.send_cmds(cmds + f'RO{vfo}{offset:+05d};')
         self.afc_last = (index, error)
         self.afc_wait_until = time.monotonic() + self.afc_settle_seconds
+        self.afc_pending = None
         for audio in self.afc_audio:
             audio.clear()
 
     # Squelch: decoded text shown only while an RTTY signal is coming in
-    # on that receiver -- two tones afc_shift_hz apart near the K4's
-    # (see afc_measure), which noise, a carrier or a voice seldom are.
-    # Every squelch_check_ms the last afc_window_seconds of each
-    # receiver's audio is looked at; a pair found keeps the squelch open
-    # for squelch_hold_seconds. Text that comes while it is closed is
-    # held, and shown if it opens within squelch_hold_seconds, the K4's
+    # on that receiver -- two tones afc_shift_hz apart near the K4's, at
+    # least squelch_level dB above the noise between them (see
+    # afc_measure), which noise, a carrier or a voice seldom are. Every
+    # squelch_check_ms the last afc_window_seconds of each receiver's
+    # audio is looked at; a pair found keeps the squelch open for
+    # squelch_hold_seconds. Text that comes while it is closed is held,
+    # and shown if it opens within squelch_hold_seconds, the K4's
     # decoder being quicker to start than the pair is to be found; text
     # held longer than that is noise, and dropped.
+    #
+    # The level is picked from squelch_levels, as fldigi's squelch is set
+    # against its S/N: the higher it is, the less noise gets through, and
+    # the stronger a signal has to be. Noise alone comes out above 6 dB in
+    # about one look in a hundred, readable RTTY in most.
     squelch_check_ms = 250
     squelch_hold_seconds = 2.0
+    squelch_levels = (3, 4, 5, 6, 7, 8, 10, 12)
+    squelch_level_default = 6
 
     def set_squelch(self, on):
         self.squelch_on = on
@@ -15000,10 +15090,6 @@ class RTTY(Digital):
         self.squelch_button.setStyleSheet(qt_button_stylesheet(bg, self.fg, self.abg, self.afg))
         for held in self.held_text:
             held.clear()
-        if on:
-            self.squelch_timer.start(self.squelch_check_ms)
-        else:
-            self.squelch_timer.stop()
 
     def squelch_open(self, index):
         return time.monotonic() - self.signal_seen[index] < self.squelch_hold_seconds
@@ -15012,13 +15098,13 @@ class RTTY(Digital):
         if not self.is_open:
             return
         now = time.monotonic()
-        target = self.afc_target()
+        shown = self.afc_receiver()
         for index, widget in enumerate((self.main_text, self.sub_text)):
-            chunks = list(self.afc_audio[index])
-            if chunks:
-                samples = numpy.concatenate(chunks)[-int(self.afc_window_seconds * self.k4_sample_rate):]
-                if self.afc_measure(samples, target) != None:
-                    self.signal_seen[index] = now
+            measured = self.measure_receiver(index)
+            if measured != None and measured[1] >= self.squelch_level:
+                self.signal_seen[index] = now
+            if index == shown:
+                self.show_snr(None if measured == None else measured[1])
             held = self.held_text[index]
             while held and now - held[0][0] >= self.squelch_hold_seconds:
                 held.popleft()
