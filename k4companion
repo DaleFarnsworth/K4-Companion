@@ -5414,6 +5414,25 @@ class Panadapter(QDialog):
                                   # on_span_requested.
     span_choices_khz = (6, 10, 20, 50, 100, 150, 200, 250, 300, 350, 368)
     colormap = None               # built once, shared by every window
+    # The waterfall's colours, from the weakest to the strongest: a dark
+    # blue background, with signals standing out of it in yellow. The
+    # colours span the waterfall's own lowest to highest (see
+    # _push_waterfall_row), which puts the noise well up the range --
+    # most of it below two thirds of the way, measured against real PAN
+    # frames, the lowest being a dip well under the rest -- so the blue
+    # carries on that far, and the yellow comes in quickly above it,
+    # passing only briefly through the dull olive that lies between the
+    # two. Quickly, too, so that a weak signal, just above the noise,
+    # shows in a dim yellow of its own rather than a slightly lighter
+    # blue; any sooner and the noise's own peaks speckle the background.
+    waterfall_colors = (
+        (0.0, (0, 0, 48)),
+        (0.58, (0, 16, 96)),
+        (0.64, (0, 30, 130)),
+        (0.7, (150, 140, 20)),
+        (0.82, (250, 225, 0)),
+        (1.0, (255, 255, 90)),
+    )
     child_mode = False            # True in the panadapter subprocess
     child_geometry = None         # see save_geometry()
     child_splitter_sizes = None   # see save_splitter_sizes()
@@ -5490,6 +5509,12 @@ class Panadapter(QDialog):
     def receiver_of(response):
         # The receiver a response with a $ variant is for.
         return 'sub' if cmd_base(response).endswith('$') else 'main'
+
+    @classmethod
+    def waterfall_colormap(cls):
+        positions = [position for position, color in cls.waterfall_colors]
+        colors = [color for position, color in cls.waterfall_colors]
+        return pyqtgraph.ColorMap(positions, colors)
 
     @classmethod
     def on_span_changed(cls, response):
@@ -6039,7 +6064,7 @@ class Panadapter(QDialog):
         self.waterfall_img = pyqtgraph.ImageItem()
         self.waterfall_plot.addItem(self.waterfall_img)
         if Panadapter.colormap is None:
-            Panadapter.colormap = pyqtgraph.colormap.get('inferno').getLookupTable(0.0, 1.0, 256)
+            Panadapter.colormap = Panadapter.waterfall_colormap().getLookupTable(0.0, 1.0, 256)
         self.waterfall_img.setLookupTable(Panadapter.colormap)
         self.waterfall_plot.setXLink(self.trace_plot)
         # Same VFO A/B markers as the trace (see freq_line_a/b above),
