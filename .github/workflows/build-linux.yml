@@ -1,0 +1,109 @@
+# Builds the Linux installer, k4companion-linux-<arch>.run, on runners
+# for x86_64 PCs and for 64-bit ARM, such as a Raspberry Pi 4 or 5 with
+# a 64-bit OS.
+#
+# Run it by hand from the Actions tab (Build Linux, Run workflow) or
+# with "gh workflow run build-linux.yml --ref <branch>"; the installers
+# are then under the run's Artifacts.
+#
+# Each is a self-extracting shell script (made with makeself) holding
+# the program PyInstaller builds and tools/linux/install.sh, which it
+# runs: "sh k4companion-linux-x86_64.run" installs it for yourself, and
+# "sudo sh k4companion-linux-x86_64.run" for everyone.
+#
+# Built on Ubuntu 22.04, the oldest runner there is, since a program
+# built against one glibc runs where it is that or newer, not older.
+
+name: Build Linux
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 3.13 or later is needed for the encrypted connection on port 9204.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      # The libraries Qt's X11 support needs, so that PyInstaller finds
+      # and bundles them: libxcb-cursor0 in particular is missing from
+      # many desktops. The -dev packages and makeself are for the build
+      # alone: the first for building python-rtmidi and hidapi where
+      # there's no wheel for them, the last for the installer. Not
+      # PortAudio, until the program is built: PyInstaller's hook for
+      # sounddevice would bundle it, and what it needs, where the program
+      # is to use the system's (see the spec).
+      - name: Install the system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 \
+              libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+              libxcb-xinerama0 libxcb-xkb1 libegl1 \
+              libasound2-dev libjack-jackd2-dev libusb-1.0-0-dev libudev-dev \
+              pkg-config makeself
+
+      # As for Windows. Pillow is for the build alone: it turns the .ico
+      # into the .png a desktop entry's icon is.
+      - name: Install the Python packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pillow PyQt6 pyqtgraph pyyaml opuslib numpy sounddevice \
+              PySocks python-rtmidi pyserial hidapi
+
+      - name: Read the version
+        id: version
+        run: |
+          version=$(sed -n '/version =/{s/^[^"]*"//;s/".*//p;q}' example_config_files/k4companion.yaml)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version $version"
+
+      # As ./run does: the configuration copied into the program, so that
+      # it needs no file of its own.
+      - name: Embed the configuration
+        run: python tools/add_data_variable -i k4companion -o k4companion.py example_config_files/k4companion.yaml
+
+      - name: Build the program
+        run: pyinstaller --noconfirm tools/k4companion.spec
+
+      # That it starts, everything it imports found, with PortAudio and
+      # Opus installed as a user would have them: --help is answered
+      # after the imports, and without a display, offscreen being Qt's
+      # way of drawing to none.
+      - name: Check the program starts
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          sudo apt-get install -y --no-install-recommends libportaudio2 libopus0
+          dist/k4companion/k4companion --help
+
+      - name: Build the installer
+        run: |
+          mkdir installer
+          cp -R dist/k4companion installer/
+          cp tools/linux/install.sh installer/
+          python -c "from PIL import Image; Image.open('Windows/k4companion.ico').save('installer/k4companion.png')"
+          makeself --nox11 installer "dist/k4companion-linux-${{ matrix.arch }}.run" \
+              "K4 Companion ${{ steps.version.outputs.version }}" ./install.sh
+
+      - name: Keep the installer with the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: k4companion-linux-${{ matrix.arch }}
+          path: dist/*.run
