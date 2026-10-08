@@ -23,6 +23,8 @@ name: Build Linux
 
 on:
   workflow_dispatch:
+  # From release.yml, which puts what it builds in a release.
+  workflow_call:
 
 permissions:
   contents: read
