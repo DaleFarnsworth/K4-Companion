@@ -22,10 +22,10 @@ jobs:
         shell: bash
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 3.13 or later is needed for the encrypted connection on port 9204.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
 
@@ -65,7 +65,7 @@ jobs:
           mv k4companion-installer.exe dist/k4companion-installer.exe
 
       - name: Keep the files with the run
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: k4companion-windows
           path: dist/*.exe
