@@ -52,6 +52,10 @@ else:
 a = Analysis(
     [os.path.join(root, 'k4companion.py')],
     binaries=[opus],
+    # The K-Pod's module, which the program imports by a name in a
+    # variable, so that PyInstaller can't see it (see where the program
+    # imports it).
+    hiddenimports=['hid'],
     # The other Qt bindings, so that pyqtgraph's hook picks PyQt6 even
     # where they are installed too.
     excludes=['tkinter', 'PyQt5', 'PySide2', 'PySide6'],
