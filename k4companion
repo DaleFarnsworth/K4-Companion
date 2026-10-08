@@ -249,15 +249,42 @@ _tight_combobox_delegate = _TightComboBoxDelegate()
 
 def qt_tighten_combobox_popup(combobox):
     combobox.setItemDelegate(_tight_combobox_delegate)
+    if sys.platform == 'darwin':
+        qt_fit_combobox_popup(combobox)
+        model = combobox.model()
+        refit = lambda *args, combobox=combobox: qt_fit_combobox_popup(combobox)
+        for signal in (model.rowsInserted, model.rowsRemoved, model.modelReset, model.dataChanged):
+            signal.connect(refit)
+
+# Room in a macOS popup beside the text: the check mark's column on the
+# left and a margin on the right.
+macos_popup_allowance = 32
+
+def qt_fit_combobox_popup(combobox):
+    # macOS only: there the popup is a menu laid over the box, as wide as
+    # the box, with a column for the check mark the others don't have,
+    # so a box sized to its widest value cut every item in the menu short
+    # -- 'CW-R…', 'B…s' for Bypass, and in the SSNR levels nothing but
+    # '…'. The view at least as wide as its widest item is what widens
+    # the menu, which won't come in narrower than its view. Followed as
+    # the items change, through the model's signals (see
+    # qt_tighten_combobox_popup).
+    view = combobox.view()
+    fm = QFontMetrics(view.font())
+    widest = max((fm.horizontalAdvance(combobox.itemText(i)) for i in range(combobox.count())), default=0)
+    width = widest + macos_popup_allowance
+    if combobox.count() > combobox.maxVisibleItems():
+        width += view.verticalScrollBar().sizeHint().width()
+    view.setMinimumWidth(width)
 
 def qt_fit_combobox_width(combobox):
-    # Windows only: with qt_combobox_stylesheet applied, Qt's own
+    # Windows and macOS: with qt_combobox_stylesheet applied, Qt's own
     # sizeHint() comes up about 10px short there, clipping the widest
     # value -- as Dropdown_Widget's own +10 allows for. Called again
     # whenever the items change, so the width follows them; hence
     # AdjustToContents, without which the hint isn't recomputed once
     # the box has been shown.
-    if sys.platform != 'win32':
+    if sys.platform not in ('win32', 'darwin'):
         return
     combobox.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
     combobox.setMinimumWidth(combobox.sizeHint().width() + 10)
@@ -313,10 +340,22 @@ def qt_combobox_stylesheet(bg, fg, selectbg, selectfg):
     # rather than folded into win32's own DropdownWidget-local margin:
     # every combobox built through this function gets it, not just
     # DropdownWidget's.
+    #
+    # darwin likewise, for a different reason: there, padding alone left
+    # the native bezel in place, macOS's own up-down arrows and all,
+    # drawn beside the ::drop-down arrow here and taking the room the
+    # text had been measured for, so that values such as '0 dB' and
+    # 'Yes' were half covered. A border is what has Qt draw the whole
+    # box itself instead; a thin one, the window behind being near
+    # enough the box's own colour that without one it wouldn't show.
     if sys.platform == 'win32':
         padding = '0px 0px 0px 1px'
         border = 'border: 0px;'
         arrow_width = 9
+    elif sys.platform == 'darwin':
+        padding = '0px 1px 0px 2px'
+        border = 'border: 1px solid #a0a0a0; border-radius: 3px;'
+        arrow_width = 12
     else:
         padding = '0px 1px 0px 2px'
         border = ''
@@ -3655,15 +3694,9 @@ class DropdownWidget():
         if height == 0:
             height = len(texts)
 
-        if sys.platform == 'darwin':
-            # Untested platform-specific chrome allowance -- left as the
-            # character-width approximation it always was. See the win32
-            # comment below for why that approximation doesn't hold up.
-            width += 6 * QFontMetrics(font).averageCharWidth()
-
-        # After the platform chrome above, so an explicit width is a
-        # floor under what the box actually comes out at rather than
-        # under the text alone.
+        # A floor under what the box comes out at, not under the text
+        # alone: on Windows and macOS, where the chrome is added below
+        # from Qt's own sizeHint(), that can only widen it further.
         if explicit_width != None:
             width = max(width,
                         explicit_width * QFontMetrics(font).averageCharWidth())
@@ -3683,7 +3716,11 @@ class DropdownWidget():
         self.combobox.setMaxVisibleItems(max(height, 1))
         self.set_bg(self.bg)
 
-        if sys.platform == 'win32':
+        if sys.platform in ('win32', 'darwin'):
+            # macOS as well, which once had a character-width guess of
+            # its own here, never tried there, that came up short of the
+            # macOS chrome. The same holds as below.
+            #
             # `width` above is exact text advance for the widest
             # selection alone, with nothing for the chrome
             # qt_combobox_stylesheet reserves on top of it (the 12px
