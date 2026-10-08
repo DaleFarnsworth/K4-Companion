@@ -72,13 +72,24 @@ jobs:
           pyinstaller --noconfirm tools/k4companion.spec
 
       # The app beside a link to Applications, to be dragged onto it.
+      # hdiutil now and then fails on the runners with "Resource busy",
+      # something else briefly holding the image it is making, and goes
+      # through when tried again a little later; so it is tried up to
+      # five times, a while apart.
       - name: Build the .dmg
         run: |
           mkdir dmg
           cp -R "dist/K4 Companion.app" dmg/
           ln -s /Applications dmg/Applications
-          hdiutil create -volname "K4 Companion" -srcfolder dmg -ov -format UDZO \
-              "dist/k4companion-macos-${{ matrix.arch }}.dmg"
+          dmg="dist/k4companion-macos-${{ matrix.arch }}.dmg"
+          for attempt in 1 2 3 4 5; do
+              if hdiutil create -volname "K4 Companion" -srcfolder dmg -ov -format UDZO "$dmg"; then
+                  exit 0
+              fi
+              echo "hdiutil failed (attempt $attempt); trying again"
+              sleep $((attempt * 10))
+          done
+          exit 1
 
       - name: Keep the .dmg with the run
         uses: actions/upload-artifact@v7
