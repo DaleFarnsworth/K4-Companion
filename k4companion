@@ -5668,6 +5668,7 @@ class Panadapter(QDialog):
         for text, value in (('Track', 5), ('Fixed1', 0), ('Fixed2', 1),
                             ('Slide1', 2), ('Slide2', 4), ('Static', 3)):
             self.fixed_tune_combobox.addItem(text, value)
+        qt_fit_combobox_width(self.fixed_tune_combobox)
         ref_center_row_layout.addWidget(self.fixed_tune_combobox, 0, Qt.AlignmentFlag.AlignTop)
         # Freeze/Unfreeze (#FRZ;) -- shared between main/sub (no #FRZ$
         # variant), like FPS/#SCL, so a change here is reflected on
@@ -5885,6 +5886,11 @@ class Panadapter(QDialog):
         combobox.activated.connect(on_activated)
         combobox.setStyleSheet(
             qt_combobox_stylesheet('white', 'black', '#ccc', 'black'))
+        # Wide enough for its widest item on Windows, where the
+        # stylesheet otherwise leaves Scale, Span and FPS too narrow to
+        # show their values (see qt_fit_combobox_width). A box given its
+        # items later is fitted again then.
+        qt_fit_combobox_width(combobox)
         qt_tighten_combobox_popup(combobox)
         return combobox
 
