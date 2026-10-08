@@ -57,8 +57,11 @@ a = Analysis(
     # imports it).
     hiddenimports=['hid'],
     # The other Qt bindings, so that pyqtgraph's hook picks PyQt6 even
-    # where they are installed too.
-    excludes=['tkinter', 'PyQt5', 'PySide2', 'PySide6'],
+    # where they are installed too. Where there's no splash screen (see
+    # below), its module too: it is there to be imported all the same,
+    # and says at length that it has no splash screen to close, where
+    # without it close_splash_screen() quietly finds nothing to do.
+    excludes=['tkinter', 'PyQt5', 'PySide2', 'PySide6'] + (['pyi_splash'] if macos else []),
 )
 a.binaries = [entry for entry in a.binaries if used(entry)]
 a.datas = [entry for entry in a.datas if used(entry)]
