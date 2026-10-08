@@ -929,6 +929,7 @@ class Server():
         # connection is even attempted -- it fires after, not before.
         self.subscribe_received_initial_parameters(
             lambda server: PanadapterProcess.restore_open_windows())
+        self.subscribe_received_initial_parameters(BandScale.start)
 
     def on_error_code(self, response):
         response = response.rstrip(';')
@@ -7212,6 +7213,64 @@ class PanadapterMonitorThread(QThread):
 
     def run(self):
         self.process.monitor_loop()
+
+class BandScale():
+    # The panadapter's Scale (#SCL), remembered for each band of the main
+    # receiver (BN) and put back when the band changes to one it was set
+    # on: a band whose signals run strong wants a taller scale than one
+    # where they are weak. #SCL is the K4's own, shared by both
+    # receivers' panadapters, so this works whether or not a panadapter
+    # window is open, and follows a scale set from the window, by its
+    # Autoscale or on the K4 itself alike. Kept in the K4's own
+    # settings, as pan_scale_band_<nn>, so each K4 has its own.
+    #
+    # The band the K4 is on when the connection is made is only noted,
+    # its scale left as the K4 has it: put back then, a scale set on the
+    # K4 while K4 Companion was away would be undone.
+    band = None
+
+    @classmethod
+    def start(cls, server):
+        cls.band = None
+        server.subscribe_response('BN;', cls.on_band)
+        server.subscribe_response('#SCL;', cls.on_scale)
+
+    @staticmethod
+    def setting(band):
+        return f'pan_scale_band_{band}'
+
+    @classmethod
+    def on_band(cls, response):
+        band = cmd_parameter(response)
+        if not band.isdigit():
+            return
+        if cls.band == None or band == cls.band:
+            cls.band = band
+            return
+        cls.band = band
+        try:
+            scale = Server.settings.getint(Server.k4_section, cls.setting(band), None,
+                                           minimum=Panadapter.scale_min, maximum=Panadapter.scale_max)
+        except ValueError:
+            return
+        if scale == None:
+            return
+        current = Server.k4_server.k4_parameter('#SCL')
+        if current != None and current.isdigit() and int(current) == scale:
+            return
+        Server.k4_server.send_cmds(f'#SCL{scale};')
+
+    @classmethod
+    def on_scale(cls, response):
+        if cls.band == None:
+            return
+        try:
+            scale = int(float(cmd_parameter(response)))
+        except ValueError:
+            return
+        setting = cls.setting(cls.band)
+        if Server.settings.get(Server.k4_section, setting) != str(scale):
+            Server.settings.put_save(Server.k4_section, setting, str(scale))
 
 class PanadapterProcess(QObject):
     # Parent-side handle for one panadapter subprocess.
