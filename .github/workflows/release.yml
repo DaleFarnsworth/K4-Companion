@@ -1,6 +1,9 @@
-# Builds K4 Companion for Windows, macOS and Linux, with the three build
-# workflows, and puts what they build in a draft GitHub release, for the
-# tag that started it, to be looked over and published by hand.
+# Builds K4 Companion for Windows and Linux, with their build workflows,
+# and puts what they build in a draft GitHub release, for the tag that
+# started it, to be looked over and published by hand. Not macOS: this
+# branch's PyInstaller spec doesn't build the macOS app (its splash
+# screen is the Windows one, which PyInstaller doesn't do on macOS), so
+# on macOS K4 Companion is run from its Python source.
 #
 # Started by pushing a tag v<version>, the version being the one in
 # example_config_files/k4companion.yaml:
@@ -55,15 +58,12 @@ jobs:
   windows:
     needs: check
     uses: ./.github/workflows/build-windows.yml
-  macos:
-    needs: check
-    uses: ./.github/workflows/build-macos.yml
   linux:
     needs: check
     uses: ./.github/workflows/build-linux.yml
 
   release:
-    needs: [check, windows, macos, linux]
+    needs: [check, windows, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -96,7 +96,7 @@ jobs:
           cat > notes.md <<'EOF'
           **Windows:** `k4companion-installer.exe` installs K4 Companion, with Start menu and desktop shortcuts if you choose. `k4companion.exe` runs it without installing, and `k4companion-debug.exe` is the same with a console window for `-d` and `--da` output.
 
-          **macOS:** `k4companion-macos-arm64.dmg` for Apple Silicon Macs, and `k4companion-macos-x86_64.dmg` for Intel Macs. See `K4-Companion-MacOS-installation.pdf`.
+          **macOS:** run K4 Companion from its Python source, as `K4-Companion-MacOS-installation.pdf` describes.
 
           **Linux:** `sh k4companion-linux-x86_64.run` installs it for yourself, or `sudo sh k4companion-linux-x86_64.run` for everyone; `k4companion-linux-aarch64.run` is for 64-bit ARM, such as a Raspberry Pi running 64-bit Raspberry Pi OS Trixie. The x86_64 one needs glibc 2.35 or later (Ubuntu 22.04 or later, say), and the ARM one glibc 2.39 or later.
 
