@@ -1,0 +1,114 @@
+# Builds K4 Companion for Windows, macOS and Linux, with the three build
+# workflows, and puts what they build in a draft GitHub release, for the
+# tag that started it, to be looked over and published by hand.
+#
+# Started by pushing a tag v<version>, the version being the one in
+# example_config_files/k4companion.yaml:
+#
+#   git tag -a v2.1 -m "Version 2.1"
+#   git push origin v2.1
+#
+# or for a tag already pushed, with "gh workflow run release.yml --ref
+# v2.1". A version with a hyphen in it (2.1-rc4, say) is marked a
+# pre-release. Run again for the same tag, it replaces the draft's files
+# with the new ones.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # That it was started for a tag, and the one for the version the
+  # program says it is, so that the release, its tag and the program
+  # agree: checked first, so that nothing is built for the wrong one.
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      TAG: ${{ github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag
+        id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" != tag ]; then
+              echo "::error::Run this for a tag (v<version>), not a branch"
+              exit 1
+          fi
+          version=$(sed -n '/version =/{s/^[^"]*"//;s/".*//p;q}' example_config_files/k4companion.yaml)
+          if [ "$TAG" != "v$version" ]; then
+              echo "::error::Tag $TAG is not v$version, the version in k4companion.yaml"
+              exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  windows:
+    needs: check
+    uses: ./.github/workflows/build-windows.yml
+  macos:
+    needs: check
+    uses: ./.github/workflows/build-macos.yml
+  linux:
+    needs: check
+    uses: ./.github/workflows/build-linux.yml
+
+  release:
+    needs: [check, windows, macos, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.check.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: release
+          merge-multiple: true
+
+      # The manuals beside them, from the tagged commit: the spaces in
+      # their names made hyphens, which GitHub would otherwise turn into
+      # dots.
+      - name: Add the manuals
+        run: |
+          for manual in Documentation/*.pdf; do
+              name=$(basename "$manual")
+              cp "$manual" "release/${name// /-}"
+          done
+
+      - name: Make the draft release
+        run: |
+          ls -l release
+          cat > notes.md <<'EOF'
+          **Windows:** `k4companion-installer.exe` installs K4 Companion, with Start menu and desktop shortcuts if you choose. `k4companion.exe` runs it without installing, and `k4companion-debug.exe` is the same with a console window for `-d` and `--da` output.
+
+          **macOS:** `k4companion-macos-arm64.dmg` for Apple Silicon Macs, and `k4companion-macos-x86_64.dmg` for Intel Macs. See `K4-Companion-MacOS-installation.pdf`.
+
+          **Linux:** `sh k4companion-linux-x86_64.run` installs it for yourself, or `sudo sh k4companion-linux-x86_64.run` for everyone; `k4companion-linux-aarch64.run` is for 64-bit ARM, such as a Raspberry Pi running 64-bit Raspberry Pi OS Trixie. The x86_64 one needs glibc 2.35 or later (Ubuntu 22.04 or later, say), and the ARM one glibc 2.39 or later.
+
+          `K4-Companion-User-Manual.pdf` is the User Manual, with what is new in its revision history, and `K4-Companion-Windows-Quick-Start.pdf` a page on getting started on Windows.
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" release/* --clobber
+          else
+              prerelease=
+              case "$VERSION" in
+              *-*) prerelease=--prerelease ;;
+              esac
+              gh release create "$TAG" release/* --draft --verify-tag $prerelease \
+                  --title "K4 Companion $VERSION" --notes-file notes.md
+          fi
