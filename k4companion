@@ -5753,6 +5753,12 @@ class Panadapter(QDialog):
         self.ref_start_time = None
         self.ref_bottom = None
 
+        # "Autoscale" button: sets Scale (#SCL) so that the strongest
+        # signal the trace has shown over the last autoscale_seconds
+        # reaches about halfway up its range -- see on_autoscale_button.
+        # The peak of each displayed frame, with when it was drawn.
+        self.trace_peaks = collections.deque(maxlen=200)
+
         # A span/antenna/center-frequency change doesn't take effect in
         # the K4's PAN stream immediately -- frames captured right
         # after one still reflect the old span, antenna's noise floor,
@@ -5932,6 +5938,10 @@ class Panadapter(QDialog):
         span_fps_row = QWidget()
         span_fps_row_layout = QHBoxLayout(span_fps_row)
         span_fps_row_layout.setContentsMargins(0, 0, 0, 0)
+        # Autoscale beside the Scale it sets, level with the dropdowns
+        # rather than with their labels above them.
+        self.autoscale_button = self._make_button('Autoscale', self.on_autoscale_button)
+        span_fps_row_layout.addWidget(self.autoscale_button, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
         for frame in (scale_frame, span_frame, fps_frame, avg_frame):
             span_fps_row_layout.addWidget(frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
@@ -6462,6 +6472,7 @@ class Panadapter(QDialog):
         # frame's own full-resolution data.
         trace_data = self._rolling_average(self.trace_history, data)
         self.trace_curve.setData(self.xs, trace_data)
+        self.trace_peaks.append((time.perf_counter(), float(trace_data.max())))
         if self.ref_capturing:
             self._accumulate_ref(trace_data)
         self._push_waterfall_row(data)
@@ -6554,6 +6565,32 @@ class Panadapter(QDialog):
         self.ref_sum = 0.0
         self.ref_count = 0
         self.ref_start_time = time.perf_counter()
+
+    # How far back on_autoscale_button looks for the strongest signal,
+    # and the fraction of the trace's height it puts it at.
+    autoscale_seconds = 3.0
+    autoscale_fraction = 0.5
+
+    def on_autoscale_button(self):
+        # Once, not continuously: Scale is set from the strongest signal
+        # of the last autoscale_seconds, measured from the bottom of the
+        # trace as it stands (a Ref bottom, or _update_vscale's own), so
+        # that the signal reaches autoscale_fraction of the way up.
+        # Rounded to Scale's own steps of 5 dB, and shown at once rather
+        # than when _update_vscale next comes round, which goes on
+        # using it once the K4 reports it back (see on_scale_changed).
+        since = time.perf_counter() - self.autoscale_seconds
+        peaks = [peak for when, peak in self.trace_peaks if when >= since]
+        if not peaks:
+            return
+        bottom = self.trace_plot.viewRange()[1][0]
+        height = max(peaks) - bottom
+        if height <= 0:
+            return
+        scale_db = 5 * round(height / self.autoscale_fraction / 5)
+        scale_db = max(Panadapter.scale_min, min(Panadapter.scale_max, scale_db))
+        self.request_scale(scale_db)
+        self.trace_plot.setYRange(bottom, bottom + scale_db, padding=0)
 
     def schedule_ref_reset(self):
         # See _ref_reset_timer's own comment (in __init__) for why
