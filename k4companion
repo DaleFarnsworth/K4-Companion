@@ -222,17 +222,18 @@ _tight_combobox_delegate = _TightComboBoxDelegate()
 def qt_tighten_combobox_popup(combobox):
     combobox.setItemDelegate(_tight_combobox_delegate)
 
-def qt_fit_combobox_width(combobox):
+def qt_fit_combobox_width(combobox, margin=10):
     # Windows only: with qt_combobox_stylesheet applied, Qt's own
     # sizeHint() comes up about 10px short there, clipping the widest
     # value -- as Dropdown_Widget's own +10 allows for. Called again
     # whenever the items change, so the width follows them; hence
     # AdjustToContents, without which the hint isn't recomputed once
-    # the box has been shown.
+    # the box has been shown. A caller wanting more room than the bare
+    # minimum (the panadapter's controls) passes a larger margin.
     if sys.platform != 'win32':
         return
     combobox.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-    combobox.setMinimumWidth(combobox.sizeHint().width() + 10)
+    combobox.setMinimumWidth(combobox.sizeHint().width() + margin)
 
 def qt_list_width(listwidget, texts, font):
     # The width that shows a QListWidget's widest item and its
@@ -5099,6 +5100,9 @@ class Panadapter(QDialog):
     frames_per_second = 12       # updated from #FPS
     fps_min = 1                  # #FPS's valid range per the K4
     fps_max = 30                 # Programmer's Reference (#FPSnn;, 01-30)
+    combobox_margin = 20         # Room past sizeHint() for this window's
+                                  # dropdowns -- more than the Main tab's
+                                  # 10, which leaves these too cramped.
     waterfall_rows = 120         # = waterfall_seconds * frames_per_second
     frozen = False                # updated from #FRZ; (0=running, 1=frozen)
     fxa = None                    # updated from #FXA; (DDC Fixed Tune Mode,
@@ -5668,7 +5672,7 @@ class Panadapter(QDialog):
         for text, value in (('Track', 5), ('Fixed1', 0), ('Fixed2', 1),
                             ('Slide1', 2), ('Slide2', 4), ('Static', 3)):
             self.fixed_tune_combobox.addItem(text, value)
-        qt_fit_combobox_width(self.fixed_tune_combobox)
+        qt_fit_combobox_width(self.fixed_tune_combobox, Panadapter.combobox_margin)
         ref_center_row_layout.addWidget(self.fixed_tune_combobox, 0, Qt.AlignmentFlag.AlignTop)
         # Freeze/Unfreeze (#FRZ;) -- shared between main/sub (no #FRZ$
         # variant), like FPS/#SCL, so a change here is reflected on
@@ -5890,7 +5894,7 @@ class Panadapter(QDialog):
         # stylesheet otherwise leaves Scale, Span and FPS too narrow to
         # show their values (see qt_fit_combobox_width). A box given its
         # items later is fitted again then.
-        qt_fit_combobox_width(combobox)
+        qt_fit_combobox_width(combobox, Panadapter.combobox_margin)
         qt_tighten_combobox_popup(combobox)
         return combobox
 
@@ -6425,6 +6429,7 @@ class Panadapter(QDialog):
             if value not in choices:
                 combobox.addItem(str(value))
                 dynamic = value
+            qt_fit_combobox_width(combobox, Panadapter.combobox_margin)
         text = str(value)
         if combobox.currentText() != text:
             combobox.setCurrentText(text)
