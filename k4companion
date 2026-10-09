@@ -13100,8 +13100,13 @@ class SerialInput():
 
     @classmethod
     def set_port_name(cls, name):
+        # A new serial number has the next poll open the port, even the
+        # one already chosen: choosing again a port that wouldn't open
+        # tries it again, and says so again if it still won't.
         cls.port_name = name
         cls.port_serial_number += 1
+        if cls.singleton != None:
+            cls.singleton.warned = False
         Settings.main().put_save('Keyer', 'serial_input_device', name)
 
     @classmethod
@@ -13139,10 +13144,11 @@ class SerialInput():
         try:
             self.port = serial.Serial(self.port_name, rtscts=False, dsrdtr=False)
         except serial.SerialException:
+            self.port = None
             if not self.warned:
                 self.warned = True
                 KeyerWarning.warning("Serial device {name} open failed".format(name=self.port_name))
-                return
+            return
 
         self.warned = False
         KeyerWarning.clear()
