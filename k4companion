@@ -5760,7 +5760,7 @@ class Panadapter(QDialog):
         self.ref_start_time = None
         self.ref_bottom = None
 
-        # "Autoscale" button: sets Scale (#SCL) so that the strongest
+        # "AS" (Autoscale) button: sets Scale (#SCL) so that the strongest
         # signal the trace has shown over the last autoscale_seconds
         # reaches about halfway up its range -- see on_autoscale_button.
         # The peak of each displayed frame, with when it was drawn.
@@ -5965,7 +5965,10 @@ class Panadapter(QDialog):
         span_fps_row_layout.setContentsMargins(0, 0, 0, 0)
         # Autoscale beside the Scale it sets, level with the dropdowns
         # rather than with their labels above them.
-        self.autoscale_button = self._make_button('Autoscale', self.on_autoscale_button)
+        self.autoscale_button = self._make_button('AS', self.on_autoscale_button)
+        self.autoscale_button.setToolTip(
+            'Autoscale: sets Scale so that the strongest signals of the\n'
+            'last few seconds reach about halfway up the trace.')
         span_fps_row_layout.addWidget(self.autoscale_button, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
         for frame in (scale_frame, span_frame, fps_frame, avg_frame, waterfall_threshold_frame):
             span_fps_row_layout.addWidget(frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
