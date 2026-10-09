@@ -12851,8 +12851,12 @@ class MidiInput():
 
     @classmethod
     def set_port_name(cls, name):
+        # As SerialInput's: choosing again a port that won't open says
+        # so again if it still won't.
         cls.port_name = name
         cls.port_serial_number += 1
+        if cls.singleton != None:
+            cls.singleton.warned = False
         Settings.main().put_save('Keyer', 'midi_input_device', name)
 
     @classmethod
