@@ -5433,7 +5433,7 @@ class Panadapter(QDialog):
     waterfall_colors = (
         (0.0, (0, 0, 48)),
         (0.58, (0, 16, 96)),
-        (0.64, (0, 30, 130)),
+        (0.64, (0, 30, 130)),   # waterfall_threshold_position
         (0.7, (150, 140, 20)),
         (0.82, (250, 225, 0)),
         (1.0, (255, 255, 90)),
@@ -5942,6 +5942,24 @@ class Panadapter(QDialog):
         self.avg_combobox.setCurrentText(str(self.avg_count))
         avg_frame = self._combobox_group('Avg', self.avg_combobox)
 
+        # WF -- how far above the noise a signal has to be to show on the
+        # waterfall (see _push_waterfall_row). Local and per-window, like
+        # Avg.
+        self.waterfall_threshold_combobox = self._make_combobox(
+            [str(v) for v in Panadapter.waterfall_threshold_choices_db],
+            self.on_waterfall_threshold_selected)
+        self.waterfall_threshold_db = Server.settings.getint(
+            'Window', f'Panadapter.{self.receiver}.waterfall_threshold_db',
+            Panadapter.waterfall_threshold_default_db,
+            minimum=Panadapter.waterfall_threshold_choices_db[0],
+            maximum=Panadapter.waterfall_threshold_choices_db[-1])
+        self.waterfall_threshold_combobox.setCurrentText(str(self.waterfall_threshold_db))
+        self.waterfall_threshold_combobox.setToolTip(
+            'How far above the noise, in dB, a signal has to be to show in\n'
+            'yellow on the waterfall: lower shows weaker signals, higher\n'
+            'only the stronger ones.')
+        waterfall_threshold_frame = self._combobox_group('WF', self.waterfall_threshold_combobox)
+
         span_fps_row = QWidget()
         span_fps_row_layout = QHBoxLayout(span_fps_row)
         span_fps_row_layout.setContentsMargins(0, 0, 0, 0)
@@ -5949,7 +5967,7 @@ class Panadapter(QDialog):
         # rather than with their labels above them.
         self.autoscale_button = self._make_button('Autoscale', self.on_autoscale_button)
         span_fps_row_layout.addWidget(self.autoscale_button, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
-        for frame in (scale_frame, span_frame, fps_frame, avg_frame):
+        for frame in (scale_frame, span_frame, fps_frame, avg_frame, waterfall_threshold_frame):
             span_fps_row_layout.addWidget(frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         self.controls_frame = QWidget()
@@ -6790,6 +6808,13 @@ class Panadapter(QDialog):
         if self.fps_combobox.currentText() != text:
             self.fps_combobox.setCurrentText(text)
 
+    def on_waterfall_threshold_selected(self, index):
+        threshold_db = self._item_int(self.waterfall_threshold_combobox, index)
+        if threshold_db == None:
+            return
+        self.waterfall_threshold_db = threshold_db
+        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.waterfall_threshold_db', threshold_db)
+
     def on_avg_selected(self, index):
         avg_count = self._item_int(self.avg_combobox, index)
         if avg_count == None:
@@ -7151,18 +7176,20 @@ class Panadapter(QDialog):
         resized[-keep:] = self.waterfall_buf[-keep:]
         self.waterfall_buf = resized
 
-    # The waterfall's colours (see waterfall_colors) span from
-    # waterfall_below_noise_db under the noise floor to the strongest
-    # signal in it, but never to less than waterfall_above_noise_db over
-    # the noise floor. Spanning the waterfall's own lowest to highest
-    # instead, as they once did, left the noise where it fell: well down
-    # the range on a busy band, but on a quiet one, with no strong
-    # signal to stretch the range, near the top of it, so that the noise
-    # itself was speckled yellow. Measured against busy real PAN frames,
-    # these two put the noise exactly where the lowest and highest did
-    # there. The noise floor is each row's median, followed smoothly
-    # (waterfall_noise_smoothing of each new row), so that the colours
-    # don't flicker with it.
+    # The waterfall's colours (see waterfall_colors) span
+    # waterfall_span_db, placed by the noise floor: so that a signal the
+    # window's WF setting (waterfall_threshold_db) above the noise lands
+    # at waterfall_threshold_position, where the colours turn from blue
+    # to yellow. Weaker shows blue, stronger yellow, and a signal far
+    # stronger than that the brightest yellow. Placed by the waterfall's
+    # own lowest and highest instead, as they once were, the colours
+    # left the noise where it fell: well down the range on a busy band,
+    # but on a quiet one, with no strong signal to stretch the range,
+    # near the top of it, so that the noise itself was speckled yellow.
+    # The default, 6 dB, puts the noise where the lowest and highest
+    # did on busy real PAN frames. The noise floor is each row's median,
+    # followed smoothly (waterfall_noise_smoothing of each new row), so
+    # that the colours don't flicker with it.
     #
     # Each row is first smoothed a little: averaged with the frame
     # before it, and each bin with the one either side. The K4's PAN
@@ -7172,8 +7199,10 @@ class Panadapter(QDialog):
     # waterfall yellow; smoothed, the noise stays blue while signals,
     # which hold steady from frame to frame and span more than a bin,
     # are hardly changed. The trace and mini-pan are left as they were.
-    waterfall_below_noise_db = 30.0
-    waterfall_above_noise_db = 26.0
+    waterfall_span_db = 56.0
+    waterfall_threshold_position = 0.64
+    waterfall_threshold_choices_db = tuple(range(1, 11))
+    waterfall_threshold_default_db = 6
     waterfall_noise_smoothing = 0.1
 
     def _push_waterfall_row(self, data):
@@ -7190,8 +7219,9 @@ class Panadapter(QDialog):
             self.waterfall_noise = noise
         else:
             self.waterfall_noise += (noise - self.waterfall_noise) * self.waterfall_noise_smoothing
-        low = self.waterfall_noise - self.waterfall_below_noise_db
-        high = max(float(numpy.nanmax(self.waterfall_buf)), self.waterfall_noise + self.waterfall_above_noise_db)
+        threshold = self.waterfall_noise + self.waterfall_threshold_db
+        low = threshold - self.waterfall_threshold_position * self.waterfall_span_db
+        high = low + self.waterfall_span_db
         self.waterfall_img.setImage(self.waterfall_buf.T, autoLevels=False, levels=(low, high))
 
 # Panadapter subprocess IPC.
