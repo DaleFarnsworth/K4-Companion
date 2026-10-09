@@ -11271,6 +11271,22 @@ class CWText(QPlainTextEdit):
     def set(self, value):
         self.setPlainText(value)
 
+class _ShowHideFilter(QObject):
+    # Calls on_show and on_hide as the widget it filters is shown and
+    # hidden: a tab page is shown while it is the current tab of a
+    # window that is open, and hidden otherwise.
+    def __init__(self, on_show, on_hide):
+        super().__init__()
+        self.on_show = on_show
+        self.on_hide = on_hide
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Show:
+            self.on_show()
+        elif event.type() == QEvent.Type.Hide:
+            self.on_hide()
+        return False
+
 class _CWKeyFilter(QObject):
     # CW's tkinter version routed *any* keypress within the window (while
     # the CW tab is active) to either the delayed-tx entry field or
@@ -12008,6 +12024,9 @@ class CW(TextButtons):
         self.keying_frame = QWidget()
         keying_grid = QGridLayout(self.keying_frame)
         self.add_tab(self.keying_frame, 'Keying')
+        self._keying_show_filter = _ShowHideFilter(SerialInput.start_polling,
+                                                   SerialInput.stop_polling)
+        self.keying_frame.installEventFilter(self._keying_show_filter)
 
         keying_grid.addWidget(self.keying_settings_frame, 0, 0,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -13020,6 +13039,7 @@ class VailAdapter():
 class SerialInput():
     singleton = None
     poll_interval = 1000        # check for new devices every 1 seconds
+    keying_tab_open = False
     port_infos = None
     port_names = None
     port_name = 'None'
@@ -13054,6 +13074,21 @@ class SerialInput():
         cls.singleton = None
         Poll.remove(self.poll_new_device)
         self.close_port()
+
+    @classmethod
+    def start_polling(cls):
+        # The ports are looked for all the time only while the Keying
+        # tab, where they are chosen, is open. Otherwise they are looked
+        # for only while the chosen one isn't open, so that it is opened
+        # once it is there: at startup, or when it is plugged back in.
+        cls.keying_tab_open = True
+        self = cls.singleton
+        if self != None:
+            self.poll_new_device()
+
+    @classmethod
+    def stop_polling(cls):
+        cls.keying_tab_open = False
 
     @classmethod
     def release_port(cls):
@@ -13119,6 +13154,14 @@ class SerialInput():
             return
         # Do we need to close/reopen if the port_index changes?
         cls = self.__class__
+
+        if self.port != None and not self.signal_thread.is_alive():
+            # signal_loop has stopped reading it: the device went away.
+            self.close_port()
+            cls.previous_port_serial_number = -1
+
+        if not cls.keying_tab_open and (self.port != None or self.port_name == 'None'):
+            return              # see start_polling
 
         port_infos = serial.tools.list_ports.comports()
         if port_infos != self.port_infos:
