@@ -12996,7 +12996,6 @@ class SerialInput():
     poll_interval = 1000        # check for new devices every 1 seconds
     port_infos = None
     port_names = None
-    bad_port_name_dict = {}
     port_name = 'None'
     port = None
     port_updater = None
@@ -13046,14 +13045,16 @@ class SerialInput():
 
     @classmethod
     def available_ports(cls):
+        # Every port there is, whether or not it can be opened: they are
+        # listed, not tried. Opening each one to find out, as was once
+        # done whenever the Keying tab was built, serial keyer or no,
+        # toggled its DTR and RTS lines -- resetting an Arduino and the
+        # like on it -- and left out any port another program held at
+        # the time, for as long as K4 Companion ran. One that won't open
+        # is reported when chosen instead (see open_port).
         if not cls.port_names:
             return None
-        names = []
-        for name in cls.port_names:
-            if name not in cls.bad_port_name_dict:
-                names.append(name)
-
-        return names
+        return list(cls.port_names)
 
     @classmethod
     def set_port_updater(cls, port_updater):
@@ -13071,18 +13072,7 @@ class SerialInput():
         port_name = Settings.main().get('Keyer', 'serial_input_device', 'None')
         self.__class__.set_port_name(port_name)
         self.warned = False
-        self.mark_bad_devices()
         Poll.add(self.poll_interval, self.poll_new_device)
-
-    def mark_bad_devices(self):
-        port_infos = serial.tools.list_ports.comports()
-        port_names = [info.device for info in sorted(port_infos)]
-        for port_name in port_names:
-            try:
-                port = serial.Serial(port_name, rtscts=False, dsrdtr=False)
-                port.close()
-            except serial.SerialException:
-                self.__class__.bad_port_name_dict[port_name] = True
 
     def open_port(self, name):
         try:
