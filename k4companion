@@ -13486,6 +13486,12 @@ class Keyer():
         server.unsubscribe_response('KZL;', self.on_keydown_initial_delay_change)
 
         if self.keyer_thread:
+            # Let go of first, for a burst under way: the paddles' device
+            # may already be closed (see Server.close), and the release
+            # that would end the burst is then never coming, so the join
+            # below waited for ever, with the keyer sending all the
+            # while.
+            cls.release_paddles()
             self.send_paddle_event(self.CLOSE_EVENT, 0)
             self.keyer_thread.join()
 
