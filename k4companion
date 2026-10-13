@@ -6924,11 +6924,15 @@ class Panadapter(QDialog):
             if Panadapter.is_am_mode(self.receiver):
                 bw_hz *= 2
         freq_hz = self._rx_freq_hz()
-        bw_key = (freq_hz, bw_hz, mode)
+        space_offset_hz = Panadapter.rtty_space_offset_hz(self.receiver)
+        bw_key = (freq_hz, bw_hz, mode, space_offset_hz)
         if bw_key == self.bw_key:
             return
         self.bw_key = bw_key
-        if mode in ('2', '6'):        # USB, DATA: passband is above center.
+        if space_offset_hz != None:   # RTTY: centered on the mark and space tones.
+            centre_hz = freq_hz + space_offset_hz / 2
+            region = (centre_hz - bw_hz / 2, centre_hz + bw_hz / 2)
+        elif mode in ('2', '6'):      # USB, DATA: passband is above center.
             region = (freq_hz, freq_hz + bw_hz)
         elif mode in ('1', '9'):      # LSB, DATA-R: passband is below center.
             region = (freq_hz - bw_hz, freq_hz)
