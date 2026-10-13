@@ -13237,6 +13237,21 @@ class SerialInput():
         if Keyer.straight_keying:
             debounce_time = .020
 
+        # How the lines stand as the port opens is where they rest, not a
+        # paddle closing: only a change from it is reported. A port with
+        # nothing on it can read with its lines asserted -- DSR and DCD
+        # both, on a PC's own serial port -- and reported as closed, that
+        # was both paddles held, and a squeeze keyed for ever whenever
+        # the keyer was there to hear it before the port opened, as it
+        # can be when a connection is made after one that failed.
+        try:
+            self.dit_state = signal_funcs[Keyer.dit_paddle_signal]()
+            self.dah_state = signal_funcs[Keyer.dah_paddle_signal]() and not Keyer.straight_keying
+        except (OSError, AttributeError):
+            return
+        self.dit_time = None
+        self.dah_time = None
+
         while port_name == self.port_name and self.port:
             try:
                 dit_state = signal_funcs[Keyer.dit_paddle_signal]()
