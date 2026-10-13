@@ -5459,6 +5459,13 @@ class Panadapter(QDialog):
                                   # (see is_cw_mode) and to trigger an
                                   # automatic Ref capture on change --
                                   # see on_mode_changed.
+    data_sub_mode = {'main': None, 'sub': None}
+                                  # DATA's sub-mode, from DT;/DT$; ('1' =
+                                  # AFSK A, '2' = FSK D, the two RTTY
+                                  # ones). Used for the mini-pan's
+                                  # RTTY tuning lines -- see
+                                  # rtty_space_offset_hz.
+    rtty_shift_hz = 170
     antenna = {'main': None, 'sub': None}
                                   # RX antenna selection, from AR;/AR$;
                                   # (deprecated AR8/AR$8 changelog entry
@@ -5626,6 +5633,24 @@ class Panadapter(QDialog):
     def is_cw_mode(cls, receiver):
         # '3' = CW, '7' = CW-R (see the yaml's mode dropdown selections).
         return cls.mode[receiver] in ('3', '7')
+
+    @classmethod
+    def rtty_space_offset_hz(cls, receiver):
+        # Where the space tone is from the VFO, in RTTY (DATA or DATA
+        # REV, AFSK A or FSK D), or None in any other mode. The VFO shows
+        # the mark frequency, and the space is rtty_shift_hz below it in
+        # DATA, which is LSB, and above it in DATA REV (see
+        # RTTY.tone_centre_signs).
+        if cls.data_sub_mode[receiver] not in ('1', '2'):
+            return None
+        sign = {'6': -1, '9': 1}.get(cls.mode[receiver])
+        if sign == None:
+            return None
+        return sign * cls.rtty_shift_hz
+
+    @classmethod
+    def on_data_sub_mode_changed(cls, response):
+        cls.data_sub_mode[cls.receiver_of(response)] = cmd_parameter(response)
 
     @classmethod
     def is_am_mode(cls, receiver):
@@ -5861,6 +5886,12 @@ class Panadapter(QDialog):
         self.freq_line_minipan = self._add_freq_line(self.minipan_plot,
                                                      self.vfo_a_color)
         self.freq_line_minipan.setVisible(False)
+        # In RTTY, the line above is on the mark tone, and this second
+        # one on the space tone -- see _update_minipan_freq_line.
+        self.freq_line_minipan_space_hz = None
+        self.freq_line_minipan_space = self._add_freq_line(self.minipan_plot,
+                                                           self.vfo_a_color)
+        self.freq_line_minipan_space.setVisible(False)
         # Click to tune, same as the trace below -- the mini-pan's own
         # axis is in real Hz too (centered on _rx_freq_hz), so the same
         # scene-to-frequency mapping works unchanged. Its narrow span
@@ -7103,16 +7134,23 @@ class Panadapter(QDialog):
         self._update_minipan_freq_line(freq_hz)
 
     def _update_minipan_freq_line(self, freq_hz):
-        if freq_hz == self.freq_line_minipan_hz:
-            return
-        self.freq_line_minipan_hz = freq_hz
-        self.freq_line_minipan.setPos(freq_hz)
+        if freq_hz != self.freq_line_minipan_hz:
+            self.freq_line_minipan_hz = freq_hz
+            self.freq_line_minipan.setPos(freq_hz)
+        offset_hz = Panadapter.rtty_space_offset_hz(self.receiver)
+        space_hz = None if offset_hz == None else freq_hz + offset_hz
+        if space_hz != self.freq_line_minipan_space_hz:
+            self.freq_line_minipan_space_hz = space_hz
+            if space_hz != None:
+                self.freq_line_minipan_space.setPos(space_hz)
+            self.freq_line_minipan_space.setVisible(space_hz != None and self.minipan_enabled)
 
     def set_minipan_enabled(self, enabled):
         if enabled == self.minipan_enabled:
             return
         self.minipan_enabled = enabled
         self.freq_line_minipan.setVisible(enabled)
+        self.freq_line_minipan_space.setVisible(enabled and self.freq_line_minipan_space_hz != None)
         self.minipan_bw_region.setVisible(enabled)
         if enabled:
             # Copy the trace's current shading across immediately (see
@@ -7443,7 +7481,9 @@ class PanadapterProcess(QObject):
     #       trigger an automatic Ref capture on the sub panadapter when
     #       the sub receiver is turned on/off -- see
     #       Panadapter.on_sub_receiver_changed.
-    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#SCL', '#FRZ', '#FXA', '#FXT', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', 'AR', 'AR$', 'AN', 'SB')
+    #   DT/DT$  DATA's sub-mode, for the mini-pan's RTTY tuning lines --
+    #       see Panadapter.rtty_space_offset_hz.
+    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#SCL', '#FRZ', '#FXA', '#FXT', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', 'AR', 'AR$', 'AN', 'SB', 'DT', 'DT$')
 
     @classmethod
     def open_window(cls, receiver):
@@ -7978,6 +8018,8 @@ class PanadapterChannel(QObject):
         'AR$': Panadapter.on_antenna_changed,
         'AN': Panadapter.on_tx_antenna_changed,
         'SB': Panadapter.on_sub_receiver_changed,
+        'DT': Panadapter.on_data_sub_mode_changed,
+        'DT$': Panadapter.on_data_sub_mode_changed,
     }
 
     def on_message(self, msg_type, payload):
