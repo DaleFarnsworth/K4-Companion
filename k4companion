@@ -5841,8 +5841,9 @@ class Panadapter(QDialog):
         self.bw_key = None
 
         # Frequency line positions -- see _update_freq_line.
-        self.freq_line_a_hz = None
-        self.freq_line_b_hz = None
+        # As (frequency, space offset) -- see _update_freq_line.
+        self.freq_line_a_key = None
+        self.freq_line_b_key = None
 
         label = 'Sub' if receiver == 'sub' else 'Main'
         if Page.top != None:
@@ -6107,6 +6108,12 @@ class Panadapter(QDialog):
         # VFO B (sub receiver, FB) is green.
         self.freq_line_a = self._add_freq_line(self.trace_plot, self.vfo_a_color)
         self.freq_line_b = self._add_freq_line(self.trace_plot, self.vfo_b_color)
+        # In RTTY, each VFO's line is on its mark tone, and a second one
+        # on its space tone, as on the mini-pan -- see _move_vfo_lines.
+        self.freq_line_a_space = self._add_freq_line(self.trace_plot, self.vfo_a_color)
+        self.freq_line_b_space = self._add_freq_line(self.trace_plot, self.vfo_b_color)
+        self.freq_line_a_space.setVisible(False)
+        self.freq_line_b_space.setVisible(False)
         # Left/right/center frequency overlay, same idea as the
         # mini-pan's delta labels above -- see _update_trace_labels.
         self.trace_left_label = self._make_overlay_label(self.trace_plot)
@@ -6155,6 +6162,12 @@ class Panadapter(QDialog):
                                                          self.vfo_a_color)
         self.freq_line_b_waterfall = self._add_freq_line(self.waterfall_plot,
                                                          self.vfo_b_color)
+        self.freq_line_a_waterfall_space = self._add_freq_line(self.waterfall_plot,
+                                                               self.vfo_a_color)
+        self.freq_line_b_waterfall_space = self._add_freq_line(self.waterfall_plot,
+                                                               self.vfo_b_color)
+        self.freq_line_a_waterfall_space.setVisible(False)
+        self.freq_line_b_waterfall_space.setVisible(False)
         # Once a VFO's frequency holds steady for freq_line_waterfall_stable_ms,
         # hide just the waterfall's copy of its line -- the trace's own
         # freq_line_a/freq_line_b stays put -- so a stopped-on frequency
@@ -6162,9 +6175,11 @@ class Panadapter(QDialog):
         # history. Single-shot and restarted (not stacked) on every
         # change, same debounce pattern as _ref_reset_timer above.
         self.freq_line_a_waterfall_timer = self._single_shot_timer(
-            lambda: self.freq_line_a_waterfall.setVisible(False))
+            lambda: (self.freq_line_a_waterfall.setVisible(False),
+                     self.freq_line_a_waterfall_space.setVisible(False)))
         self.freq_line_b_waterfall_timer = self._single_shot_timer(
-            lambda: self.freq_line_b_waterfall.setVisible(False))
+            lambda: (self.freq_line_b_waterfall.setVisible(False),
+                     self.freq_line_b_waterfall_space.setVisible(False)))
         # Y range is set explicitly (see push_frame, alongside
         # waterfall_img.setRect()) rather than left to pyqtgraph's
         # default auto-range, which pads a few percent above and below
@@ -6956,30 +6971,49 @@ class Panadapter(QDialog):
         return freq_hz if freq_hz != None else self.last_center_hz
 
     def _update_freq_line(self):
-        vfo_a_hz = Panadapter.rx_freq_hz['main']
-        if vfo_a_hz != self.freq_line_a_hz:
-            self.freq_line_a_hz = vfo_a_hz
-            self._move_vfo_lines(vfo_a_hz, self.freq_line_a,
-                                 self.freq_line_a_waterfall,
+        # VFO A's lines follow the main receiver's mode, and VFO B's the
+        # sub receiver's.
+        vfo_a_key = (Panadapter.rx_freq_hz['main'],
+                     Panadapter.rtty_space_offset_hz('main'))
+        if vfo_a_key != self.freq_line_a_key:
+            self.freq_line_a_key = vfo_a_key
+            self._move_vfo_lines(*vfo_a_key,
+                                 (self.freq_line_a, self.freq_line_a_space),
+                                 (self.freq_line_a_waterfall,
+                                  self.freq_line_a_waterfall_space),
                                  self.freq_line_a_waterfall_timer)
-        vfo_b_hz = Panadapter.rx_freq_hz['sub']
-        if vfo_b_hz != self.freq_line_b_hz:
-            self.freq_line_b_hz = vfo_b_hz
-            self._move_vfo_lines(vfo_b_hz, self.freq_line_b,
-                                 self.freq_line_b_waterfall,
+        vfo_b_key = (Panadapter.rx_freq_hz['sub'],
+                     Panadapter.rtty_space_offset_hz('sub'))
+        if vfo_b_key != self.freq_line_b_key:
+            self.freq_line_b_key = vfo_b_key
+            self._move_vfo_lines(*vfo_b_key,
+                                 (self.freq_line_b, self.freq_line_b_space),
+                                 (self.freq_line_b_waterfall,
+                                  self.freq_line_b_waterfall_space),
                                  self.freq_line_b_waterfall_timer)
 
     @staticmethod
-    def _move_vfo_lines(vfo_hz, line, waterfall_line, waterfall_timer):
+    def _move_vfo_lines(vfo_hz, space_offset_hz, lines, waterfall_lines,
+                        waterfall_timer):
         # A VFO's marker on the trace and its copy on the waterfall, the
         # copy shown until the frequency has held still a while. Hidden
-        # both where the frequency is not known.
+        # both where the frequency is not known. Each is a pair: the
+        # line at the VFO, and the one on the space tone, in RTTY (see
+        # Panadapter.rtty_space_offset_hz), which is hidden otherwise.
+        line, space_line = lines
+        waterfall_line, waterfall_space_line = waterfall_lines
         visible = vfo_hz != None
+        space_visible = visible and space_offset_hz != None
         line.setVisible(visible)
         waterfall_line.setVisible(visible)
+        space_line.setVisible(space_visible)
+        waterfall_space_line.setVisible(space_visible)
         if visible:
             line.setPos(vfo_hz)
             waterfall_line.setPos(vfo_hz)
+            if space_visible:
+                space_line.setPos(vfo_hz + space_offset_hz)
+                waterfall_space_line.setPos(vfo_hz + space_offset_hz)
             waterfall_timer.start(Panadapter.freq_line_waterfall_stable_ms)
         else:
             waterfall_timer.stop()
@@ -7020,10 +7054,15 @@ class Panadapter(QDialog):
         # might not fire -- show the line directly here instead, so
         # every click reveals it for a couple of seconds regardless.
         if self.receiver == 'main':
-            line, timer = self.freq_line_a_waterfall, self.freq_line_a_waterfall_timer
+            line, space_line, timer = (self.freq_line_a_waterfall,
+                                       self.freq_line_a_waterfall_space,
+                                       self.freq_line_a_waterfall_timer)
         else:
-            line, timer = self.freq_line_b_waterfall, self.freq_line_b_waterfall_timer
+            line, space_line, timer = (self.freq_line_b_waterfall,
+                                       self.freq_line_b_waterfall_space,
+                                       self.freq_line_b_waterfall_timer)
         line.setVisible(True)
+        space_line.setVisible(Panadapter.rtty_space_offset_hz(self.receiver) != None)
         timer.start(Panadapter.freq_line_waterfall_stable_ms)
 
     def on_minipan_clicked(self, event):
