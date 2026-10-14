@@ -1,4 +1,99 @@
+v2.0.3:
+    Restore each window on the monitor it was left on
+       Every window's saved position was pulled back within the primary
+       screen as it was restored, so one left on another monitor always came
+       back on the primary one. It is now pulled back within the screen most
+       of it was on, and onto the primary screen only where it is on none of
+       them, a monitor having been unplugged.
+   
+    Let the paddles go before waiting for the keyer to close
+       A burst under way when the keyer closed was waited for, and the
+       release that ends it is never coming where the paddles' device has
+       already been closed, as Server.close does first. The keyer went on
+       sending, and the app had to be killed. The paddles are now let go of
+       before the wait, so the burst ends at the element after.
+   
+    Don't take a serial port's lines as they stand at opening for paddles
+       A serial port with nothing on it can read with its lines asserted: a
+       PC's own serial port reads DSR and DCD both, which are the dit and dah
+       paddles by default. Reported as closed, that was both paddles held,
+       and whenever the keyer was open before the port, as it can be when a
+       connection is made after one that failed, the K4 was keyed with a
+       squeeze of dits and dahs for as long as the app ran. The lines as the
+       port opens are now taken as where they rest, and only a change from
+       that is reported.
+   
+    Warn again when a MIDI port that won't open is chosen again
+       A MIDI port that wouldn't open is tried again every second, but its
+       warning was given only the first time. Choosing the port again now
+       warns again if it still won't open, as a serial port does.
+   
+    Retry a serial port that failed to open when it is chosen again
+       A serial port that wouldn't open was not tried again until its device
+       went away and came back. Choosing the port again now tries it again,
+       and warns again if it still won't open. A failed open also no longer
+       starts a thread to read the port that was never opened.
+   
+    Look for serial ports only when needed
+       The serial keyer listed the serial ports every second for as long as
+       it was the device type. List them every second only while the Keying
+       tab, where the port is chosen, is open, or while the chosen port isn't
+       open, so that it is opened when it appears: at startup, or when it is
+       plugged back in. A port whose device has gone away is now closed, so
+       that it is opened again when it comes back.
+   
+    Draw the waterfall in yellow on a dark blue background
+       The waterfall's colours were pyqtgraph's inferno, orange-red. They are
+       now a dark blue background with signals in yellow, from a table of
+       colours in Panadapter.waterfall_colors. The waterfall's colours span
+       its own lowest to highest, which puts the noise about halfway up, so
+       the blue carries on through the lower two thirds and the yellow comes
+       in quickly above that, rather than the two being blended evenly,
+       which made the background a speckled olive.
+   
+    Accept numeric values in split_cmd
+       YAML parses "delay: 100" as an int, and split_cmd() failed on
+       cmd[-1]. Convert the value to a string first so numeric delays work.
+   
+    Fix undefined names in receive loop and command expansion
+       cat_only_recv_loop had "contineu" instead of "continue", so when
+       select() reported a socket error and lost_connection() retried, a
+       NameError killed the receive thread.
+       
+       send_cmds_with_server's 'delay' branch read the undefined cmd_dict;
+       use the split value in cmds instead. That branch was unreachable
+       because expand_cmds' dict and list paths called ret.append() with
+       two arguments; append a [name, cmds] pair as the str path does.
+   
+v2.0.2:
+    Version 2.0.2
+
+    Stop opening every serial port when the Keying tab is built
+       To leave out ports that couldn't be opened, the serial keyer opened
+       and closed each serial port on the computer whenever the CW window's
+       Keying tab was built, whether or not a serial keyer was in use. That
+       toggled each port's DTR and RTS lines, which resets an Arduino and the
+       like, and a port another program held at the time was left out of the
+       list for as long as K4 Companion ran.
+       
+       The ports are now listed without being opened. One that won't open is
+       reported when it is chosen, as it already was.
+   
+    Widen the panadapter window's dropdowns on Windows
+       Fitted with the Main tab's 10px margin, the panadapter's dropdowns
+       were still too narrow for their values. qt_fit_combobox_width now
+       takes the margin as an argument, defaulting to 10 so the Main tab is
+       unchanged, and the panadapter passes its own combobox_margin of 20.
+       Scale and Span are also refitted when a value outside their presets
+       is added.
+   
 v2.0.1:
+    Update Windows executables
+
+    Version v2.0.1
+
+    Update changelog for v2.0.1
+
     Fit the panadapter window's dropdowns to their values on Windows
        The panadapter window made its dropdowns without
        qt_fit_combobox_width, so on Windows Scale, Span and FPS were too
