@@ -13278,10 +13278,7 @@ class SSTV(Widget):
         if geometry == None:
             return
         w, h, x, y = split_geometry(geometry)
-        screen = QApplication.primaryScreen().availableGeometry()
-        x = max(0, min(x, screen.width() - w))
-        y = max(0, min(y, screen.height() - h))
-        self.top_level.move(x, y)
+        self.top_level.move(*qt_place_on_screen(x, y, w, h))
 
     def save_geometry(self):
         top = self.top_level
