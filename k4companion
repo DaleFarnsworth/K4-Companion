@@ -72,7 +72,7 @@ import time
 import traceback
 import yaml
 
-from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, pyqtSignal, QThread, qInstallMessageHandler, QCoreApplication
+from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, QRect, pyqtSignal, QThread, qInstallMessageHandler, QCoreApplication
 from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat, QCursor
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
@@ -369,6 +369,27 @@ def qt_size_tight_groupbox_title(frame, title, font):
     # title, and 1px border on each side.
     fm = QFontMetrics(font)
     frame.setMinimumWidth(fm.horizontalAdvance(title) + 12)
+
+def qt_place_on_screen(x, y, w, h):
+    # Where a window w by h saved at x, y is to go back to: on the
+    # screen most of it was on, pulled back within that screen and never
+    # past its top left. The primary screen where it is on none of them
+    # now, a monitor having been unplugged. Positions are on the
+    # desktop the screens make up together, so a window left on another
+    # monitor goes back to it; pulled within the primary screen alone,
+    # as every window once was, it always came back on that.
+    saved = QRect(x, y, w, h)
+    screen = QApplication.primaryScreen()
+    most = 0
+    for candidate in QApplication.screens():
+        overlap = candidate.geometry().intersected(saved)
+        area = 0 if overlap.isEmpty() else overlap.width() * overlap.height()
+        if area > most:
+            screen, most = candidate, area
+    area = screen.availableGeometry()
+    x = max(area.left(), min(x, area.left() + area.width() - w))
+    y = max(area.top(), min(y, area.top() + area.height() - h))
+    return x, y
 
 def qt_top_level_parent():
     # On Windows, any top-level widget created with a Qt parent becomes a
@@ -2187,8 +2208,6 @@ class Page(Container):
             self.server.send_cmds('TRT;')
 
     def set_geometry(self):
-        screen = QApplication.primaryScreen().availableGeometry()
-        screen_width, screen_height = screen.width(), screen.height()
         # Sizing itself is handled continuously by MainWindow's
         # SetFixedSize layout constraint; this only positions the window.
         Page.top.adjustSize()
@@ -2200,19 +2219,10 @@ class Page(Container):
             _w, _h, x, y = split_geometry(geometry)
         else:
             # center the main window
-            x = screen_width // 2 - w // 2
-            y = screen_height // 2 - h // 2
-        x_offset = screen_width - (x + w)
-        y_offset = screen_height - (y + h)
-        if x_offset < 0:
-            x += x_offset
-        if y_offset < 0:
-            y += y_offset
-        if x < 0:
-            x = 0
-        if y < 0:
-            y = 0
-        Page.top.move(x, y)
+            screen = QApplication.primaryScreen().availableGeometry()
+            x = screen.x() + screen.width() // 2 - w // 2
+            y = screen.y() + screen.height() // 2 - h // 2
+        Page.top.move(*qt_place_on_screen(x, y, w, h))
 
     def show(self):
         Page.stack.setCurrentWidget(self.top_frame)
@@ -6022,12 +6032,8 @@ class Panadapter(QDialog):
         if geometry == None:
             return
         w, h, x, y = split_geometry(geometry)
-        screen = QApplication.primaryScreen().availableGeometry()
-        # Pulled back onto the screen, and never past its top left.
-        x = max(0, min(x, screen.width() - w))
-        y = max(0, min(y, screen.height() - h))
         self.resize(w, h)
-        self.move(x, y)
+        self.move(*qt_place_on_screen(x, y, w, h))
 
     def save_geometry(self):
         geometry = f'{self.width()}x{self.height()}{self.x():+}{self.y():+}'
@@ -11048,17 +11054,13 @@ and everything after the & is sent.'''
         self.add_config_vars(config_vars_frame)
 
     def set_geometry(self):
-        # Where the window was left, pulled back onto the screen and
-        # never past its top left.
+        # Where the window was left: see qt_place_on_screen.
         Server.settings.load()
         geometry = Server.settings.get('Window', f'{self.settings_section}.geometry')
         if geometry == None:
             return
         w, h, x, y = split_geometry(geometry)
-        screen = QApplication.primaryScreen().availableGeometry()
-        x = max(0, min(x, screen.width() - w))
-        y = max(0, min(y, screen.height() - h))
-        self.top_level.move(x, y)
+        self.top_level.move(*qt_place_on_screen(x, y, w, h))
 
     def save_geometry(self):
         top = self.top_level
@@ -16330,6 +16332,7 @@ def main():
     geometry = Server.settings.get('Window', 'root.geometry')
     if geometry != None:
         w, h, x, y = split_geometry(geometry)
+        x, y = qt_place_on_screen(x, y, w, h)
         top.resize(w, h)
         top.move(x, y)
 
