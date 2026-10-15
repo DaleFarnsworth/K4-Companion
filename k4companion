@@ -8355,9 +8355,13 @@ class Audio():
     @classmethod
     def set_device_name(cls, direction, name):
         # The device to use in that direction, by the name enumeration
-        # gave it. A name that is not among them is left alone: the
-        # device it stands for is not there to be opened.
+        # gave it, or none at all for no_device_name. A name that is not
+        # among them is left alone: the device it stands for is not there
+        # to be opened.
         self = cls.get_singleton()
+        if name == cls.no_device_name:
+            setattr(self, f'{direction}_device_index', -1)
+            return
         device_info = self.device_info_by_name(direction, name)
         if device_info != None:
             setattr(self, f'{direction}_device_index', device_info['index'])
@@ -8390,11 +8394,17 @@ class Audio():
     def output_device_info(cls):
         return cls.device_info('output')
 
+    # The choice of no device at all, in a direction: on output, the
+    # K4's audio and the sidetone played nowhere, and on input, nothing
+    # transmitted from a microphone. Offered first among the devices,
+    # and what a direction with no device to use is shown as.
+    no_device_name = 'None'
+
     @classmethod
     def device_name(cls, direction):
         device_info = cls.device_info(direction)
         if device_info == None:
-            return "None available"
+            return cls.no_device_name
         return device_info['name']
 
     @classmethod
@@ -8420,7 +8430,7 @@ class Audio():
     @classmethod
     def device_names(cls, direction):
         infos = getattr(cls.get_singleton(), f'{direction}_device_infos')
-        return [device_info['name'] for device_info in infos.values()]
+        return [cls.no_device_name] + [device_info['name'] for device_info in infos.values()]
 
     @classmethod
     def input_device_names(cls):
@@ -9222,9 +9232,9 @@ class Audio():
         return None
 
     def start_k4_rx_audio_thread(self):
-        if self.output_device_index < 0:
-            return
-
+        # Whatever the output device, None included: the thread opens
+        # whichever one is chosen later, and decodes the K4's audio for
+        # RTTY and SSTV with none to play it on.
         self.k4_rx_audio_thread = threading.Thread(target=self.k4_rx_audio_loop, name='audio_k4_rx_audio_thread')
         self.k4_rx_audio_thread.start()
 
@@ -9267,98 +9277,103 @@ class Audio():
                         self.output_stream.close()
                         self.output_stream = None
 
-                def try_open_output(extra_settings, blocksize):
-                    retries = 2
-                    for retry in range(retries+1):
-                        try:
-                            stream = sounddevice.OutputStream(
-                                    samplerate=cls.output_device_sample_rate(),
-                                    blocksize=blocksize,
-                                    device=self.output_device_index,
-                                    channels=cls.output_channels,
-                                    dtype='float32',
-                                    extra_settings=extra_settings,
-                                    # Neither 'low' nor 'high': see
-                                    # output_latency. Left unspecified
-                                    # this defaults to 'high',
-                                    # PortAudio's robust-but-slower
-                                    # preset, which can negotiate several
-                                    # times what the device's own
-                                    # low-latency figure asks for.
-                                    latency=self.output_latency(),
-                                    callback=self.output_stream_callback,
-                                    )
-                            stream.start()
-                            return stream
-                        except Exception as e:
-                            # Said, not raised. Every attempt but the
-                            # last has something behind it, and the last
-                            # one's failure is reported by its caller --
-                            # but which of them failed, and with what
-                            # PortAudio had to say about it, is the whole
-                            # of what there is to go on when a device
-                            # will not take exclusive mode.
-                            dprint_audio(f'output stream open failed: {e}')
-                            continue
-                    return None
-
-                attempts = self.open_attempts('output', cls.exclusive_blocksize)
-                # Exclusive attempts come first, so the first one says
-                # whether exclusive mode was asked for at all.
-                wanted_exclusive = attempts[0][1] != None
-                opened_exclusive = False
-                for label, extra_settings, blocksize in attempts:
-                    # Both before the open: the rate settles the block,
-                    # and the block is what the warm-up renders.
-                    self.choose_output_sample_rate(extra_settings)
-                    if blocksize == None:
-                        blocksize = self.frames_per_output_buffer
-                    self.warm_sidetone()
-                    self.output_stream = try_open_output(extra_settings, blocksize)
-                    if self.output_stream == None:
-                        continue
-                    if extra_settings != None and not self.output_stream_playing():
-                        # Opened, started, and asking for nothing: an
-                        # exclusive open that fails this way fails
-                        # silently, in the most literal sense. Only an
-                        # attempt with something left to fall back to is
-                        # asked to prove itself; the shared open is what
-                        # there is, dead or alive.
-                        stream = self.output_stream
-                        dprint_audio(f'output stream opened {label} but never'
-                                     ' asked for a block:'
-                                     f' active={stream.active}'
-                                     f' stopped={stream.stopped}'
-                                     f' samplerate={stream.samplerate}'
-                                     f' blocksize={stream.blocksize}'
-                                     f' latency={stream.latency * 1000:.2f}ms')
-                        with self.output_stream_lock:
-                            self.output_stream.close()
-                            self.output_stream = None
-                        continue
-                    opened_exclusive = extra_settings != None
-                    dprint_audio('output stream opened', label,
-                                 f'blocksize={blocksize}',
-                                 f'latency={self.output_stream.latency * 1000:.2f}ms')
-                    break
-
-                # After the loop, the rate being whatever the attempt
-                # that opened settled on.
-                resample_ratio = int(cls.output_device_sample_rate() /
-                                     cls.k4_sample_rate)
-
-                if self.output_stream != None and wanted_exclusive:
-                    cls.note_exclusive_mode('output', self.output_device_name(),
-                                            opened_exclusive)
-
-                if self.output_stream != None:
-                    warned = False
-                    self.reset_sidetone()
+                if self.output_device_index < 0:
+                    # None chosen: there is nothing to open, and the
+                    # audio, still decoded below, goes no further.
+                    resample_ratio = None
                 else:
-                    if not warned:
-                        Popup.warning('Failed to open: ' + self.output_device_name())
-                        warned = True
-                    continue
+                    def try_open_output(extra_settings, blocksize):
+                        retries = 2
+                        for retry in range(retries+1):
+                            try:
+                                stream = sounddevice.OutputStream(
+                                        samplerate=cls.output_device_sample_rate(),
+                                        blocksize=blocksize,
+                                        device=self.output_device_index,
+                                        channels=cls.output_channels,
+                                        dtype='float32',
+                                        extra_settings=extra_settings,
+                                        # Neither 'low' nor 'high': see
+                                        # output_latency. Left unspecified
+                                        # this defaults to 'high',
+                                        # PortAudio's robust-but-slower
+                                        # preset, which can negotiate several
+                                        # times what the device's own
+                                        # low-latency figure asks for.
+                                        latency=self.output_latency(),
+                                        callback=self.output_stream_callback,
+                                        )
+                                stream.start()
+                                return stream
+                            except Exception as e:
+                                # Said, not raised. Every attempt but the
+                                # last has something behind it, and the last
+                                # one's failure is reported by its caller --
+                                # but which of them failed, and with what
+                                # PortAudio had to say about it, is the whole
+                                # of what there is to go on when a device
+                                # will not take exclusive mode.
+                                dprint_audio(f'output stream open failed: {e}')
+                                continue
+                        return None
+
+                    attempts = self.open_attempts('output', cls.exclusive_blocksize)
+                    # Exclusive attempts come first, so the first one says
+                    # whether exclusive mode was asked for at all.
+                    wanted_exclusive = attempts[0][1] != None
+                    opened_exclusive = False
+                    for label, extra_settings, blocksize in attempts:
+                        # Both before the open: the rate settles the block,
+                        # and the block is what the warm-up renders.
+                        self.choose_output_sample_rate(extra_settings)
+                        if blocksize == None:
+                            blocksize = self.frames_per_output_buffer
+                        self.warm_sidetone()
+                        self.output_stream = try_open_output(extra_settings, blocksize)
+                        if self.output_stream == None:
+                            continue
+                        if extra_settings != None and not self.output_stream_playing():
+                            # Opened, started, and asking for nothing: an
+                            # exclusive open that fails this way fails
+                            # silently, in the most literal sense. Only an
+                            # attempt with something left to fall back to is
+                            # asked to prove itself; the shared open is what
+                            # there is, dead or alive.
+                            stream = self.output_stream
+                            dprint_audio(f'output stream opened {label} but never'
+                                         ' asked for a block:'
+                                         f' active={stream.active}'
+                                         f' stopped={stream.stopped}'
+                                         f' samplerate={stream.samplerate}'
+                                         f' blocksize={stream.blocksize}'
+                                         f' latency={stream.latency * 1000:.2f}ms')
+                            with self.output_stream_lock:
+                                self.output_stream.close()
+                                self.output_stream = None
+                            continue
+                        opened_exclusive = extra_settings != None
+                        dprint_audio('output stream opened', label,
+                                     f'blocksize={blocksize}',
+                                     f'latency={self.output_stream.latency * 1000:.2f}ms')
+                        break
+
+                    # After the loop, the rate being whatever the attempt
+                    # that opened settled on.
+                    resample_ratio = int(cls.output_device_sample_rate() /
+                                         cls.k4_sample_rate)
+
+                    if self.output_stream != None and wanted_exclusive:
+                        cls.note_exclusive_mode('output', self.output_device_name(),
+                                                opened_exclusive)
+
+                    if self.output_stream != None:
+                        warned = False
+                        self.reset_sidetone()
+                    else:
+                        if not warned:
+                            Popup.warning('Failed to open: ' + self.output_device_name())
+                            warned = True
+                        continue
 
                 current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
 
@@ -9367,6 +9382,8 @@ class Audio():
             stereo = opus.decode(bytes(packet[4:]))
             SSTV.feed_audio(stereo)
             RTTY.feed_audio(stereo)
+            if resample_ratio == None:
+                continue                        # no output device
             a = stereo[0::2]                    # even samples are from the main receiver
             b = stereo[1::2]                    # odd samples are from the sub receiver
 
@@ -10417,6 +10434,11 @@ class Audio():
                     input_stream.close()
                     input_stream = None
 
+                if self.input_device_index < 0:
+                    # None chosen while transmitting: nothing more is
+                    # sent from a microphone this transmission.
+                    return
+
                 def try_open_input(extra_settings, blocksize):
                     retries = 2
                     for retry in range(retries+1):
@@ -11131,14 +11153,15 @@ class AppSettings_widget(Widget):
 
     def audio_device_settings(self, direction):
         # Input and output alike, each asking Audio about its own
-        # direction. The device named in the settings, unless there is
-        # no such device to be had, in which case whichever one Audio
-        # settled on instead.
-        device_name = self.device_name_setting(direction)
-        if device_name == None or getattr(Audio, f'{direction}_device_index')() < 0:
-            device_name = getattr(Audio, f'{direction}_device_name')()
-
+        # direction. The device named in the settings, None included,
+        # unless there is no such device to be had, in which case
+        # whichever one Audio settled on instead. A name not in the list
+        # can't be shown: the dropdown stayed on its first entry, which
+        # is None, as though there were no device at all.
         names = getattr(Audio, f'{direction}_device_names')()
+        device_name = self.device_name_setting(direction)
+        if device_name not in names:
+            device_name = getattr(Audio, f'{direction}_device_name')()
 
         return self._labeled_combobox(f'Current {direction.capitalize()} Device',
             names, device_name,
