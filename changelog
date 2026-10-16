@@ -1,4 +1,39 @@
-v2.1-rc13:
+v2.1-rc14:
+    Show popups without taking the keyboard
+       A popup took the keyboard from the main window as it appeared: the
+       space bar, pressed to go back to receive, went to the popup, and once
+       the popup was gone it gave the keyboard back to nothing at all, so the
+       space bar did nothing until something was clicked. Popups are now shown
+       without taking it.
+       
+       A modal popup, which Qt makes the active window whatever it is told,
+       and the password prompt, which has something to type into, still take
+       it while they are up, and now give it back to whichever window of ours
+       had it.
+   
+    Send RTTY's AFSK at a tenth of the level, keeping the level saved
+       As SSTV did, AFSK went out too loud: at the default AFSK Level of 40%
+       the K4's ALC read about 8 bars at its usual settings, where it is to
+       stay just below 5. The level is now a percentage of a tenth of the old
+       full level, so 40% sends what 4% did. It is saved as
+       afsk_level_percent, and an afsk_level saved before is taken as ten
+       times that, so that AFSK goes out as loud as it did, up to the new
+       100%.
+   
+    Send SSTV at a tenth of the level, keeping the Level saved
+       At the default Level of 50%, the K4's ALC read 8 at its usual
+       settings, and a reasonable 5 at 5%, the lowest choice. The Level is
+       now a percentage of a tenth of the old full level, so 50% sends what
+       5% did, with the range above and below it. It is saved as
+       tx_level_percent, and a tx_level saved before is taken as ten times
+       that, to the nearest choice, so that the picture goes out as loud as
+       it did, up to the new 100%. RTTY's AFSK, which shared SSTV's full
+       level, keeps the old one.
+   
+    Version 2.1-rc13
+
+    Update changelog for v2.1-rc13
+
     Offer None as the audio input and output device
        The Audio tab's input and output device dropdowns now offer None,
        first. With no output device, neither the K4's audio nor the sidetone
