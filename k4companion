@@ -16297,6 +16297,30 @@ class StallWatchdog():
             before = now
         faulthandler.cancel_dump_traceback_later()
 
+class _SpaceShortcutFilter(QObject):
+    # Keeps the space bar for Page.space_shortcut, toggling T/R, while
+    # it is enabled -- on the main window's Main tab -- whatever there
+    # has the focus. A line edit claims every key that types, space
+    # included, ahead of the window's shortcuts: with a VFO's frequency
+    # entry or an editable dropdown focused, as clicking a frequency to
+    # tune leaves it, the space bar typed or tidied there instead and
+    # never toggled. The tkinter version's entries passed space on to
+    # the window's own binding, and its editable dropdowns refused it.
+    def eventFilter(self, obj, event):
+        if event.type() != QEvent.Type.ShortcutOverride:
+            return False
+        if (event.key() != Qt.Key.Key_Space or
+                event.modifiers() != Qt.KeyboardModifier.NoModifier):
+            return False
+        shortcut = Page.space_shortcut
+        if shortcut == None or not shortcut.isEnabled():
+            return False
+        if not isinstance(obj, QWidget) or obj.window() is not Page.top:
+            return False
+        # Not taken by the widget, so the shortcut has it.
+        event.ignore()
+        return True
+
 def main():
     # How long a thread may hold the GIL while another waits for it:
     # five milliseconds by default. The output callback is Python and
@@ -16341,6 +16365,8 @@ def main():
     Page.space_shortcut.activated.connect(
         lambda: Page.current().toggle_tr() if Page.current() != None else None)
     Page.space_shortcut.setEnabled(False)
+    Page.space_shortcut_filter = _SpaceShortcutFilter()
+    app.installEventFilter(Page.space_shortcut_filter)
 
     Server.settings = Settings()
     geometry = Server.settings.get('Window', 'root.geometry')
