@@ -1225,10 +1225,6 @@ class Server():
         # TM, while transmitting: ALC, CMP, forward power and SWR, three
         # digits each. ALC past alc_warning_above is warned of once a
         # transmission, the readings coming several times a second.
-        #
-        # Shown without taking the keyboard. Taken, the space bar went
-        # to the warning, and pressed to go back to receive, left the K4
-        # transmitting.
         try:
             alc = int(cmd_parameter(response)[0:3])
         except ValueError:
@@ -1238,7 +1234,7 @@ class Server():
         self.alc_warned = True
         Popup.warning(f'The K4\'s ALC is {alc}, above {self.alc_warning_above}: the transmit '
                       'audio is too loud.\nTurn down the microphone gain, SSTV\'s Level or '
-                      'RTTY\'s AFSK Level.', timeout=4000, activate=False)
+                      'RTTY\'s AFSK Level.', timeout=4000)
 
     def on_tr_for_alc(self, response):
         # Each transmission is warned of on its own: see on_tm_received.
@@ -20137,7 +20133,7 @@ class Popup(QDialog):
     previous_popup = None
 
     @classmethod
-    def show_popup(cls, msg, title, prefix, timeout, font, color, modal=False, activate=True):
+    def show_popup(cls, msg, title, prefix, timeout, font, color, modal=False):
         if isinstance(msg, str):
             msg = [ prefix + msg ]
         else:
@@ -20153,9 +20149,6 @@ class Popup(QDialog):
         label.setStyleSheet(f'QLabel {{ background-color: {color}; }}')
         label.setFont(popup.font_)
         popup.frame.addWidget(label, 0, 0)
-        if not activate:
-            # Shown without taking the keyboard: see Server.on_tm_received.
-            popup.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         if modal:
             popup.show_and_wait()
         else:
@@ -20170,26 +20163,23 @@ class Popup(QDialog):
     def dequeue_popups(cls):
         while True:
             try:
-                msg, title, prefix, timeout, font, color, modal, activate = cls.queue.get_nowait()
-                cls.show_popup(msg, title, prefix, timeout, font, color, modal, activate)
+                msg, title, prefix, timeout, font, color, modal = cls.queue.get_nowait()
+                cls.show_popup(msg, title, prefix, timeout, font, color, modal)
             except queue.Empty:
                 break
 
         Poll.call(cls.poll_interval, cls.dequeue_popups)
 
     @classmethod
-    def popup(cls, msg='', title='', prefix='', timeout=None, font=None, color='yellow', modal=False,
-              activate=True):
-        # activate False shows it without taking the keyboard.
+    def popup(cls, msg='', title='', prefix='', timeout=None, font=None, color='yellow', modal=False):
         if threading.current_thread() == threading.main_thread():
-            cls.show_popup(msg, title, prefix, timeout, font, color, modal, activate)
+            cls.show_popup(msg, title, prefix, timeout, font, color, modal)
         else:
-            cls.queue.put((msg, title, prefix, timeout, font, color, modal, activate))
+            cls.queue.put((msg, title, prefix, timeout, font, color, modal))
 
     @classmethod
-    def warning(cls, msg, timeout=2000, modal=False, activate=True):
-        cls.popup(msg=msg, title='Warning', prefix='Warning: ', timeout=timeout, font=None, color='yellow',
-                  modal=modal, activate=activate)
+    def warning(cls, msg, timeout=2000, modal=False):
+        cls.popup(msg=msg, title='Warning', prefix='Warning: ', timeout=timeout, font=None, color='yellow', modal=modal)
 
     @classmethod
     def error(cls, msg, timeout=5000, modal=False, font=None):
@@ -20224,6 +20214,15 @@ class Popup(QDialog):
         self.setStyleSheet(f'QDialog {{ background-color: {color}; }}')
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        # Shown without taking the keyboard, whatever it says. One that
+        # took it had the space bar, pressed to go back to receive, go to
+        # the popup and leave the K4 transmitting, and when it went it
+        # gave the keyboard back to nothing at all: the space bar did
+        # nothing until something in the main window was clicked. Only
+        # the password prompt takes it, having something to type into,
+        # and a modal one, which Qt makes active whatever it is told:
+        # those give it back (see exec_keeping_keyboard).
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.__class__.previous_popup = self
 
     def show_popup_window(self):
@@ -20234,13 +20233,32 @@ class Popup(QDialog):
     def show_and_wait(self):
         if self.timeout != None:
             Poll.call(self.timeout, self.close)
+        self.exec_keeping_keyboard()
+
+    def exec_keeping_keyboard(self):
+        # Run as a modal dialog, which Qt makes the active window
+        # whatever it is told, and the keyboard given back afterwards to
+        # whichever window of ours had it: left to itself it went back to
+        # none, and the space bar did nothing until something was
+        # clicked. Nothing is given back where none of ours had it, the
+        # operator being in another program.
+        previous = QApplication.activeWindow()
         self.exec()
+        if previous == None or previous is self:
+            return
+        try:
+            if previous.isVisible():
+                previous.activateWindow()
+        except RuntimeError:
+            pass                # gone while this was up
 
     def password(msg='', title='', font=None, color='yellow'):
         if isinstance(msg, str):
             msg = [ msg ]
         msg = "\n\n".join(msg)
         popup = Popup(title=title, font=font, color=color, modal=True)
+        # The one popup that takes the keyboard: see Popup.__init__.
+        popup.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
         if font == None:
             font = popup.font_
 
@@ -20292,7 +20310,7 @@ class Popup(QDialog):
         popup.frame.addWidget(submit_button, 2, 0, Qt.AlignmentFlag.AlignLeft)
 
         entry.setFocus()
-        popup.exec()
+        popup.exec_keeping_keyboard()
         return result[0]
 
 class Timer():
