@@ -1,4 +1,686 @@
+v2.1-rc13:
+    Offer None as the audio input and output device
+       The Audio tab's input and output device dropdowns now offer None,
+       first. With no output device, neither the K4's audio nor the sidetone
+       is played, though the K4's audio is still decoded for RTTY and SSTV;
+       with no input device, nothing is transmitted from a microphone. A
+       device chosen afterwards is opened straight away.
+       
+       A saved device that isn't there now was given to the dropdown as it
+       was, and the dropdown, not finding it, stayed on its first entry --
+       which would now be None, as though there were no device at all. The
+       device in use is shown instead.
+   
+    Version 2.1-rc12
+
+    Restore each window on the monitor it was left on
+       Every window's saved position was pulled back within the primary
+       screen as it was restored, so one left on another monitor always came
+       back on the primary one. It is now pulled back within the screen most
+       of it was on, and onto the primary screen only where it is on none of
+       them, a monitor having been unplugged.
+   
+    Show the mark and space tones on the panadapter in RTTY
+       As on the mini-pan, a VFO whose receiver is in RTTY now has a second
+       line on the trace, and on the waterfall while its frequency moves, on
+       the space tone: 170 Hz below the VFO in DATA, and above it in DATA
+       REV. VFO A's lines follow the main receiver's mode, and VFO B's the
+       sub receiver's.
+   
+    Version 2.1-rc11
+
+    Shade the RTTY passband around the mark and space tones
+       In RTTY, the passband was shaded above the VFO, as in USB, which left
+       the space tone below it in DATA outside the shading. It is now shaded
+       centred halfway between the mark and space tones.
+   
+    Show the mark and space tones on the mini-pan in RTTY
+       In DATA or DATA REV with the AFSK A or FSK D sub-mode, the mini-pan
+       shows a second tuning line, on the space tone, besides the one on the
+       mark tone at the VFO frequency: 170 Hz below it in DATA, and above it
+       in DATA REV. DT and DT$ are now relayed to the panadapter for this.
+   
+    Version 2.1-rc10
+
+    Describe WF and the AS button in the User Manual
+       The Panadapter Window's controls gain WF, how far above the noise a
+       signal has to be to show in yellow on the waterfall, and Autoscale is
+       named AS there and in the v2.1 history, which also gains WF. The two
+       panadapter screenshots are retaken to show both, with the K4 as it was
+       set.
+   
+    Label the panadapter's Autoscale button AS, with a tooltip
+       The button's label is shortened to AS, and its tooltip says what it
+       does: sets Scale so that the strongest signals of the last few seconds
+       reach about halfway up the trace.
+   
+    Add a waterfall dropdown setting the signal threshold
+       The panadapter window's new WF dropdown, beside Avg, sets how far above
+       the noise, 1 to 10 dB, a signal has to be to show in yellow on the
+       waterfall: lower shows weaker signals, higher only the stronger ones.
+       It defaults to 6 dB, which looks as the waterfall did, and is kept for
+       each window, as Avg is.
+       
+       The waterfall's colours now span a fixed 56 dB placed by the noise
+       floor and that setting, rather than reaching up to the strongest
+       signal, so that a weak signal looks the same however strong the
+       strongest is.
+   
+    Build the macOS app for this branch's releases again
+       main leaves the macOS app out of its releases, its PyInstaller spec
+       not building one; rebased onto it, this branch lost the macOS builds
+       from its releases too. Here the spec does build the app, so they are
+       put back, with the notes for the .dmg files.
+   
+    Version 2.1-rc9
+
+    Describe Autoscale and Scale per band in the User Manual
+       The Panadapter Window section gains Autoscale among the controls,
+       says that Scale is remembered for each band of the Main receiver, and
+       that the waterfall shows signals in yellow on a dark blue background.
+       Its two screenshots are retaken to show both, with the K4 as it was
+       set. The v2.1 history gains the three.
+   
+    Keep the waterfall's noise blue on quiet bands
+       The waterfall's colours spanned its own lowest to highest, which on a
+       quiet band, with no strong signal to stretch the range, put the noise
+       near the yellow. They now span from 30 dB under the noise floor to the
+       strongest signal, but to no less than 26 dB over the noise floor,
+       which on a busy band is where the lowest and highest had put them.
+       
+       Each row is also smoothed a little before it is coloured, averaged
+       with the frame before it and each bin with the one either side: the
+       K4's PAN frames are unaveraged, their noise spread over some 5 dB from
+       bin to bin, and the top of that spread speckled the waterfall yellow
+       on any band. Signals, which hold steady and span more than a bin, are
+       hardly changed. The trace and mini-pan are left as they were.
+   
+    Remember the panadapter's Scale for each band
+       The K4's panadapter Scale (#SCL) is saved against the main receiver's
+       band whenever it changes, from the panadapter window, its Autoscale
+       or the K4 itself, and is put back when the main receiver goes to a
+       band it was saved for. It is kept in each K4's own settings. The band
+       the K4 is on when K4 Companion connects keeps the scale the K4 has.
+   
+    Version 2.1-rc8
+
+    Add an Autoscale button to the panadapter window
+       Pressed, it sets Scale so that the strongest signal the trace has
+       shown over the last three seconds reaches about halfway up the trace,
+       from its bottom as it stands, in Scale's steps of 5 dB. It sits to the
+       left of the Scale dropdown.
+   
+    Point the manuals at the GitHub releases for the installers
+       The installers, which are no longer kept in the repository, are
+       downloaded from the Assets of each release on the releases page.
+       
+       The Windows Quick Start links there for k4companion-installer.exe, the
+       link to it in the Windows folder having gone. The User Manual's Windows
+       section names the release's files, and says that k4companion.exe runs
+       alone, carrying opus.dll within it. Installation on Linux begins with
+       the Linux installers, which systems they need and how to run them,
+       running from the source following as the alternative, and Running K4
+       Companion says how to start it once installed. The v2.1 history gains
+       both.
+       
+       The MacOS installation guide begins with installing the app from its
+       .dmg, including how to open it unsigned, the instructions for running
+       from the Python source following, and its permissions cover the app
+       as well as Terminal.
+   
+    Version 2.1-rc7
+
+    Remove Windows executables from the Windows directory
+
+    Version 2.1-rc6
+
+    Fit macOS dropdowns and their lists to their contents
+       On macOS a dropdown's native bezel stayed in place under the
+       stylesheet, its up-down arrows drawn beside the stylesheet's own and
+       covering the values the box had been sized for, such as '0 dB' and
+       'Yes'. A border there, as on Windows, has Qt draw the whole box, and
+       the box is sized from Qt's own sizeHint() as on Windows, rather than
+       by a guess of six characters that had never been tried.
+       
+       The list a macOS dropdown opens is a menu as wide as the box, with a
+       column for the check mark besides, so its items were cut short:
+       'CW-R...', 'B...s' for Bypass, and nothing but '...' for the SSNR
+       levels. Its view is now made at least as wide as its widest item, as
+       the items change.
+   
+    Version 2.1-rc5
+
+    Build K4 Companion for Linux from the PyInstaller spec
+       The Linux installer's workflow and install.sh came with main; here is
+       what the spec needs for Linux besides: a k4companion folder holding the
+       program, which install.sh installs.
+       
+       The audio libraries, udev and the C++ runtime are left for the
+       system's copies, which have to agree with its sound setup and graphics
+       drivers; the installer says what to install where PortAudio or Opus is
+       missing. Qt's GTK theme is left out, which brought GTK along, and with
+       it the libraries nothing else in the bundle needs. hidraw is named as a
+       hidden import beside hid, and pyi_splash is left out, as on macOS.
+   
+    Leave PyInstaller's splash screen module out of the macOS build
+       There is no splash screen on macOS, but pyi_splash was bundled all the
+       same, close_splash_screen() importing it. Without it, the import fails
+       and close_splash_screen() quietly does nothing.
+   
+    Bundle the K-Pod's hid module in the Windows and macOS builds
+       The program imports hid by a name held in a variable, which PyInstaller
+       can't see, so the built programs went without it and the K-Pod tab
+       could only say to install hidapi. It is now named as a hidden import.
+   
+    Version 2.1-rc4
+
+    Show the SSNR tooltip over the whole SSNR box
+       A group can now have a tooltip of its own, shown over its label and
+       over anything inside it without one. The SSNR tooltip moves there from
+       the level dropdown, so it shows over the SSNR label and the On/Off
+       button as well as the dropdown.
+   
+    Keep the config's \n escapes in the built program
+       The build pastes the YAML config into config_data, a Python string, so
+       Python turned each \n into a real line break before the YAML parser saw
+       it, and YAML folds a line break inside a quoted string into a space.
+       "Apply and\nReboot" came out on one line in the built program, though
+       on two when the config was read from its file. config_data is now a
+       raw string, so both read the same.
+   
+    Describe the SSNR dropdowns' R and AR in the User Manual
+       R now turns SSNR on before resetting its noise estimate, and AR does
+       the same on the quietest frequency in the panadapter's span, then
+       returns to the original frequency. Both are added to the v2.1 history.
+   
+    Version 2.1-rc3
+
+    Add AR to the SSNR dropdowns, and have R turn SSNR on
+       R now turns SSNR on at its level before resetting its noise
+       elimination function, and leaves it on a second later, once the K4 has
+       had time to learn the noise.
+       
+       AR, below R, does the same on the quietest frequency in the receiver's
+       panadapter span, found in its spectrum, so that what the K4 learns is
+       noise rather than the signal being listened to. It then returns to the
+       original frequency and sets the SSNR level again.
+       
+       Stepping onto R or AR with the arrow keys or the mouse wheel no longer
+       raises an exception.
+   
+    Version 2.1-rc2
+
+    Describe the CW window's Spot tone in the User Manual
+       The CW window's section says K4 Companion makes a spot tone, since the
+       K4 sends none to a remote client, and describes the Spot button; two
+       of its paragraphs in a serif font are put back in the body's. The 2.1
+       revision history gains the RTTY window's AFSK sending, Search, tuning
+       strip and Dual-Tone filter, the macro tags and the Spot tone.
+       
+       The CW tab's screenshot, and the picture of its QSK and decode
+       controls, are retaken to show Spot and Autospot beside the decoders.
+   
+    Move the CW window's Autospot buttons beside Spot
+       Autospot's Main and Sub buttons move from the top row of the CW tab
+       to the row of the decoders, to the right of Spot, the two of them
+       being for tuning to a CW signal. The top row keeps the sidetone
+       volume, keyer speed and APFs.
+   
+    Add a Spot tone to the CW window
+       A Spot button, beside the Main and Sub decode controls, turns on a
+       steady tone at the CW pitch, made here and added to the receive audio,
+       for tuning a signal to the same pitch by ear as the K4's SPOT does:
+       the K4's own spot tone isn't sent to a remote client.
+       
+       It is the sidetone's own rendered tone, so it follows the CW pitch and
+       the sidetone volume, with a phase of its own so as not to move the
+       sidetone's. It comes up and goes away over a raised cosine, as the
+       sidetone does, so that turning it on and off doesn't click, and it is
+       mixed in before the sidetone, so that a keyed tone crossfades it away
+       with the K4 audio. It is turned off when the CW window is hidden, out
+       of CW, or closed.
+   
+    Describe AFSK sending, Dual-Tone and the tuning strip in the manual
+       The RTTY window's section says K4 Companion sends RTTY in AFSK A, with
+       its level setting, and gains the tuning strip and the Dual-Tone
+       filter. Search's reach is corrected: across the whole span with the
+       main panadapter's narrow enough, otherwise the mini-pan's, about 2
+       kHz above the tones but only 150 Hz below.
+       
+       The RTTY window's screenshot and the CW window's CW and Configure
+       tabs are retaken, to show these, the Call, RST and Nr fields, and My
+       Call.
+   
+    Send RTTY as AFSK in the K4's AFSK A data sub-mode
+       The K4 sends RTTY itself only in FSK D; in AFSK A the window warned
+       rather than sending. It now sends there too, as audio made here: the
+       K4 takes it in place of the microphone's, as its ALC meter showed in
+       TX TEST with a tone sent in AFSK A, and in USB alike.
+       
+       RttyAfsk makes it as it is read, from text added as it is typed or a
+       button is pressed: Baudot with the US figures, a start bit, five bits
+       and a stop bit and a half at the data rate, the mark the K4's mark
+       tone and the space 170 Hz above it, the frequency eased over 6 ms
+       between the two with its phase carried on. It starts with mark and
+       two LTRS, sends LTRS while there is nothing to send, and ends 2 s
+       after the last of it, or at once with Escape. A figure after a space
+       has FIGS sent again first, for receivers that unshift on space. What
+       it sends decodes back as sent, at 45 and 75 baud, with noise, and
+       after the transmit audio thread and Opus.
+       
+       Audio starts the transmit audio thread for audio made here in any
+       mode, not only the voice modes the microphone's goes out in. What is
+       left to send is shown in the Tx field as for the K4's own sending. The
+       level is AFSK Level % on the Configure tab, 40 unless changed.
+   
+    Add a tuning indicator to the RTTY window
+       A strip above the receiver controls shows the receive audio 250 Hz
+       either side of the middle of the K4's RTTY tones, with a line at the
+       mark tone and at the space, as fldigi's and MMTTY's tuning displays
+       are used: a signal tuned in shows a peak on each. It is drawn from the
+       audio AFC and the squelch already keep, for the receiver AFC follows,
+       every quarter second, smoothed over 9 Hz and averaged over time so as
+       to read steadily.
+   
+    Add the K4's FSK Dual-Tone RX Filter to the RTTY window
+       A Dual-Tone button turns the K4's FSK Dual-Tone RX Filter (MENU,
+       0064), separate mark and space filters, on and off. It shows the K4's
+       own value, kept from its ME responses and asked for when the window
+       opens, and which number means on is taken from the K4's own value list
+       for the entry.
+       
+       To make room in the row for it, Search's note for having too little
+       of the spectrum yet is shortened to Wait, and the S/N readout given
+       enough width not to be clipped.
+   
+    Put RTTY's AFC and Search on the right side of the VFO
+       In the AFSK and FSK data sub-modes, as the K4's manual has it, DATA is
+       LSB and DATA REV USB, and the VFO shows the mark frequency, the space
+       being 170 Hz below it on the air in DATA. AFC and Search took DATA to
+       be USB, as the panadapter shades it for DATA A.
+       
+       AFC so started out moving RIT the wrong way; it now starts DATA's way,
+       where raising RIT raises the tones. The way it has turned to, if moves
+       show the other, is no longer saved, so that a wrong turn, perhaps one
+       learnt from noise before the squelch measured it properly, isn't kept
+       from one run to the next.
+       
+       Search so put the signal found about 1 kHz from the K4's tones; it now
+       puts its middle 85 Hz below the VFO in DATA, above it in DATA REV.
+   
+    Describe AFC speed, Search and the macro tags in the User Manual
+       The CW window's section gains the macro tags, the Call, RST and Nr
+       fields, My Call and taking a call from the received text; the RTTY
+       window's gains AFC's speed and Search, and says the tags work there
+       too. The screenshots are still to be retaken to show them.
+   
+    Add macro tags, and a call taken from what is received
+       In the CW and RTTY windows, a button can send <MYCALL>, <CALL>,
+       <RST> and <CNTR>, as fldigi's macros can, put in place as it is
+       pressed; <INCR> and <DECR> add one to the serial number or take one
+       away, and <CLRLOG> empties the call and puts the RST back to 599. A
+       tag that isn't one of them is refused when the buttons are saved; the
+       < and > they are written with can be sent in neither mode.
+       
+       Call, RST and Nr fields above the buttons hold what CALL, RST and
+       CNTR send, the serial number remembered for each window. My Call, on
+       the Configure tab, is one for both windows. Clicking a call in the
+       received text, letters and figures with a figure among them and
+       perhaps a /portable part, puts it in Call; 599, TU, RYRY and one's own
+       call are passed over.
+   
+    Add Search Down and Up to the RTTY window
+       As fldigi's Search buttons do, VFO A is moved to the next RTTY signal
+       down or up, and RIT set to nothing, as Autotune does. It is found in
+       the K4's own spectrum rather than in the audio, which the RTTY filter
+       leaves too little of: of PAN, across the panadapter's span, and
+       MINI-PAN, 3 kHz around the tones at 2.9 Hz a bin, whichever is finer,
+       so long as it is 25 Hz a bin or finer, as a 170 Hz pair needs. Both
+       come from the K4 whether or not a panadapter window is open; the last
+       24 frames of each, two seconds, are kept for the main receiver while
+       the window is open, and looked at only when a button is pressed.
+       
+       find_rtty_pairs finds the signals: two peaks 170 Hz apart, well above
+       the noise, with less between them, each standing clear of what is
+       around it, as narrow tones do and a voice's harmonics don't, and found
+       in both halves of the frames in much the same place. On the K4's own
+       MINI-PAN frames, its noise gave no pairs, and SSB voice gave one in 3
+       windows of 56; RTTY added to them was found within a hertz.
+   
+    Start RTTY AFC the sideband's way, and give it a speed
+       Which way RIT moves the tones was learnt, starting from the same way
+       for both DATA and DATA REV and turned the other way, and remembered,
+       after any one move that made things worse; one wrong look, the other
+       station moving say, could turn it, leaving AFC driving the signal
+       away. Start from the sideband's way instead: DATA's is USB, as the
+       panadapter's passband has it, where raising RIT lowers the tones, and
+       DATA REV's LSB. As a safeguard it is still turned, but only when a
+       move made things worse by about as much as it should have made them
+       better, the sign of a move the wrong way, or two moves in a row made
+       things worse.
+       
+       A Speed dropdown beside AFC's On/Off picks how much of how far off
+       the signal is one move takes out: Slow 0.3, Normal 0.8 (as before)
+       or Fast 1.0.
+   
+    Describe the RTTY squelch's level and S/N in the User Manual
+       The RTTY window's screenshot is retaken to show them.
+   
+    Measure RTTY noise between the tones, and make the squelch adjustable
+       AFC and the squelch took the noise as the median power across their
+       whole search, most of it outside the K4's filter when that is the 300
+       Hz set for 45 baud, and nearly silent. The noise came out far too low,
+       and noise alone was taken for an RTTY pair: in 294 looks of 300 in a
+       simulation, opening the squelch and moving RIT on nothing. Measure it
+       halfway between the tones instead, as fldigi does: inside the filter
+       however narrow, where an RTTY signal puts little. Noise alone now
+       passes in 2 looks of 300.
+       
+       afc_measure now gives the pair's S/N, and the squelch is set against
+       it, as fldigi's is: a level from 3 to 12 dB, 6 by default, picked
+       beside the On/Off button, with the S/N of the receiver AFC follows
+       shown beside that, updated whether the squelch is on or not.
+       
+       AFC follows a pair only if it is above the squelch's level while the
+       squelch is on, or 6 dB while it is off, and only once two looks in a
+       row have found it within 10 Hz of the same place. Noise hardly ever
+       passes twice in the same place: in a simulation, 1000 looks at noise
+       moved RIT not once. It also keeps a single bad look from turning the
+       direction AFC moves RIT the other way.
+   
+    Add the 2.1 features to the User Manual
+       New sections, with screenshots, for the K-Pod tab, the RTTY window,
+       the SSTV window's Receive and Transmit tabs, and CAT for other
+       programs through port 9200. Installing hidapi for a K-Pod, the --da
+       kpod and --da cat debugging options, and a 2.1 revision history entry
+       are added too.
+   
+    Keep the SSTV Transmit tab's controls from being cut off
+       The window keeps the width it opens at, and the Transmit tab's status
+       line, beside its controls, grew past it once a picture was loaded,
+       cutting off Stop. Show the status on a line of its own under the
+       picture instead, where it doesn't set the window's width.
+   
+    Add SSTV transmit, on a tab of its own beside Receive
+       Split the SSTV window into Receive and Transmit tabs, the receive
+       controls and picture moving to the Receive tab as they were.
+       
+       The Transmit tab sends a picture loaded from a file, or the last one
+       received, in any mode the decoder knows, at a level set as a share of
+       the most the microphone is sent at. The picture is fitted to the
+       mode's size, scaled to cover it and cut off evenly either side.
+       
+       SSTVEncoder makes the audio, the reverse of SSTVDecoder: the VIS code,
+       then each line's syncs, porches and scans, with the phase carried on
+       across every change of frequency. Its pictures decode completely, in
+       every mode, with SSTVDecoder and with an independent decoder.
+       
+       The K4 is put in transmit with the audio handed to Audio first, which
+       then sends it in place of the microphone's, paced by the clock rather
+       than by a device (k4_tx_generated_loop). It is put back to receive
+       when the picture has been sent, when Stop is pressed, or when SSTV is
+       turned off or the window is closed.
+   
+    Decode SSTV's YUV modes full range, as MMSSTV and QSSTV send them
+       The Robot and PD modes' luminance was taken as studio range, black at
+       16 and white at 235, but MMSSTV and QSSTV send it full range, and
+       QSSTV and slowrx decode it so. Taken as studio range, pictures from
+       them came out with their contrast stretched and their darkest and
+       lightest detail clipped. Use QSSTV's conversion instead.
+   
+    Version 2.1-rc1
+
+    Rewrite the macOS installation guide
+       - Install the Command Line Tools rather than all of Xcode.
+       - Use a Python virtual environment instead of shell aliases, so the
+         steps are the same for zsh and bash.
+       - Install the Python packages with one pip command, with
+         pyobjc-framework-Cocoa rather than all of pyobjc, and hidapi as
+         optional, for a K-Pod.
+       - Drop MacPorts, pkgconfig, cmake and cairo, which aren't needed.
+       - Build Opus from any release, or install it with Homebrew.
+       - Download k4companion with curl, so it isn't saved as a .txt file.
+       - Say how to keep it running after Terminal closes, how to start it
+         from Finder, what to do about a missing module, and which
+         permissions macOS asks for the first time.
+       - Build the Mac app with tools/k4companion.spec, replacing the old
+         create-dmg script.
+       - Correct the RUMlogNG settings, and mention connecting it through
+         K4 Companion's CAT port.
+       - Format commands in a monospace style, and fix the naming and typos.
+   
+    Keep the K4's errors for CAT programs' commands out of popups
+       An error the K4 gives for a command a CAT program sent through port 9200
+       put up the app's error popup, as if the app had sent it. The CAT server
+       now notes when it last passed each command on, by name, and an error
+       for one within three seconds is taken as the program's: no popup, and
+       a query waiting on it is answered ?;, as CAT answers an error, at once.
+   
+    Pass other programs' CAT to the K4 on TCP port 9200
+       Logging and digital-mode programs, through hamlib's K4 backend say, can
+       connect to port 9200 as if it were the radio's CAT, and are passed on
+       to the K4 over the app's own connection.
+       
+       A query, a command without a parameter, is sent on as it is, and the
+       next response the K4 gives with that command's name goes back to the
+       program that asked; it updates the app's parameter cache as any response
+       does. Without one within a second, the cached value is answered, or ?;
+       where there is none. A command that sets something goes through
+       send_cmds, so the cache and the windows follow at once, and, as at a
+       real CAT port, nothing is answered. TX, RX, RC, UP and DN, which set
+       something without a parameter, are sent as such. AI and the K2, K3 and
+       K4 extended modes, which would change how the K4 talks to the app as
+       well, are not passed on: each program is answered what it last set them
+       to.
+       
+       It listens on this machine only, anything that can connect being able
+       to key the transmitter. --da cat logs what comes and goes.
+   
+    Add an SSTV mode (receive only for now)
+       Slow-scan TV, received: picked from a VFO's mode dropdown, it puts
+       the VFO in the sideband SSTV uses there, USB from 14 MHz up and LSB
+       below, switching as it is tuned across, and opens a window showing
+       each picture as it comes in on that receiver, saving it as a PNG in
+       Pictures/K4-Companion SSTV when it ends. A Receiver toggle in the
+       window, Main or Sub, moves it to the other VFO as its dropdown would,
+       and a Frequency dropdown tunes that VFO to the middle of where SSTV
+       usually is on 80, 40, 20, 15, 10 or 6 m, or on 80 m in Region 1: 3.730,
+       3.845, 7.171, 14.230, 21.340, 28.680 or 50.680 MHz. Picking SSTV or
+       one of those sets the VFO's filter to 2.8 kHz; SSTV coming back on by
+       itself at the next start leaves the filter as it is. An Autotune button
+       moves the VFO so that the signal coming in sits where its tones belong,
+       measuring where its 1200 Hz sync pulses are in the last few seconds of
+       the receiver's audio, tones held longer than a sync, like the VIS code's
+       bits, left out; RIT's offset, if RIT is on, is folded into the VFO and
+       RIT set to nothing, and what it did is shown in the status line for a
+       few seconds. The sideband is kept as the K4 moves band, its memory of
+       the band's last mode put back to SSTV's; and since that memory can win
+       over the sideband and filter sent after the frequency, the K4 is asked
+       again shortly after SSTV or a frequency is picked what it ended up in,
+       and corrected. Martin M1 and M2, Scottie S1, S2 and DX, Robot 36 and
+       72, and PD 50, 90, 120, 160, 180, 240 and 290 are recognized by their
+       VIS codes.
+       
+       The K4 does no SSTV of its own, so the app decodes it, from the receive
+       audio, on a thread of its own: the audio's frequency from the rate its
+       phase turns, mixed down and filtered; the VIS code; then each line by
+       its sync pulse, near where the line before put it, with the sender's
+       clock estimated from where the syncs fall, so that one running fast or
+       slow neither slants nor stretches the picture.
+       
+       SSTV is the app's state, not the K4's, which only sees USB or LSB: it
+       is on for the main or sub receiver through !SSTV or !SSTV$, set by the
+       dropdowns' SSTV and the window's toggle and cleared by the dropdowns'
+       USB and LSB, which clear it before changing the mode so that the change
+       is not put back. It also ends when that VFO leaves both sidebands, from
+       the panel too, or when the window is closed, and is remembered, coming
+       back at the next start if the VFO is still in either. The dropdown shows
+       USB or LSB only while SSTV is off.
+   
+    Add an RTTY window
+       A window patterned after the CW window, shown while the transmit VFO
+       is in DATA or DATA REV with the AFSK A or FSK D data sub-mode, with the
+       same macro buttons, delayed and immediate Tx and main and sub decode.
+       The K4 sends and decodes the RTTY itself, which it does in FSK D; AFSK A
+       has its decoder but no way to send, so the window shows there but warns
+       rather than sending.
+       
+       Its controls are the frequency; the data rate, 45 or 75 baud; the
+       sub-mode, AFSK A or FSK D; the polarity, normal or reverse; AFC and
+       Autotune; which receivers decode, Main, Sub or Both; the K4's decode
+       threshold, Auto or 1 to 9, set for both receivers; and a squelch. Escape
+       stops sending with KY |;, which ends a transmission at once in FSK D.
+       Only Baudot's characters can be typed, less the semicolon, which would
+       end the KY command. Sending is paced by the data rate rather than the
+       keyer speed. There is no keyer, so no Keying tab. Its settings and
+       buttons are kept in their own RTTY section.
+       
+       What the two windows share moves from CW into a new base class, Digital,
+       which CW and RTTY are subclasses of: the macro buttons, the Tx and Rx
+       text fields, sending with KY and following it with TB, the keyboard
+       handling, opening and closing, the Configure tab and the settings. A
+       subclass gives the window's name, what stops sending, what may be typed,
+       the buttons it starts with, its own subscriptions, controls and tabs,
+       and when it shows and can send. CW keeps its controls, keyer speed,
+       Keying tab and keyer set-up. The shared parts named for CW are renamed
+       for what they are, CWText to DigitalText and send_cw to send_text, for
+       instance.
+       
+       The mode dropdowns gain RTTY, DATA with FSK D, ahead of DATA so that it
+       shows whenever the sub-mode is FSK D; DATA REV is had with the window's
+       Polarity. It sends !RTTY6, !RTTY$6 for VFO B, which RTTY handles: it
+       sends the mode, then FSK D and the filter remembered for the data rate,
+       and since the K4 can still be going into DATA when DT arrives, and keep
+       the sub-mode it had, asks again shortly after and sends FSK D again if
+       it isn't in it.
+       
+       The Frequency dropdown, a FrequencyDropdown, offers where RTTY usually
+       is on 80, 40 (Region 1 and Region 2), 30, 20, 17, 15, 12 and 10 m, and
+       shows VFO A's frequency, to the nearest kilohertz, whether or not it
+       is one of them. Picking one tunes VFO A, as the window's other controls
+       act on, and puts it back in RTTY, DATA or DATA REV as it was with FSK
+       D, since moving band the K4 puts back the mode it last had there: for
+       a while after, a mode or sub-mode the K4 reports other than RTTY's is
+       corrected, as it is after RTTY is picked from a dropdown. Only what the
+       K4 reports, though: Server marks the responses it applies, so that a
+       mode picked in the app within that while is taken as the operator's and
+       ends the correcting rather than being undone.
+       
+       At least one receiver always decodes while the window is in its mode.
+       Whichever are on, picked here or at the radio, is the choice remembered;
+       neither, and the choice remembered is put back, half a second after the
+       last TD report, since the radio reports a change of receiver as one TD
+       for each and can have neither on between them. In other modes TD is
+       theirs, CW's say, and is left alone.
+       
+       The filter is remembered for each data rate, as last set while in DATA
+       or DATA REV, here or at the radio, starting at 300 Hz for 45 baud and
+       400 Hz for 75, and put back when the rate changes; picking a frequency
+       leaves it alone.
+       
+       AFC keeps RIT where the RTTY signal coming in sits on the K4's tones,
+       its FSK mark tone and the space 170 Hz above: every 0.6 s it looks in
+       the receiver's audio for two tones 170 Hz apart near there, clear of
+       the noise and of each other's strength enough not to be a carrier, and
+       moves RIT by most of how far off they are. Which way RIT moves the tones
+       depends on DATA's or DATA REV's sideband; a move that makes things worse
+       turns it the other way, remembered for the mode. Autotune moves the VFO
+       to where the signal is received, RIT's offset and anything still off
+       included, and sets RIT to nothing, so that what is sent goes where the
+       other station is.
+       
+       The squelch, on or off, shows decoded text only while an RTTY signal
+       is coming in on that receiver, found as AFC finds it, which noise, a
+       carrier or a voice seldom passes for: each receiver's audio is looked
+       at every quarter second, and a signal found keeps its squelch open for
+       2 s. Text that comes while it is closed is held, and shown if a signal
+       is found within those 2 s, the K4's decoder being quicker to start than
+       the signal is to be found; otherwise it is dropped. Digital's decoded
+       text goes through show_decoded for RTTY to do this.
+   
+    Add support for the Elecraft K-Pod
+       The K-Pod's encoder tunes VFO A, VFO B or the RIT offset, as its rocker
+       selects, a step per tick. Each of its eight buttons runs the commands
+       set for tapping or holding it on a new K-Pod tab in the Macros window,
+       kept with each K4's settings like macros.
+       
+       The K-Pod tab has a sub-tab of button commands for All Modes and for
+       each of CW, SSB, Data, AM and FM. A button's All Modes commands run in
+       every mode, and while it has any, that button is greyed out on the other
+       sub-tabs; otherwise the commands for the transmit VFO's mode run.
+       
+       The K-Pod is a USB HID device, polled every 20 ms on a thread of its
+       own and looked for again every 2 s while it is not there. It needs the
+       hidapi package (python3-hid on Debian); on Linux its hidraw module is
+       used, which also needs a udev rule giving access to the device. Without
+       hidapi, the K-Pod tab says what to install.
+       
+       --da kpod logs the K-Pod's status and events.
+   
+    Rewrite the macOS installation guide
+       - Install the Command Line Tools rather than all of Xcode.
+       - Use a Python virtual environment instead of shell aliases, so the
+         steps are the same for zsh and bash.
+       - Install the Python packages with one pip command, with
+         pyobjc-framework-Cocoa rather than all of pyobjc, and hidapi as
+         optional, for a K-Pod.
+       - Drop MacPorts, pkgconfig, cmake and cairo, which aren't needed.
+       - Build Opus from any release, or install it with Homebrew.
+       - Download k4companion with curl, so it isn't saved as a .txt file.
+       - Say how to keep it running after Terminal closes, how to start it
+         from Finder, what to do about a missing module, and which
+         permissions macOS asks for the first time.
+       - Build the Mac app with tools/k4companion.spec, replacing the old
+         create-dmg script.
+       - Correct the RUMlogNG settings.
+       - Format commands in a monospace style, and fix the naming and typos.
+   
+    Update the README for the macOS app, the debug program and 2.0
+       The macOS paragraph, which said the port wasn't ready to recommend,
+       now links the disk images for Apple Silicon and Intel Macs and says
+       how to open an unsigned app the first time. The Windows install is
+       said to include k4companion-debug.exe. The program is named K4
+       Companion throughout, as in the User Manual, and two typos are
+       fixed.
+       
+       The screenshot, of the tkinter interface from before 2.0, is now the
+       Main tab of the Qt interface, connected, as the User Manual shows it.
+   
+    Add MacOS executables for version 2.0
+
+    Find Homebrew's Opus on Apple Silicon Macs
+       Run from the source on macOS, also look for libopus.dylib in
+       /opt/homebrew/lib, where Homebrew installs it on Apple Silicon Macs.
+       That folder isn't searched by default, as /usr/local/lib is, so
+       "brew install opus" alone wasn't enough there.
+   
+    Add a workflow to build K4 Companion.app for macOS
+       Run by hand, from the Actions tab or with gh workflow run
+       build-macos.yml --ref <branch>. On an Apple Silicon and an Intel
+       runner, it installs Opus with Homebrew, copies the configuration
+       into k4companion.py as ./run does, builds K4 Companion.app from
+       tools/k4companion.spec, and keeps it in a .dmg with the run.
+       
+       The spec's macOS branch bundles Homebrew's libopus.dylib, gives the
+       app the microphone usage text macOS asks for before transmit audio
+       can open the microphone, turns App Nap off, takes its version from
+       the configuration, and leaves out Qt's PDF framework. The app is
+       unsigned, so Gatekeeper stops it until it is first opened with
+       Control-click, Open.
+   
+    Find libopus.dylib in the app bundle on macOS
+       opuslib finds the Opus library with ctypes.util.find_library, which
+       on macOS looks along DYLD_LIBRARY_PATH rather than PATH. The folders
+       put on PATH for opus.dll on Windows -- PyInstaller's bundle, the
+       program's own folder and the current one -- now go on both, so that
+       a macOS app finds the libopus.dylib it carries in its Frameworks
+       folder. Both are put back as they were afterwards.
+   
+    Update Windows executables
+
 v2.0.4:
+    Update changelog for v2.0.4
+
     Hand the panadapter its stderr as fd 2
        Run as k4companion-debug.exe with stderr redirected (2>debug.log in
        Windows PowerShell), the panadapter failed to open: Popen, left to
