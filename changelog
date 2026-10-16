@@ -1,4 +1,18 @@
+v2.0.4:
+    Hand the panadapter its stderr as fd 2
+       Run as k4companion-debug.exe with stderr redirected (2>debug.log in
+       Windows PowerShell), the panadapter failed to open: Popen, left to
+       pick the child's stderr itself, duplicates the process's standard
+       error handle, and that raised "[WinError 50] The request is not
+       supported", though fd 2 itself still wrote to the log. The child is
+       now given fd 2 explicitly. Where there is no stderr, as in
+       k4companion.exe, it is left to Popen as before.
+   
+    Update Windows executables
+
 v2.0.3:
+    Update changelog for v2.0.3
+
     Restore each window on the monitor it was left on
        Every window's saved position was pulled back within the primary
        screen as it was restored, so one left on another monitor always came
