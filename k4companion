@@ -7018,7 +7018,14 @@ class PanadapterProcess(QObject):
     relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#SCL', '#FRZ', '#FXA', '#FXT', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', 'AR', 'AR$', 'AN', 'SB')
 
     @classmethod
-    def open_window(cls, receiver):
+    def open_window(cls, receiver, activate=True):
+        # activate is False for a window being restored as the K4
+        # connects, which then appears without taking the keyboard. It
+        # took it from the main window, a window of another process
+        # appearing over it, and with the cursor on the Main tab the
+        # space bar went to the panadapter instead of toggling T/R --
+        # until something in the main window was clicked. A window the
+        # operator opens with the Pan button is in front and takes it.
         # Syncs the Main/Sub tab's Pan togglebutton to "On" -- the
         # counterpart of on_exited()'s "Off" sync, and needed for the
         # same reason: WPAN!/WPAN$! are purely local directives (see
@@ -7046,7 +7053,7 @@ class PanadapterProcess(QObject):
             # only ask it to raise itself.
             process.send(panadapter_msg_raise, b'')
             return
-        process = PanadapterProcess(receiver)
+        process = PanadapterProcess(receiver, activate)
         cls.processes[receiver] = process
         for base in cls.relayed_cat_bases:
             value = Server.k4_server.k4_parameter(base)
@@ -7122,7 +7129,7 @@ class PanadapterProcess(QObject):
     def restore_open_windows(cls):
         for receiver in ('main', 'sub'):
             if Server.settings.getbool('Window', f'Panadapter.{receiver}.open', False):
-                cls.open_window(receiver)
+                cls.open_window(receiver, activate=False)
 
     @classmethod
     def close_all(cls):
@@ -7148,7 +7155,9 @@ class PanadapterProcess(QObject):
         if process != None:
             process.send(msg_type, payload)
 
-    def __init__(self, receiver):
+    def __init__(self, receiver, activate=True):
+        # activate says whether the window is to take the keyboard as it
+        # appears: see open_window.
         super().__init__()
         self.receiver = receiver
         self.stopping = False
@@ -7168,6 +7177,8 @@ class PanadapterProcess(QObject):
         else:
             argv = [sys.executable, os.path.abspath(__file__)]
         argv += ['--panadapter', receiver]
+        if not activate:
+            argv.append('--panadapter-no-activate')
 
         # Without the splash screen the .exe otherwise shows at each start,
         # which is for the program's own start, not a panadapter window's.
@@ -7591,6 +7602,9 @@ def panadapter_child_main(receiver):
 
     window = Panadapter(receiver)
     Panadapter.windows[receiver] = window
+    if Options.panadapter_no_activate:
+        # Restored, not opened: see PanadapterProcess.open_window.
+        window.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
     window.show()
     # See the matching comment in main(): set_geometry()'s move(), run
     # from Panadapter.__init__ before this show(), targets the window's
@@ -15557,6 +15571,7 @@ class Options():
     debug_areas = []
     yaml_file = None
     panadapter_receiver = None
+    panadapter_no_activate = False
 
     @staticmethod
     def Parse():
@@ -15577,9 +15592,16 @@ class Options():
         # (see PanadapterProcess). Not meant to be run by hand.
         parser.add_option('--panadapter', dest='panadapter_receiver', default=None,
                           help=optparse.SUPPRESS_HELP)
+        # Internal too: the panadapter is being restored rather than
+        # opened, and is not to take the keyboard (see
+        # panadapter_child_main).
+        parser.add_option('--panadapter-no-activate', action='store_true',
+                          dest='panadapter_no_activate', default=False,
+                          help=optparse.SUPPRESS_HELP)
         (options, args) = parser.parse_args()
 
         Options.panadapter_receiver = options.panadapter_receiver
+        Options.panadapter_no_activate = options.panadapter_no_activate
 
         Options.config_file = options.config_file
         Options.verbose = options.verbose
