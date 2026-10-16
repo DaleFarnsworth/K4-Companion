@@ -1,4 +1,50 @@
-v2.1-rc13:
+v2.1-rc14:
+    Show popups without taking the keyboard
+       A popup took the keyboard from the main window as it appeared: the
+       space bar, pressed to go back to receive, went to the popup, and once
+       the popup was gone it gave the keyboard back to nothing at all, so the
+       space bar did nothing until something was clicked. Popups are now shown
+       without taking it, the ALC warning's way of being shown becoming every
+       popup's.
+       
+       A modal popup, which Qt makes the active window whatever it is told,
+       and the password prompt, which has something to type into, still take
+       it while they are up, and now give it back to whichever window of ours
+       had it.
+   
+    Warn when the K4's ALC goes above 7
+       The K4's TM meter readings, while transmitting, carry its ALC. Past 7
+       the transmit audio is too loud, and a warning now says so, saying what
+       to turn down: the microphone gain, SSTV's Level or RTTY's AFSK Level.
+       Once a transmission, the readings coming several times a second.
+       
+       It is shown without taking the keyboard. A popup that took it would
+       have the space bar, pressed to go back to receive, go to the warning
+       and leave the K4 transmitting. Popups can now be shown that way.
+   
+    Send RTTY's AFSK at a tenth of the level, keeping the level saved
+       As SSTV did, AFSK went out too loud: at the default AFSK Level of 40%
+       the K4's ALC read about 8 bars at its usual settings, where it is to
+       stay just below 5. The level is now a percentage of a tenth of the old
+       full level, so 40% sends what 4% did. It is saved as
+       afsk_level_percent, and an afsk_level saved before is taken as ten
+       times that, so that AFSK goes out as loud as it did, up to the new
+       100%.
+   
+    Send SSTV at a tenth of the level, keeping the Level saved
+       At the default Level of 50%, the K4's ALC read 8 at its usual
+       settings, and a reasonable 5 at 5%, the lowest choice. The Level is
+       now a percentage of a tenth of the old full level, so 50% sends what
+       5% did, with the range above and below it. It is saved as
+       tx_level_percent, and a tx_level saved before is taken as ten times
+       that, to the nearest choice, so that the picture goes out as loud as
+       it did, up to the new 100%. RTTY's AFSK, which shared SSTV's full
+       level, keeps the old one.
+   
+    Version 2.1-rc13
+
+    Update changelog for v2.1-rc13
+
     Offer None as the audio input and output device
        The Audio tab's input and output device dropdowns now offer None,
        first. With no output device, neither the K4's audio nor the sidetone
@@ -675,6 +721,24 @@ v2.1-rc13:
        program's own folder and the current one -- now go on both, so that
        a macOS app finds the libopus.dylib it carries in its Frameworks
        folder. Both are put back as they were afterwards.
+   
+    Restore a panadapter window without taking the keyboard
+       A panadapter window left open reopens as the K4 connects, a window of
+       another process appearing over the main window, and took the keyboard
+       from it: with the cursor on the Main tab, the space bar went to the
+       panadapter rather than toggling T/R, until something in the main
+       window was clicked. A restored window now appears without activating,
+       the child being told so by --panadapter-no-activate. One opened with
+       the Pan button still comes to the front and takes the keyboard.
+   
+    Toggle T/R with the space bar whatever has the focus on the Main tab
+       With a VFO's frequency entry or an editable dropdown focused, as
+       clicking a frequency to tune leaves it, the space bar no longer
+       toggled transmit and receive. A line edit claims every key that types,
+       space included, ahead of the window's shortcuts. The tkinter version's
+       entries passed space on to the window's own binding, and its editable
+       dropdowns refused it. While the shortcut is enabled, on the main
+       window's Main tab, a plain space is now kept for it.
    
     Update Windows executables
 
