@@ -15538,10 +15538,12 @@ class RTTY(Digital):
     # And the one it sends in as audio made here, which the K4 can't
     # send in itself: see RttyAfsk.
     afsk_sub_mode = '1'                 # AFSK A
-    # The AFSK level's share of afsk_full_level: about 8 bars of the
-    # K4's ALC, at its usual settings, at 50%. What SSTV's tx_full_level
-    # was, an eighth of full scale, before it came down to a tenth.
-    afsk_full_level = 1 / 8
+    # The AFSK level's share of afsk_full_level, brought down to a tenth
+    # as SSTV's tx_full_level was: at an eighth of full scale, the K4's
+    # ALC read about 8 bars at its usual settings at 50%, where it is to
+    # stay just below 5. At a tenth of that, the default 40% sends what
+    # 4% did, just under SSTV's default.
+    afsk_full_level = 1 / 80
     afsk_level_default = 40
 
     mode_subscriptions = (
@@ -15589,8 +15591,7 @@ class RTTY(Digital):
         if self.squelch_level not in self.squelch_levels:
             self.squelch_level = self.squelch_level_default
         self.squelch_timer = None
-        self.afsk_level = Server.settings.getint('RTTY', 'afsk_level', self.afsk_level_default,
-                                                 minimum=5, maximum=100)
+        self.afsk_level = self.saved_afsk_level()
         self.signal_seen = [0.0, 0.0]
         self.held_text = [collections.deque(), collections.deque()]
         self.choosing_decoding = False
@@ -15727,6 +15728,20 @@ class RTTY(Digital):
         else:
             super().send_stop()
 
+    def saved_afsk_level(self):
+        # The AFSK level saved, as afsk_level_percent. An afsk_level
+        # saved before afsk_full_level came down to a tenth is a
+        # percentage of the old one, so it is taken as ten times that, for
+        # AFSK to go out as loud as it did, up to the new 100%.
+        settings = Server.settings
+        level = settings.getint('RTTY', 'afsk_level_percent', None, minimum=5, maximum=100)
+        if level != None:
+            return level
+        old = settings.getint('RTTY', 'afsk_level', None, minimum=5, maximum=100)
+        if old == None:
+            return self.afsk_level_default
+        return max(5, min(100, old * 10))
+
     def add_config_vars(self, parent_frame):
         super().add_config_vars(parent_frame)
         self.afsk_level_entry = self._labeled_entry(parent_frame.layout(), 4, 0, 'AFSK Level %:',
@@ -15737,7 +15752,7 @@ class RTTY(Digital):
     def on_save_button(self):
         try:
             self.afsk_level = max(5, min(100, int(self.afsk_level_entry.text())))
-            Server.settings.put_save(self.settings_section, 'afsk_level', self.afsk_level)
+            Server.settings.put_save(self.settings_section, 'afsk_level_percent', self.afsk_level)
         except ValueError:
             pass
         self.afsk_level_entry.setText(str(self.afsk_level))
