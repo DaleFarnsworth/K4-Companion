@@ -7173,8 +7173,22 @@ class PanadapterProcess(QObject):
         # which is for the program's own start, not a panadapter window's.
         env = dict(os.environ, PYINSTALLER_SUPPRESS_SPLASH_SCREEN='1')
 
+        # The child's stderr is ours, handed over as fd 2 rather than
+        # left to Popen. Left to it, Popen on Windows duplicates the
+        # process's standard error handle instead, and in
+        # k4companion-debug.exe with stderr redirected (2>debug.log in
+        # Windows PowerShell) that handle can't be duplicated: Popen
+        # raised "[WinError 50] The request is not supported" and the
+        # panadapter never opened, though fd 2 itself still wrote to the
+        # log. Where there's no stderr at all (k4companion.exe, which
+        # has no console), None leaves Popen to make one up as before.
+        try:
+            child_stderr = sys.stderr.fileno()
+        except (AttributeError, ValueError, OSError):
+            child_stderr = None
+
         self.process = subprocess.Popen(argv, stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE, env=env)
+            stdout=subprocess.PIPE, stderr=child_stderr, env=env)
 
         # Bounded, and dropped rather than blocked on when full: writing
         # straight from received_pan() would put the pipe's flow control
