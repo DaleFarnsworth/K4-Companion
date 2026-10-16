@@ -12940,11 +12940,14 @@ class SSTV(Widget):
     autotune_settle_seconds = 1.0
     # How long what Autotune did is shown in the status line.
     autotune_note_seconds = 4
-    # Transmit. The Level dropdown is a percentage of tx_full_level, the
-    # most the microphone's audio is ever sent at (full scale with the
-    # microphone gain at its highest). What it should be is whatever
-    # brings the K4's ALC just up, which depends on the K4's own settings.
-    tx_full_level = 1 / 8
+    # Transmit. The Level dropdown is a percentage of tx_full_level.
+    # What it should be is whatever brings the K4's ALC just up, which
+    # depends on the K4's own settings. tx_full_level was the most the
+    # microphone's audio is ever sent at, an eighth of full scale, and at
+    # its usual settings the K4's ALC read 8 at the default 50%, and a
+    # reasonable 5 at 5%: a tenth of that full level sends at 50% what
+    # 5% did, with the range above and below it.
+    tx_full_level = 1 / 80
     tx_levels = tuple(range(5, 105, 5))
     tx_level_default = 50
     tx_mode_default = 'Martin M1'
@@ -13460,8 +13463,7 @@ class SSTV(Widget):
         grid.addWidget(frame, 0, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         levels = [f'{level}%' for level in self.tx_levels]
-        saved_level = Server.settings.getint(self.settings_section, 'tx_level', self.tx_level_default,
-                                             minimum=self.tx_levels[0], maximum=self.tx_levels[-1])
+        saved_level = self.saved_tx_level()
         frame, self.tx_level_combobox = self.labeled_dropdown(
             'Level: ', levels, f'{saved_level}%', self.on_tx_level_changed)
         tooltip = ('How loud the picture is sent. Set it so that the K4\'s ALC\n'
@@ -13514,6 +13516,24 @@ class SSTV(Widget):
                 return mode
         return None
 
+    def saved_tx_level(self):
+        # The Level saved, as tx_level_percent. A tx_level saved before
+        # tx_full_level came down to a tenth is a percentage of the old
+        # one, so it is taken as ten times that, to the nearest choice,
+        # for the picture to go out as loud as it did.
+        settings = Server.settings
+        section = self.settings_section
+        lowest, highest = self.tx_levels[0], self.tx_levels[-1]
+        level = settings.getint(section, 'tx_level_percent', None,
+                                minimum=lowest, maximum=highest)
+        if level != None:
+            return level
+        old = settings.getint(section, 'tx_level', None, minimum=lowest, maximum=highest)
+        if old == None:
+            return self.tx_level_default
+        step = self.tx_levels[1] - lowest
+        return max(lowest, min(highest, round(old * 10 / step) * step))
+
     def tx_level(self):
         try:
             return int(self.tx_level_combobox.currentText().rstrip('%'))
@@ -13526,7 +13546,7 @@ class SSTV(Widget):
         self.show_tx_state()
 
     def on_tx_level_changed(self, text):
-        Server.settings.put_save(self.settings_section, 'tx_level', self.tx_level())
+        Server.settings.put_save(self.settings_section, 'tx_level_percent', self.tx_level())
 
     def on_load_picture(self):
         folder = os.path.dirname(Server.settings.get(self.settings_section, 'tx_picture', '') or '')
@@ -15518,8 +15538,10 @@ class RTTY(Digital):
     # And the one it sends in as audio made here, which the K4 can't
     # send in itself: see RttyAfsk.
     afsk_sub_mode = '1'                 # AFSK A
-    # The AFSK level's share of tx_full_level (SSTV's): about 8 bars of
-    # the K4's ALC, at its usual settings, at 50%.
+    # The AFSK level's share of afsk_full_level: about 8 bars of the
+    # K4's ALC, at its usual settings, at 50%. What SSTV's tx_full_level
+    # was, an eighth of full scale, before it came down to a tenth.
+    afsk_full_level = 1 / 8
     afsk_level_default = 40
 
     mode_subscriptions = (
@@ -15640,7 +15662,7 @@ class RTTY(Digital):
             split = server.k4_parameter('FT') == '1'
             baud = 75 if server.k4_parameter('DR$' if split else 'DR') == '1' else 45.45
             mark = self.afc_target() - self.afc_shift_hz / 2
-            level = self.afsk_level / 100 * SSTV.tx_full_level
+            level = self.afsk_level / 100 * self.afsk_full_level
             self.afsk = RttyAfsk(baud, mark, level, shift_hz=self.afc_shift_hz)
             # Before the K4 is put in transmit, which starts the transmit
             # audio thread, so that it sends this.
