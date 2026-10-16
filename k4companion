@@ -20195,6 +20195,15 @@ class Popup(QDialog):
         self.setStyleSheet(f'QDialog {{ background-color: {color}; }}')
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        # Shown without taking the keyboard, whatever it says. One that
+        # took it had the space bar, pressed to go back to receive, go to
+        # the popup and leave the K4 transmitting, and when it went it
+        # gave the keyboard back to nothing at all: the space bar did
+        # nothing until something in the main window was clicked. Only
+        # the password prompt takes it, having something to type into,
+        # and a modal one, which Qt makes active whatever it is told:
+        # those give it back (see exec_keeping_keyboard).
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.__class__.previous_popup = self
 
     def show_popup_window(self):
@@ -20205,13 +20214,32 @@ class Popup(QDialog):
     def show_and_wait(self):
         if self.timeout != None:
             Poll.call(self.timeout, self.close)
+        self.exec_keeping_keyboard()
+
+    def exec_keeping_keyboard(self):
+        # Run as a modal dialog, which Qt makes the active window
+        # whatever it is told, and the keyboard given back afterwards to
+        # whichever window of ours had it: left to itself it went back to
+        # none, and the space bar did nothing until something was
+        # clicked. Nothing is given back where none of ours had it, the
+        # operator being in another program.
+        previous = QApplication.activeWindow()
         self.exec()
+        if previous == None or previous is self:
+            return
+        try:
+            if previous.isVisible():
+                previous.activateWindow()
+        except RuntimeError:
+            pass                # gone while this was up
 
     def password(msg='', title='', font=None, color='yellow'):
         if isinstance(msg, str):
             msg = [ msg ]
         msg = "\n\n".join(msg)
         popup = Popup(title=title, font=font, color=color, modal=True)
+        # The one popup that takes the keyboard: see Popup.__init__.
+        popup.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
         if font == None:
             font = popup.font_
 
@@ -20263,7 +20291,7 @@ class Popup(QDialog):
         popup.frame.addWidget(submit_button, 2, 0, Qt.AlignmentFlag.AlignLeft)
 
         entry.setFocus()
-        popup.exec()
+        popup.exec_keeping_keyboard()
         return result[0]
 
 class Timer():
