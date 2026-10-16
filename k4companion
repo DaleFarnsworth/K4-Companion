@@ -11183,6 +11183,12 @@ class AppSettings_widget(Widget):
         audio_remote_audio_latency_frame = self.audio_remote_audio_latency_setting()
         grid.addWidget(audio_remote_audio_latency_frame, 1, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
+        if Audio.wasapi_available():
+            self.exclusive_block_frame = self.audio_exclusive_block_setting()
+            grid.addWidget(self.exclusive_block_frame, 2, 1,
+                           Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            self.show_exclusive_block_setting()
+
         return frame
 
     def audio_device_settings(self, direction):
@@ -11241,11 +11247,54 @@ class AppSettings_widget(Widget):
 
         Server.settings.put_save('Audio', f'wasapi_exclusive_{direction}',
                                  current_value == 'Yes')
+        self.show_exclusive_block_setting()
         # Exclusive or shared is settled when the device is opened, so
         # the stream has to be taken down and put up again for this.
         if direction == 'input':
             Audio.reopen_input_stream()
         else:
+            Audio.reopen_output_stream()
+
+    # The blocks offered for exclusive mode, in frames: see
+    # Audio.exclusive_block_frames. Whole multiples of 48, a millisecond
+    # at the 48000 an exclusive device likeliest runs at.
+    exclusive_block_choices = (144, 192, 288, 384, 480, 960)
+
+    @staticmethod
+    def exclusive_block_label(frames):
+        # As offered: the frames, and how long they are at the output
+        # device's rate, or 48000 where there is none to go by.
+        rate = Audio.output_device_sample_rate() or 48000
+        return f'{frames} ({frames / rate * 1000:g} ms)'
+
+    def audio_exclusive_block_setting(self):
+        # Shown only while exclusive mode is wanted in either direction:
+        # see show_exclusive_block_setting. A saved block not among the
+        # choices is offered as well, so that it can be seen.
+        current = Audio.exclusive_block_frames()
+        choices = sorted(set(self.exclusive_block_choices) | {current})
+        self.exclusive_block_labels = {self.exclusive_block_label(frames): frames
+                                       for frames in choices}
+        return self._labeled_combobox('Exclusive Block',
+            list(self.exclusive_block_labels), self.exclusive_block_label(current),
+            self.on_exclusive_block_combobox_changed, justify='right')
+
+    def show_exclusive_block_setting(self):
+        frame = getattr(self, 'exclusive_block_frame', None)
+        if frame != None:
+            frame.setVisible(Audio.wasapi_exclusive_wanted('input') or
+                             Audio.wasapi_exclusive_wanted('output'))
+
+    def on_exclusive_block_combobox_changed(self, label):
+        frames = self.exclusive_block_labels.get(label)
+        if frames == None:
+            return
+        Server.settings.put_save('Audio', 'wasapi_exclusive_blocksize', frames)
+        # The block is settled when a stream is opened, as exclusive or
+        # shared is: each exclusive one is taken down and put up again.
+        if Audio.wasapi_exclusive_wanted('input'):
+            Audio.reopen_input_stream()
+        if Audio.wasapi_exclusive_wanted('output'):
             Audio.reopen_output_stream()
 
     def audio_remote_audio_latency_setting(self):
