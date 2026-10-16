@@ -922,6 +922,9 @@ class Server():
 
     def on_server_connect(self):
         self.subscribe_responses('OV;OV$;', self.on_ov_received, send=False)
+        self.alc_warned = False
+        self.subscribe_response('TM;', self.on_tm_received, send=False)
+        self.subscribe_response('TR;', self.on_tr_for_alc, send=False)
         self.request_initial_parameters()
         self.update_local_audio_parameters()
         if self.type == 'k4' and not self.cat_only:
@@ -1213,6 +1216,34 @@ class Server():
                 self.update_k4_parameter(cmd_base(cmd), orig_param)
         Keyer.subscribe_enabled()
         freeze_startup_objects()
+
+    # The highest ALC the K4's TM meter reading can show without a
+    # warning: past it, what is transmitted is driven too hard.
+    alc_warning_above = 7
+
+    def on_tm_received(self, response):
+        # TM, while transmitting: ALC, CMP, forward power and SWR, three
+        # digits each. ALC past alc_warning_above is warned of once a
+        # transmission, the readings coming several times a second.
+        #
+        # Shown without taking the keyboard. Taken, the space bar went
+        # to the warning, and pressed to go back to receive, left the K4
+        # transmitting.
+        try:
+            alc = int(cmd_parameter(response)[0:3])
+        except ValueError:
+            return
+        if alc <= self.alc_warning_above or self.alc_warned:
+            return
+        self.alc_warned = True
+        Popup.warning(f'The K4\'s ALC is {alc}, above {self.alc_warning_above}: the transmit '
+                      'audio is too loud.\nTurn down the microphone gain, SSTV\'s Level or '
+                      'RTTY\'s AFSK Level.', timeout=4000, activate=False)
+
+    def on_tr_for_alc(self, response):
+        # Each transmission is warned of on its own: see on_tm_received.
+        if cmd_parameter(response) == 'R':
+            self.alc_warned = False
 
     def on_ov_received(self, response):
         param = cmd_parameter(response)
@@ -20106,7 +20137,7 @@ class Popup(QDialog):
     previous_popup = None
 
     @classmethod
-    def show_popup(cls, msg, title, prefix, timeout, font, color, modal=False):
+    def show_popup(cls, msg, title, prefix, timeout, font, color, modal=False, activate=True):
         if isinstance(msg, str):
             msg = [ prefix + msg ]
         else:
@@ -20122,6 +20153,9 @@ class Popup(QDialog):
         label.setStyleSheet(f'QLabel {{ background-color: {color}; }}')
         label.setFont(popup.font_)
         popup.frame.addWidget(label, 0, 0)
+        if not activate:
+            # Shown without taking the keyboard: see Server.on_tm_received.
+            popup.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         if modal:
             popup.show_and_wait()
         else:
@@ -20136,23 +20170,26 @@ class Popup(QDialog):
     def dequeue_popups(cls):
         while True:
             try:
-                msg, title, prefix, timeout, font, color, modal = cls.queue.get_nowait()
-                cls.show_popup(msg, title, prefix, timeout, font, color, modal)
+                msg, title, prefix, timeout, font, color, modal, activate = cls.queue.get_nowait()
+                cls.show_popup(msg, title, prefix, timeout, font, color, modal, activate)
             except queue.Empty:
                 break
 
         Poll.call(cls.poll_interval, cls.dequeue_popups)
 
     @classmethod
-    def popup(cls, msg='', title='', prefix='', timeout=None, font=None, color='yellow', modal=False):
+    def popup(cls, msg='', title='', prefix='', timeout=None, font=None, color='yellow', modal=False,
+              activate=True):
+        # activate False shows it without taking the keyboard.
         if threading.current_thread() == threading.main_thread():
-            cls.show_popup(msg, title, prefix, timeout, font, color, modal)
+            cls.show_popup(msg, title, prefix, timeout, font, color, modal, activate)
         else:
-            cls.queue.put((msg, title, prefix, timeout, font, color, modal))
+            cls.queue.put((msg, title, prefix, timeout, font, color, modal, activate))
 
     @classmethod
-    def warning(cls, msg, timeout=2000, modal=False):
-        cls.popup(msg=msg, title='Warning', prefix='Warning: ', timeout=timeout, font=None, color='yellow', modal=modal)
+    def warning(cls, msg, timeout=2000, modal=False, activate=True):
+        cls.popup(msg=msg, title='Warning', prefix='Warning: ', timeout=timeout, font=None, color='yellow',
+                  modal=modal, activate=activate)
 
     @classmethod
     def error(cls, msg, timeout=5000, modal=False, font=None):
