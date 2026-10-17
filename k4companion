@@ -9718,7 +9718,8 @@ class Audio():
         # crossfaded away with the K4 audio, as it is under the K4's own
         # sidetone.
         self.mix_spot(outdata, frames)
-        self.mix_sidetone(outdata, frames, block_start_frame, time_info)
+        self.mix_sidetone(outdata, frames, block_start_frame, time_info,
+                          self.callback_dac_time)
 
     def key_up_due(self, frames, time_info):
         # Whether the key comes up inside the block about to be filled,
@@ -9831,7 +9832,7 @@ class Audio():
         if frames < len(outdata):
             outdata[frames:] = 0
 
-    def mix_sidetone(self, outdata, frames, block_start_frame, time_info):
+    def mix_sidetone(self, outdata, frames, block_start_frame, time_info, dac_time=None):
         # The sidetone is generated here, a block at a time, rather than
         # played from a queue of pre-rendered packets. A queue can only
         # turn the tone on and off where one block ends and the next
@@ -9846,7 +9847,13 @@ class Audio():
             return
         sample_rate, rise_step, fall_step, period, cycle = shape
 
-        dac_time = self.callback_dac_time
+        # The block's DAC time as the output callback worked it out (see
+        # counted_dac_time), or as time_info reports it where there is
+        # none: warm_sidetone, which runs this outside any callback with
+        # time_info of its own, and with a callback's from the stream
+        # before still standing.
+        if dac_time == None:
+            dac_time = self.block_dac_time(time_info)
         self.note_block_timing(dac_time, time_info.currentTime,
                                frames / sample_rate)
 
