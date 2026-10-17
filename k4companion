@@ -20898,6 +20898,23 @@ def main():
             QTimer.singleShot(geo_delay, lambda: top.move(x, y))
     app.exec()
 
+    # os._exit(), not a plain return, as panadapter_child_main does.
+    # Everything that matters has been done by here -- the settings
+    # saved, the K4 let go of, the panadapters stopped, in clean_up --
+    # and what normal interpreter finalization did after it was tear
+    # down whatever PyQt objects were left in whatever order the garbage
+    # collector met them. Now and then one was reached after the Qt
+    # object under it had gone, and closing the window ended in a
+    # segmentation fault in sip: four times in ten, closing after a
+    # connection had been made.
+    LogWriter.flush()
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except (BrokenPipeError, ValueError, OSError):
+            pass
+    os._exit(0)
+
 # Raw, so the config's own escapes (a tooltip's or a button's \n) reach
 # the YAML parser as they are in the file rather than as Python makes
 # them: a real line break inside a quoted YAML string folds to a space.
@@ -21420,7 +21437,9 @@ config_data = r'''
     - { text: " LSB", cmd: '!SSTVDISABLE;MD1;' }
     - { text: "  AM", cmd: MD5; }
     - { text: "  FM", cmd: MD4; }
-    - { text: "RTTY", cmd: '!RTTY6;', response: MD6;DT2; }
+    # RTTY is DATA in FSK D (DT2), or in AFSK A (DT1), which the RTTY
+    # window sends AFSK in: DT1 is taken as DT2 to match either.
+    - { text: "RTTY", cmd: '!RTTY6;', response: MD6;DT2;, evalresponse: "value.replace('DT1;', 'DT2;')" }
     - { text: "SSTV", cmd: '!SSTVENABLE;' }
     - { text: "DATA", cmd: MD6; }
     - { text: "DT-R", cmd: MD9; }
@@ -21631,7 +21650,8 @@ config_data = r'''
     - { text: " LSB", cmd: '!SSTV$DISABLE;MD$1;' }
     - { text: "  AM", cmd: MD$5; }
     - { text: "  FM", cmd: MD$4; }
-    - { text: "RTTY", cmd: '!RTTY$6;', response: MD$6;DT$2; }
+    # As VFO A's: DT$1 is taken as DT$2.
+    - { text: "RTTY", cmd: '!RTTY$6;', response: MD$6;DT$2;, evalresponse: "value.replace('DT$1;', 'DT$2;')" }
     - { text: "SSTV", cmd: '!SSTV$ENABLE;' }
     - { text: "DATA", cmd: MD$6; }
     - { text: "DT-R", cmd: MD$9; }
