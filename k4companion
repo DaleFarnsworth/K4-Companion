@@ -3499,23 +3499,32 @@ class Bargraph(Widget):
 
     def on_response_received(self, response):
         value = float(self.eval_value(self.evalresponse, response))
-        # setValue repaints there and then, taking with it whatever else
-        # in the window is waiting to be painted -- the VFOs recoloured
-        # for receive, after RX; -- all while holding the GIL, which
-        # made the audio output callback late. With updates off it only
-        # schedules the paint, which the event loop then does in C++.
-        self.progressbar.setUpdatesEnabled(False)
-        self.progressbar.setValue(round(value * 1000))
-        self.progressbar.setUpdatesEnabled(True)
         if self.server.connected:
             # A meter reading comes several times a second, and the scale
             # only changes with what evalbottomtext and evalmaximum see --
             # the power range, for the power meter. Laying the bar out
             # again at every reading held the GIL long enough to make the
             # audio output underrun.
+            #
+            # Before the value is set, so that it is held to the range it
+            # is shown against.
             scale = (self.bottom_text(), self.maximum_value())
             if scale != self.configured_scale:
                 self.configure()
+        # Held to the bar's range: setValue ignores a value outside it,
+        # so a reading past the highest the bar shows -- ALC 8 on a bar
+        # to 7 -- left it at whatever it showed last, which could be well
+        # down it, rather than full.
+        bar = self.progressbar
+        bar_value = max(bar.minimum(), min(bar.maximum(), round(value * 1000)))
+        # setValue repaints there and then, taking with it whatever else
+        # in the window is waiting to be painted -- the VFOs recoloured
+        # for receive, after RX; -- all while holding the GIL, which
+        # made the audio output callback late. With updates off it only
+        # schedules the paint, which the event loop then does in C++.
+        bar.setUpdatesEnabled(False)
+        bar.setValue(bar_value)
+        bar.setUpdatesEnabled(True)
 
     configured_scale = None
 
