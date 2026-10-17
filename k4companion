@@ -1017,9 +1017,17 @@ class Server():
 
         try:
             sock.settimeout(5)
-            if use_tls:
-                sock = context.wrap_socket(sock)
             sock.connect((self.address, self.port))
+            if use_tls:
+                # Wrapped once connected, the handshake running over the
+                # connection just made. Wrapped before, the connection
+                # was made by the SSLSocket that wrapping makes, a plain
+                # socket's, and a SOCKS proxy's socket, which is what
+                # connects through the proxy, was left behind: port 9204
+                # went straight to the K4's address, and wherever the K4
+                # could be reached only through the proxy it always
+                # failed.
+                sock = context.wrap_socket(sock)
             self.connected = True
             self.printed_connection_warning = False
             self.socket = sock
