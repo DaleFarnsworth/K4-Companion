@@ -516,7 +516,9 @@
     - { text: " LSB", cmd: '!SSTVDISABLE;MD1;' }
     - { text: "  AM", cmd: MD5; }
     - { text: "  FM", cmd: MD4; }
-    - { text: "RTTY", cmd: '!RTTY6;', response: MD6;DT2; }
+    # RTTY is DATA in FSK D (DT2), or in AFSK A (DT1), which the RTTY
+    # window sends AFSK in: DT1 is taken as DT2 to match either.
+    - { text: "RTTY", cmd: '!RTTY6;', response: MD6;DT2;, evalresponse: "value.replace('DT1;', 'DT2;')" }
     - { text: "SSTV", cmd: '!SSTVENABLE;' }
     - { text: "DATA", cmd: MD6; }
     - { text: "DT-R", cmd: MD9; }
@@ -727,7 +729,8 @@
     - { text: " LSB", cmd: '!SSTV$DISABLE;MD$1;' }
     - { text: "  AM", cmd: MD$5; }
     - { text: "  FM", cmd: MD$4; }
-    - { text: "RTTY", cmd: '!RTTY$6;', response: MD$6;DT$2; }
+    # As VFO A's: DT$1 is taken as DT$2.
+    - { text: "RTTY", cmd: '!RTTY$6;', response: MD$6;DT$2;, evalresponse: "value.replace('DT$1;', 'DT$2;')" }
     - { text: "SSTV", cmd: '!SSTV$ENABLE;' }
     - { text: "DATA", cmd: MD$6; }
     - { text: "DT-R", cmd: MD$9; }
