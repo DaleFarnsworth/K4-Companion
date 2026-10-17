@@ -1,4 +1,34 @@
-v2.1-rc14:
+v2.1-rc15:
+    Show a meter reading past a bargraph's top as a full bar
+       QProgressBar.setValue ignores a value outside the bar's range, so a
+       reading past the highest a bargraph shows -- ALC 8 on a bar to 7 --
+       left the bar at whatever it showed last: after 5, at 5. A reading is
+       now held to the bar's range. The scale is brought up to date before
+       the value is set, rather than after, so that it is held to the range
+       it is shown against.
+   
+    End the main process with os._exit once it has cleaned up
+       Closing the window now and then ended in a segmentation fault in sip,
+       four times in ten after a connection had been made. After app.exec()
+       returned, normal interpreter finalization tore down whatever PyQt
+       objects were left in whatever order the garbage collector met them,
+       and one was reached after the Qt object under it had gone. Everything
+       that matters is done by then, in clean_up -- the settings saved, the
+       K4 let go of, the panadapters stopped -- so the log and the output are
+       flushed and the process ended with os._exit(), as the panadapter's
+       already is.
+   
+    Show RTTY on the Mode widget in AFSK A as well as FSK D
+       The Mode widget's RTTY entry matched DATA in FSK D (DT2) only. Sending
+       AFSK leaves the K4 in AFSK A (DT1), and after a restart the widget fell
+       through to DATA. The RTTY entries for VFO A and VFO B now take DT1 as
+       DT2 when matching, so either shows as RTTY, as the RTTY window already
+       takes them. Choosing RTTY still sets FSK D.
+   
+    Version 2.1-rc14
+
+    Update changelog for v2.1-rc14
+
     Show popups without taking the keyboard
        A popup took the keyboard from the main window as it appeared: the
        space bar, pressed to go back to receive, went to the popup, and once
