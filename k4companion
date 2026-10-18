@@ -4707,6 +4707,14 @@ class Menu_definition():
         self.frame.setFont(self.menu.label_font())
         qt_tighten_groupbox(self.frame, self.desc, self.menu.label_font())
         self.frame_grid = QGridLayout(self.frame)
+        # What the value is in, or what its ends mean, above the
+        # controls: see unit_notes.
+        self.note_label = QLabel()
+        self.note_label.setFont(self.menu.font())
+        self.note_label.setStyleSheet(f'QLabel {{ color: {self.menu.fg}; background-color: {self.menu.bg}; }}')
+        self.note_label.hide()
+        self.frame_grid.addWidget(self.note_label, 0, 0, 1, 2,
+                                  Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         if len(self.values) > 0:
             self.listbox()
@@ -4732,7 +4740,7 @@ class Menu_definition():
         self.locked_frame = QWidget()
         locked_grid = QGridLayout(self.locked_frame)
         locked_grid.setContentsMargins(0, 0, 0, 0)
-        self.frame_grid.addWidget(self.locked_frame, 0, 1)
+        self.frame_grid.addWidget(self.locked_frame, 1, 1)
 
         self.locked_button = QPushButton(self.locked)
         self.locked_button.setFont(self.menu.font())
@@ -4783,39 +4791,40 @@ class Menu_definition():
 
         self.update_desc()
 
+    # What a value of each of these types is in, or what its ends mean,
+    # shown above the controls. They were added to the box's title as a
+    # second line, which a QGroupBox title, drawn on one line on the
+    # box's border, didn't show properly; and the MHz, mW and Hz ones
+    # were added to the title as it stood, a line more at each update.
+    unit_notes = {
+        'ms': '(ms)',
+        'ZMON': '(-1 = OFF, 0 = MON)',
+        'ZOFF': '(0 = OFF)',
+        'MHz': '(MHz)',
+        'D10mW': '(mW)',
+        'Hz': '(Hz)',
+    }
+
     def update_desc(self):
-        desc = self.updated_desc
+        # The title: the description, with a transverter menu's band
+        # number put in for <n>, and the list's entry kept the same.
+        title = self.desc
         if self.area == 'XV':
             if self.type == 'DEC':
                 self.menu.xv_band = int(self.current)
             else:
-                self.updated_desc = self.desc.replace('<n>', str(self.menu.xv_band))
+                title = self.desc.replace('<n>', str(self.menu.xv_band))
+        if title != self.updated_desc:
+            self.updated_desc = title
+            self.frame.setTitle(title)
+            qt_size_tight_groupbox_title(self.frame, title, self.menu.label_font())
+            item = self.menu.listbox.item(self.position)
+            if item != None:
+                item.setText(title)
 
-            if self.updated_desc != desc:
-                item = self.menu.listbox.item(self.position)
-                if item != None:
-                    item.setText(self.updated_desc)
-
-        if self.type == 'ms':
-            self.updated_desc = self.desc + "\n(ms)"
-
-        if self.type == 'ZMON':
-            self.updated_desc = self.desc + "\n(-1 = OFF, 0 = MON)"
-
-        if self.type == 'ZOFF':
-            self.updated_desc = self.desc + "\n(0 = OFF)"
-
-        if self.type == 'MHz':
-            self.updated_desc = self.updated_desc + "\n(MHz)"
-
-        if self.type == 'D10mW':
-            self.updated_desc = self.updated_desc + "\n(mW)"
-
-        if self.type == 'Hz':
-            self.updated_desc = self.updated_desc + "\n(Hz)"
-
-        if self.updated_desc != desc:
-            self.frame.setTitle(self.updated_desc)
+        note = self.unit_notes.get(self.type, '')
+        self.note_label.setText(note)
+        self.note_label.setVisible(note != '')
 
     def current_desc(self):
         return self.updated_desc
@@ -4861,7 +4870,7 @@ class Menu_definition():
 
         self.widget.setCurrentRow(self.current)
 
-        self.frame_grid.addWidget(self.widget, 0, 0)
+        self.frame_grid.addWidget(self.widget, 1, 0)
         self.widget.currentRowChanged.connect(self.on_listbox_selected)
 
     def on_listbox_selected(self, index):
@@ -4998,13 +5007,13 @@ class Menu_definition():
         self.widget.setValue(round(float(self.current) / self.slider_resolution))
         self.widget.valueChanged.connect(self.slider_value_changed)
 
-        self.frame_grid.addWidget(self.widget, 0, 0)
+        self.frame_grid.addWidget(self.widget, 1, 0)
 
         self.slider_value_label = QLabel(format_slider_value(float(self.current), self.slider_resolution))
         self.slider_value_label.setFont(self.menu.font())
         self.slider_value_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         self.slider_value_label.setStyleSheet(f'QLabel {{ color: {self.menu.fg}; background-color: {self.menu.bg}; }}')
-        self.frame_grid.addWidget(self.slider_value_label, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.frame_grid.addWidget(self.slider_value_label, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
     def slider_value_changed(self, position):
         if self.changeable != 'Unlocked':
@@ -5035,7 +5044,7 @@ class Menu_definition():
         self.widget = QLabel(str(self.current))
         self.widget.setFont(self.menu.font())
         self.widget.setStyleSheet(f'QLabel {{ color: {self.menu.fg}; background-color: {self.menu.bg}; padding: 2px; }}')
-        self.frame_grid.addWidget(self.widget, 0, 0)
+        self.frame_grid.addWidget(self.widget, 1, 0)
 
     def fixed_text_update(self, current=None):
         if current != None:
@@ -5048,7 +5057,7 @@ class Menu_definition():
         self.widget = QLineEdit(str(self.current))
         self.widget.setFont(self.menu.font())
         self.widget.setStyleSheet(f'QLineEdit {{ color: {self.menu.fg}; background-color: {self.menu.bg}; }}')
-        self.frame_grid.addWidget(self.widget, 0, 0)
+        self.frame_grid.addWidget(self.widget, 1, 0)
         self.widget.editingFinished.connect(self.set_text)
 
     def set_text(self):
