@@ -1,4 +1,41 @@
+v2.1-rc16:
+    Say which device an audio stream opened on, and at what rate
+       With --da audio, the message for each audio stream opened now names the
+       device and the rate it opened at, as the stream has it, as well as how
+       it opened, its blocksize and its latency.
+   
+    Support audio devices at 44.1 kHz
+       Only 48 kHz was ever tried, so a device that wouldn't take it was left
+       out of the device lists. Each device is now tried at 48 kHz and then at
+       44.1 kHz. 44.1 kHz is 3.675 times the K4's 12 kHz, not a whole multiple
+       as 48 kHz is, so it is resampled by a StreamResampler: interpolated
+       linearly, where each block begins carried from the block before so
+       that the blocks join without a step, and on the way down from the
+       microphone low-passed first, so that nothing above the lower rate's
+       half is folded into the audio. What it gives the microphone's way is
+       gathered and sent a whole frame at a time. 48 kHz is resampled as it
+       always was.
+       
+       The microphone is opened at 44.1 kHz with 10ms blocks rather than a
+       frame's 240 frames, 5.44ms there, which a device was seen to deliver at
+       well under its rate: 31 reads a second rather than 50.
+   
+    Note only -1 as OFF for the TX monitor level menu items
+       The note above TX Monitor Level, Line Out and Remote said that 0 is
+       MON as well as that -1 is OFF. It now says only that -1 is OFF.
+   
+    Show a menu item's units above its controls, not in its title
+       Some menu item types had what their value is in, or what its ends
+       mean -- (-1 = OFF, 0 = MON) for TX Monitor Level, Remote -- added to
+       the description as a second line of the box's title, which a
+       QGroupBox title, drawn on one line on the box's border, didn't show
+       properly. The MHz, mW and Hz ones were also added to the title as it
+       stood, a line more at each update. The title is now the description
+       alone, and the note a line of its own above the controls.
+   
 v2.1-rc15:
+    Update changelog for v2.1-rc15
+
     Show a meter reading past a bargraph's top as a full bar
        QProgressBar.setValue ignores a value outside the bar's range, so a
        reading past the highest a bargraph shows -- ALC 8 on a bar to 7 --
