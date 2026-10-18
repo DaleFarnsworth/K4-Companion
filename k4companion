@@ -9420,7 +9420,10 @@ class Audio():
                                 self.output_stream = None
                             continue
                         opened_exclusive = extra_settings != None
-                        dprint_audio('output stream opened', label,
+                        # The device, and the rate it opened at, as the
+                        # stream has it.
+                        dprint_audio(f'output stream opened on "{self.output_device_name()}"'
+                                     f' at {self.output_stream.samplerate:g} Hz,', label,
                                      f'blocksize={blocksize}',
                                      f'latency={self.output_stream.latency * 1000:.2f}ms')
                         break
@@ -10584,7 +10587,9 @@ class Audio():
                         input_stream = None
                         continue
                     opened_exclusive = extra_settings != None
-                    dprint_audio('input stream opened', label,
+                    # As the output stream's: see k4_rx_audio_loop.
+                    dprint_audio(f'input stream opened on "{self.input_device_name()}"'
+                                 f' at {input_stream.samplerate:g} Hz,', label,
                                  f'blocksize={blocksize}',
                                  f'latency={input_stream.latency * 1000:.2f}ms')
                     break
