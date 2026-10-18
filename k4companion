@@ -4798,7 +4798,7 @@ class Menu_definition():
     # were added to the title as it stood, a line more at each update.
     unit_notes = {
         'ms': '(ms)',
-        'ZMON': '(-1 = OFF, 0 = MON)',
+        'ZMON': '(-1 = OFF)',
         'ZOFF': '(0 = OFF)',
         'MHz': '(MHz)',
         'D10mW': '(mW)',
