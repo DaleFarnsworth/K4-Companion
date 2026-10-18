@@ -8329,10 +8329,46 @@ class Audio():
     # What is asked for in exclusive mode, whatever the sample rate. The
     # device period there is the driver's to fix and the buffer has to be
     # a whole number of them, so a duration in milliseconds is the wrong
-    # thing to ask with: this is a frame count, and 192 of them is 4ms
+    # thing to ask with: this is a frame count, and 288 of them is 6ms
     # at the 48000 a device that takes exclusive mode is likeliest to run
-    # at.
-    exclusive_blocksize = 192
+    # at. 4ms was asked for before; a tester whose keying was erratic in
+    # exclusive mode found 6ms the best of the blocks tried.
+    exclusive_blocksize = 288
+
+    # Counted DAC times, for a stream in WASAPI exclusive mode whose
+    # reported ones stray. The sidetone's edges are placed against the
+    # DAC time each output callback is handed for its block, and in
+    # exclusive mode that was seen to be off by a different amount from
+    # one block to the next: each edge landed off by its own block's
+    # error, and an element whose two edges fell in different blocks
+    # came out that much long or short, its key down landing after its
+    # key up where the two differed by more than it lasted. Counted in
+    # frames from where the blocks before it began, a block's DAC time
+    # is exact from one block to the next whatever is reported.
+    #
+    # Only where needed: while the stream is exclusive, and once a
+    # reported DAC time has strayed from the counted one by more than
+    # dac_stray_seconds. Then, until the stream is opened again, the
+    # counted times are used, and the clock edges are asked for on is
+    # taken from the callbacks' own currentTime, on the clock the DAC
+    # times are, rather than read from the stream as each edge is
+    # queued (see edge_clock_offset). The stream's clock was seen to
+    # disagree with the DAC times' too, and in the keying simulations
+    # that lost elements; both, together, kept every element to within
+    # a millisecond or two, and a tester found them much better than
+    # the callbacks' clock alone. Everywhere else, the DAC times are as
+    # reported and the stream's clock is read, as always.
+    #
+    # The counted time's anchor follows the reported one slowly, by
+    # counted_dac_follow of the difference at each block, and is put
+    # where the reported one is at once where the two are more than
+    # counted_dac_snap_seconds apart: the stream having skipped. The
+    # callbacks' clock is the largest offset over a window, for the
+    # same reason the block lead is (see note_callback_clock).
+    dac_stray_seconds = .001
+    counted_dac_follow = .02
+    counted_dac_snap_seconds = .05
+    callback_clock_window_seconds = .5
 
     # The span over which note_block_timing keeps the furthest lead a
     # block has been filled with.
@@ -8605,6 +8641,49 @@ class Audio():
                 return None
 
     @classmethod
+    def edge_clock_offset(cls):
+        # Stream time less perf_counter time, for putting a perf_counter
+        # time on the stream's clock: as (the offset to use, the stream
+        # clock's own), or None with no stream open. The one to use is
+        # the callbacks' once counted DAC times are in use (see
+        # dac_stray_seconds), and the stream clock's otherwise.
+        self = cls.singleton
+        stream_now = cls.stream_time()
+        if self == None or stream_now == None:
+            return None
+        stream_offset = stream_now - time.perf_counter()
+        callback_offset = self.callback_clock_offset
+        if self.counted_dac_in_use and callback_offset != None:
+            return callback_offset, stream_offset
+        return stream_offset, stream_offset
+
+    def note_callback_clock(self, current_time, now):
+        # From the output callback: its currentTime, when PortAudio says
+        # the callback was invoked, on the clock the blocks' DAC times are
+        # on, less perf_counter as the callback began. The largest over a
+        # window, as the block lead is: a callback that runs late --
+        # several are run together where the host's period is longer than
+        # a block, all with the same currentTime -- reads smaller, and the
+        # one that ran soonest says best where the clock stands.
+        #
+        # Read once, the stream's reopening clearing these from another
+        # thread (see clear_sidetone_state): a window found with its end
+        # but not its offset is begun again.
+        offset = current_time - now
+        window_end = self.callback_clock_window_end
+        current = self.callback_clock_offset_current
+        if window_end == None or current == None or now >= window_end:
+            self.callback_clock_offset_previous = current
+            self.callback_clock_offset_current = offset
+            self.callback_clock_window_end = now + self.callback_clock_window_seconds
+        elif offset > current:
+            self.callback_clock_offset_current = offset
+        previous = self.callback_clock_offset_previous
+        current = self.callback_clock_offset_current
+        # One assignment, so the keyer's thread never sees half of it.
+        self.callback_clock_offset = current if previous == None else max(previous, current)
+
+    @classmethod
     def schedule_sidetone_down(cls, down_at, late=False):
         # An element's key down, as a perf_counter time, queued before it
         # has happened. schedule_sidetone_up queues its key up, once the
@@ -8634,11 +8713,11 @@ class Audio():
         if cls.singleton == None or not cls.sidetone_enabled:
             return False
         self = cls.singleton
-        stream_now = cls.stream_time()
-        if stream_now == None:
+        offsets = cls.edge_clock_offset()
+        if offsets == None:
             self.sidetone_schedule_offset = None
             return False
-        self.sidetone_schedule_offset = stream_now - time.perf_counter()
+        self.sidetone_schedule_offset = offsets[0]
         self.sidetone_down_asked = down_at + self.sidetone_schedule_offset
         # Before the edge is queued, so the callback never sees one
         # without the other.
@@ -8694,11 +8773,10 @@ class Audio():
         if cls.singleton == None or not cls.sidetone_enabled:
             return None
         self = cls.singleton
-        stream_now = cls.stream_time()
-        if stream_now == None:
+        offsets = cls.edge_clock_offset()
+        if offsets == None:
             return None
-        offset = stream_now - time.perf_counter()
-        return cls.sidetone_edge_deadline(down_at + self.sidetone_lag, offset)
+        return cls.sidetone_edge_deadline(down_at + self.sidetone_lag, offsets[0])
 
     @classmethod
     def cancel_sidetone_down(cls):
@@ -8859,9 +8937,10 @@ class Audio():
         if cls.singleton == None or not cls.sidetone_enabled:
             return
         self = cls.singleton
-        event_time = cls.stream_time()
-        if event_time == None:
+        offsets = cls.edge_clock_offset()
+        if offsets == None:
             return
+        event_time = time.perf_counter() + offsets[0]
         # Asked for as far ahead as the block carrying it could already
         # have been filled: the furthest lead a block has lately been
         # filled with, and a block more for where in it the edge falls.
@@ -9167,6 +9246,14 @@ class Audio():
         self.k4_dropped_ms = 0.0
         self.reported_glitch_counts = (0, 0, 0, 0, 0, 0)
         self.glitch_report_time = 0.0
+        # Whether the output stream opened in exclusive mode, which is
+        # where counted DAC times can be taken up (see dac_stray_seconds);
+        # the largest a reported DAC time has strayed since the last
+        # report; and how far it had strayed when the counted ones were
+        # taken up, until that is reported.
+        self.output_stream_exclusive = False
+        self.dac_stray_largest = 0.0
+        self.counted_dac_taken_up = None
         # Where each underflow fell, as (block, frames since the key came
         # up, whether the key was down), noted by the callback and
         # printed by whoever reports next.
@@ -9445,6 +9532,8 @@ class Audio():
                     if self.output_stream != None and wanted_exclusive:
                         cls.note_exclusive_mode('output', self.output_device_name(),
                                                 opened_exclusive)
+                    self.output_stream_exclusive = (self.output_stream != None and
+                                                    opened_exclusive)
 
                     if self.output_stream != None:
                         warned = False
@@ -9594,6 +9683,7 @@ class Audio():
         now = time.perf_counter()
         gap = None if self.last_callback_time == None else now - self.last_callback_time
         self.last_callback_time = now
+        self.note_callback_clock(time_info.currentTime, now)
         if status:
             # Counted, not reported: a status flag means this thread is
             # already late, and stderr is the last place to spend that
@@ -9615,6 +9705,9 @@ class Audio():
 
         block_start_frame = self.rendered_frames
         self.rendered_frames += frames
+        # The block's DAC time, worked out once for key_up_due and
+        # mix_sidetone both. See dac_stray_seconds.
+        self.callback_dac_time = self.counted_dac_time(time_info, block_start_frame)
 
         needed = frames * self.output_channels
         data = self.output_stream_leftover
@@ -9673,7 +9766,8 @@ class Audio():
         # crossfaded away with the K4 audio, as it is under the K4's own
         # sidetone.
         self.mix_spot(outdata, frames)
-        self.mix_sidetone(outdata, frames, block_start_frame, time_info)
+        self.mix_sidetone(outdata, frames, block_start_frame, time_info,
+                          self.callback_dac_time)
 
     def key_up_due(self, frames, time_info):
         # Whether the key comes up inside the block about to be filled,
@@ -9694,7 +9788,7 @@ class Audio():
         if key_down:
             return False
         # As next_key_edge places it, and against the same clock.
-        offset = self.key_edge_offset(event_time, self.block_dac_time(time_info),
+        offset = self.key_edge_offset(event_time, self.callback_dac_time,
                                       self.sidetone_shape[0])
         return offset < frames
 
@@ -9722,6 +9816,39 @@ class Audio():
         # API fills in outputBufferDacTime; currentTime always carries a
         # usable time, and sidetone_lag absorbs the offset between them.
         return time_info.outputBufferDacTime or time_info.currentTime
+
+    def counted_dac_time(self, time_info, block_start_frame):
+        # The block's DAC time: as reported, and counted in frames from an
+        # anchor that follows the reported times slowly, which is the one
+        # used once the stream is exclusive and the reported times have
+        # strayed (see dac_stray_seconds). Counted, consecutive blocks
+        # are exactly a block apart, which keeps an element's two edges
+        # the right distance apart when they fall in different blocks.
+        #
+        # Counted only in exclusive mode. How far the reported times
+        # strayed, and when the counted ones were taken up, is kept for
+        # report_audio_glitches, this being the callback and kept clear of
+        # anything that writes.
+        reported = self.block_dac_time(time_info)
+        shape = self.sidetone_shape
+        if not self.output_stream_exclusive or shape == None:
+            return reported
+        start = block_start_frame / shape[0]
+        anchor = self.counted_dac_anchor
+        estimate = reported - start
+        if anchor == None or abs(estimate - anchor) > self.counted_dac_snap_seconds:
+            anchor = estimate
+        else:
+            anchor += (estimate - anchor) * self.counted_dac_follow
+        self.counted_dac_anchor = anchor
+        counted = anchor + start
+        stray = reported - counted
+        if abs(stray) > abs(self.dac_stray_largest):
+            self.dac_stray_largest = stray
+        if not self.counted_dac_in_use and abs(stray) > self.dac_stray_seconds:
+            self.counted_dac_in_use = True
+            self.counted_dac_taken_up = stray
+        return counted if self.counted_dac_in_use else reported
 
     def fade_in_k4(self, outdata, frames, written):
         # written is how many frames of the block the queue actually
@@ -9752,7 +9879,7 @@ class Audio():
         if frames < len(outdata):
             outdata[frames:] = 0
 
-    def mix_sidetone(self, outdata, frames, block_start_frame, time_info):
+    def mix_sidetone(self, outdata, frames, block_start_frame, time_info, dac_time=None):
         # The sidetone is generated here, a block at a time, rather than
         # played from a queue of pre-rendered packets. A queue can only
         # turn the tone on and off where one block ends and the next
@@ -9767,7 +9894,12 @@ class Audio():
             return
         sample_rate, rise_step, fall_step, period, cycle = shape
 
-        dac_time = self.block_dac_time(time_info)
+        # The block's DAC time as the output callback worked it out (see
+        # counted_dac_time), or as time_info reports it where there is
+        # none: warm_sidetone, which runs this outside any callback with
+        # time_info of its own.
+        if dac_time == None:
+            dac_time = self.block_dac_time(time_info)
         self.note_block_timing(dac_time, time_info.currentTime,
                                frames / sample_rate)
 
@@ -10119,6 +10251,18 @@ class Audio():
         counts = (self.output_underflow_count, self.output_status_count,
                   self.input_overflow_count, self.k4_starved_count,
                   round(self.k4_dropped_ms), Server.k4_server.raw_audio_dropped)
+        # Counted DAC times: see dac_stray_seconds. Taken and cleared
+        # together; a callback that runs between the two only goes
+        # unreported.
+        taken_up, largest = self.counted_dac_taken_up, self.dac_stray_largest
+        self.counted_dac_taken_up = None
+        self.dac_stray_largest = 0.0
+        if taken_up != None:
+            dprint(f'reported DAC times strayed {taken_up * 1000:+.2f}ms from the counted ones:'
+                   ' counted ones used, and the callbacks\' clock, until the stream is reopened')
+        if self.counted_dac_in_use:
+            dprint(f'reported DAC times strayed up to {largest * 1000:+.2f}ms from the counted ones,'
+                   ' counted ones in use')
         if counts == self.reported_glitch_counts:
             return
         underflows, statuses, overflows, starved, dropped_ms, raw_dropped = (
@@ -10411,6 +10555,21 @@ class Audio():
         self.block_lead_current = 0.0
         self.block_lead_previous = 0.0
         self.block_lead_window_end = None
+        # Counted DAC times: whether they are in use, the anchor -- the
+        # stream time frame 0 of rendered_frames reaches the DAC at --
+        # the block's DAC time worked out at the top of each callback,
+        # and the callbacks' clock, stream time less perf_counter: the
+        # largest offset in the window running now and the one before
+        # it, when the one running now ends, and the one to use. A new
+        # stream starts with the reported times again, and its clock is
+        # its own. See dac_stray_seconds.
+        self.counted_dac_in_use = False
+        self.counted_dac_anchor = None
+        self.callback_dac_time = None
+        self.callback_clock_offset_current = None
+        self.callback_clock_offset_previous = None
+        self.callback_clock_window_end = None
+        self.callback_clock_offset = None
         # The frame, on rendered_frames' axis, the most recent edge
         # landed on.
         self.last_edge_frame = 0
