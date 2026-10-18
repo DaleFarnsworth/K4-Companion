@@ -8191,6 +8191,57 @@ def panadapter_child_main(receiver):
             pass
     os._exit(0)
 
+class StreamResampler():
+    # One channel of audio from one sample rate to another, a block at a
+    # time, for a device whose rate is not a whole multiple of the K4's:
+    # 44.1 kHz, which is 3.675 times 12 kHz. Whole multiples go on being
+    # resampled as they always were, by repeating and averaging samples.
+    #
+    # Each output sample is interpolated linearly between the two input
+    # samples either side of where it falls, and where the next block's
+    # first one falls is carried from each block to the next, the last
+    # sample of the block before being kept to interpolate from, so that
+    # the blocks join without a step.
+    #
+    # Going down, the input is low-passed first, below the lower rate's
+    # half: interpolated without, anything above it -- a microphone's
+    # hiss and sibilance, at 44.1 kHz -- would come out folded down into
+    # the audio. A windowed sinc, which delays it by half its length.
+    lowpass_taps = 63
+    lowpass_share = .45             # of the lower rate
+
+    def __init__(self, from_rate, to_rate):
+        self.step = from_rate / to_rate
+        self.position = 0.0
+        self.last = None
+        self.taps = None
+        if to_rate < from_rate:
+            cutoff = self.lowpass_share * to_rate / from_rate
+            n = numpy.arange(self.lowpass_taps) - (self.lowpass_taps - 1) / 2
+            taps = 2 * cutoff * numpy.sinc(2 * cutoff * n) * numpy.hamming(self.lowpass_taps)
+            self.taps = (taps / taps.sum()).astype(numpy.float32)
+            self.history = numpy.zeros(self.lowpass_taps - 1, dtype=numpy.float32)
+
+    def process(self, samples):
+        x = numpy.asarray(samples, dtype=numpy.float32)
+        if self.taps is not None:
+            ext = numpy.concatenate((self.history, x))
+            self.history = ext[len(ext) - (self.lowpass_taps - 1):]
+            x = numpy.convolve(ext, self.taps, 'valid').astype(numpy.float32)
+        if len(x) == 0:
+            return x
+        if self.last is None:
+            self.last = x[0]
+        # Index 0 is the block before's last sample, and x[i] is i + 1.
+        ext = numpy.concatenate(([self.last], x))
+        n = len(x)
+        count = int((n - self.position) // self.step) + 1 if self.position <= n else 0
+        positions = self.position + numpy.arange(count) * self.step
+        out = numpy.interp(positions, numpy.arange(n + 1), ext).astype(numpy.float32)
+        self.position += count * self.step - n
+        self.last = x[-1]
+        return out
+
 class Audio():
     singleton = None
     input_channels = 1
@@ -8201,10 +8252,11 @@ class Audio():
     k4_sample_rate = 12000
     k4_frames_per_millisecond = k4_sample_rate // 1000
     k4_sample_rate_code = 0
-    min_input_sample_rate = 48000
-    min_output_sample_rate = 48000
-    max_input_sample_rate = 48000
-    max_output_sample_rate = 48000
+    # The rates a device is tried at, in order, input and output alike:
+    # 48 kHz, a whole multiple of the K4's 12, and 44.1 kHz, which a
+    # device that won't take 48 is likeliest to take, and which is
+    # resampled with StreamResampler.
+    device_sample_rates = (48000, 44100)
     frames_per_output_buffer = 0    # Set when the device is opened
     encode_mode_raw32 = 0
     encode_mode_raw16 = 1
@@ -8892,8 +8944,7 @@ class Audio():
         if self.output_device_index < 0:
             return
         info = self.output_device_infos[self.output_device_index]
-        step = cls.min_output_sample_rate
-        for rate in range(step, cls.max_output_sample_rate + step, step):
+        for rate in cls.device_sample_rates:
             if self.sd_format_supported('output', rate,
                                device=self.output_device_index,
                                channels=cls.output_channels,
@@ -9202,8 +9253,8 @@ class Audio():
             cls.frames_per_output_buffer = cls.output_blocksize(None, sample_rate)
 
     def enumerate_device(self, direction, device_info, default_index):
-        # What one device can do in one direction, at the lowest multiple
-        # of the K4's own rate it will take -- which is the rate it is
+        # What one device can do in one direction, at the first of
+        # device_sample_rates it will take -- which is the rate it is
         # then used at. Kept in <direction>_device_infos, and taken as
         # the device to use where it is the host API's own default one,
         # or where the host API names no default at all.
@@ -9216,9 +9267,7 @@ class Audio():
         found = {'default_sample_rate': int(default_sample_rate),
                  f'{direction}_channels': 0}
 
-        step = getattr(cls, f'min_{direction}_sample_rate')
-        end_rate = getattr(cls, f'max_{direction}_sample_rate') + step
-        for sample_rate in range(step, end_rate, step):
+        for sample_rate in cls.device_sample_rates:
             if self.sd_format_supported(direction, sample_rate,
                            device=device_info['index'],
                            channels=channels,
@@ -9238,7 +9287,8 @@ class Audio():
                          device=device_info['index'],
                          channels=channels,
                          dtype='float32'):
-                dprint_audio('Info:', device_info['name'], 'does not support multiple of K4 sample rate. supported rate:', default_sample_rate)
+                dprint_audio('Info:', device_info['name'], 'supports none of', cls.device_sample_rates,
+                             'Hz; its own rate:', default_sample_rate)
         return sample_rate
 
 
@@ -9377,8 +9427,17 @@ class Audio():
 
                     # After the loop, the rate being whatever the attempt
                     # that opened settled on.
-                    resample_ratio = int(cls.output_device_sample_rate() /
-                                         cls.k4_sample_rate)
+                    # A whole multiple of the K4's rate is resampled by
+                    # repeating samples; another, 44.1 kHz, by a
+                    # StreamResampler for each side.
+                    rate = cls.output_device_sample_rate()
+                    if rate % cls.k4_sample_rate == 0:
+                        resample_ratio = rate // cls.k4_sample_rate
+                        output_resamplers = None
+                    else:
+                        resample_ratio = 1
+                        output_resamplers = (StreamResampler(cls.k4_sample_rate, rate),
+                                             StreamResampler(cls.k4_sample_rate, rate))
 
                     if self.output_stream != None and wanted_exclusive:
                         cls.note_exclusive_mode('output', self.output_device_name(),
@@ -9440,7 +9499,10 @@ class Audio():
             elif rightsel == '-a':
                 right = -a
 
-            if resample_ratio > 1:
+            if output_resamplers != None:
+                left = output_resamplers[0].process(left)
+                right = output_resamplers[1].process(right)
+            elif resample_ratio > 1:
                 left = left.repeat(resample_ratio)
                 right = right.repeat(resample_ratio)
 
@@ -10493,9 +10555,20 @@ class Audio():
                 wanted_exclusive = attempts[0][1] != None
                 opened_exclusive = False
                 input_stream = None
+                # A frame's worth, at a whole multiple of the K4's rate.
+                # At 44.1 kHz that is 5.44ms, and 240 frames, as was asked
+                # for, a device was seen to deliver at well under its
+                # rate: 31 reads of 882 frames a second, not 50, so that
+                # what was sent fell further and further behind. Asked
+                # for 10ms, it delivered every one.
+                rate = Audio.input_device_sample_rate()
+                if rate % Audio.k4_sample_rate == 0:
+                    shared_blocksize = Audio.input_frame_size
+                else:
+                    shared_blocksize = rate // 100
                 for label, extra_settings, blocksize in attempts:
                     if blocksize == None:
-                        blocksize = Audio.input_frame_size
+                        blocksize = shared_blocksize
                     input_stream = try_open_input(extra_settings, blocksize)
                     if input_stream == None:
                         continue
@@ -10539,9 +10612,23 @@ class Audio():
                         Popup.warning("No input from audio device:\n  {name}".format(name=Audio.input_device_name()))
                         return
 
-                resample_ratio = int(Audio.input_device_sample_rate() / Audio.k4_sample_rate)
+                # A whole multiple of the K4's rate is resampled by
+                # averaging samples; another, 44.1 kHz, by a
+                # StreamResampler, which gives a frame's worth now and
+                # then a sample either side of it: what it gives is
+                # gathered in pending and sent a whole frame at a time.
+                rate = Audio.input_device_sample_rate()
+                if rate % Audio.k4_sample_rate == 0:
+                    resample_ratio = rate // Audio.k4_sample_rate
+                    input_resampler = None
+                    read_frames = Audio.input_frame_size * resample_ratio
+                else:
+                    resample_ratio = None
+                    input_resampler = StreamResampler(rate, Audio.k4_sample_rate)
+                    read_frames = round(Audio.input_frame_size * rate / Audio.k4_sample_rate)
+                pending = numpy.zeros(0, dtype=numpy.float32)
 
-            sampled, overflowed = input_stream.read(Audio.input_frame_size * resample_ratio)
+            sampled, overflowed = input_stream.read(read_frames)
             if overflowed:
                 # Samples the device dropped because this loop did not
                 # read them in time: a hole in what the K4 transmits.
@@ -10549,7 +10636,9 @@ class Audio():
             self.report_audio_glitches()
             sampled = sampled.reshape(-1)
 
-            if resample_ratio == 1:
+            if input_resampler != None:
+                resampled = None
+            elif resample_ratio == 1:
                 resampled = sampled
             elif resample_ratio == 2:
                 s0 = sampled[0::2]
@@ -10569,21 +10658,37 @@ class Audio():
                 s3 = sampled[3::4]
                 resampled = sum((s0, s1, s2, s3)) / 4
 
-            resampled = resampled * self.mic_gain / 8  # apply some attenuation
-
-            resampled = resampled.repeat(2)             # double-up samples. I consider this a K4 bug
-            resampled_bytes = resampled.tobytes()
-
             frame_size = Audio.input_frame_size
-            audio_packet = opus.encode_float(resampled_bytes, frame_size)
+            if input_resampler != None:
+                pending = numpy.concatenate((pending, input_resampler.process(sampled)))
+                frames = []
+                while len(pending) >= frame_size:
+                    frames.append(pending[:frame_size])
+                    pending = pending[frame_size:]
+            else:
+                frames = [resampled]
+
+            for resampled in frames:
+                resampled = resampled * self.mic_gain / 8  # apply some attenuation
+
+                resampled = resampled.repeat(2)             # double-up samples. I consider this a K4 bug
+                resampled_bytes = resampled.astype(numpy.float32).tobytes()
+
+                audio_packet = opus.encode_float(resampled_bytes, frame_size)
+
+                if not self.transmit_audio:
+                    if input_stream != None:
+                        input_stream.close()
+                        input_stream = None
+                    return
+
+                server.send_audio_packet(audio_packet, self.input_encode_mode, frame_size)
 
             if not self.transmit_audio:
                 if input_stream != None:
                     input_stream.close()
                     input_stream = None
                 return
-
-            server.send_audio_packet(audio_packet, self.input_encode_mode, frame_size)
 
     def generate_sidetone_envelopes(self):
         # mix_sidetone needs the rate the envelope walks at and the tone
