@@ -1,4 +1,27 @@
+v2.1-rc17:
+    Count DAC times in frames where they stray in WASAPI exclusive mode
+       In WASAPI exclusive mode, keying was erratic: the DAC time reported for
+       each output block was off by a different amount from one block to the
+       next, so each sidetone edge landed off by its own block's error, and an
+       element whose two edges fell in different blocks came out long or
+       short, its key down at times after its key up. The stream's clock, read
+       as each edge is queued, was seen to disagree with the DAC times' too.
+       
+       While the stream is exclusive, each block's DAC time is now also
+       counted in frames from an anchor that follows the reported times
+       slowly, and once a reported one strays from it by more than 1ms, the
+       counted times are used until the stream is opened again, and the clock
+       edges are asked for on is taken from the callbacks' own currentTime. A
+       tester found the two together, the experiment's Frames, much better
+       than the callbacks' clock alone. Elsewhere, timing is as it was.
+       
+       Exclusive mode now asks for 288 frames, 6ms at 48 kHz, rather than
+       192: the best of the blocks the tester tried. With --da audio, taking
+       up the counted times is reported, and how far the reported ones stray.
+   
 v2.1-rc16:
+    Update changelog for v2.1-rc16
+
     Say which device an audio stream opened on, and at what rate
        With --da audio, the message for each audio stream opened now names the
        device and the rate it opened at, as the stream has it, as well as how
