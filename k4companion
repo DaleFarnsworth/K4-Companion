@@ -82,7 +82,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
     QButtonGroup, QSlider, QProgressBar, QTabWidget, QDialog, QLineEdit,
     QComboBox, QListWidget, QLayout, QPlainTextEdit, QProxyStyle, QStyle,
-    QSplitter, QStyledItemDelegate, QFileDialog, QSizePolicy, QMessageBox,
+    QSplitter, QStyledItemDelegate, QFileDialog, QSizePolicy,
     QStyleOptionComboBox,
 )
 
@@ -12081,12 +12081,6 @@ class Ctr2Settings():
                                           'QLineEdit:disabled { color: #888; background-color: #ccc; }')
         self.commands_entry.editingFinished.connect(self.on_commands_edited)
         editor_grid.addWidget(self.commands_entry, 2, 0, Qt.AlignmentFlag.AlignLeft)
-
-        reset_button = QPushButton('Reset to K4-Control Layout')
-        reset_button.setFont(owner.font())
-        reset_button.setStyleSheet(qt_button_stylesheet(owner.bg, owner.fg, owner.abg, owner.afg))
-        reset_button.clicked.connect(self.on_reset)
-        editor_grid.addWidget(reset_button, 3, 0, Qt.AlignmentFlag.AlignLeft)
         grid.addWidget(editor, 3, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         Ctr2Input.status_listeners.append(self.show_status)
@@ -12164,17 +12158,6 @@ class Ctr2Settings():
         Ctr2Controller.set_assignment(kind, number,
             Ctr2Controller.commands_prefix + self.commands_entry.text().strip())
         self.refresh_row()
-
-    def on_reset(self):
-        answer = QMessageBox.question(self.map_list.window(), 'CTR2',
-            "Set every knob and button back to the K4-Control layout?\n"
-            'What has been changed here is lost.')
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-        Ctr2Controller.reset_map()
-        for row, (kind, number) in enumerate(self.rows):
-            self.map_list.item(row).setText(self.row_text(kind, number))
-        self.on_row_selected(self.map_list.currentRow())
 
     def on_touched(self, kind, number):
         # A knob turned or button pressed on the CTR2, picked out in the
@@ -19885,12 +19868,6 @@ class Ctr2Controller():
     @classmethod
     def set_assignment(cls, kind, number, value):
         Server.settings.put_save(cls.map_section, f'{kind}_{number}', value)
-
-    @classmethod
-    def reset_map(cls):
-        # Every knob and button back to the K4-Control layout.
-        Server.settings.clear_section(cls.map_section)
-        Server.settings.save()
 
     @classmethod
     def describe(cls, kind, number):
