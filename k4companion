@@ -19819,8 +19819,8 @@ class Ctr2Controller():
         ('nb', 'NB On/Off', 'nb_toggle'),
         ('nr', 'LMSNR On/Off', 'nr_toggle'),
         ('ssnr', 'SSNR On/Off', 'ssnr_toggle'),
-        ('ssnr_reset', 'SSNR R (Reset)', 'ssnr_reset'),
-        ('ssnr_auto', 'SSNR AR (Auto Reset)', 'ssnr_auto'),
+        ('ssnr_reset', 'SSNR Cal', 'ssnr_reset'),
+        ('ssnr_auto', 'SSNR AutoCal', 'ssnr_auto'),
         ('attenuator', 'ATT On/Off', 'attenuator_toggle'),
         ('preamp', 'Pre On/Off', 'preamp_toggle'),
     )) + (
