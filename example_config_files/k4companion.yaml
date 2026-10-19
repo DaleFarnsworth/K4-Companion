@@ -1486,7 +1486,7 @@
 #define main-ssnr-group
 - item: group
   label: SSNR
-  tooltip: "SSNR noise reduction: On/Off and its level.\nR turns SSNR on and resets its noise elimination function.\nAR does so on a quiet frequency nearby, then comes back."
+  tooltip: "SSNR noise reduction: On/Off and its level.\nC turns SSNR on and resets its noise elimination function.\nAC does so on a quiet frequency nearby, then comes back."
   contains: #{
     #include main-ssnr-enable-togglebutton
     #include main-ssnr-dropdown-button
@@ -1496,7 +1496,7 @@
 #define sub-ssnr-group
 - item: group
   label: SSNR
-  tooltip: "SSNR noise reduction: On/Off and its level.\nR turns SSNR on and resets its noise elimination function.\nAR does so on a quiet frequency nearby, then comes back."
+  tooltip: "SSNR noise reduction: On/Off and its level.\nC turns SSNR on and resets its noise elimination function.\nAC does so on a quiet frequency nearby, then comes back."
   contains: #{
     #include sub-ssnr-enable-togglebutton
     #include sub-ssnr-dropdown-button
@@ -1547,8 +1547,8 @@
     - { text: "3", cmd: NRS031;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
     - { text: "2", cmd: NRS021;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
     - { text: "1", cmd: NRS011;, evalresponse: 'f"NRS{self.k4param("NRS")[0:2]}1;"' }
-    - { text: "R", cmd: SSNRRESET!; }
-    - { text: "AR", cmd: SSNRAUTO!; }
+    - { text: "C", cmd: SSNRRESET!; }
+    - { text: "AC", cmd: SSNRAUTO!; }
   #}
 #end
 
@@ -1580,8 +1580,8 @@
     - { text: "3", cmd: NRS$031;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
     - { text: "2", cmd: NRS$021;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
     - { text: "1", cmd: NRS$011;, evalresponse: 'f"NRS${self.k4param("NRS$")[0:2]}1;"' }
-    - { text: "R", cmd: SSNRRESET$!; }
-    - { text: "AR", cmd: SSNRAUTO$!; }
+    - { text: "C", cmd: SSNRRESET$!; }
+    - { text: "AC", cmd: SSNRAUTO$!; }
   #}
 #end
 

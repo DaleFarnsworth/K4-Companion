@@ -3834,7 +3834,7 @@ class DropdownWidget():
             else:
                 current_index -= 1
             self.combobox.setCurrentIndex(current_index)
-            # A step onto R or AR, which aren't levels, goes no further.
+            # A step onto C or AC, which aren't levels, goes no further.
             try:
                 self.set_value(float(self.combobox.currentText()))
             except ValueError:
@@ -3990,11 +3990,11 @@ class Dropdownbutton(Widget):
         DropdownWidget(self, self.frame, config_info)
 
 class SSNR():
-    # The SSNR dropdowns' R and AR, as the SSNRRESET! and SSNRAUTO!
-    # directives ($ for the sub receiver). R turns SSNR on at its level,
+    # The SSNR dropdowns' C and AC, as the SSNRRESET! and SSNRAUTO!
+    # directives ($ for the sub receiver). C turns SSNR on at its level,
     # has the K4 start learning the noise afresh (NRS~, the K4's own
     # reset), and after learn_ms sets the level again, leaving SSNR on
-    # (and so LMS NR off, each turning the other off). AR does the same
+    # (and so LMS NR off, each turning the other off). AC does the same
     # on the quietest frequency nearby, so what is learnt is noise
     # rather than the signal being listened to, and goes back to the
     # original frequency before the level is set again.
@@ -4027,7 +4027,7 @@ class SSNR():
     @classmethod
     def keep_spectrum(cls, data):
         # From the receive loop, for every PAN frame: kept as it came,
-        # with when it came, only parsed when AR wants it.
+        # with when it came, only parsed when AC wants it.
         if data[1] in cls.frames:
             cls.frames[data[1]].append((time.monotonic(), data))
 
