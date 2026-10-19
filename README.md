@@ -12,6 +12,13 @@ or a Vail adapter. Its built-in keyer offers plain Iambic, Iambic A,
 Iambic B and Ultimatic modes, and it plays its own sidetone, so you hear your
 sending without waiting for the audio to come back from the K4.
 
+It has RTTY and SSTV windows as well. RTTY is sent by the K4 in FSK D
+or by K4 Companion in AFSK A, with AFC, Autotune, Search and a tuning
+strip. SSTV pictures are received and sent in the Martin, Scottie,
+Robot and PD modes. K4 Companion also supports the Elecraft K-Pod, and
+logging and digital-mode programs on the same computer can share its
+connection to the K4 on port 9200.
+
 Connections to the K4 are encrypted (TLS on port 9204) by default.
 
 K4 Companion is a standalone python3 program downloadable
@@ -37,6 +44,10 @@ and for
 [Intel](https://github.com/DaleFarnsworth/K4-Companion/blob/main/MacOS/k4companion-macos-x86_64.dmg)
 Macs: open it and drag the app to Applications. The app is not signed,
 so the first time it is opened, Control-click it and choose Open.
+
+On Linux, installers for x86_64 PCs and for 64-bit ARM computers, such
+as a Raspberry Pi, are among the Assets of each
+[release](https://github.com/DaleFarnsworth/K4-Companion/releases).
 
 Code found in the _main_ branch is considered ready for wide use.
 Code in any other branches, including _dev_ is pre-release. These
