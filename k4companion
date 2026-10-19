@@ -19955,11 +19955,11 @@ class Ctr2Controller():
             if steps != 0 and entry != None:
                 entry.adjust_value(steps * entry.step)
         elif function == 'af_gain':               # 0 to 60
-            cls.set_af_gain(server, 'AG' + s, f'{round(cls.scaled(value, 0, 60)):03d}')
+            cls.send_shown(server, 'AG' + s, f'{round(cls.scaled(value, 0, 60)):03d}')
         elif function == 'bandwidth':             # 0.05 to 5 kHz in .05s
             server.send_cmds(f'BW{s}{round(cls.scaled(value, 1, 100)) * 5:04d};')
         elif function == 'rf_gain':               # -60 to 0
-            server.send_cmds(f'RG{s}-{round(cls.scaled(value, 60, 0)):02d};')
+            cls.send_shown(server, 'RG' + s, f'-{round(cls.scaled(value, 60, 0)):02d}')
         elif function == 'nb_level':              # 0 to 15
             nb = param('NB' + s) or ''
             if len(nb) >= 4:
@@ -19975,8 +19975,8 @@ class Ctr2Controller():
         elif function == 'attenuator':            # 0 to 21 dB in 3s, 0 off
             db = round(cls.scaled(value, 0, 7)) * 3
             server.send_cmds(f'RA{s}{db:02d}{1 if db > 0 else 0};')
-        elif function == 'preamp':                # 0 to 3, 0 off
-            level = round(cls.scaled(value, 0, 3))
+        elif function == 'preamp':                # 0 off, to 2 or 3
+            level = round(cls.scaled(value, 0, cls.preamp_top(server, vfo)))
             server.send_cmds(f'PA{s}{level}{1 if level > 0 else 0};')
         elif function == 'zoom':                  # the panadapter's spans
             spans = Panadapter.span_choices_khz
@@ -20053,13 +20053,14 @@ class Ctr2Controller():
         cls.mode_step(server, vfo, -1)
 
     @staticmethod
-    def set_af_gain(server, base, gain):
-        # AG or AG$, with the app's AF Gain slider moved to match. Where
-        # the app plays the K4's audio itself, send_cmds keeps the
-        # command for the app's own volume and doesn't send it, so
-        # nothing reports it back to the slider; this does.
-        server.send_cmds(f'{base}{gain};')
-        server.update_k4_parameter(base, gain)
+    def send_shown(server, base, parameter):
+        # A setting sent with the app's control for it moved to match,
+        # where send_cmds wouldn't: AG or AG$ where the app plays the K4's
+        # audio itself, which send_cmds keeps for the app's own volume
+        # and doesn't send, and RG or RG$, whose leading - send_cmds
+        # takes for a step down rather than a setting.
+        server.send_cmds(f'{base}{parameter};')
+        server.update_k4_parameter(base, parameter)
 
     @classmethod
     def mute(cls, server, vfo):
@@ -20068,9 +20069,9 @@ class Ctr2Controller():
         gain = server.k4_parameter(base) or ''
         if gain.isdigit() and int(gain) > 0:
             cls.muted_af_gain[vfo] = gain
-            cls.set_af_gain(server, base, '000')
+            cls.send_shown(server, base, '000')
         elif cls.muted_af_gain[vfo] != None:
-            cls.set_af_gain(server, base, cls.muted_af_gain[vfo])
+            cls.send_shown(server, base, cls.muted_af_gain[vfo])
             cls.muted_af_gain[vfo] = None
 
     @classmethod
@@ -20192,15 +20193,23 @@ class Ctr2Controller():
             server.send_cmds(f'RA{s}{level}1;')
 
     @classmethod
+    def preamp_top(cls, server, vfo):
+        # The highest preamp level: 3 on 12, 10 and 6 m (BN08 to BN10),
+        # and 2 below them.
+        band = server.k4_parameter('BN' + cls.sub(vfo)) or ''
+        return 3 if band in ('08', '09', '10') else 2
+
+    @classmethod
     def preamp_toggle(cls, server, vfo):
-        # Off, or on at the level it had -- 1 where it had none.
+        # Off, or on at the level it had -- 1 where it had none -- or at
+        # most what the band allows.
         s = cls.sub(vfo)
         pa = server.k4_parameter('PA' + s) or ''
         if len(pa) >= 2 and pa[1] == '1':
             server.send_cmds(f'PA{s}{pa[0]}0;')
         else:
-            level = pa[0] if len(pa) >= 2 and pa[0] not in ('', '0') else '1'
-            server.send_cmds(f'PA{s}{level}1;')
+            level = int(pa[0]) if len(pa) >= 2 and pa[0].isdigit() and pa[0] != '0' else 1
+            server.send_cmds(f'PA{s}{min(level, cls.preamp_top(server, vfo))}1;')
 
     @staticmethod
     def ptt_toggle(server):
