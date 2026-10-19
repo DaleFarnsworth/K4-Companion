@@ -82,7 +82,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QVBoxLayout, QHBoxLayout, QPushButton, QRadioButton,
     QButtonGroup, QSlider, QProgressBar, QTabWidget, QDialog, QLineEdit,
     QComboBox, QListWidget, QLayout, QPlainTextEdit, QProxyStyle, QStyle,
-    QSplitter, QStyledItemDelegate, QFileDialog, QSizePolicy,
+    QSplitter, QStyledItemDelegate, QFileDialog, QSizePolicy, QMessageBox,
     QStyleOptionComboBox,
 )
 
@@ -12005,49 +12005,184 @@ class AppSettings_widget(Widget):
             TciServer.transmission.level = TciServer.tx_level()
 
 class Ctr2Settings():
-    # The Macros window's CTR2-Quad tab: the MIDI device the CTR2 is read
-    # from, whether it is there, and what its knobs and buttons do. See
-    # Ctr2Input and Ctr2Controller.
+    # The Macros window's CTR2 tab: the MIDI device the CTR2 is read
+    # from and whether it is there, and the map of what each of its knobs
+    # and buttons does, to be changed: a function for each, or for a
+    # button, K4 commands of the operator's own. Touching a knob or button
+    # on the CTR2 picks it out in the list. See Ctr2Input and
+    # Ctr2Controller.
+    list_rows_shown = 14
+
     def __init__(self, owner):
         # owner is the window the tab goes in, for its fonts and colours.
         self.owner = owner
+        self.rows = ([('cc', n) for n in Ctr2Controller.controls_used] +
+                     [('note', n) for n in Ctr2Controller.notes_used])
 
     def frame(self):
         owner = self.owner
-        frame, grid = qt_group_box('CTR2-Quad', owner.label_font())
+        frame, grid = qt_group_box('CTR2', owner.label_font())
 
         self.device_frame, self.device_combobox = qt_labeled_readonly_combobox(
             'MIDI Device', owner.label_font(), owner.font(), self.device_choices(),
             Ctr2Input.device_name(), owner.bg, owner.fg, owner.bg, owner.fg,
             self.on_device_changed)
-        grid.addWidget(self.device_frame, 0, 0, Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(self.device_frame, 0, 0, 1, 2, Qt.AlignmentFlag.AlignLeft)
 
         self.status_label = QLabel()
         self.status_label.setFont(owner.font())
-        grid.addWidget(self.status_label, 1, 0, Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(self.status_label, 1, 0, 1, 2, Qt.AlignmentFlag.AlignLeft)
 
-        note = QLabel('A Lynovation CTR2-Quad, or another CTR2 running the CTR2-Dial firmware, set up with\n'
-                      "Lynovation's K4-Control configuration. Its paddles and key are chosen on the Keying tab.\n"
-                      '\n'
-                      'Knobs: VFO A and VFO B tune; Volume, BW, RF Gain, NB and NR levels, Zoom, RF Power,\n'
-                      'CW Speed and the RIT offset set those.\n'
-                      'Buttons: mode next and CW, LSB, USB, AM, FM; band up, down and 160 to 6 m; Mute;\n'
-                      'Filter; Zoom in and out; RIT, VOX, NB, NR and Split; tuning step up and down;\n'
-                      'A > B, A < B, A / B; ATU tune; PTT; and Macros 1 to 5.')
+        note = QLabel('A Lynovation CTR2-Quad, or another CTR2 running the CTR2-Dial firmware. Its paddles\n'
+                      'and key are chosen on the Keying tab. A knob or button not changed here does what\n'
+                      "Lynovation's K4-Control configuration has it do. Touch one on the CTR2 to find it below.")
         note.setFont(owner.label_font())
-        grid.addWidget(note, 2, 0, Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(note, 2, 0, 1, 2, Qt.AlignmentFlag.AlignLeft)
+
+        self.map_list = QListWidget()
+        self.map_list.setFont(owner.font())
+        self.map_list.setStyleSheet(
+            f'QListWidget {{ background-color: {owner.bg}; color: {owner.fg}; }}'
+            f'QListWidget::item:selected {{ background-color: {owner.abg}; color: {owner.afg}; }}')
+        for kind, number in self.rows:
+            self.map_list.addItem(self.row_text(kind, number))
+        row_height = QFontMetrics(owner.font()).height() + 2
+        self.map_list.setFixedHeight(self.list_rows_shown * row_height + 4)
+        self.map_list.setFixedWidth(qt_list_width(self.map_list,
+            [self.row_text(kind, number) for kind, number in self.rows] +
+            ['Button 60: K4 Commands: ' + 'X' * 16], owner.font()))
+        self.map_list.currentRowChanged.connect(self.on_row_selected)
+        grid.addWidget(self.map_list, 3, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        editor, editor_grid = qt_group_box('Does', owner.label_font())
+        self.function_combobox = QComboBox()
+        self.function_combobox.setFont(owner.font())
+        self.function_combobox.view().setFont(owner.font())
+        self.function_combobox.setStyleSheet(qt_combobox_stylesheet(owner.bg, owner.fg, owner.bg, owner.fg))
+        self.function_combobox.activated.connect(self.on_function_chosen)
+        # Wide enough, from the start, for the longest of the knobs' and
+        # the buttons' functions alike, so that it neither clips a list
+        # filled after it was first shown nor changes width between them.
+        for entry in Ctr2Controller.knob_functions + Ctr2Controller.button_functions:
+            self.function_combobox.addItem(entry[1], entry[0])
+        self.function_combobox.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.function_combobox.setMinimumWidth(self.function_combobox.sizeHint().width()
+                                               + (10 if sys.platform in ('win32', 'darwin') else 0))
+        self.function_combobox.clear()
+        editor_grid.addWidget(self.function_combobox, 0, 0, Qt.AlignmentFlag.AlignLeft)
+
+        commands_label = QLabel('K4 commands (text before an & is shown):')
+        commands_label.setFont(owner.label_font())
+        editor_grid.addWidget(commands_label, 1, 0, Qt.AlignmentFlag.AlignLeft)
+        self.commands_entry = QLineEdit()
+        self.commands_entry.setFont(owner.font())
+        self.commands_entry.setMinimumWidth(QFontMetrics(owner.font()).horizontalAdvance('X' * 28))
+        self.commands_entry.setStyleSheet(f'QLineEdit {{ color: {owner.fg}; background-color: {owner.bg}; }}'
+                                          'QLineEdit:disabled { color: #888; background-color: #ccc; }')
+        self.commands_entry.editingFinished.connect(self.on_commands_edited)
+        editor_grid.addWidget(self.commands_entry, 2, 0, Qt.AlignmentFlag.AlignLeft)
+
+        reset_button = QPushButton('Reset to K4-Control Layout')
+        reset_button.setFont(owner.font())
+        reset_button.setStyleSheet(qt_button_stylesheet(owner.bg, owner.fg, owner.abg, owner.afg))
+        reset_button.clicked.connect(self.on_reset)
+        editor_grid.addWidget(reset_button, 3, 0, Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(editor, 3, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         Ctr2Input.status_listeners.append(self.show_status)
         Ctr2Input.port_listeners.append(self.show_ports)
+        Ctr2Controller.touch_listeners.append(self.on_touched)
         self.show_status(Ctr2Input.status_text)
+        self.map_list.setCurrentRow(0)
         return frame
 
     def close(self):
         # The window's widgets are about to go; stop telling them things.
-        if self.show_status in Ctr2Input.status_listeners:
-            Ctr2Input.status_listeners.remove(self.show_status)
-        if self.show_ports in Ctr2Input.port_listeners:
-            Ctr2Input.port_listeners.remove(self.show_ports)
+        for listeners, listener in ((Ctr2Input.status_listeners, self.show_status),
+                                    (Ctr2Input.port_listeners, self.show_ports),
+                                    (Ctr2Controller.touch_listeners, self.on_touched)):
+            if listener in listeners:
+                listeners.remove(listener)
+
+    @staticmethod
+    def row_text(kind, number):
+        name = f'Knob {number}' if kind == 'cc' else f'Button {number}'
+        return f'{name}: {Ctr2Controller.describe(kind, number)}'
+
+    def selected(self):
+        row = self.map_list.currentRow()
+        return self.rows[row] if 0 <= row < len(self.rows) else (None, None)
+
+    def on_row_selected(self, row):
+        kind, number = self.selected()
+        if kind == None:
+            return
+        functions = Ctr2Controller.knob_functions if kind == 'cc' else Ctr2Controller.button_functions
+        value = Ctr2Controller.assignment(kind, number)
+        commands = None
+        if value.startswith(Ctr2Controller.commands_prefix):
+            commands = value[len(Ctr2Controller.commands_prefix):]
+            value = 'commands'
+        combobox = self.function_combobox
+        combobox.blockSignals(True)
+        combobox.clear()
+        for entry in functions:
+            combobox.addItem(entry[1], entry[0])
+        index = combobox.findData(value)
+        combobox.setCurrentIndex(max(0, index))
+        qt_fit_combobox_width(combobox)
+        combobox.blockSignals(False)
+        self.commands_entry.setText(commands or '')
+        self.commands_entry.setEnabled(value == 'commands')
+
+    def refresh_row(self):
+        row = self.map_list.currentRow()
+        kind, number = self.selected()
+        if kind != None:
+            self.map_list.item(row).setText(self.row_text(kind, number))
+
+    def on_function_chosen(self, index):
+        kind, number = self.selected()
+        if kind == None:
+            return
+        function = self.function_combobox.itemData(index)
+        if function == 'commands':
+            self.commands_entry.setEnabled(True)
+            self.commands_entry.setFocus()
+            Ctr2Controller.set_assignment(kind, number,
+                Ctr2Controller.commands_prefix + self.commands_entry.text().strip())
+        else:
+            self.commands_entry.setEnabled(False)
+            self.commands_entry.setText('')
+            Ctr2Controller.set_assignment(kind, number, function)
+        self.refresh_row()
+
+    def on_commands_edited(self):
+        kind, number = self.selected()
+        if kind != 'note' or self.function_combobox.currentData() != 'commands':
+            return
+        Ctr2Controller.set_assignment(kind, number,
+            Ctr2Controller.commands_prefix + self.commands_entry.text().strip())
+        self.refresh_row()
+
+    def on_reset(self):
+        answer = QMessageBox.question(self.map_list.window(), 'CTR2',
+            "Set every knob and button back to the K4-Control layout?\n"
+            'What has been changed here is lost.')
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        Ctr2Controller.reset_map()
+        for row, (kind, number) in enumerate(self.rows):
+            self.map_list.item(row).setText(self.row_text(kind, number))
+        self.on_row_selected(self.map_list.currentRow())
+
+    def on_touched(self, kind, number):
+        # A knob turned or button pressed on the CTR2, picked out in the
+        # list, unless it is already.
+        if (kind, number) in self.rows:
+            row = self.rows.index((kind, number))
+            if row != self.map_list.currentRow():
+                self.map_list.setCurrentRow(row)
 
     @staticmethod
     def device_choices():
@@ -18369,7 +18504,7 @@ class Macros(TextButtons):
         ctr2_grid = QGridLayout(ctr2_frame)
         ctr2_grid.addWidget(self.ctr2_settings.frame(), 0, 0,
                             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.add_tab(ctr2_frame, 'CTR2-Quad')
+        self.add_tab(ctr2_frame, 'CTR2')
 
     def on_tab_changed(self, index):
         super().on_tab_changed(index)
@@ -19446,7 +19581,7 @@ class Ctr2Input():
     # chosen on the Keying tab.
     #
     # The MIDI device is a setting of its own, on the Macros window's
-    # CTR2-Quad tab, so that the CTR2 can tune whatever keys. Where it is
+    # CTR2 tab, so that the CTR2 can tune whatever keys. Where it is
     # the keying MIDI device too, its port is shared with MidiInput rather
     # than opened a second time, which Windows doesn't allow: MidiInput
     # hands on what is the controller's (see MidiInput.dispatch).
@@ -19574,30 +19709,179 @@ class Ctr2Input():
         if cls.signals != None and len(message) >= 3:
             cls.signals.message.emit(message[0], message[1], message[2])
 
+def ctr2_both_vfos(entries):
+    # Ctr2Controller's functions that apply to either receiver, each made
+    # two: one for VFO A, under the key it has always had, and one for
+    # VFO B, under that key with _b added. A button's K4 command for B is
+    # the sub receiver's, its base followed by $; one of its methods is
+    # given the VFO.
+    both = ()
+    for key, label, *action in entries:
+        a = b = ()
+        if action:
+            command = action[0]
+            if command.endswith(';'):
+                a, b = (command, None), (command[:2] + '$' + command[2:], None)
+            else:
+                a, b = (command, 'A'), (command, 'B')
+        both += ((key, label + ' A') + a, (key + '_b', label + ' B') + b)
+    return both
+
 class Ctr2Controller():
-    # What the CTR2's knobs and buttons do: Lynovation's K4-Control
-    # layout for the CTR2-Dial firmware (CTR2-Dial_K4-Control_Mapping
-    # v2.0), done the K4 Companion way.
+    # What the CTR2's knobs and buttons do: each knob, MIDI control 100 to
+    # 117, and each button, MIDI note 1 to 60, has a function from
+    # knob_functions or button_functions -- or, for a button, K4 commands
+    # of the operator's own -- set on the CTR2 tab and kept with the
+    # radio's settings, as the K-Pod's buttons are. One not set does what
+    # Lynovation's K4-Control layout for the CTR2-Dial firmware
+    # (CTR2-Dial_K4-Control_Mapping v2.0) has it do: default_knobs and
+    # default_buttons.
     #
-    # The knobs are MIDI controls 100 to 117. A wheel (WheelA) is
-    # centred at 64, its offset from 64 the steps it has turned and so
-    # its speed; WheelB sends 1 for a step up and 126 for one down, and
-    # both are understood. A slider (SliderA) is a position from 0 to
-    # 127, which the CTR2 keeps, scaled here to the setting's range; one
-    # for an offset (SliderB) is centred at 64. The buttons are MIDI
-    # notes 1 to 60, a Note On and then a Note Off: a long press sends
-    # the note of the function set for it, so each note is one function.
+    # A wheel (WheelA) is centred at 64, its offset from 64 the steps it
+    # has turned and so its speed; WheelB sends 1 for a step up and 126
+    # for one down, and both are understood. A slider (SliderA) is a
+    # position from 0 to 127, which the CTR2 keeps, scaled here to the
+    # setting's range; one for an offset (SliderB) is centred at 64. A
+    # button sends a Note On and then a Note Off: a long press sends the
+    # note of the function set for it, so each note is one function.
     # Notes 96 to 99 are the CTR2's paddles, key and PTT, the keyer's.
-    #
-    # Of the layout's buttons, those with nothing on the K4 to do -- log
-    # QSO, DX cluster, FT8, logbook, WFM, 4m, 2m, 70cm, 23cm, CW zero,
-    # the tune stack, the memories and cancelling macros -- do nothing.
-    wheels = {100: 'A', 102: 'B'}
     rit_hz_per_count = 10
     controls_used = range(100, 118)
     notes_used = range(1, 61)
     modes = ('1', '2', '3', '6', '5', '4')        # LSB USB CW DATA AM FM
-    muted_af_gain = None
+    muted_af_gain = {'A': None, 'B': None}
+    map_section = 'CTR2 Map'
+    commands_prefix = 'commands:'
+    # Told of each knob turned or button pressed, as (kind, number),
+    # kind 'cc' or 'note': the CTR2 tab, which picks it out.
+    touch_listeners = []
+
+    # A knob's key ending in _a or _b is for that VFO; one without is for
+    # VFO A.
+    knob_functions = (
+        ('none', 'None'),
+        ('tune_a', 'Tune VFO A'),
+        ('tune_b', 'Tune VFO B'),
+    ) + ctr2_both_vfos((
+        ('af_gain', 'AF Gain'),
+        ('bandwidth', 'Bandwidth'),
+        ('rf_gain', 'RF Gain'),
+        ('nb_level', 'NB Level'),
+        ('nr_level', 'LMSNR Level'),
+        ('ssnr_level', 'SSNR Level'),
+        ('attenuator', 'ATT'),
+        ('preamp', 'Pre'),
+        ('zoom', 'Zoom'),
+        ('rit_offset', 'RIT Offset'),
+    )) + (
+        ('rf_power', 'RF Power'),
+        ('cw_speed', 'CW Speed'),
+    )
+    # Each: its key, how it is shown, what it does -- a K4 command, or the
+    # name of a method below -- and, for a method that is given one, the
+    # VFO, A or B.
+    button_functions = (
+        ('none', 'None', None, None),
+    ) + ctr2_both_vfos((
+        ('mode_next', 'Mode Next', 'mode_next'),
+        ('mode_previous', 'Mode Previous', 'mode_previous'),
+        ('mode_cw', 'Mode CW', 'MD3;'),
+        ('mode_cw_r', 'Mode CW-R', 'MD7;'),
+        ('mode_lsb', 'Mode LSB', 'MD1;'),
+        ('mode_usb', 'Mode USB', 'MD2;'),
+        ('mode_am', 'Mode AM', 'MD5;'),
+        ('mode_fm', 'Mode FM', 'MD4;'),
+        ('mode_data', 'Mode DATA', 'MD6;'),
+        ('mode_data_r', 'Mode DATA-R', 'MD9;'),
+        ('band_next', 'Band Next', 'band_next'),
+        ('band_previous', 'Band Previous', 'band_previous'),
+        ('band_160', 'Band 160 m', 'BN00;'),
+        ('band_80', 'Band 80 m', 'BN01;'),
+        ('band_60', 'Band 60 m', 'BN02;'),
+        ('band_40', 'Band 40 m', 'BN03;'),
+        ('band_30', 'Band 30 m', 'BN04;'),
+        ('band_20', 'Band 20 m', 'BN05;'),
+        ('band_17', 'Band 17 m', 'BN06;'),
+        ('band_15', 'Band 15 m', 'BN07;'),
+        ('band_12', 'Band 12 m', 'BN08;'),
+        ('band_10', 'Band 10 m', 'BN09;'),
+        ('band_6', 'Band 6 m', 'BN10;'),
+        ('mute', 'Mute', 'mute'),
+        ('filter_next', 'Filter Preset Next', 'filter_next'),
+        ('zoom_in', 'Zoom In', 'zoom_in'),
+        ('zoom_out', 'Zoom Out', 'zoom_out'),
+        ('rit', 'RIT On/Off', 'rit_toggle'),
+        ('step_up', 'Tuning Step Up', 'step_up'),
+        ('step_down', 'Tuning Step Down', 'step_down'),
+        ('nb', 'NB On/Off', 'nb_toggle'),
+        ('nr', 'LMSNR On/Off', 'nr_toggle'),
+        ('ssnr', 'SSNR On/Off', 'ssnr_toggle'),
+        ('attenuator', 'ATT On/Off', 'attenuator_toggle'),
+        ('preamp', 'Pre On/Off', 'preamp_toggle'),
+    )) + (
+        ('xit', 'XIT On/Off', 'xit_toggle', None),
+        ('split', 'Split On/Off', 'split_toggle', None),
+        ('vox', 'VOX On/Off', 'vox_toggle', None),
+        ('a_to_b', 'A > B', 'AB0;', None),
+        ('b_to_a', 'A < B', 'AB1;', None),
+        ('swap', 'A / B', 'AB2;', None),
+        ('atu_tune', 'ATU Tune', 'AT2;TU3;', None),
+        ('ptt', 'PTT On/Off', 'ptt_toggle', None),
+    ) + tuple((f'macro_{n}', f'Macro {n}', f'macro_{n}', None) for n in range(1, 13)) + (
+        ('commands', 'K4 Commands', None, None),
+    )
+    button_actions = {key: (action, vfo) for key, _, action, vfo in button_functions}
+
+    # Lynovation's K4-Control layout.
+    default_knobs = {100: 'tune_a', 101: 'af_gain', 102: 'tune_b', 103: 'bandwidth',
+                     104: 'rf_gain', 106: 'nb_level', 107: 'nr_level', 108: 'zoom',
+                     109: 'rf_power', 110: 'cw_speed', 111: 'rit_offset'}
+    default_buttons = {1: 'mode_next', 2: 'mode_fm', 3: 'mute', 4: 'band_previous',
+                       5: 'band_next', 6: 'filter_next', 7: 'zoom_in', 8: 'zoom_out',
+                       9: 'rit', 10: 'step_up', 11: 'step_down', 12: 'vox', 13: 'nb',
+                       14: 'nr', 19: 'mode_cw', 20: 'mode_lsb', 21: 'mode_usb',
+                       22: 'mode_am', 23: 'mode_fm', 25: 'band_160', 26: 'band_80',
+                       27: 'band_40', 28: 'band_30', 29: 'band_20', 30: 'band_17',
+                       31: 'band_15', 32: 'band_12', 33: 'band_10', 34: 'band_6',
+                       36: 'split', 40: 'a_to_b', 41: 'b_to_a', 42: 'swap', 44: 'vox',
+                       45: 'atu_tune', 48: 'ptt', 55: 'macro_1', 56: 'macro_2',
+                       57: 'macro_3', 58: 'macro_4', 59: 'macro_5'}
+
+    # ------------------------------------------------ the map
+
+    @classmethod
+    def assignment(cls, kind, number):
+        # A knob's ('cc') or button's ('note') function key, or for a
+        # button 'commands:' and the commands: as set, or by default.
+        default = (cls.default_knobs if kind == 'cc' else cls.default_buttons).get(number, 'none')
+        settings = Server.settings
+        if settings == None:
+            return default
+        return settings.get(cls.map_section, f'{kind}_{number}', default)
+
+    @classmethod
+    def set_assignment(cls, kind, number, value):
+        Server.settings.put_save(cls.map_section, f'{kind}_{number}', value)
+
+    @classmethod
+    def reset_map(cls):
+        # Every knob and button back to the K4-Control layout.
+        Server.settings.clear_section(cls.map_section)
+        Server.settings.save()
+
+    @classmethod
+    def describe(cls, kind, number):
+        # What the knob or button is set to do, as the tab shows it.
+        value = cls.assignment(kind, number)
+        if kind == 'note' and value.startswith(cls.commands_prefix):
+            return 'K4 Commands: ' + value[len(cls.commands_prefix):]
+        functions = cls.knob_functions if kind == 'cc' else cls.button_functions
+        for entry in functions:
+            if entry[0] == value:
+                return entry[1]
+        return 'None'
+
+    # ------------------------------------------------ the CTR2's messages
 
     @classmethod
     def is_controller_message(cls, message):
@@ -19619,14 +19903,22 @@ class Ctr2Controller():
         # On the Qt thread. A port shared with the keyer hands over only
         # what is_controller_message says is the controller's; one of the
         # controller's own is all the controller's.
+        kind = status & 0xf0
+        if kind == 0xb0 and number in cls.controls_used:
+            touched = 'cc'
+        elif kind == 0x90 and value > 0 and number in cls.notes_used:
+            touched = 'note'
+        else:
+            return
+        for listener in list(cls.touch_listeners):
+            listener(touched, number)
         server = Server.k4_server
         if server == None or not server.connected:
             return
-        kind = status & 0xf0
         try:
-            if kind == 0xb0 and number in cls.controls_used:
+            if touched == 'cc':
                 cls.on_control(server, number, value)
-            elif kind == 0x90 and value > 0 and number in cls.notes_used:
+            else:
                 cls.on_button(server, number)
         except Exception:
             traceback.print_exc(file=stderr)
@@ -19645,87 +19937,99 @@ class Ctr2Controller():
     def scaled(value, low, high):
         return low + (high - low) * max(0, min(127, value)) / 127
 
+    @staticmethod
+    def sub(vfo):
+        # What follows a K4 command's base for the VFO's receiver.
+        return '$' if vfo == 'B' else ''
+
     @classmethod
     def on_control(cls, server, number, value):
-        if number in cls.wheels:
+        function = cls.assignment('cc', number)
+        vfo = 'B' if function.endswith('_b') else 'A'
+        function = function.removesuffix('_b').removesuffix('_a')
+        s = cls.sub(vfo)
+        param = server.k4_parameter
+        if function == 'tune':
             steps = cls.wheel_steps(value)
-            entry = VFO.instances.get(cls.wheels[number])
+            entry = VFO.instances.get(vfo)
             if steps != 0 and entry != None:
                 entry.adjust_value(steps * entry.step)
-            return
-        param = server.k4_parameter
-        if number == 101:                         # Volume
-            server.send_cmds(f'AG{round(cls.scaled(value, 0, 60)):03d};')
-        elif number == 103:                       # BW, 0.05 to 5 kHz in .05s
-            bw = round(cls.scaled(value, 1, 100)) * 5
-            server.send_cmds(f'BW{bw:04d};')
-        elif number == 104:                       # RF gain, -60 to 0
-            server.send_cmds(f'RG-{round(cls.scaled(value, 60, 0)):02d};')
-        elif number == 106:                       # NB level, 0 to 15
-            nb = param('NB') or ''
+        elif function == 'af_gain':               # 0 to 60
+            cls.set_af_gain(server, 'AG' + s, f'{round(cls.scaled(value, 0, 60)):03d}')
+        elif function == 'bandwidth':             # 0.05 to 5 kHz in .05s
+            server.send_cmds(f'BW{s}{round(cls.scaled(value, 1, 100)) * 5:04d};')
+        elif function == 'rf_gain':               # -60 to 0
+            server.send_cmds(f'RG{s}-{round(cls.scaled(value, 60, 0)):02d};')
+        elif function == 'nb_level':              # 0 to 15
+            nb = param('NB' + s) or ''
             if len(nb) >= 4:
-                server.send_cmds(f'NB{round(cls.scaled(value, 0, 15)):02d}{nb[2:4]};')
-        elif number == 107:                       # NR level, 1 to 10
-            nr = param('NR') or ''
+                server.send_cmds(f'NB{s}{round(cls.scaled(value, 0, 15)):02d}{nb[2:4]};')
+        elif function == 'nr_level':              # LMSNR, 1 to 10
+            nr = param('NR' + s) or ''
             if len(nr) >= 3:
-                server.send_cmds(f'NR{round(cls.scaled(value, 1, 10)):02d}{nr[2]};')
-        elif number == 108:                       # Zoom: the panadapter's spans
+                server.send_cmds(f'NR{s}{round(cls.scaled(value, 1, 10)):02d}{nr[2]};')
+        elif function == 'ssnr_level':            # 1 to 20
+            nrs = param('NRS' + s) or ''
+            if len(nrs) >= 3:
+                server.send_cmds(f'NRS{s}{round(cls.scaled(value, 1, 20)):02d}{nrs[2]};')
+        elif function == 'attenuator':            # 0 to 21 dB in 3s, 0 off
+            db = round(cls.scaled(value, 0, 7)) * 3
+            server.send_cmds(f'RA{s}{db:02d}{1 if db > 0 else 0};')
+        elif function == 'preamp':                # 0 to 3, 0 off
+            level = round(cls.scaled(value, 0, 3))
+            server.send_cmds(f'PA{s}{level}{1 if level > 0 else 0};')
+        elif function == 'zoom':                  # the panadapter's spans
             spans = Panadapter.span_choices_khz
             index = round(cls.scaled(value, 0, len(spans) - 1))
-            server.send_cmds(f'#SPN{spans[index] * 1000};')
-        elif number == 109:                       # RF power, 0 to 110 W
+            server.send_cmds(f'#SPN{s}{spans[index] * 1000};')
+        elif function == 'rf_power':              # 0 to 110 W
             watts = cls.scaled(value, 0, 110)
             if watts <= 10:
                 server.send_cmds(f'PC{round(watts * 10):03d}L;')
             else:
                 server.send_cmds(f'PC{round(watts):03d}H;')
-        elif number == 110:                       # CW speed, 8 to 100 WPM
+        elif function == 'cw_speed':              # 8 to 100 WPM
             server.send_cmds(f'KS{round(cls.scaled(value, 8, 100)):03d};')
-        elif number == 111:                       # RIT offset, centred at 64
-            entry = RIT.instances.get('A')
+        elif function == 'rit_offset':            # centred at 64
+            entry = RIT.instances.get(vfo)
             if entry != None:
                 offset = (max(0, min(127, value)) - 64) * cls.rit_hz_per_count
                 entry.set_value(max(RIT.low_offset_limit, min(RIT.high_offset_limit, offset)))
 
-    # The button notes and what each does, by the K4-Control layout's
-    # numbering: a K4 command, or the name of a method below.
-    button_commands = {
-        1: 'mode_next',
-        2: 'MD4;',                                # FM
-        3: 'mute',
-        4: 'band_previous',
-        5: 'band_next',
-        6: 'filter_next',
-        7: 'zoom_in',
-        8: 'zoom_out',
-        9: 'rit_toggle',
-        10: 'step_up',
-        11: 'step_down',
-        12: 'vox_toggle',
-        13: 'nb_toggle',
-        14: 'nr_toggle',
-        19: 'MD3;', 20: 'MD1;', 21: 'MD2;', 22: 'MD5;', 23: 'MD4;',
-        25: 'BN00;', 26: 'BN01;', 27: 'BN03;', 28: 'BN04;', 29: 'BN05;',
-        30: 'BN06;', 31: 'BN07;', 32: 'BN08;', 33: 'BN09;', 34: 'BN10;',
-        36: 'split_toggle',
-        40: 'AB0;',                               # A > B
-        41: 'AB1;',                               # A < B
-        42: 'AB2;',                               # A / B
-        44: 'vox_toggle',
-        45: 'AT2;TU3;',                           # ATU tune
-        48: 'ptt_toggle',
-        55: 'macro_1', 56: 'macro_2', 57: 'macro_3', 58: 'macro_4', 59: 'macro_5',
-    }
-
     @classmethod
     def on_button(cls, server, note):
-        action = cls.button_commands.get(note)
+        function = cls.assignment('note', note)
+        if function.startswith(cls.commands_prefix):
+            cls.run_commands(server, function[len(cls.commands_prefix):])
+            return
+        action, vfo = cls.button_actions.get(function, (None, None))
         if action == None:
             return
         if action.endswith(';'):
             server.send_cmds(action)
+        elif action.startswith('macro_'):
+            cls.macro(int(action[len('macro_'):]) - 1)
+        elif vfo != None:
+            getattr(cls, action)(server, vfo)
         else:
             getattr(cls, action)(server)
+
+    @staticmethod
+    def run_commands(server, text):
+        # As a K-Pod button or a macro does: whatever comes before an & is
+        # shown, and what comes after it is sent.
+        label, amp, commands = text.partition('&')
+        if not amp:
+            label = commands = text
+        label = label.strip()
+        commands = commands.strip()
+        if commands == '':
+            return
+        if label != '':
+            Popup.popup(label, timeout=500, color='white')
+        if not commands.endswith(';'):
+            commands += ';'
+        server.send_cmds(commands)
 
     @staticmethod
     def toggled(server, base):
@@ -19734,79 +20038,106 @@ class Ctr2Controller():
         return '0' if server.k4_parameter(base) == '1' else '1'
 
     @classmethod
-    def mode_next(cls, server):
-        mode = server.k4_parameter('MD')
-        index = cls.modes.index(mode) + 1 if mode in cls.modes else 0
-        server.send_cmds(f'MD{cls.modes[index % len(cls.modes)]};')
+    def mode_step(cls, server, vfo, step):
+        s = cls.sub(vfo)
+        mode = server.k4_parameter('MD' + s)
+        index = cls.modes.index(mode) + step if mode in cls.modes else 0
+        server.send_cmds(f'MD{s}{cls.modes[index % len(cls.modes)]};')
 
     @classmethod
-    def mute(cls, server):
-        # The AF gain to nothing, and back to what it was.
-        gain = server.k4_parameter('AG') or ''
-        if gain.isdigit() and int(gain) > 0:
-            cls.muted_af_gain = gain
-            server.send_cmds('AG000;')
-        elif cls.muted_af_gain != None:
-            server.send_cmds(f'AG{cls.muted_af_gain};')
-            cls.muted_af_gain = None
+    def mode_next(cls, server, vfo):
+        cls.mode_step(server, vfo, 1)
+
+    @classmethod
+    def mode_previous(cls, server, vfo):
+        cls.mode_step(server, vfo, -1)
 
     @staticmethod
-    def band_step(server, step):
+    def set_af_gain(server, base, gain):
+        # AG or AG$, with the app's AF Gain slider moved to match. Where
+        # the app plays the K4's audio itself, send_cmds keeps the
+        # command for the app's own volume and doesn't send it, so
+        # nothing reports it back to the slider; this does.
+        server.send_cmds(f'{base}{gain};')
+        server.update_k4_parameter(base, gain)
+
+    @classmethod
+    def mute(cls, server, vfo):
+        # The VFO's AF gain to nothing, and back to what it was.
+        base = 'AG' + cls.sub(vfo)
+        gain = server.k4_parameter(base) or ''
+        if gain.isdigit() and int(gain) > 0:
+            cls.muted_af_gain[vfo] = gain
+            cls.set_af_gain(server, base, '000')
+        elif cls.muted_af_gain[vfo] != None:
+            cls.set_af_gain(server, base, cls.muted_af_gain[vfo])
+            cls.muted_af_gain[vfo] = None
+
+    @classmethod
+    def band_step(cls, server, vfo, step):
         # Through 160 to 6 m, BN00 to BN10.
-        band = server.k4_parameter('BN') or ''
+        s = cls.sub(vfo)
+        band = server.k4_parameter('BN' + s) or ''
         band = int(band) if band.isdigit() else 0
         if band > 10:
             band = 0
-        server.send_cmds(f'BN{(band + step) % 11:02d};')
+        server.send_cmds(f'BN{s}{(band + step) % 11:02d};')
 
     @classmethod
-    def band_previous(cls, server):
-        cls.band_step(server, -1)
+    def band_previous(cls, server, vfo):
+        cls.band_step(server, vfo, -1)
 
     @classmethod
-    def band_next(cls, server):
-        cls.band_step(server, 1)
+    def band_next(cls, server, vfo):
+        cls.band_step(server, vfo, 1)
 
-    @staticmethod
-    def filter_next(server):
+    @classmethod
+    def filter_next(cls, server, vfo):
         # Filter presets 1, 2 and 3 in turn.
-        preset = server.k4_parameter('FP') or ''
+        s = cls.sub(vfo)
+        preset = server.k4_parameter('FP' + s) or ''
         preset = int(preset) if preset.isdigit() else 0
-        server.send_cmds(f'FP{preset % 3 + 1};')
+        server.send_cmds(f'FP{s}{preset % 3 + 1};')
 
-    @staticmethod
-    def zoom_step(server, step):
-        # To the next of the panadapter's spans, narrower or wider.
+    @classmethod
+    def zoom_step(cls, server, vfo, step):
+        # To the next of the VFO's panadapter's spans, narrower or wider.
+        s = cls.sub(vfo)
         spans = Panadapter.span_choices_khz
-        span = server.k4_parameter('#SPN') or ''
+        span = server.k4_parameter('#SPN' + s) or ''
         try:
             khz = float(span) / 1000
         except ValueError:
             khz = spans[0]
         index = min(range(len(spans)), key=lambda i: abs(spans[i] - khz))
         index = max(0, min(len(spans) - 1, index + step))
-        server.send_cmds(f'#SPN{spans[index] * 1000};')
+        server.send_cmds(f'#SPN{s}{spans[index] * 1000};')
 
     @classmethod
-    def zoom_in(cls, server):
-        cls.zoom_step(server, -1)
+    def zoom_in(cls, server, vfo):
+        cls.zoom_step(server, vfo, -1)
 
     @classmethod
-    def zoom_out(cls, server):
-        cls.zoom_step(server, 1)
+    def zoom_out(cls, server, vfo):
+        cls.zoom_step(server, vfo, 1)
 
     @classmethod
-    def rit_toggle(cls, server):
-        server.send_cmds(f'RT{cls.toggled(server, "RT")};')
+    def rit_toggle(cls, server, vfo):
+        base = 'RT' + cls.sub(vfo)
+        server.send_cmds(f'{base}{cls.toggled(server, base)};')
+
+    @classmethod
+    def xit_toggle(cls, server):
+        server.send_cmds(f'XT{cls.toggled(server, "XT")};')
 
     @classmethod
     def split_toggle(cls, server):
         server.send_cmds(f'FT{cls.toggled(server, "FT")};')
 
     @staticmethod
-    def step(server, direction):
-        # VFO A's tuning step, to the next one up or down.
-        entry = VFO.instances.get('A')
+    def step(vfo, direction):
+        # The VFO's tuning step, to the next one up or down.
+        entry = VFO.instances.get(vfo)
         if entry == None:
             return
         steps = sorted(entry.step_indexes)
@@ -19814,12 +20145,12 @@ class Ctr2Controller():
         entry.set_step(steps[max(0, min(len(steps) - 1, index + direction))])
 
     @classmethod
-    def step_up(cls, server):
-        cls.step(server, 1)
+    def step_up(cls, server, vfo):
+        cls.step(vfo, 1)
 
     @classmethod
-    def step_down(cls, server):
-        cls.step(server, -1)
+    def step_down(cls, server, vfo):
+        cls.step(vfo, -1)
 
     @classmethod
     def vox_toggle(cls, server):
@@ -19828,17 +20159,48 @@ class Ctr2Controller():
         base = 'VXC' if mode in ('CW', 'CW-R') else 'VXD' if mode in ('DATA', 'DATA-R') else 'VXV'
         server.send_cmds(f'{base}{cls.toggled(server, base)};')
 
-    @staticmethod
-    def nb_toggle(server):
-        nb = server.k4_parameter('NB') or ''
+    @classmethod
+    def nb_toggle(cls, server, vfo):
+        s = cls.sub(vfo)
+        nb = server.k4_parameter('NB' + s) or ''
         if len(nb) >= 4:
-            server.send_cmds(f'NB{nb[0:2]}{"0" if nb[2] == "1" else "1"}{nb[3]};')
+            server.send_cmds(f'NB{s}{nb[0:2]}{"0" if nb[2] == "1" else "1"}{nb[3]};')
 
-    @staticmethod
-    def nr_toggle(server):
-        nr = server.k4_parameter('NR') or ''
+    @classmethod
+    def nr_toggle(cls, server, vfo):
+        s = cls.sub(vfo)
+        nr = server.k4_parameter('NR' + s) or ''
         if len(nr) >= 3:
-            server.send_cmds(f'NR{nr[0:2]}{"0" if nr[2] == "1" else "1"};')
+            server.send_cmds(f'NR{s}{nr[0:2]}{"0" if nr[2] == "1" else "1"};')
+
+    @classmethod
+    def ssnr_toggle(cls, server, vfo):
+        s = cls.sub(vfo)
+        nrs = server.k4_parameter('NRS' + s) or ''
+        if len(nrs) >= 3:
+            server.send_cmds(f'NRS{s}{nrs[0:2]}{"0" if nrs[2] == "1" else "1"};')
+
+    @classmethod
+    def attenuator_toggle(cls, server, vfo):
+        # Off, or on at the level it had -- 3 dB where it had none.
+        s = cls.sub(vfo)
+        ra = server.k4_parameter('RA' + s) or ''
+        if len(ra) >= 3 and ra[2] == '1':
+            server.send_cmds(f'RA{s}{ra[0:2]}0;')
+        else:
+            level = ra[0:2] if len(ra) >= 3 and ra[0:2] not in ('', '00') else '03'
+            server.send_cmds(f'RA{s}{level}1;')
+
+    @classmethod
+    def preamp_toggle(cls, server, vfo):
+        # Off, or on at the level it had -- 1 where it had none.
+        s = cls.sub(vfo)
+        pa = server.k4_parameter('PA' + s) or ''
+        if len(pa) >= 2 and pa[1] == '1':
+            server.send_cmds(f'PA{s}{pa[0]}0;')
+        else:
+            level = pa[0] if len(pa) >= 2 and pa[0] not in ('', '0') else '1'
+            server.send_cmds(f'PA{s}{level}1;')
 
     @staticmethod
     def ptt_toggle(server):
@@ -19846,28 +20208,9 @@ class Ctr2Controller():
 
     @staticmethod
     def macro(index):
-        if Macros.singleton != None:
+        # A Macros button, counting from 0.
+        if Macros.singleton != None and index < len(Macros.singleton.button_values):
             Macros.singleton.send_button(index)
-
-    @classmethod
-    def macro_1(cls, server):
-        cls.macro(0)
-
-    @classmethod
-    def macro_2(cls, server):
-        cls.macro(1)
-
-    @classmethod
-    def macro_3(cls, server):
-        cls.macro(2)
-
-    @classmethod
-    def macro_4(cls, server):
-        cls.macro(3)
-
-    @classmethod
-    def macro_5(cls, server):
-        cls.macro(4)
 
 class PaddleEvent():
     def __init__(self, event, timestamp):
