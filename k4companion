@@ -19830,7 +19830,13 @@ class Ctr2Controller():
         ('a_to_b', 'A > B', 'AB0;', None),
         ('b_to_a', 'A < B', 'AB1;', None),
         ('swap', 'A / B', 'AB2;', None),
-        ('atu_tune', 'ATU Tune', 'AT2;TU3;', None),
+        ('all_a_to_b', 'All A > B', 'AB3;', None),
+        ('all_b_to_a', 'All B > A', 'AB4;', None),
+        ('all_swap', 'All A/B', 'AB5;', None),
+        ('atu_tune', 'ATU Tune', 'atu_tune', None),
+        ('atu_tune_full', 'ATU TUNE', 'atu_tune_full', None),
+        ('tune', 'Tune', 'tune', None),
+        ('tune_lp', 'Tune LP', 'tune_lp', None),
         ('ptt', 'PTT On/Off', 'ptt_toggle', None),
     ) + tuple((f'macro_{n}', f'Macro {n}', f'macro_{n}', None) for n in range(1, 13)) + (
         ('commands', 'K4 Commands', None, None),
@@ -20258,6 +20264,28 @@ class Ctr2Controller():
         else:
             level = int(pa[0]) if len(pa) >= 2 and pa[0].isdigit() and pa[0] != '0' else 1
             server.send_cmds(f'PA{s}{min(level, cls.preamp_top(server, vfo))}1;')
+
+    @staticmethod
+    def tune_toggle(server, cmds):
+        # As the app's tune controls do: a tune started where the K4 isn't
+        # tuning, and stopped (TU0) where it is.
+        server.send_cmds(cmds if server.k4_parameter('TU') in (None, '0') else 'TU0;')
+
+    @classmethod
+    def atu_tune(cls, server):
+        cls.tune_toggle(server, 'AT2;TU3;')
+
+    @classmethod
+    def atu_tune_full(cls, server):
+        cls.tune_toggle(server, 'AT2;TU4;')
+
+    @classmethod
+    def tune(cls, server):
+        cls.tune_toggle(server, 'TU1;')
+
+    @classmethod
+    def tune_lp(cls, server):
+        cls.tune_toggle(server, 'TU2;')
 
     @staticmethod
     def ptt_toggle(server):
