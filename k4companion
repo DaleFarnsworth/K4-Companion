@@ -20222,7 +20222,7 @@ class Ctr2Controller():
 
     @classmethod
     def ssnr_reset(cls, server, vfo):
-        # As the SSNR dropdown's R and AR (see SSNR).
+        # As the SSNR dropdown's C and AC (see SSNR).
         server.send_cmds(f'SSNRRESET{cls.sub(vfo)}!;')
 
     @classmethod
