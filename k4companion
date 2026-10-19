@@ -18799,7 +18799,11 @@ class MidiInput():
         # Keyer.midi_message_callback).
         message, delta = event
         controller = cls.controller
-        if controller != None and Ctr2Controller.is_controller_message(message):
+        to_controller = controller != None and Ctr2Controller.is_controller_message(message)
+        if 'midi' in Options.debug_areas:
+            dprint(f'MIDI in, {cls.port_name}: {midi_text(message)}, +{delta * 1000:.1f}ms,'
+                   f' to the {"CTR2 controller" if to_controller else "keyer"}')
+        if to_controller:
             controller(message)
             cls.controller_delta += delta
             return
@@ -19698,10 +19702,18 @@ class Ctr2Input():
         except rtmidi.RtMidiError as e:
             cls.set_status(f'{name}: could not be opened ({e}).')
             return
-        midiin.set_callback(lambda event, data=None: cls.feed(event[0]))
+        midiin.set_callback(lambda event, data=None: cls.feed_own(name, event))
         cls.midiin = midiin
         cls.open_name = name
         cls.set_status(f'{name}: connected.')
+
+    @classmethod
+    def feed_own(cls, name, event):
+        # On the MIDI thread, from the port opened here.
+        message, delta = event
+        if 'midi' in Options.debug_areas:
+            dprint(f'MIDI in, {name}: {midi_text(message)}, +{delta * 1000:.1f}ms, to the CTR2 controller')
+        cls.feed(message)
 
     @classmethod
     def feed(cls, message):
