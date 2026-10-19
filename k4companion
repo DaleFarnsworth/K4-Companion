@@ -19750,6 +19750,9 @@ class Ctr2Controller():
     notes_used = range(1, 61)
     modes = ('1', '2', '3', '6', '5', '4')        # LSB USB CW DATA AM FM
     muted_af_gain = {'A': None, 'B': None}
+    counts_per_level = 4
+    knob_values = {}            # CC number -> the value it last sent
+    knob_counts = {}            # CC number -> counts not yet a level
     map_section = 'CTR2 Map'
     commands_prefix = 'commands:'
     # Told of each knob turned or button pressed, as (kind, number),
@@ -19816,6 +19819,8 @@ class Ctr2Controller():
         ('nb', 'NB On/Off', 'nb_toggle'),
         ('nr', 'LMSNR On/Off', 'nr_toggle'),
         ('ssnr', 'SSNR On/Off', 'ssnr_toggle'),
+        ('ssnr_reset', 'SSNR R (Reset)', 'ssnr_reset'),
+        ('ssnr_auto', 'SSNR AR (Auto Reset)', 'ssnr_auto'),
         ('attenuator', 'ATT On/Off', 'attenuator_toggle'),
         ('preamp', 'Pre On/Off', 'preamp_toggle'),
     )) + (
@@ -19943,6 +19948,30 @@ class Ctr2Controller():
         return '$' if vfo == 'B' else ''
 
     @classmethod
+    def moved_levels(cls, number, value):
+        # For a setting of few levels, the attenuator's or the preamp's,
+        # whose share of the knob's 0 to 127 would have it turned a long
+        # way for each: the levels it has moved by, one for every
+        # counts_per_level it has moved in one direction since the last
+        # message, from wherever the K4 has the setting. A 0 or 127 sent
+        # again, at either end, goes on the same way. The first message
+        # from a knob only says where it is.
+        last = cls.knob_values.get(number)
+        cls.knob_values[number] = value
+        if last == None:
+            return 0
+        moved = value - last
+        if moved == 0 and value in (0, 127):
+            moved = 1 if value == 127 else -1
+        counts = cls.knob_counts.get(number, 0)
+        if counts * moved < 0:                    # turned back: afresh
+            counts = 0
+        counts += moved
+        levels = int(counts / cls.counts_per_level)
+        cls.knob_counts[number] = counts - levels * cls.counts_per_level
+        return levels
+
+    @classmethod
     def on_control(cls, server, number, value):
         function = cls.assignment('cc', number)
         vfo = 'B' if function.endswith('_b') else 'A'
@@ -19973,11 +20002,21 @@ class Ctr2Controller():
             if len(nrs) >= 3:
                 server.send_cmds(f'NRS{s}{round(cls.scaled(value, 1, 20)):02d}{nrs[2]};')
         elif function == 'attenuator':            # 0 to 21 dB in 3s, 0 off
-            db = round(cls.scaled(value, 0, 7)) * 3
-            server.send_cmds(f'RA{s}{db:02d}{1 if db > 0 else 0};')
+            steps = cls.moved_levels(number, value)
+            ra = param('RA' + s) or ''
+            if steps != 0 and len(ra) >= 3 and ra[0:2].isdigit():
+                now = int(ra[0:2]) // 3 if ra[2] == '1' else 0
+                db = max(0, min(7, now + steps)) * 3
+                if db != now * 3:
+                    server.send_cmds(f'RA{s}{db:02d}{1 if db > 0 else 0};')
         elif function == 'preamp':                # 0 off, to 2 or 3
-            level = round(cls.scaled(value, 0, cls.preamp_top(server, vfo)))
-            server.send_cmds(f'PA{s}{level}{1 if level > 0 else 0};')
+            steps = cls.moved_levels(number, value)
+            pa = param('PA' + s) or ''
+            if steps != 0 and len(pa) >= 2 and pa[0].isdigit():
+                now = int(pa[0]) if pa[1] == '1' else 0
+                level = max(0, min(cls.preamp_top(server, vfo), now + steps))
+                if level != now:
+                    server.send_cmds(f'PA{s}{level}{1 if level > 0 else 0};')
         elif function == 'zoom':                  # the panadapter's spans
             spans = Panadapter.span_choices_khz
             index = round(cls.scaled(value, 0, len(spans) - 1))
@@ -20180,6 +20219,15 @@ class Ctr2Controller():
         nrs = server.k4_parameter('NRS' + s) or ''
         if len(nrs) >= 3:
             server.send_cmds(f'NRS{s}{nrs[0:2]}{"0" if nrs[2] == "1" else "1"};')
+
+    @classmethod
+    def ssnr_reset(cls, server, vfo):
+        # As the SSNR dropdown's R and AR (see SSNR).
+        server.send_cmds(f'SSNRRESET{cls.sub(vfo)}!;')
+
+    @classmethod
+    def ssnr_auto(cls, server, vfo):
+        server.send_cmds(f'SSNRAUTO{cls.sub(vfo)}!;')
 
     @classmethod
     def attenuator_toggle(cls, server, vfo):
