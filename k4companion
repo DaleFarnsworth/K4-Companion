@@ -17315,7 +17315,18 @@ class MidiInput():
     def set_message_callback(cls, callback):
         cls.message_callback = callback
         self = cls.get_singleton()
-        self.midiin.set_callback(cls.message_callback)
+        self.midiin.set_callback(cls.receive)
+
+    @classmethod
+    def receive(cls, event, data=None):
+        # On the MIDI thread: each message, logged with --da midi, to the
+        # keyer.
+        if 'midi' in Options.debug_areas:
+            message, delta = event
+            dprint(f'MIDI in, {cls.port_name}: {midi_text(message)}, +{delta * 1000:.1f}ms')
+        callback = cls.message_callback
+        if callback != None:
+            callback(event, data)
 
     @classmethod
     def cancel_message_callback(cls):
@@ -17389,7 +17400,7 @@ class MidiInput():
                 VailAdapter.close_output()
 
             if self.message_callback:
-                self.midiin.set_callback(self.message_callback)
+                self.midiin.set_callback(self.receive)
 
 class VailAdapter():
     midiout = None
@@ -17436,6 +17447,7 @@ class VailAdapter():
     @classmethod
     def send_message(cls, msg):
         if cls.midiout:
+            dprint_midi(f'MIDI out, Vail adapter: {midi_text(msg)}')
             cls.midiout.send_message(msg)
 
     @classmethod
@@ -20765,6 +20777,30 @@ def dprint_kpod(*args, **kwargs):
 def dprint_audio(*args, **kwargs):
     if 'audio' in Options.debug_areas:
         dprint(*args, **kwargs)
+
+def dprint_midi(*args, **kwargs):
+    if 'midi' in Options.debug_areas:
+        dprint(*args, **kwargs)
+
+def midi_text(message):
+    # A MIDI message as --da midi logs it: its bytes, and what they are.
+    data = ' '.join(f'{b:02x}' for b in message)
+    if len(message) == 0:
+        return data
+    status = message[0] & 0xf0
+    channel = (message[0] & 0x0f) + 1
+    if status in (0x80, 0x90) and len(message) >= 3:
+        on = status == 0x90 and message[2] > 0
+        what = f'note {message[1]} {"on" if on else "off"} velocity {message[2]}'
+    elif status == 0xb0 and len(message) >= 3:
+        what = f'control {message[1]} value {message[2]}'
+    elif status == 0xc0 and len(message) >= 2:
+        what = f'program {message[1]}'
+    elif status == 0xe0 and len(message) >= 3:
+        what = f'pitch bend {(message[2] << 7 | message[1]) - 8192}'
+    else:
+        return data
+    return f'{data} ({what}, channel {channel})'
 
 def vprint1(*args, **kwargs):
     if Options.verbose >= 1:
