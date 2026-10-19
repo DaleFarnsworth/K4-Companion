@@ -12004,6 +12004,76 @@ class AppSettings_widget(Widget):
         if TciServer.transmission != None:
             TciServer.transmission.level = TciServer.tx_level()
 
+class Ctr2Settings():
+    # The Macros window's CTR2-Quad tab: the MIDI device the CTR2 is read
+    # from, whether it is there, and what its knobs and buttons do. See
+    # Ctr2Input and Ctr2Controller.
+    def __init__(self, owner):
+        # owner is the window the tab goes in, for its fonts and colours.
+        self.owner = owner
+
+    def frame(self):
+        owner = self.owner
+        frame, grid = qt_group_box('CTR2-Quad', owner.label_font())
+
+        self.device_frame, self.device_combobox = qt_labeled_readonly_combobox(
+            'MIDI Device', owner.label_font(), owner.font(), self.device_choices(),
+            Ctr2Input.device_name(), owner.bg, owner.fg, owner.bg, owner.fg,
+            self.on_device_changed)
+        grid.addWidget(self.device_frame, 0, 0, Qt.AlignmentFlag.AlignLeft)
+
+        self.status_label = QLabel()
+        self.status_label.setFont(owner.font())
+        grid.addWidget(self.status_label, 1, 0, Qt.AlignmentFlag.AlignLeft)
+
+        note = QLabel('A Lynovation CTR2-Quad, or another CTR2 running the CTR2-Dial firmware, set up with\n'
+                      "Lynovation's K4-Control configuration. Its paddles and key are chosen on the Keying tab.\n"
+                      '\n'
+                      'Knobs: VFO A and VFO B tune; Volume, BW, RF Gain, NB and NR levels, Zoom, RF Power,\n'
+                      'CW Speed and the RIT offset set those.\n'
+                      'Buttons: mode next and CW, LSB, USB, AM, FM; band up, down and 160 to 6 m; Mute;\n'
+                      'Filter; Zoom in and out; RIT, VOX, NB, NR and Split; tuning step up and down;\n'
+                      'A > B, A < B, A / B; ATU tune; PTT; and Macros 1 to 5.')
+        note.setFont(owner.label_font())
+        grid.addWidget(note, 2, 0, Qt.AlignmentFlag.AlignLeft)
+
+        Ctr2Input.status_listeners.append(self.show_status)
+        Ctr2Input.port_listeners.append(self.show_ports)
+        self.show_status(Ctr2Input.status_text)
+        return frame
+
+    def close(self):
+        # The window's widgets are about to go; stop telling them things.
+        if self.show_status in Ctr2Input.status_listeners:
+            Ctr2Input.status_listeners.remove(self.show_status)
+        if self.show_ports in Ctr2Input.port_listeners:
+            Ctr2Input.port_listeners.remove(self.show_ports)
+
+    @staticmethod
+    def device_choices():
+        # None, the ports there are, and the one chosen though it isn't.
+        choices = ['None'] + Ctr2Input.available_ports()
+        name = Ctr2Input.device_name()
+        if name not in choices:
+            choices.append(name)
+        return choices
+
+    def show_ports(self):
+        combobox = self.device_combobox
+        combobox.blockSignals(True)
+        combobox.clear()
+        combobox.addItems(self.device_choices())
+        combobox.setCurrentText(Ctr2Input.device_name())
+        qt_fit_combobox_width(combobox)
+        combobox.blockSignals(False)
+
+    def show_status(self, text):
+        self.status_label.setText(text)
+
+    def on_device_changed(self, name):
+        if name != '' and name != Ctr2Input.device_name():
+            Ctr2Input.set_device_name(name)
+
 class KpodSettings():
     # The Macros window's K-Pod tab: whether a K-Pod is connected, what its
     # encoder is tuning, and the commands each of its eight buttons runs
@@ -18254,6 +18324,7 @@ class Macros(TextButtons):
         self.add_macros_tab()
         self.add_config_tab()
         self.add_kpod_tab()
+        self.add_ctr2_tab()
 
         self.set_geometry()
         # move()/resize() here happen before this window is ever shown
@@ -18291,6 +18362,14 @@ class Macros(TextButtons):
         kpod_grid.addWidget(self.kpod_settings.frame(), 0, 0,
                             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.add_tab(kpod_frame, 'K-Pod')
+
+    def add_ctr2_tab(self):
+        self.ctr2_settings = Ctr2Settings(self)
+        ctr2_frame = self.tab_page_class()
+        ctr2_grid = QGridLayout(ctr2_frame)
+        ctr2_grid.addWidget(self.ctr2_settings.frame(), 0, 0,
+                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.add_tab(ctr2_frame, 'CTR2-Quad')
 
     def on_tab_changed(self, index):
         super().on_tab_changed(index)
@@ -18337,6 +18416,7 @@ class Macros(TextButtons):
         self.is_open = False
         self.save_geometry()
         self.kpod_settings.close()
+        self.ctr2_settings.close()
         self.top_level.deleteLater()
 
     def add_buttons(self, buttons, parent_frame, edit):
@@ -18528,19 +18608,8 @@ class MidiInput():
     @classmethod
     def set_message_callback(cls, callback):
         cls.message_callback = callback
-        self = cls.get_singleton()
-        self.midiin.set_callback(cls.receive)
-
-    @classmethod
-    def receive(cls, event, data=None):
-        # On the MIDI thread: each message, logged with --da midi, to the
-        # keyer.
-        if 'midi' in Options.debug_areas:
-            message, delta = event
-            dprint(f'MIDI in, {cls.port_name}: {midi_text(message)}, +{delta * 1000:.1f}ms')
-        callback = cls.message_callback
-        if callback != None:
-            callback(event, data)
+        cls.get_singleton()
+        cls.install_callback()
 
     @classmethod
     def cancel_message_callback(cls):
@@ -18550,9 +18619,63 @@ class MidiInput():
         # the device was replaced -- and a cancelled one belongs to a
         # keyer that has closed (see Keyer.close).
         cls.message_callback = None
-        self = cls.get_singleton()
-        if self:
-            self.midiin.cancel_callback()
+        if cls.get_singleton():
+            cls.install_callback()
+
+    # A CTR2 sharing this port: what is handed the knobs' and buttons'
+    # messages, Ctr2Input.feed, or None. See dispatch.
+    controller = None
+    # The MIDI time of the messages handed to the controller since the
+    # keyer was last handed one.
+    controller_delta = 0.0
+
+    @classmethod
+    def set_controller(cls, controller):
+        if controller == cls.controller:
+            return
+        cls.controller = controller
+        if cls.singleton != None:
+            cls.install_callback()
+
+    @classmethod
+    def port_is_open(cls):
+        try:
+            return cls.midiin != None and cls.midiin.is_port_open()
+        except rtmidi.RtMidiError:
+            return False
+
+    @classmethod
+    def install_callback(cls):
+        # dispatch, while the keyer or a CTR2 has something to be handed.
+        if cls.midiin == None:
+            return
+        cls.midiin.cancel_callback()
+        if cls.message_callback != None or cls.controller != None:
+            cls.midiin.set_callback(cls.dispatch)
+
+    @classmethod
+    def dispatch(cls, event, data=None):
+        # On the MIDI thread: a CTR2's knobs and buttons to the controller
+        # (see Ctr2Controller.is_controller_message), and the rest to the
+        # keyer. The keyer counts the device's time in the deltas between
+        # the messages it is handed, so the time of those handed to the
+        # controller goes on the next one it is handed: the knobs' CCs
+        # would otherwise be taken for its own timing CCs (see
+        # Keyer.midi_message_callback).
+        message, delta = event
+        controller = cls.controller
+        if controller != None and Ctr2Controller.is_controller_message(message):
+            controller(message)
+            cls.controller_delta += delta
+            return
+        callback = cls.message_callback
+        if callback == None:
+            cls.controller_delta = 0.0
+            return
+        if cls.controller_delta:
+            event = (message, delta + cls.controller_delta)
+            cls.controller_delta = 0.0
+        callback(event, data)
 
     @classmethod
     def get_message(cls):
@@ -18613,8 +18736,7 @@ class MidiInput():
             else:
                 VailAdapter.close_output()
 
-            if self.message_callback:
-                self.midiin.set_callback(self.receive)
+            cls.install_callback()
 
 class VailAdapter():
     midiout = None
@@ -19309,6 +19431,443 @@ class KpodInput():
         if not commands.endswith(';'):
             commands += ';'
         server.send_cmds(commands)
+
+class Ctr2Signals(QObject):
+    # From the CTR2-Quad's MIDI thread to the Qt thread, where the VFOs
+    # and the connection to the K4 are: a MIDI message's status and two
+    # data bytes.
+    message = pyqtSignal(int, int, int)
+
+class Ctr2Input():
+    # A Lynovation CTR2-Quad -- or any M5Dial-based CTR2 running the
+    # CTR2-Dial firmware -- as a controller: its knobs tune and set what
+    # Ctr2Controller has them set, and its buttons do what it has them do.
+    # Its paddle and key inputs are the keyer's, through the MIDI device
+    # chosen on the Keying tab.
+    #
+    # The MIDI device is a setting of its own, on the Macros window's
+    # CTR2-Quad tab, so that the CTR2 can tune whatever keys. Where it is
+    # the keying MIDI device too, its port is shared with MidiInput rather
+    # than opened a second time, which Windows doesn't allow: MidiInput
+    # hands on what is the controller's (see MidiInput.dispatch).
+    # Otherwise it is opened here. Looked for every poll_ms, so that it
+    # can be plugged in and out at any time.
+    settings_section = 'CTR2'
+    device_setting = 'midi_input_device'
+    poll_ms = 1000
+
+    signals = None
+    lister = None               # an rtmidi.MidiIn for listing the ports
+    midiin = None               # the port opened here, where not shared
+    open_name = None
+    port_names = []
+    status_text = ''
+    status_listeners = []
+    port_listeners = []
+
+    @classmethod
+    def start(cls):
+        # Again after a restart, which removes every Poll.
+        if cls.signals == None:
+            cls.signals = Ctr2Signals()
+            cls.signals.message.connect(Ctr2Controller.handle)
+        Poll.add(cls.poll_ms, cls.poll)
+        cls.poll()
+
+    @classmethod
+    def stop(cls):
+        Poll.remove(cls.poll)
+        MidiInput.set_controller(None)
+        cls.close_port()
+
+    @classmethod
+    def device_name(cls):
+        return Settings.main().get(cls.settings_section, cls.device_setting, 'None')
+
+    @classmethod
+    def set_device_name(cls, name):
+        Settings.main().put_save(cls.settings_section, cls.device_setting, name)
+        MidiInput.set_controller(None)
+        cls.close_port()
+        cls.poll()
+
+    @classmethod
+    def available_ports(cls):
+        return list(cls.port_names)
+
+    @classmethod
+    def set_status(cls, text):
+        if text == cls.status_text:
+            return
+        cls.status_text = text
+        for listener in list(cls.status_listeners):
+            listener(text)
+
+    @classmethod
+    def close_port(cls):
+        if cls.midiin == None:
+            return
+        try:
+            cls.midiin.cancel_callback()
+            cls.midiin.close_port()
+        except rtmidi.RtMidiError:
+            pass
+        cls.midiin = None
+        cls.open_name = None
+
+    @classmethod
+    def poll(cls):
+        if cls.lister == None:
+            try:
+                cls.lister = rtmidi.MidiIn()
+            except rtmidi.RtMidiError:
+                cls.set_status('MIDI is not available.')
+                return
+        try:
+            names = cls.lister.get_ports()
+        except rtmidi.RtMidiError:
+            names = []
+        if names != cls.port_names:
+            cls.port_names = names
+            for listener in list(cls.port_listeners):
+                listener()
+
+        name = cls.device_name()
+        if name == 'None':
+            MidiInput.set_controller(None)
+            cls.close_port()
+            cls.set_status('No CTR2 device chosen.')
+            return
+        # The keying MIDI device is shared whether or not the keyer has
+        # opened it yet: opened here first, the keyer could not open it
+        # after, where a port can be opened only once.
+        if Keyer.device_type_MIDI and MidiInput.port_name == name:
+            cls.close_port()
+            MidiInput.set_controller(cls.feed)
+            if MidiInput.port_is_open():
+                cls.set_status(f'{name}: connected, shared with keying.')
+            else:
+                cls.set_status(f'{name}: shared with keying, which has not opened it.')
+            return
+        MidiInput.set_controller(None)
+        if name not in names:
+            cls.close_port()
+            cls.set_status(f'{name}: not found.')
+            return
+        if cls.midiin != None and cls.open_name == name:
+            return
+        cls.close_port()
+        try:
+            midiin = rtmidi.MidiIn()
+            midiin.open_port(names.index(name))
+        except rtmidi.RtMidiError as e:
+            cls.set_status(f'{name}: could not be opened ({e}).')
+            return
+        midiin.set_callback(lambda event, data=None: cls.feed(event[0]))
+        cls.midiin = midiin
+        cls.open_name = name
+        cls.set_status(f'{name}: connected.')
+
+    @classmethod
+    def feed(cls, message):
+        # On the MIDI thread, from this port's callback or MidiInput's.
+        if cls.signals != None and len(message) >= 3:
+            cls.signals.message.emit(message[0], message[1], message[2])
+
+class Ctr2Controller():
+    # What the CTR2's knobs and buttons do: Lynovation's K4-Control
+    # layout for the CTR2-Dial firmware (CTR2-Dial_K4-Control_Mapping
+    # v2.0), done the K4 Companion way.
+    #
+    # The knobs are MIDI controls 100 to 117. A wheel (WheelA) is
+    # centred at 64, its offset from 64 the steps it has turned and so
+    # its speed; WheelB sends 1 for a step up and 126 for one down, and
+    # both are understood. A slider (SliderA) is a position from 0 to
+    # 127, which the CTR2 keeps, scaled here to the setting's range; one
+    # for an offset (SliderB) is centred at 64. The buttons are MIDI
+    # notes 1 to 60, a Note On and then a Note Off: a long press sends
+    # the note of the function set for it, so each note is one function.
+    # Notes 96 to 99 are the CTR2's paddles, key and PTT, the keyer's.
+    #
+    # Of the layout's buttons, those with nothing on the K4 to do -- log
+    # QSO, DX cluster, FT8, logbook, WFM, 4m, 2m, 70cm, 23cm, CW zero,
+    # the tune stack, the memories and cancelling macros -- do nothing.
+    wheels = {100: 'A', 102: 'B'}
+    rit_hz_per_count = 10
+    controls_used = range(100, 118)
+    notes_used = range(1, 61)
+    modes = ('1', '2', '3', '6', '5', '4')        # LSB USB CW DATA AM FM
+    muted_af_gain = None
+
+    @classmethod
+    def is_controller_message(cls, message):
+        # What, of what a shared MIDI port reports, is this and not the
+        # keyer's: the knobs, and the buttons' notes other than any the
+        # keyer has been given for its paddles or key.
+        if len(message) < 3:
+            return False
+        status = message[0] & 0xf0
+        if status == 0xb0:
+            return message[1] in cls.controls_used
+        if status in (0x80, 0x90) and message[1] in cls.notes_used:
+            keyer_notes = (Keyer.dit_paddle_notes or []) + (Keyer.dah_paddle_notes or [])
+            return message[1] not in keyer_notes
+        return False
+
+    @classmethod
+    def handle(cls, status, number, value):
+        # On the Qt thread. A port shared with the keyer hands over only
+        # what is_controller_message says is the controller's; one of the
+        # controller's own is all the controller's.
+        server = Server.k4_server
+        if server == None or not server.connected:
+            return
+        kind = status & 0xf0
+        try:
+            if kind == 0xb0 and number in cls.controls_used:
+                cls.on_control(server, number, value)
+            elif kind == 0x90 and value > 0 and number in cls.notes_used:
+                cls.on_button(server, number)
+        except Exception:
+            traceback.print_exc(file=stderr)
+
+    @staticmethod
+    def wheel_steps(value):
+        if 32 <= value <= 96:
+            return value - 64                     # WheelA
+        if value == 1:
+            return 1                              # WheelB
+        if value == 126:
+            return -1
+        return 0
+
+    @staticmethod
+    def scaled(value, low, high):
+        return low + (high - low) * max(0, min(127, value)) / 127
+
+    @classmethod
+    def on_control(cls, server, number, value):
+        if number in cls.wheels:
+            steps = cls.wheel_steps(value)
+            entry = VFO.instances.get(cls.wheels[number])
+            if steps != 0 and entry != None:
+                entry.adjust_value(steps * entry.step)
+            return
+        param = server.k4_parameter
+        if number == 101:                         # Volume
+            server.send_cmds(f'AG{round(cls.scaled(value, 0, 60)):03d};')
+        elif number == 103:                       # BW, 0.05 to 5 kHz in .05s
+            bw = round(cls.scaled(value, 1, 100)) * 5
+            server.send_cmds(f'BW{bw:04d};')
+        elif number == 104:                       # RF gain, -60 to 0
+            server.send_cmds(f'RG-{round(cls.scaled(value, 60, 0)):02d};')
+        elif number == 106:                       # NB level, 0 to 15
+            nb = param('NB') or ''
+            if len(nb) >= 4:
+                server.send_cmds(f'NB{round(cls.scaled(value, 0, 15)):02d}{nb[2:4]};')
+        elif number == 107:                       # NR level, 1 to 10
+            nr = param('NR') or ''
+            if len(nr) >= 3:
+                server.send_cmds(f'NR{round(cls.scaled(value, 1, 10)):02d}{nr[2]};')
+        elif number == 108:                       # Zoom: the panadapter's spans
+            spans = Panadapter.span_choices_khz
+            index = round(cls.scaled(value, 0, len(spans) - 1))
+            server.send_cmds(f'#SPN{spans[index] * 1000};')
+        elif number == 109:                       # RF power, 0 to 110 W
+            watts = cls.scaled(value, 0, 110)
+            if watts <= 10:
+                server.send_cmds(f'PC{round(watts * 10):03d}L;')
+            else:
+                server.send_cmds(f'PC{round(watts):03d}H;')
+        elif number == 110:                       # CW speed, 8 to 100 WPM
+            server.send_cmds(f'KS{round(cls.scaled(value, 8, 100)):03d};')
+        elif number == 111:                       # RIT offset, centred at 64
+            entry = RIT.instances.get('A')
+            if entry != None:
+                offset = (max(0, min(127, value)) - 64) * cls.rit_hz_per_count
+                entry.set_value(max(RIT.low_offset_limit, min(RIT.high_offset_limit, offset)))
+
+    # The button notes and what each does, by the K4-Control layout's
+    # numbering: a K4 command, or the name of a method below.
+    button_commands = {
+        1: 'mode_next',
+        2: 'MD4;',                                # FM
+        3: 'mute',
+        4: 'band_previous',
+        5: 'band_next',
+        6: 'filter_next',
+        7: 'zoom_in',
+        8: 'zoom_out',
+        9: 'rit_toggle',
+        10: 'step_up',
+        11: 'step_down',
+        12: 'vox_toggle',
+        13: 'nb_toggle',
+        14: 'nr_toggle',
+        19: 'MD3;', 20: 'MD1;', 21: 'MD2;', 22: 'MD5;', 23: 'MD4;',
+        25: 'BN00;', 26: 'BN01;', 27: 'BN03;', 28: 'BN04;', 29: 'BN05;',
+        30: 'BN06;', 31: 'BN07;', 32: 'BN08;', 33: 'BN09;', 34: 'BN10;',
+        36: 'split_toggle',
+        40: 'AB0;',                               # A > B
+        41: 'AB1;',                               # A < B
+        42: 'AB2;',                               # A / B
+        44: 'vox_toggle',
+        45: 'AT2;TU3;',                           # ATU tune
+        48: 'ptt_toggle',
+        55: 'macro_1', 56: 'macro_2', 57: 'macro_3', 58: 'macro_4', 59: 'macro_5',
+    }
+
+    @classmethod
+    def on_button(cls, server, note):
+        action = cls.button_commands.get(note)
+        if action == None:
+            return
+        if action.endswith(';'):
+            server.send_cmds(action)
+        else:
+            getattr(cls, action)(server)
+
+    @staticmethod
+    def toggled(server, base):
+        # The 0 or 1 a toggle command is to send, the K4 having reported
+        # base as 1 for on.
+        return '0' if server.k4_parameter(base) == '1' else '1'
+
+    @classmethod
+    def mode_next(cls, server):
+        mode = server.k4_parameter('MD')
+        index = cls.modes.index(mode) + 1 if mode in cls.modes else 0
+        server.send_cmds(f'MD{cls.modes[index % len(cls.modes)]};')
+
+    @classmethod
+    def mute(cls, server):
+        # The AF gain to nothing, and back to what it was.
+        gain = server.k4_parameter('AG') or ''
+        if gain.isdigit() and int(gain) > 0:
+            cls.muted_af_gain = gain
+            server.send_cmds('AG000;')
+        elif cls.muted_af_gain != None:
+            server.send_cmds(f'AG{cls.muted_af_gain};')
+            cls.muted_af_gain = None
+
+    @staticmethod
+    def band_step(server, step):
+        # Through 160 to 6 m, BN00 to BN10.
+        band = server.k4_parameter('BN') or ''
+        band = int(band) if band.isdigit() else 0
+        if band > 10:
+            band = 0
+        server.send_cmds(f'BN{(band + step) % 11:02d};')
+
+    @classmethod
+    def band_previous(cls, server):
+        cls.band_step(server, -1)
+
+    @classmethod
+    def band_next(cls, server):
+        cls.band_step(server, 1)
+
+    @staticmethod
+    def filter_next(server):
+        # Filter presets 1, 2 and 3 in turn.
+        preset = server.k4_parameter('FP') or ''
+        preset = int(preset) if preset.isdigit() else 0
+        server.send_cmds(f'FP{preset % 3 + 1};')
+
+    @staticmethod
+    def zoom_step(server, step):
+        # To the next of the panadapter's spans, narrower or wider.
+        spans = Panadapter.span_choices_khz
+        span = server.k4_parameter('#SPN') or ''
+        try:
+            khz = float(span) / 1000
+        except ValueError:
+            khz = spans[0]
+        index = min(range(len(spans)), key=lambda i: abs(spans[i] - khz))
+        index = max(0, min(len(spans) - 1, index + step))
+        server.send_cmds(f'#SPN{spans[index] * 1000};')
+
+    @classmethod
+    def zoom_in(cls, server):
+        cls.zoom_step(server, -1)
+
+    @classmethod
+    def zoom_out(cls, server):
+        cls.zoom_step(server, 1)
+
+    @classmethod
+    def rit_toggle(cls, server):
+        server.send_cmds(f'RT{cls.toggled(server, "RT")};')
+
+    @classmethod
+    def split_toggle(cls, server):
+        server.send_cmds(f'FT{cls.toggled(server, "FT")};')
+
+    @staticmethod
+    def step(server, direction):
+        # VFO A's tuning step, to the next one up or down.
+        entry = VFO.instances.get('A')
+        if entry == None:
+            return
+        steps = sorted(entry.step_indexes)
+        index = steps.index(entry.step) if entry.step in steps else 0
+        entry.set_step(steps[max(0, min(len(steps) - 1, index + direction))])
+
+    @classmethod
+    def step_up(cls, server):
+        cls.step(server, 1)
+
+    @classmethod
+    def step_down(cls, server):
+        cls.step(server, -1)
+
+    @classmethod
+    def vox_toggle(cls, server):
+        # VOX for the mode the K4 is in: CW, data or voice.
+        mode = server.tx_mode()
+        base = 'VXC' if mode in ('CW', 'CW-R') else 'VXD' if mode in ('DATA', 'DATA-R') else 'VXV'
+        server.send_cmds(f'{base}{cls.toggled(server, base)};')
+
+    @staticmethod
+    def nb_toggle(server):
+        nb = server.k4_parameter('NB') or ''
+        if len(nb) >= 4:
+            server.send_cmds(f'NB{nb[0:2]}{"0" if nb[2] == "1" else "1"}{nb[3]};')
+
+    @staticmethod
+    def nr_toggle(server):
+        nr = server.k4_parameter('NR') or ''
+        if len(nr) >= 3:
+            server.send_cmds(f'NR{nr[0:2]}{"0" if nr[2] == "1" else "1"};')
+
+    @staticmethod
+    def ptt_toggle(server):
+        server.send_cmds('TRR;' if server.k4_parameter('TR') == 'T' else 'TRT;')
+
+    @staticmethod
+    def macro(index):
+        if Macros.singleton != None:
+            Macros.singleton.send_button(index)
+
+    @classmethod
+    def macro_1(cls, server):
+        cls.macro(0)
+
+    @classmethod
+    def macro_2(cls, server):
+        cls.macro(1)
+
+    @classmethod
+    def macro_3(cls, server):
+        cls.macro(2)
+
+    @classmethod
+    def macro_4(cls, server):
+        cls.macro(3)
+
+    @classmethod
+    def macro_5(cls, server):
+        cls.macro(4)
 
 class PaddleEvent():
     def __init__(self, event, timestamp):
@@ -21690,6 +22249,7 @@ def clean_up(exit=False):
     # flag that restore_open_windows() relies on next launch.
     PanadapterProcess.close_all()
     KpodInput.stop()
+    Ctr2Input.stop()
     Audio.close()
     Poll.remove_all()
 
@@ -22166,6 +22726,7 @@ def start():
     read_config(config_file)
 
     KpodInput.start()
+    Ctr2Input.start()
     CatServer.start()
     TciServer.start()
 
