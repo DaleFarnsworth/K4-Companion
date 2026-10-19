@@ -8184,7 +8184,10 @@ def panadapter_child_main(receiver):
     # below are what the parent is waiting for, so there is nothing left
     # that finalization needs to do.
     LogWriter.flush()
+    # Either may be None: the .exe without a console has neither.
     for stream in (sys.stdout, sys.stderr):
+        if stream == None:
+            continue
         try:
             stream.flush()
         except (BrokenPipeError, ValueError, OSError):
@@ -21195,7 +21198,10 @@ def main():
     # segmentation fault in sip: four times in ten, closing after a
     # connection had been made.
     LogWriter.flush()
+    # Either may be None: the .exe without a console has neither.
     for stream in (sys.stdout, sys.stderr):
+        if stream == None:
+            continue
         try:
             stream.flush()
         except (BrokenPipeError, ValueError, OSError):
