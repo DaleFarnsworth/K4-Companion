@@ -13286,6 +13286,8 @@ class SSTV(Widget):
         self.selecting = False
         self.filter_until = 0.0
         self.is_open = False
+        # The window's Frequency dropdowns, one on each tab: see frequency_dropdown.
+        self.frequency_dropdowns = []
         self.closing = False
         self.image = None
         self.mode = None
@@ -13437,6 +13439,7 @@ class SSTV(Widget):
         if self.is_open:
             return
         self.is_open = True
+        self.frequency_dropdowns = []
         self.top_level = QDialog(qt_top_level_parent(), Qt.WindowType.Window)
         self.top_level.setWindowTitle(f'{Page.top.windowTitle()} SSTV')
 
@@ -13561,10 +13564,10 @@ class SSTV(Widget):
         label = QLabel('Frequency: ')
         label.setFont(self.font())
         grid.addWidget(label, 0, 0, Qt.AlignmentFlag.AlignVCenter)
-        self.frequency_dropdown_ = FrequencyDropdown(self.font(), self.bg, self.fg, self.calling_hz,
-                                                     self.on_frequency_selected)
-        self.frequency_combobox = self.frequency_dropdown_.combobox
-        grid.addWidget(self.frequency_combobox, 0, 1, Qt.AlignmentFlag.AlignVCenter)
+        dropdown = FrequencyDropdown(self.font(), self.bg, self.fg, self.calling_hz,
+                                     self.on_frequency_selected)
+        self.frequency_dropdowns.append(dropdown)
+        grid.addWidget(dropdown.combobox, 0, 1, Qt.AlignmentFlag.AlignVCenter)
         self.show_frequency()
         return frame
 
@@ -13591,7 +13594,8 @@ class SSTV(Widget):
 
     def show_frequency(self):
         index = self.receiver_index if self.receiver_index != None else 0
-        self.frequency_dropdown_.show(self.server.k4_parameter(self.frequencies[index]))
+        for dropdown in self.frequency_dropdowns:
+            dropdown.show(self.server.k4_parameter(self.frequencies[index]))
 
     def show(self):
         self.start_thread()
@@ -13754,11 +13758,17 @@ class SSTV(Widget):
         grid = QGridLayout(controls)
         grid.setContentsMargins(0, 0, 0, 0)
 
+        # The frequency to send on, as on the Receive tab; then the mode
+        # and level, and under them the buttons.
+        grid.addWidget(self.frequency_dropdown(), 0, 1,
+                       Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.tx_frequency_combobox = self.frequency_dropdowns[-1].combobox
+
         names = [mode.name for mode in SSTV_MODES.values() if mode.family != None]
         saved_mode = Server.settings.get(self.settings_section, 'tx_mode', self.tx_mode_default)
         frame, self.tx_mode_combobox = self.labeled_dropdown(
             'Mode: ', names, saved_mode, self.on_tx_mode_changed)
-        grid.addWidget(frame, 0, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        grid.addWidget(frame, 0, 2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         levels = [f'{level}%' for level in self.tx_levels]
         saved_level = self.saved_tx_level()
@@ -13768,16 +13778,20 @@ class SSTV(Widget):
                    'just shows while sending, as for the microphone.')
         frame.setToolTip(tooltip)
         self.tx_level_combobox.setToolTip(tooltip)
-        grid.addWidget(frame, 0, 2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        grid.addWidget(frame, 0, 3, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
+        buttons = QWidget()
+        buttons_layout = QHBoxLayout(buttons)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setSpacing(2 * QFontMetrics(self.font()).averageCharWidth())
         self.tx_buttons = {}
-        for column, (text, handler) in enumerate((('Load Picture', self.on_load_picture),
-                                                  ('Use Received', self.on_use_received),
-                                                  ('Transmit', self.on_transmit),
-                                                  ('Stop', self.on_stop_transmit))):
+        for text, handler in (('Load Picture', self.on_load_picture),
+                              ('Use Received', self.on_use_received),
+                              ('Transmit', self.on_transmit),
+                              ('Stop', self.on_stop_transmit)):
             self.tx_buttons[text] = self.button(text, handler)
-            grid.addWidget(self.tx_buttons[text], 0, column + 3,
-                           Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            buttons_layout.addWidget(self.tx_buttons[text])
+        grid.addWidget(buttons, 1, 1, 1, 3, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         grid.setColumnStretch(0, 1)
         grid.setHorizontalSpacing(2 * QFontMetrics(self.font()).averageCharWidth())
         layout.addWidget(controls)
@@ -13914,6 +13928,8 @@ class SSTV(Widget):
         for name, button in self.tx_buttons.items():
             button.setEnabled(sending if name == 'Stop' else not sending)
         self.tx_mode_combobox.setEnabled(not sending)
+        # Not tuned away while a picture goes out.
+        self.tx_frequency_combobox.setEnabled(not sending)
 
     def on_transmit(self):
         server = self.server
