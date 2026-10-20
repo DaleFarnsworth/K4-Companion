@@ -21872,19 +21872,13 @@ config_data = r'''
 
 #define rx-b-controls-group
 - item: group
-  columns: 1
-  contains: #{
-    #include rx-b-controls-row1
-    #include rx-b-controls-row2
-    #include rx-b-controls-row3
-  #}
-#end
-
-#define rx-b-controls-row1
-- item: group
+  columns: 2
   contains: #{
     #include rx-b-controls-row1-column1
     #include rx-b-controls-row1-column2
+    #include rx-b-controls-row2
+    #include cmp-dropdown-button
+    #include rx-b-controls-row3
   #}
 #end
 
@@ -21932,6 +21926,7 @@ config_data = r'''
 
 #define rx-b-controls-row3
 - item: group
+  columnspan: 2
   contains: #{
     #include sub-ssnr-group
     #include sub-lmsnr-group
@@ -22067,6 +22062,25 @@ config_data = r'''
     - { text: '-40', cmd: RG$-40; }
     - { text: '-50', cmd: RG$-50; }
     - { text: '-60', cmd: RG$-60; }
+  #}
+#end
+
+#define cmp-dropdown-button
+- item: dropdownbutton
+  label: CMP
+  from: 0
+  to: 30
+  evalincrement: '1'
+  evalcmd: f'CP{int(round(value)):03d};'
+  unexpectedresponse: 'str(int(value[2:5]))'
+  selections: #{
+    - { text: '0', cmd: CP000; }
+    - { text: '5', cmd: CP005; }
+    - { text: '10', cmd: CP010; }
+    - { text: '15', cmd: CP015; }
+    - { text: '20', cmd: CP020; }
+    - { text: '25', cmd: CP025; }
+    - { text: '30', cmd: CP030; }
   #}
 #end
 
