@@ -1,3 +1,24 @@
+v2.2-rc1:
+    Describe the TCI server in the User Manual
+
+    Add a TCI server for digital-mode programs
+       K4 Companion now serves TCI, Expert Electronics' Transceiver Control
+       Interface, on port 40001 of this machine, for programs such as JTDX
+       and WSJT-X Improved: control of the K4 through the app's connection,
+       the K4's receive audio sent them at 48 kHz, and their transmit audio
+       sent to the K4 in place of the microphone's, in any mode, DATA
+       included, paced by TX_CHRONO requests as TCI has it. The WebSocket
+       protocol is done here, on QTcpServer, needing no new package.
+       
+       Receiver 0 is the main receiver, its channel 1 VFO B when split, and
+       receiver 1 the sub receiver. Frequency, mode (DIGU and DIGL as DATA
+       and DATA REV in DATA A), split, PTT, Tune, RIT, XIT, drive and CW
+       speed can be set; the S-meter, power and SWR are reported, and what
+       the K4 reports is passed on as it changes. Audio lengths count
+       samples, two to a frame, as the clients have them. The Audio tab's
+       TCI TX Level % sets the transmit audio's level, and --da tci logs
+       the traffic.
+   
 v2.2-rc0:
     Compile PyInstaller's bootloader for the Windows build
        The Windows programs started with PyInstaller's prebuilt bootloader,
