@@ -1,4 +1,62 @@
+v2.1:
+    Describe the CMP dropdown and compression off for SSTV and RTTY in the User Manual
+
+    Add a CMP dropdown to the Main tab, under VFO B's RIT Clear
+       The transmit compression, 0 to 30 by CP, can now be set from the
+       Main tab, from 0 to 30 in fives or stepped by one, showing whatever
+       the K4 has. It is to the right of VFO B's RF Gain, under its RIT
+       Clear, as XIT is under VFO A's: VFO B's controls are now laid out on
+       two columns as VFO A's are. In the configuration file and the
+       built-in one.
+   
+    Always put the K4 back to receive when SSTV or AFSK stops sending
+       A transmission of SSTV's or AFSK's ended with TRR only where the K4
+       was last said to be transmitting. Were it taken to be receiving while
+       still transmitting, as after a Scottie S2 picture was reported to
+       leave it, the transmission ended and nothing put the K4 back. TRR is
+       now sent whenever either ends, whatever the K4 was said to be in: to
+       a K4 receiving, it does nothing.
+   
+    Turn compression off when SSTV or RTTY is picked
+       Compression would distort SSTV's tones and RTTY's audio, so CP000 is
+       sent when RTTY is picked, after its mode, sub-mode and filter, and
+       when SSTV is turned on, after its sideband, and again whenever SSTV
+       puts the VFO in the other sideband: after the mode, as the K4 keeps
+       compression for each mode.
+   
+    Do not request midi timings (that code is now INV)
+       We were sending B0 03 to request midi timings. However that code
+       now selects inverting the dit and dah paddles.
+   
+    Call the SSNR dropdowns' R and AR C and AC in the built-in config
+
+    Bring the User Manual and README up to date
+       The User Manual now describes SSNR's C and AC, the RTTY mark and space
+       lines on the panadapter, windows reopening on their monitor, None as
+       an audio device and 44.1 kHz devices, the SSTV Level's range, and
+       --da midi, with these in the revision history. The README describes
+       the RTTY and SSTV windows, the K-Pod and sharing the connection on
+       port 9200, and points to the Linux installers.
+   
+    Log every MIDI message with --da midi
+       With --da midi, each MIDI message the app is sent or sends is
+       logged: its port, its bytes and what they are, and for one received
+       the time since the last. What the keying device sends and what is
+       sent to a Vail adapter are both logged.
+   
+    Call the SSNR dropdowns' R and AR C and AC
+
+    Skip a missing stdout or stderr when flushing them at exit
+       k4companion.exe, which has no console, has neither, and the flush done
+       before os._exit() called None.flush(): the program ended in an
+       AttributeError at every exit rather than cleanly. Either is now
+       skipped where it is None, in main() and in the panadapter's own exit,
+       where stderr can be missing too and the error kept os._exit() from
+       being reached.
+   
 v2.1-rc17:
+    Update changelog for v2.1-rc17
+
     Count DAC times in frames where they stray in WASAPI exclusive mode
        In WASAPI exclusive mode, keying was erratic: the DAC time reported for
        each output block was off by a different amount from one block to the
