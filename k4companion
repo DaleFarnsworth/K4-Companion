@@ -36,6 +36,7 @@
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import atexit
+import base64
 import collections
 import configparser
 import contextlib
@@ -63,6 +64,7 @@ import socket
 import socks
 import sounddevice
 import ssl
+import struct
 import subprocess
 import sys
 import tempfile
@@ -1649,6 +1651,7 @@ class Server():
             if base.startswith('!'):
                 continue
             CatServer.on_k4_response(base, full_response)
+            TciServer.on_k4_response(base, response)
 
     def cat_only_recv_loop(self):
         while True:
@@ -9615,6 +9618,7 @@ class Audio():
             stereo = opus.decode(bytes(packet[4:]))
             SSTV.feed_audio(stereo)
             RTTY.feed_audio(stereo)
+            TciServer.feed_audio(stereo)
             if resample_ratio == None:
                 continue                        # no output device
             a = stereo[0::2]                    # even samples are from the main receiver
@@ -11480,6 +11484,8 @@ class AppSettings_widget(Widget):
         grid.addWidget(audio_k4_control_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         audio_remote_audio_latency_frame = self.audio_remote_audio_latency_setting()
         grid.addWidget(audio_remote_audio_latency_frame, 1, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        grid.addWidget(self.audio_tci_tx_level_setting(), 2, 1,
+                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         return frame
 
@@ -11557,6 +11563,23 @@ class AppSettings_widget(Widget):
     def on_remote_audio_latency_combobox_changed(self, current_value):
         Server.settings.put_save('Audio', 'remote_audio_latency', current_value)
         Audio.set_remote_audio_latency(current_value)
+
+    def audio_tci_tx_level_setting(self):
+        # How loud a TCI client's transmit audio goes to the K4 (see
+        # TciServer.tx_level): set so that the K4's ALC just shows.
+        current_value = Server.settings.getint('Audio', 'tci_tx_level_percent',
+                                               TciServer.tx_level_default, minimum=1, maximum=100)
+        if current_value not in TciServer.tx_levels:
+            current_value = TciServer.tx_level_default
+        return self._labeled_combobox('TCI TX Level %', TciServer.tx_levels, current_value,
+            self.on_tci_tx_level_combobox_changed, justify='right')
+
+    def on_tci_tx_level_combobox_changed(self, current_value):
+        if current_value in ('', None):
+            return
+        Server.settings.put_save('Audio', 'tci_tx_level_percent', current_value)
+        if TciServer.transmission != None:
+            TciServer.transmission.level = TciServer.tx_level()
 
 class KpodSettings():
     # The Macros window's K-Pod tab: whether a K-Pod is connected, what its
@@ -13192,6 +13215,667 @@ class CatServer():
             while waiting and now - waiting[0][1] > cls.query_seconds:
                 socket, asked = waiting.pop(0)
                 cls.answer_from_cache(socket, base)
+
+class TciSignals(QObject):
+    # From the audio threads to the Qt thread, where the TCI clients'
+    # sockets are: the K4's receive audio as decoded, and how many
+    # frames of transmit audio the transmit audio thread wants asked for.
+    rx_audio = pyqtSignal(object)
+    tx_wanted = pyqtSignal(int)
+
+class TciTransmission():
+    # The transmit audio a TCI client sends, read a frame at a time by the
+    # transmit audio thread (Audio.k4_tx_generated_loop) in place of the
+    # microphone's. TCI has the server ask for it: as the thread reads,
+    # what it has used, and whatever more keeps lead_seconds of it in
+    # hand, is asked of the client (TX_CHRONO), which answers with that
+    # much (TX_AUDIO_STREAM). It comes at the client's rate, and goes into
+    # samples at the K4's, its left channel. Short of it, quiet is sent.
+    lead_seconds = .1
+    # Asked for and not come within this long is taken as lost.
+    request_seconds = .3
+    most_seconds = 1.0
+
+    def __init__(self, client_rate, level):
+        self.client_rate = client_rate
+        self.level = level
+        self.lock = threading.Lock()
+        self.samples = collections.deque()
+        self.buffered = 0
+        self.outstanding = 0
+        self.asked_at = 0.0
+        self.resampler = StreamResampler(client_rate, Audio.k4_sample_rate)
+        self.done = False
+        self.stopped = False
+
+    def add(self, mono):
+        # From the Qt thread: what the client sent, at its rate.
+        chunk = self.resampler.process(mono)
+        with self.lock:
+            self.outstanding = max(0, self.outstanding - len(chunk))
+            if len(chunk):
+                self.samples.append(chunk)
+                self.buffered += len(chunk)
+            most = int(self.most_seconds * Audio.k4_sample_rate)
+            while self.buffered > most:
+                self.buffered -= len(self.samples.popleft())
+
+    def wanted(self):
+        # How many of the client's frames to ask for now to keep the lead,
+        # those asked for and not come counted, unless long overdue.
+        lead = int(self.lead_seconds * Audio.k4_sample_rate)
+        with self.lock:
+            now = time.monotonic()
+            if self.outstanding and now - self.asked_at > self.request_seconds:
+                self.outstanding = 0
+            short = lead - self.buffered - self.outstanding
+            if short <= 0:
+                return 0
+            self.outstanding += short
+            self.asked_at = now
+        return math.ceil(short * self.client_rate / Audio.k4_sample_rate)
+
+    def read(self, count):
+        # From the transmit audio thread: the next count samples, quiet
+        # where the client has sent none, or None once stopped.
+        if self.stopped:
+            return None
+        out = numpy.zeros(count, dtype=numpy.float32)
+        filled = 0
+        with self.lock:
+            while filled < count and self.samples:
+                chunk = self.samples[0]
+                take = min(len(chunk), count - filled)
+                out[filled:filled + take] = chunk[:take]
+                filled += take
+                if take == len(chunk):
+                    self.samples.popleft()
+                else:
+                    self.samples[0] = chunk[take:]
+            self.buffered -= filled
+        frames = self.wanted()
+        if frames:
+            TciServer.signals.tx_wanted.emit(frames)
+        return out
+
+class TciServer():
+    # TCI, Expert Electronics' Transceiver Control Interface, as the
+    # SunSDRs' ExpertSDR serves it, for programs that speak it -- JTDX,
+    # say -- on TCP port 40001 of this machine: control of the K4 through
+    # the app's own connection, and its receive audio sent them, and their
+    # transmit audio sent to the K4, so that a digital-mode program needs
+    # no audio cables. Only on this machine, as the CAT server: anything
+    # that can connect can key the transmitter.
+    #
+    # It is a WebSocket server, the protocol done here (handshake, and
+    # frames, masked from the client and not to it): commands as text,
+    # name:argument,...; several to a message, and audio as binary, a
+    # header of 16 32-bit words (receiver, sample rate, format, codec,
+    # crc, length, type and 9 reserved) and float32 stereo samples, the
+    # length counting the samples, two to a frame, as JTDX and its kin
+    # have it: in a receive audio stream, in TX_CHRONO asking for so many,
+    # and in TX_AUDIO_STREAM answering with them, whose data can run on
+    # past them with whatever was in the client's buffer.
+    #
+    # Receiver (trx) 0 is the main receiver: channel 0 VFO A, channel 1
+    # VFO B, which it transmits on when split. Receiver 1 is the sub
+    # receiver, on VFO B. What the K4 reports is sent on to every client
+    # as it changes (on_k4_response), and what a client sets is sent to
+    # the K4 through send_cmds and said back at once.
+    port = 40001
+    server = None
+    clients = {}
+    signals = None
+    timer = None
+    connected = None
+    # The client transmitting with its own audio, and that audio.
+    tx_client = None
+    transmission = None
+    # The receive audio's gain on its way to a client, the K4's decoded
+    # audio being well below full scale: at 10, WSJT-X shows about 30 dB
+    # on a quiet band and 50 on a busy one, about what it asks for.
+    rx_gain = 10
+    rates = (8000, 12000, 24000, 48000)
+    default_rate = 48000
+    tx_levels = (1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100)
+    tx_level_default = 5
+    # The transmit level is a percentage of the most the microphone's audio
+    # is ever sent at, an eighth of full scale (see SSTV.tx_full_level).
+    tx_full_level = 1 / 8
+    # A client's socket with more than this waiting to go is sent no more
+    # audio until it has caught up.
+    backlog_bytes = 1 << 20
+    meter_seconds = .2
+    stream_rx_audio, stream_tx_audio, stream_tx_chrono = 1, 2, 3
+    format_int16, format_int24, format_int32, format_float32 = 0, 1, 2, 3
+    guid = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+    # The K4's modes and TCI's modulations: DATA as digu and DATA REV
+    # as digl, in the K4's DATA A sub-mode, and CW-R as cw.
+    modulations = {'1': 'lsb', '2': 'usb', '3': 'cw', '4': 'nfm', '5': 'am',
+                   '6': 'digu', '7': 'cw', '9': 'digl'}
+    k4_modes = {'lsb': ('1', None), 'usb': ('2', None), 'cw': ('3', None),
+                'nfm': ('4', None), 'fm': ('4', None), 'wfm': ('4', None),
+                'am': ('5', None), 'sam': ('5', None), 'digu': ('6', '0'), 'digl': ('9', '0')}
+
+    @classmethod
+    def start(cls):
+        if cls.server != None:
+            return
+        cls.signals = TciSignals()
+        cls.signals.rx_audio.connect(cls.send_rx_audio)
+        cls.signals.tx_wanted.connect(cls.ask_tx_audio)
+        cls.server = QTcpServer()
+        if not cls.server.listen(QHostAddress(QHostAddress.SpecialAddress.LocalHost), cls.port):
+            dprint(f'TCI server: cannot listen on port {cls.port}: {cls.server.errorString()}')
+            cls.server = None
+            return
+        cls.server.newConnection.connect(cls.on_new_connection)
+        cls.timer = QTimer()
+        cls.timer.timeout.connect(cls.check_connection)
+        cls.timer.start(500)
+        dprint_tci(f'TCI server: listening on port {cls.port}')
+
+    # ------------------------------------------------ WebSocket
+
+    @classmethod
+    def on_new_connection(cls):
+        while cls.server.hasPendingConnections():
+            socket = cls.server.nextPendingConnection()
+            cls.clients[socket] = {'handshaken': False, 'data': b'', 'message': b'',
+                                   'opcode': None, 'rate': cls.default_rate, 'audio': set(),
+                                   'resamplers': {}, 'sent': {}, 'metered': 0.0}
+            socket.readyRead.connect(lambda socket=socket: cls.on_ready_read(socket))
+            socket.disconnected.connect(lambda socket=socket: cls.on_disconnected(socket))
+            dprint_tci(f'TCI server: {socket.peerAddress().toString()} connected')
+
+    @classmethod
+    def on_disconnected(cls, socket):
+        client = cls.clients.pop(socket, None)
+        if client != None and client is cls.tx_client:
+            cls.end_transmission(send_rx=True)
+        socket.deleteLater()
+        dprint_tci('TCI server: a client disconnected')
+
+    @classmethod
+    def on_ready_read(cls, socket):
+        client = cls.clients.get(socket)
+        if client == None:
+            return
+        client['data'] += bytes(socket.readAll())
+        if not client['handshaken']:
+            end = client['data'].find(b'\r\n\r\n')
+            if end < 0:
+                if len(client['data']) > 16384:
+                    socket.close()
+                return
+            request = client['data'][:end].decode('latin-1')
+            client['data'] = client['data'][end + 4:]
+            if not cls.handshake(socket, request):
+                return
+            client['handshaken'] = True
+            cls.greet(socket, client)
+        cls.read_frames(socket, client)
+
+    @classmethod
+    def handshake(cls, socket, request):
+        key = None
+        for line in request.split('\r\n')[1:]:
+            name, _, value = line.partition(':')
+            if name.strip().lower() == 'sec-websocket-key':
+                key = value.strip()
+        if not request.startswith('GET ') or key == None:
+            socket.write(b'HTTP/1.1 400 Bad Request\r\n\r\n')
+            socket.disconnectFromHost()
+            return False
+        accept = base64.b64encode(hashlib.sha1((key + cls.guid).encode()).digest()).decode()
+        socket.write(('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n'
+                      f'Connection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n').encode())
+        return True
+
+    @classmethod
+    def read_frames(cls, socket, client):
+        data = client['data']
+        while len(data) >= 2:
+            fin, opcode = data[0] & 0x80, data[0] & 0x0f
+            masked, length = data[1] & 0x80, data[1] & 0x7f
+            at = 2
+            if length == 126:
+                if len(data) < 4:
+                    break
+                length, at = struct.unpack('>H', data[2:4])[0], 4
+            elif length == 127:
+                if len(data) < 10:
+                    break
+                length, at = struct.unpack('>Q', data[2:10])[0], 10
+            mask = None
+            if masked:
+                if len(data) < at + 4:
+                    break
+                mask, at = data[at:at + 4], at + 4
+            if len(data) < at + length:
+                break
+            payload = data[at:at + length]
+            data = data[at + length:]
+            if mask != None:
+                bytes_ = numpy.frombuffer(payload, dtype=numpy.uint8)
+                payload = (bytes_ ^ numpy.resize(numpy.frombuffer(mask, dtype=numpy.uint8),
+                                                 len(bytes_))).tobytes()
+            if opcode == 0x8:                       # close
+                cls.send_frame(socket, 0x8, payload[:2])
+                socket.disconnectFromHost()
+                data = b''
+                break
+            if opcode == 0x9:                       # ping
+                cls.send_frame(socket, 0xa, payload)
+                continue
+            if opcode == 0xa:                       # pong
+                continue
+            if opcode != 0x0:
+                client['opcode'] = opcode
+                client['message'] = b''
+            client['message'] += payload
+            if fin:
+                message, opcode = client['message'], client['opcode']
+                client['message'] = b''
+                if opcode == 0x1:
+                    cls.on_text(socket, client, message.decode('utf-8', 'replace'))
+                elif opcode == 0x2:
+                    cls.on_binary(socket, client, message)
+        client['data'] = data
+
+    @classmethod
+    def send_frame(cls, socket, opcode, payload):
+        length = len(payload)
+        if length < 126:
+            header = bytes((0x80 | opcode, length))
+        elif length < 65536:
+            header = bytes((0x80 | opcode, 126)) + struct.pack('>H', length)
+        else:
+            header = bytes((0x80 | opcode, 127)) + struct.pack('>Q', length)
+        socket.write(header + payload)
+
+    @classmethod
+    def send_text(cls, socket, text):
+        if socket in cls.clients and cls.clients[socket]['handshaken']:
+            dprint_tci(f'TCI server: sent {text}')
+            cls.send_frame(socket, 0x1, text.encode())
+
+    @classmethod
+    def send_state(cls, socket, client, key, text):
+        # Said only where it differs from what this client was last told.
+        if client['sent'].get(key) != text:
+            client['sent'][key] = text
+            cls.send_text(socket, text)
+
+    @classmethod
+    def broadcast(cls, key, text):
+        for socket, client in list(cls.clients.items()):
+            if client['handshaken']:
+                cls.send_state(socket, client, key, text)
+
+    # ------------------------------------------------ state
+
+    @staticmethod
+    def k4():
+        server = Server.k4_server
+        return server if server != None and server.connected else None
+
+    @classmethod
+    def param(cls, base):
+        server = Server.k4_server
+        value = server.k4_parameter(base) if server != None else None
+        return value or ''
+
+    @classmethod
+    def hz(cls, base):
+        value = cls.param(base)
+        return str(int(value)) if value.isdigit() else '0'
+
+    @classmethod
+    def modulation(cls, s):
+        return cls.modulations.get(cls.param('MD' + s), 'usb')
+
+    @classmethod
+    def drive(cls):
+        # The K4's power as a percentage of 100 W, in tenths below 10 W.
+        pc = cls.param('PC')
+        if len(pc) < 4 or not pc[:3].isdigit():
+            return '0'
+        watts = int(pc[:3]) / 10 if pc[3] == 'L' else int(pc[:3])
+        return str(round(min(100, watts)))
+
+    @classmethod
+    def rit_offset(cls):
+        ro = cls.param('RO')
+        try:
+            return str(int(ro))
+        except ValueError:
+            return '0'
+
+    @classmethod
+    def bool_text(cls, on):
+        return 'true' if on else 'false'
+
+    # What the K4 reports that TCI says: see states.
+    state_bases = ('FA', 'FB', 'MD', 'MD$', 'FT', 'TR', 'TU', 'SB', 'PC', 'RT', 'XT', 'RO', 'KS')
+
+    @classmethod
+    def states(cls, base=None):
+        # (key, message) for what the K4 reports, or for what base is part
+        # of, said to the clients as it changes.
+        if base != None and base not in cls.state_bases:
+            return []
+        b = cls.bool_text
+        each = {
+            'FA': [('vfo:0,0', f'vfo:0,0,{cls.hz("FA")};'), ('dds:0', f'dds:0,{cls.hz("FA")};')],
+            'FB': [('vfo:0,1', f'vfo:0,1,{cls.hz("FB")};'), ('vfo:1,0', f'vfo:1,0,{cls.hz("FB")};'),
+                   ('vfo:1,1', f'vfo:1,1,{cls.hz("FB")};'), ('dds:1', f'dds:1,{cls.hz("FB")};')],
+            'MD': [('modulation:0', f'modulation:0,{cls.modulation("")};')],
+            'MD$': [('modulation:1', f'modulation:1,{cls.modulation("$")};')],
+            'FT': [('split_enable:0', f'split_enable:0,{b(cls.param("FT") == "1")};')],
+            'TR': [('trx:0', f'trx:0,{b(cls.param("TR") == "T")};')],
+            'TU': [('tune:0', f'tune:0,{b(cls.param("TU") not in ("", "0"))};')],
+            'SB': [('rx_enable:1', f'rx_enable:1,{b(cls.param("SB") not in ("", "0"))};')],
+            'PC': [('drive', f'drive:{cls.drive()};')],
+            'RT': [('rit_enable:0', f'rit_enable:0,{b(cls.param("RT") == "1")};')],
+            'XT': [('xit_enable:0', f'xit_enable:0,{b(cls.param("XT") == "1")};')],
+            'RO': [('rit_offset:0', f'rit_offset:0,{cls.rit_offset()};'),
+                   ('xit_offset:0', f'xit_offset:0,{cls.rit_offset()};')],
+            'KS': [('cw_macros_speed', f'cw_macros_speed:{int(cls.param("KS") or 0)};')],
+        }
+        if base != None:
+            return each.get(base, [])
+        return [state for states in each.values() for state in states]
+
+    @classmethod
+    def greet(cls, socket, client):
+        # What a TCI server says first, then the K4's state, and whether
+        # the radio is running, start or stop, and ready.
+        for text in ('protocol:K4 Companion,1.9;', 'device:K4;', 'receive_only:false;',
+                     'trx_count:2;', 'channels_count:2;', 'vfo_limits:10000,54000000;',
+                     'if_limits:-24000,24000;',
+                     'modulations_list:am,lsb,usb,cw,nfm,digl,digu;',
+                     f'audio_samplerate:{client["rate"]};', 'rx_enable:0,true;',
+                     'split_enable:1,false;', 'trx:1,false;'):
+            cls.send_text(socket, text)
+        for key, text in cls.states():
+            cls.send_state(socket, client, key, text)
+        cls.send_text(socket, 'start;' if cls.k4() else 'stop;')
+        cls.send_text(socket, 'ready;')
+
+    @classmethod
+    def check_connection(cls):
+        # Every client told when the connection to the K4 comes and goes.
+        connected = cls.k4() != None
+        if connected == cls.connected:
+            return
+        cls.connected = connected
+        if not connected and cls.transmission != None:
+            cls.end_transmission(send_rx=False)
+        for socket, client in list(cls.clients.items()):
+            if client['handshaken']:
+                if connected:
+                    for key, text in cls.states():
+                        cls.send_state(socket, client, key, text)
+                cls.send_text(socket, 'start;' if connected else 'stop;')
+
+    @classmethod
+    def on_k4_response(cls, base, response):
+        # From the K4, on the Qt thread: what has changed, said on.
+        if not cls.clients:
+            return
+        for key, text in cls.states(base):
+            cls.broadcast(key, text)
+        if base == 'TR' and response != 'T' and cls.transmission != None:
+            cls.end_transmission(send_rx=False)
+        if base == 'TM' and cls.param('TR') == 'T':
+            cls.send_meters()
+
+    @classmethod
+    def send_meters(cls):
+        tm = cls.param('TM')
+        if len(tm) < 12 or not tm[6:12].isdigit():
+            return
+        watts = int(tm[6:9]) / 10 if cls.param('PC')[3:4] == 'L' else int(tm[6:9])
+        swr = max(1.0, int(tm[9:12]) / 10)
+        now = time.monotonic()
+        for socket, client in list(cls.clients.items()):
+            if client['handshaken'] and now - client['metered'] >= cls.meter_seconds:
+                client['metered'] = now
+                cls.send_text(socket, f'tx_power:{watts:.1f};')
+                cls.send_text(socket, f'tx_swr:{swr:.1f};')
+
+    # ------------------------------------------------ commands
+
+    @classmethod
+    def on_text(cls, socket, client, text):
+        for command in text.split(';'):
+            command = command.strip()
+            if command == '':
+                continue
+            dprint_tci(f'TCI server: received {command};')
+            name, _, arguments = command.partition(':')
+            args = [arg.strip() for arg in arguments.split(',')] if arguments else []
+            try:
+                cls.on_command(socket, client, name.strip().lower(), args)
+            except (ValueError, IndexError):
+                dprint_tci(f'TCI server: not understood: {command};')
+
+    @classmethod
+    def on_command(cls, socket, client, name, args):
+        k4 = cls.k4()
+        b = cls.bool_text
+        if name == 'vfo':
+            trx, channel = int(args[0]), int(args[1])
+            base = 'FA' if trx == 0 and channel == 0 else 'FB'
+            if len(args) >= 3 and k4:
+                hz = int(float(args[2]))
+                if 10000 <= hz <= 54000000:
+                    k4.send_cmds(f'{base}{hz:011d};')
+            cls.send_text(socket, f'vfo:{trx},{channel},{cls.hz(base)};')
+        elif name == 'dds':
+            trx = int(args[0])
+            base = 'FA' if trx == 0 else 'FB'
+            if len(args) >= 2 and k4:
+                k4.send_cmds(f'{base}{int(float(args[1])):011d};')
+            cls.send_text(socket, f'dds:{trx},{cls.hz(base)};')
+        elif name == 'modulation':
+            trx = int(args[0])
+            s = '$' if trx == 1 else ''
+            if len(args) >= 2 and k4:
+                mode, sub_mode = cls.k4_modes.get(args[1].lower(), (None, None))
+                if mode != None:
+                    k4.send_cmds(f'MD{s}{mode};' + (f'DT{s}{sub_mode};' if sub_mode else ''))
+            cls.send_text(socket, f'modulation:{trx},{cls.modulation(s)};')
+        elif name == 'split_enable':
+            if len(args) < 2:
+                return                              # JTDX's opening split_enable:false
+            trx = int(args[0])
+            if trx == 0 and k4:
+                k4.send_cmds('FT1;' if args[1].lower() == 'true' else 'FT0;')
+            cls.send_text(socket, f'split_enable:{trx},{b(trx == 0 and cls.param("FT") == "1")};')
+        elif name == 'trx':
+            trx = int(args[0])
+            if len(args) >= 2 and trx == 0 and k4:
+                cls.set_ptt(socket, client, args[1].lower() == 'true')
+            cls.send_text(socket, f'trx:{trx},{b(trx == 0 and cls.param("TR") == "T")};')
+        elif name == 'tune':
+            trx = int(args[0])
+            if len(args) >= 2 and trx == 0 and k4:
+                k4.send_cmds('TU1;' if args[1].lower() == 'true' else 'TU0;')
+            cls.send_text(socket, f'tune:{trx},{b(cls.param("TU") not in ("", "0"))};')
+        elif name == 'drive':
+            value = args[-1] if args else None
+            if value not in (None, '') and k4 and (len(args) == 1 or args[0] == '0'):
+                watts = max(0, min(100, int(float(value))))
+                k4.send_cmds(f'PC{round(watts * 10):03d}L;' if watts <= 10 else f'PC{watts:03d}H;')
+            cls.send_text(socket, f'drive:{cls.drive()};')
+        elif name == 'rx_enable':
+            trx = int(args[0])
+            if len(args) >= 2 and trx == 1 and k4:
+                k4.send_cmds('SB1;' if args[1].lower() == 'true' else 'SB0;')
+            on = trx == 0 or cls.param('SB') not in ('', '0')
+            cls.send_text(socket, f'rx_enable:{trx},{b(on)};')
+        elif name in ('rit_enable', 'xit_enable'):
+            base = 'RT' if name == 'rit_enable' else 'XT'
+            if len(args) >= 2 and int(args[0]) == 0 and k4:
+                k4.send_cmds(f'{base}{1 if args[1].lower() == "true" else 0};')
+            cls.send_text(socket, f'{name}:0,{b(cls.param(base) == "1")};')
+        elif name in ('rit_offset', 'xit_offset'):
+            if len(args) >= 2 and int(args[0]) == 0 and k4:
+                hz = max(-9999, min(9999, int(float(args[1]))))
+                k4.send_cmds(f'RO{"+" if hz >= 0 else "-"}{abs(hz):04d};')
+            cls.send_text(socket, f'{name}:0,{cls.rit_offset()};')
+        elif name == 'cw_macros_speed':
+            if args and k4:
+                k4.send_cmds(f'KS{max(8, min(100, int(float(args[0])))):03d};')
+            cls.send_text(socket, f'cw_macros_speed:{int(cls.param("KS") or 0)};')
+        elif name == 'rx_smeter':
+            trx = int(args[0])
+            channel = int(args[1]) if len(args) >= 2 else 0
+            cls.send_text(socket, f'rx_smeter:{trx},{channel},{cls.smeter_dbm(trx)};')
+        elif name == 'audio_samplerate':
+            if args and int(args[0]) in cls.rates and int(args[0]) != client['rate']:
+                client['rate'] = int(args[0])
+                client['resamplers'] = {}
+            cls.send_text(socket, f'audio_samplerate:{client["rate"]};')
+        elif name == 'audio_start':
+            trx = int(args[0]) if args else 0
+            client['audio'].add(trx)
+            cls.send_text(socket, f'audio_start:{trx};')
+        elif name == 'audio_stop':
+            trx = int(args[0]) if args else 0
+            client['audio'].discard(trx)
+            client['resamplers'].pop(trx, None)
+            cls.send_text(socket, f'audio_stop:{trx};')
+        elif name == 'start':
+            cls.send_text(socket, 'start;' if k4 else 'stop;')
+        elif name in ('stop', 'device', 'protocol', 'trx_count', 'channels_count'):
+            # The radio isn't turned off from here; the rest are the
+            # server's own to say.
+            pass
+
+    @classmethod
+    def smeter_dbm(cls, trx):
+        # The K4's S-meter, 0 to 42 with S9 at 18, two to an S-unit of 6 dB
+        # below it and four to 10 dB above, in dBm, S9 being -73.
+        sm = cls.param('SM$' if trx == 1 else 'SM')
+        if not sm.isdigit():
+            return -127
+        bars = int(sm)
+        return round(-73 + (bars - 18) * (3 if bars <= 18 else 2.5))
+
+    @classmethod
+    def tx_level(cls):
+        percent = Server.settings.getint('Audio', 'tci_tx_level_percent', cls.tx_level_default,
+                                         minimum=1, maximum=100)
+        return percent / 100 * cls.tx_full_level
+
+    @classmethod
+    def set_ptt(cls, socket, client, on):
+        k4 = cls.k4()
+        if on:
+            if cls.param('TR') == 'T':
+                return
+            if client['audio']:
+                # The client's own audio, sent in place of the microphone's:
+                # set before the K4 is put in transmit, which starts the
+                # transmit audio thread.
+                cls.tx_client = client
+                cls.transmission = TciTransmission(client['rate'], cls.tx_level())
+                Audio.set_transmission(cls.transmission)
+                frames = cls.transmission.wanted()
+                if frames:
+                    cls.ask_tx_audio(frames)
+            k4.send_cmds('TRT;')
+        else:
+            cls.end_transmission(send_rx=True)
+            if cls.param('TR') == 'T':
+                k4.send_cmds('TRR;')
+
+    @classmethod
+    def end_transmission(cls, send_rx):
+        transmission = cls.transmission
+        if transmission == None:
+            return
+        cls.transmission = None
+        cls.tx_client = None
+        transmission.stopped = True
+        k4 = cls.k4()
+        if send_rx and k4 and cls.param('TR') == 'T':
+            k4.send_cmds('TRR;')
+        Audio.set_transmission(None)
+
+    # ------------------------------------------------ audio
+
+    @classmethod
+    def feed_audio(cls, stereo):
+        # From the receive audio thread: the K4's audio as decoded,
+        # interleaved main and sub, handed to the Qt thread for the
+        # clients streaming it.
+        if cls.signals != None and any(client['audio'] for client in list(cls.clients.values())):
+            cls.signals.rx_audio.emit(numpy.array(stereo, dtype=numpy.float32))
+
+    @classmethod
+    def header(cls, receiver, rate, length, stream_type):
+        return struct.pack('<16I', receiver, rate, cls.format_float32, 0, 0, length,
+                           stream_type, *([0] * 9))
+
+    @classmethod
+    def send_rx_audio(cls, stereo):
+        for socket, client in list(cls.clients.items()):
+            if not client['handshaken'] or not client['audio']:
+                continue
+            if socket.bytesToWrite() > cls.backlog_bytes:
+                continue
+            for trx in client['audio']:
+                if trx not in (0, 1):
+                    continue
+                resampler = client['resamplers'].get(trx)
+                if resampler == None:
+                    resampler = client['resamplers'][trx] = StreamResampler(
+                        Audio.k4_sample_rate, client['rate'])
+                mono = resampler.process(stereo[trx::2] * cls.rx_gain)
+                data = numpy.repeat(numpy.clip(mono, -1, 1), 2).astype('<f4')
+                cls.send_frame(socket, 0x2, cls.header(trx, client['rate'], len(data),
+                                                       cls.stream_rx_audio) + data.tobytes())
+
+    @classmethod
+    def ask_tx_audio(cls, frames):
+        # TX_CHRONO, asking the transmitting client for frames of audio.
+        client = cls.tx_client
+        if client == None or cls.transmission == None:
+            return
+        for socket, each in cls.clients.items():
+            if each is client:
+                dprint_tci(f'TCI server: asked for {frames} frames of transmit audio')
+                cls.send_frame(socket, 0x2, cls.header(0, client['rate'], frames * 2,
+                                                       cls.stream_tx_chrono))
+
+    @classmethod
+    def on_binary(cls, socket, client, message):
+        if len(message) < 64:
+            return
+        words = struct.unpack('<16I', message[:64])
+        rate, sample_format, length, stream_type = words[1], words[2], words[5], words[6]
+        if stream_type != cls.stream_tx_audio or client is not cls.tx_client:
+            return
+        transmission = cls.transmission
+        if transmission == None:
+            return
+        data = message[64:]
+        # Only the length's samples: what follows them is not audio.
+        if sample_format == cls.format_float32:
+            samples = numpy.frombuffer(data[:min(len(data) // 4, length) * 4], dtype='<f4')
+        elif sample_format == cls.format_int16:
+            samples = numpy.frombuffer(data[:min(len(data) // 2, length) * 2], dtype='<i2') / 32768
+        elif sample_format == cls.format_int32:
+            samples = numpy.frombuffer(data[:min(len(data) // 4, length) * 4], dtype='<i4') / 2147483648
+        else:
+            return
+        mono = numpy.asarray(samples[0::2], dtype=numpy.float32)
+        dprint_tci(f'TCI server: {len(mono)} frames of transmit audio, at most {numpy.abs(mono).max() if len(mono) else 0:.3f}')
+        transmission.add(mono)
 
 class SSTVSignals(QObject):
     # From the SSTV decoder's thread to the Qt thread, where the window is.
@@ -20951,6 +21635,10 @@ def dprint_audio(*args, **kwargs):
     if 'audio' in Options.debug_areas:
         dprint(*args, **kwargs)
 
+def dprint_tci(*args, **kwargs):
+    if 'tci' in Options.debug_areas:
+        dprint(*args, **kwargs)
+
 def dprint_midi(*args, **kwargs):
     if 'midi' in Options.debug_areas:
         dprint(*args, **kwargs)
@@ -21044,6 +21732,7 @@ def start():
 
     KpodInput.start()
     CatServer.start()
+    TciServer.start()
 
     page = Page.main()
     server = page.server
