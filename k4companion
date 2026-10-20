@@ -13949,9 +13949,6 @@ class SSTV(Widget):
     def on_stop_transmit(self):
         if self.transmission == None:
             return
-        if self.server.k4_parameter('TR') == 'T':
-            # Stops the transmit audio thread, which marks it done.
-            self.server.send_cmds('TRR;')
         self.end_transmission()
 
     def poll_transmission(self):
@@ -13962,8 +13959,6 @@ class SSTV(Widget):
                 or self.server.k4_parameter('TR') != 'T'):
             # All of it sent, or the K4 put back to receive, or the
             # connection gone, another way.
-            if self.server.connected and self.server.k4_parameter('TR') == 'T':
-                self.server.send_cmds('TRR;')
             self.end_transmission()
             return
         fraction = transmission.fraction()
@@ -13976,6 +13971,12 @@ class SSTV(Widget):
         if transmission == None:
             return
         self.transmission = None
+        # Back to receive, whatever the K4 was last said to be in: were it
+        # taken to be receiving already while still transmitting, nothing
+        # else would put it back. Sent to a K4 receiving, it does nothing.
+        # This also stops the transmit audio thread, which marks it done.
+        if self.server.connected:
+            self.server.send_cmds('TRR;')
         Audio.set_transmission(None)
         if self.tx_timer != None:
             self.tx_timer.stop()
@@ -16003,8 +16004,10 @@ class RTTY(Digital):
         if self.afsk_timer != None:
             self.afsk_timer.stop()
             self.afsk_timer = None
-        if self.server.connected and self.server.k4_parameter('TR') == 'T':
-            # Stops the transmit audio thread, if it hasn't stopped.
+        if self.server.connected:
+            # Back to receive, whatever the K4 was last said to be in (see
+            # SSTV.end_transmission). This also stops the transmit audio
+            # thread, if it hasn't stopped.
             self.server.send_cmds('TRR;')
         Audio.set_transmission(None)
         self.sending = False
