@@ -11576,7 +11576,8 @@ class Settings():
             self.settings.remove_section(section)
 
     def clear_section(self, section):
-        self.settings.remove_section(section)
+        if self.settings.remove_section(section):
+            self.settings_changed = True
 
     def save(self):
         if not self.settings_changed or self.removed:
@@ -12081,7 +12082,35 @@ class Ctr2Settings():
                                           'QLineEdit:disabled { color: #888; background-color: #ccc; }')
         self.commands_entry.editingFinished.connect(self.on_commands_edited)
         editor_grid.addWidget(self.commands_entry, 2, 0, Qt.AlignmentFlag.AlignLeft)
-        grid.addWidget(editor, 3, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        # The whole map, to a file and from one (see Ctr2Controller).
+        files, files_grid = qt_group_box('Map File', owner.label_font())
+        buttons = QWidget()
+        buttons_layout = QHBoxLayout(buttons)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        for text, handler in (('Import...', self.on_import), ('Export...', self.on_export)):
+            button = QPushButton(text)
+            button.setFont(owner.font())
+            button.setStyleSheet(qt_button_stylesheet(owner.bg, owner.fg, owner.abg, owner.afg))
+            button.clicked.connect(handler)
+            buttons_layout.addWidget(button)
+        buttons_layout.addStretch(1)
+        files_grid.addWidget(buttons, 0, 0, Qt.AlignmentFlag.AlignLeft)
+        # What came of the last import or export, wrapped: a fixed width
+        # lets the layout know how tall the wrapped text is.
+        self.file_label = QLabel()
+        self.file_label.setFont(owner.label_font())
+        self.file_label.setWordWrap(True)
+        self.file_label.setFixedWidth(QFontMetrics(owner.font()).horizontalAdvance('X' * 28))
+        files_grid.addWidget(self.file_label, 1, 0, Qt.AlignmentFlag.AlignLeft)
+
+        column = QWidget()
+        column_layout = QVBoxLayout(column)
+        column_layout.setContentsMargins(0, 0, 0, 0)
+        column_layout.addWidget(editor)
+        column_layout.addWidget(files)
+        column_layout.addStretch(1)
+        grid.addWidget(column, 3, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         Ctr2Input.status_listeners.append(self.show_status)
         Ctr2Input.port_listeners.append(self.show_ports)
@@ -12158,6 +12187,42 @@ class Ctr2Settings():
         Ctr2Controller.set_assignment(kind, number,
             Ctr2Controller.commands_prefix + self.commands_entry.text().strip())
         self.refresh_row()
+
+    def map_folder(self):
+        # Where the last map file was, or the Documents folder.
+        folder = Settings.main().get(Ctr2Input.settings_section, 'map_folder', '')
+        if not folder or not os.path.isdir(folder):
+            folder = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
+        return folder
+
+    def file_filter(self):
+        return f'CTR2 maps (*{Ctr2Controller.file_suffix});;All files (*)'
+
+    def on_export(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self.map_list.window(), 'Export CTR2 Map',
+            os.path.join(self.map_folder(), 'K4 Companion' + Ctr2Controller.file_suffix),
+            self.file_filter())
+        if not path:
+            return
+        if not os.path.splitext(path)[1]:
+            path += Ctr2Controller.file_suffix
+        Settings.main().put_save(Ctr2Input.settings_section, 'map_folder', os.path.dirname(path))
+        error = Ctr2Controller.export_map(path)
+        self.file_label.setText(error or f'Exported {os.path.basename(path)}.')
+
+    def on_import(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self.map_list.window(), 'Import CTR2 Map', self.map_folder(), self.file_filter())
+        if not path:
+            return
+        Settings.main().put_save(Ctr2Input.settings_section, 'map_folder', os.path.dirname(path))
+        text, imported = Ctr2Controller.import_map(path)
+        self.file_label.setText(text)
+        if imported:
+            for row, (kind, number) in enumerate(self.rows):
+                self.map_list.item(row).setText(self.row_text(kind, number))
+            self.on_row_selected(self.map_list.currentRow())
 
     def on_touched(self, kind, number):
         # A knob turned or button pressed on the CTR2, picked out in the
@@ -19868,6 +19933,87 @@ class Ctr2Controller():
     @classmethod
     def set_assignment(cls, kind, number, value):
         Server.settings.put_save(cls.map_section, f'{kind}_{number}', value)
+
+    # A map file, file_suffix: every knob's and button's function, as the
+    # CTR2 tab has them, in the settings' own form under file_section.
+    # Not the CTR2-Dial's own settings exports, .ctr2, which begin
+    # lynovation_marker and hold no K4 commands, and are refused.
+    file_section = 'CTR2 Map'
+    file_suffix = '.ctr2map'
+    lynovation_marker = '### SOF='
+
+    @classmethod
+    def export_map(cls, path):
+        # Every knob and button, set or by default. None, or what went
+        # wrong.
+        parser = configparser.RawConfigParser()
+        parser.optionxform = str
+        parser[cls.file_section] = {}
+        for number in cls.controls_used:
+            parser[cls.file_section][f'cc_{number}'] = cls.assignment('cc', number)
+        for number in cls.notes_used:
+            parser[cls.file_section][f'note_{number}'] = cls.assignment('note', number)
+        try:
+            with open(path, 'w') as file:
+                file.write('# K4 Companion CTR2 map: what each knob (cc_100 to cc_117) and\n'
+                           '# button (note_1 to note_60) does, or the K4 commands a button\n'
+                           '# sends (commands:, the text before an & being shown).\n')
+                parser.write(file)
+        except OSError as e:
+            return f'{os.path.basename(path)} could not be written: {e.strerror}.'
+        return None
+
+    @classmethod
+    def import_map(cls, path):
+        # The map in the file in place of the one set, what it doesn't
+        # have doing what K4-Control has it do. Returns what to say of it,
+        # and whether it was imported.
+        name = os.path.basename(path)
+        try:
+            with open(path) as file:
+                text = file.read()
+        except (OSError, UnicodeDecodeError) as e:
+            return f'{name} could not be read: {getattr(e, "strerror", None) or e}.', False
+        if text.lstrip().startswith(cls.lynovation_marker):
+            return (f'{name} is a CTR2-Dial settings file, to load into the CTR2 itself; '
+                    'it has no K4 Companion map.'), False
+        parser = configparser.RawConfigParser()
+        parser.optionxform = str
+        try:
+            parser.read_string(text)
+        except configparser.Error:
+            return f'{name} is not a CTR2 map file.', False
+        if not parser.has_section(cls.file_section):
+            return f'{name} has no [{cls.file_section}] section: not a CTR2 map file.', False
+        knob_keys = {entry[0] for entry in cls.knob_functions}
+        button_keys = {entry[0] for entry in cls.button_functions} - {'commands'}
+        mapped = {}
+        skipped = []
+        for key, value in parser[cls.file_section].items():
+            kind, _, number = key.partition('_')
+            used = cls.controls_used if kind == 'cc' else cls.notes_used if kind == 'note' else ()
+            ok = number.isdigit() and int(number) in used
+            if ok and kind == 'cc':
+                ok = value in knob_keys
+            elif ok:
+                ok = value in button_keys or value.startswith(cls.commands_prefix)
+            if ok:
+                mapped[(kind, int(number))] = value
+            else:
+                skipped.append(key)
+        if not mapped:
+            return f'{name} has nothing this CTR2 map can use.', False
+        settings = Server.settings
+        settings.clear_section(cls.map_section)
+        for (kind, number), value in mapped.items():
+            default = (cls.default_knobs if kind == 'cc' else cls.default_buttons).get(number, 'none')
+            if value != default:
+                settings.put(cls.map_section, f'{kind}_{number}', value)
+        settings.save()
+        text = f'Imported {name}.'
+        if skipped:
+            text += f' Skipped, not understood: {", ".join(skipped)}.'
+        return text, True
 
     @classmethod
     def describe(cls, kind, number):
