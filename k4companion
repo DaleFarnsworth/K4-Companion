@@ -8207,6 +8207,47 @@ def panadapter_child_main(receiver):
             pass
     os._exit(0)
 
+class StreamInterpolator():
+    # One channel of audio up by a whole multiple of its rate, a block at
+    # a time: the K4's 12 kHz up to an output device's 48, say. Repeating
+    # each sample, as was done, leaves the audio mirrored above the K4's
+    # half, 6 kHz, nearly as loud as itself -- a 3 kHz tone's image at 9
+    # kHz was only 9 dB down, heard as a harsh hiss -- and dulls the top
+    # of the speech band. Here the samples in between are made by a low-
+    # pass filter at cutoff_share of the lower rate, 5.6 kHz for 12, a
+    # windowed sinc of taps_per_phase taps for each of the ratio phases,
+    # polyphase: each phase filters the input as it comes, and the
+    # outputs are interleaved. The input the next block's filtering needs
+    # is carried from each to the next, so that the blocks join without
+    # a step. It delays the audio by half the filter's length, about 1.3
+    # ms at 48 kHz.
+    taps_per_phase = 32
+    cutoff_share = 5600 / 12000     # of the lower rate
+    kaiser_beta = 8.0
+
+    def __init__(self, ratio):
+        self.ratio = ratio
+        taps = self.taps_per_phase * ratio
+        cutoff = self.cutoff_share / ratio       # in cycles a sample at the higher rate
+        n = numpy.arange(taps) - (taps - 1) / 2
+        h = 2 * cutoff * numpy.sinc(2 * cutoff * n) * numpy.kaiser(taps, self.kaiser_beta)
+        h = h / h.sum() * ratio
+        # Phase p makes output samples p, p + ratio, ...: taps p, p +
+        # ratio, ..., reversed for numpy.convolve.
+        self.phases = [h[p::ratio].astype(numpy.float32) for p in range(ratio)]
+        self.history = numpy.zeros(self.taps_per_phase - 1, dtype=numpy.float32)
+
+    def process(self, samples):
+        x = numpy.asarray(samples, dtype=numpy.float32)
+        if len(x) == 0:
+            return x
+        ext = numpy.concatenate((self.history, x))
+        self.history = ext[len(ext) - (self.taps_per_phase - 1):]
+        out = numpy.empty(len(x) * self.ratio, dtype=numpy.float32)
+        for p, taps in enumerate(self.phases):
+            out[p::self.ratio] = numpy.convolve(ext, taps, 'valid')
+        return out
+
 class StreamResampler():
     # One channel of audio from one sample rate to another, a block at a
     # time: for an output device whose rate is not a whole multiple of the
@@ -9535,17 +9576,22 @@ class Audio():
 
                     # After the loop, the rate being whatever the attempt
                     # that opened settled on.
-                    # A whole multiple of the K4's rate is resampled by
-                    # repeating samples; another, 44.1 kHz, by a
-                    # StreamResampler for each side.
+                    # A whole multiple of the K4's rate is had by a
+                    # StreamInterpolator for each side; another, 44.1
+                    # kHz, by one up to 48 kHz and a StreamResampler from
+                    # there, close enough for its plain interpolation.
                     rate = cls.output_device_sample_rate()
                     if rate % cls.k4_sample_rate == 0:
                         resample_ratio = rate // cls.k4_sample_rate
                         output_resamplers = None
                     else:
-                        resample_ratio = 1
-                        output_resamplers = (StreamResampler(cls.k4_sample_rate, rate),
-                                             StreamResampler(cls.k4_sample_rate, rate))
+                        resample_ratio = 4
+                        output_resamplers = (StreamResampler(cls.k4_sample_rate * 4, rate),
+                                             StreamResampler(cls.k4_sample_rate * 4, rate))
+                    output_interpolators = None
+                    if resample_ratio > 1:
+                        output_interpolators = (StreamInterpolator(resample_ratio),
+                                                StreamInterpolator(resample_ratio))
 
                     if self.output_stream != None and wanted_exclusive:
                         cls.note_exclusive_mode('output', self.output_device_name(),
@@ -9609,12 +9655,12 @@ class Audio():
             elif rightsel == '-a':
                 right = -a
 
+            if output_interpolators != None:
+                left = output_interpolators[0].process(left)
+                right = output_interpolators[1].process(right)
             if output_resamplers != None:
                 left = output_resamplers[0].process(left)
                 right = output_resamplers[1].process(right)
-            elif resample_ratio > 1:
-                left = left.repeat(resample_ratio)
-                right = right.repeat(resample_ratio)
 
             stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
