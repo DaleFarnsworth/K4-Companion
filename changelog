@@ -1,3 +1,38 @@
+v2.2-rc0:
+    Compile PyInstaller's bootloader for the Windows build
+       The Windows programs started with PyInstaller's prebuilt bootloader,
+       which every PyInstaller program shares, malware's included, and
+       which Windows Defender's heuristics have learnt to distrust: a user
+       had k4companion-installer.exe removed as Trojan:Win32/Ulthar.A!ml.
+       PyInstaller is now installed from its source, its bootloader
+       compiled on the runner (PYINSTALLER_COMPILE_BOOTLOADER), and the
+       build stops if what is installed is the wheel's prebuilt one.
+   
+    Make the NB filter a three-way toggle rather than a dropdown
+       The noise blanker's filter, -, N or W, is now a button that steps to
+       the next of them at each click, wrapping round, for the main and sub
+       receivers alike, in the configuration file and the built-in one.
+   
+    Interpolate the K4's audio up to the output device's rate
+       The K4's 12 kHz audio was brought up to a 48 kHz device by repeating
+       each sample, which left it mirrored above 6 kHz nearly as loud as
+       itself -- a 3 kHz tone's image at 9 kHz was only 9 dB down, heard as
+       a harsh hiss -- and dulled the top of the speech band. A
+       StreamInterpolator now makes the samples in between with a 5.6 kHz
+       low-pass, polyphase, its state carried from block to block: the
+       images are 90 dB down or more, and the band is flat to 4.5 kHz. A
+       44.1 kHz device has the audio interpolated to 48 kHz and resampled
+       from there, its 4.5 kHz no longer 4 dB down. It adds 1.3 ms.
+   
+    Low-pass the microphone's audio on its way down to the K4's rate
+       A microphone at a whole multiple of the K4's 12 kHz, 48 kHz say, was
+       brought down by averaging its samples, which let through much of
+       what is above 6 kHz, hiss and sibilance, folded down into the audio
+       sent. Any rate faster than the K4's now goes through a
+       StreamResampler, as 44.1 kHz did, which low-passes it below 5.4 kHz
+       first: a tone at 8 kHz, which came out at 4 kHz 7 dB down, is now
+       77 dB down, and the speech band comes through flatter.
+   
 v2.1.3:
     Describe Power Off's Disconnected and ADC Overflow's warning
        The Server tab section now says that after Power Off the connection
