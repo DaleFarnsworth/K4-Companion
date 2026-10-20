@@ -12036,7 +12036,7 @@ class Ctr2Settings():
 
         note = QLabel('A Lynovation CTR2-Quad, or another CTR2 running the CTR2-Dial firmware. Its paddles\n'
                       'and key are chosen on the Keying tab. A knob or button not changed here does what\n'
-                      "Lynovation's K4-Control configuration has it do. Touch one on the CTR2 to find it below.")
+                      'the default layout has it do. Touch one on the CTR2 to find it below.')
         note.setFont(owner.label_font())
         grid.addWidget(note, 2, 0, 1, 2, Qt.AlignmentFlag.AlignLeft)
 
@@ -19793,9 +19793,7 @@ class Ctr2Controller():
     # knob_functions or button_functions -- or, for a button, K4 commands
     # of the operator's own -- set on the CTR2 tab and kept with the
     # radio's settings, as the K-Pod's buttons are. One not set does what
-    # Lynovation's K4-Control layout for the CTR2-Dial firmware
-    # (CTR2-Dial_K4-Control_Mapping v2.0) has it do: default_knobs and
-    # default_buttons.
+    # the default layout, default_knobs and default_buttons, has it do.
     #
     # A wheel (WheelA) is centred at 64, its offset from 64 the steps it
     # has turned and so its speed; WheelB sends 1 for a step up and 126
@@ -19903,7 +19901,7 @@ class Ctr2Controller():
     )
     button_actions = {key: (action, vfo) for key, _, action, vfo in button_functions}
 
-    # Lynovation's K4-Control layout.
+    # The default layout.
     default_knobs = {100: 'tune_a', 101: 'af_gain', 102: 'tune_b', 103: 'bandwidth',
                      104: 'rf_gain', 106: 'nb_level', 107: 'nr_level', 108: 'zoom',
                      109: 'rf_power', 110: 'cw_speed', 111: 'rit_offset'}
@@ -19966,8 +19964,8 @@ class Ctr2Controller():
     @classmethod
     def import_map(cls, path):
         # The map in the file in place of the one set, what it doesn't
-        # have doing what K4-Control has it do. Returns what to say of it,
-        # and whether it was imported.
+        # have doing what the default layout has it do. Returns what to
+        # say of it, and whether it was imported.
         name = os.path.basename(path)
         try:
             with open(path) as file:
