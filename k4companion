@@ -13342,7 +13342,11 @@ class SSTV(Widget):
                 # to its sideband, and what was coming in on it ends.
                 self.server.update_k4_parameter(self.directives[previous], 'DISABLE')
                 self.audio_queue.put(None)
-            self.set_sideband(index)
+            # Compression off, which would distort the picture's tones:
+            # after the sideband, as the K4 keeps it for each mode, and
+            # with it where the sideband is sent.
+            if not self.set_sideband(index):
+                self.server.send_cmds('CP000;')
             if not self.restoring:
                 self.set_bandwidth(index)
             self.show()
@@ -13419,9 +13423,13 @@ class SSTV(Widget):
             self.server.send_cmds(f'{self.bandwidths[index]}{self.bandwidth};')
 
     def set_sideband(self, index):
+        # Whether the sideband had to be sent; compression goes off with
+        # it (see on_sstv_cmd).
         wanted = self.sideband(index)
-        if self.server.k4_parameter(self.modes[index]) != wanted:
-            self.server.send_cmds(f'{self.modes[index]}{wanted};')
+        if self.server.k4_parameter(self.modes[index]) == wanted:
+            return False
+        self.server.send_cmds(f'{self.modes[index]}{wanted};CP000;')
+        return True
 
     # ------------------------------------------------------- the window
 
@@ -16107,6 +16115,8 @@ class RTTY(Digital):
         cmds = f'MD{vfo}{mode};DT{vfo}{self.sending_sub_mode};'
         if with_bandwidth:
             cmds += f'BW{vfo}{self.bandwidth(index)};'
+        # Compression off, after the mode, as the K4 keeps it for each.
+        cmds += 'CP000;'
         self.server.send_cmds(cmds)
         self.sub_mode_until[index] = time.monotonic() + self.sub_mode_hold_seconds
         for ms in self.check_ms:
