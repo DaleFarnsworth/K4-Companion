@@ -12032,7 +12032,10 @@ class Ctr2Settings():
 
         self.status_label = QLabel()
         self.status_label.setFont(owner.font())
-        grid.addWidget(self.status_label, 1, 0, 1, 2, Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(self.status_label, 1, 0, Qt.AlignmentFlag.AlignLeft)
+        self.vfo_label = QLabel()
+        self.vfo_label.setFont(owner.font())
+        grid.addWidget(self.vfo_label, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
         note = QLabel('A Lynovation CTR2-Quad, or another CTR2 running the CTR2-Dial firmware. Its paddles\n'
                       'and key are chosen on the Keying tab. A knob or button not changed here does what\n'
@@ -12115,7 +12118,9 @@ class Ctr2Settings():
         Ctr2Input.status_listeners.append(self.show_status)
         Ctr2Input.port_listeners.append(self.show_ports)
         Ctr2Controller.touch_listeners.append(self.on_touched)
+        Ctr2Controller.vfo_listeners.append(self.show_vfo)
         self.show_status(Ctr2Input.status_text)
+        self.show_vfo(Ctr2Controller.vfo)
         self.map_list.setCurrentRow(0)
         return frame
 
@@ -12123,7 +12128,8 @@ class Ctr2Settings():
         # The window's widgets are about to go; stop telling them things.
         for listeners, listener in ((Ctr2Input.status_listeners, self.show_status),
                                     (Ctr2Input.port_listeners, self.show_ports),
-                                    (Ctr2Controller.touch_listeners, self.on_touched)):
+                                    (Ctr2Controller.touch_listeners, self.on_touched),
+                                    (Ctr2Controller.vfo_listeners, self.show_vfo)):
             if listener in listeners:
                 listeners.remove(listener)
 
@@ -12223,6 +12229,9 @@ class Ctr2Settings():
             for row, (kind, number) in enumerate(self.rows):
                 self.map_list.item(row).setText(self.row_text(kind, number))
             self.on_row_selected(self.map_list.currentRow())
+
+    def show_vfo(self, vfo):
+        self.vfo_label.setText(f'CTR2 VFO: {vfo}')
 
     def on_touched(self, kind, number):
         # A knob turned or button pressed on the CTR2, picked out in the
@@ -19769,24 +19778,6 @@ class Ctr2Input():
         if cls.signals != None and len(message) >= 3:
             cls.signals.message.emit(message[0], message[1], message[2])
 
-def ctr2_both_vfos(entries):
-    # Ctr2Controller's functions that apply to either receiver, each made
-    # two: one for VFO A, under the key it has always had, and one for
-    # VFO B, under that key with _b added. A button's K4 command for B is
-    # the sub receiver's, its base followed by $; one of its methods is
-    # given the VFO.
-    both = ()
-    for key, label, *action in entries:
-        a = b = ()
-        if action:
-            command = action[0]
-            if command.endswith(';'):
-                a, b = (command, None), (command[:2] + '$' + command[2:], None)
-            else:
-                a, b = (command, 'A'), (command, 'B')
-        both += ((key, label + ' A') + a, (key + '_b', label + ' B') + b)
-    return both
-
 class Ctr2Controller():
     # What the CTR2's knobs and buttons do: each knob, MIDI control 100 to
     # 117, and each button, MIDI note 1 to 60, has a function from
@@ -19794,6 +19785,8 @@ class Ctr2Controller():
     # of the operator's own -- set on the CTR2 tab and kept with the
     # radio's settings, as the K-Pod's buttons are. One not set does what
     # the default layout, default_knobs and default_buttons, has it do.
+    # Other than Tune VFO A and Tune VFO B, what applies to a VFO applies
+    # to the CTR2's own, vfo, A to start with, which Toggle VFO switches.
     #
     # A wheel (WheelA) is centred at 64, its offset from 64 the steps it
     # has turned and so its speed; WheelB sends 1 for a step up and 126
@@ -19808,6 +19801,10 @@ class Ctr2Controller():
     notes_used = range(1, 61)
     modes = ('1', '2', '3', '6', '5', '4')        # LSB USB CW DATA AM FM
     muted_af_gain = {'A': None, 'B': None}
+    # The CTR2's VFO, which Toggle VFO switches, and who is told of it:
+    # the CTR2 tab.
+    vfo = 'A'
+    vfo_listeners = []
     counts_per_level = 4
     knob_values = {}            # CC number -> the value it last sent
     knob_counts = {}            # CC number -> counts not yet a level
@@ -19819,11 +19816,12 @@ class Ctr2Controller():
 
     # A knob's key ending in _a or _b is for that VFO; one without is for
     # VFO A.
+    # Tune VFO A and Tune VFO B tune their own VFOs; the rest act on the
+    # CTR2's VFO, vfo, as Toggle VFO has it.
     knob_functions = (
         ('none', 'None'),
         ('tune_a', 'Tune VFO A'),
         ('tune_b', 'Tune VFO B'),
-    ) + ctr2_both_vfos((
         ('af_gain', 'AF Gain'),
         ('bandwidth', 'Bandwidth'),
         ('rf_gain', 'RF Gain'),
@@ -19834,16 +19832,17 @@ class Ctr2Controller():
         ('preamp', 'Pre'),
         ('zoom', 'Zoom'),
         ('rit_offset', 'RIT Offset'),
-    )) + (
         ('rf_power', 'RF Power'),
         ('cw_speed', 'CW Speed'),
     )
     # Each: its key, how it is shown, what it does -- a K4 command, or the
-    # name of a method below -- and, for a method that is given one, the
-    # VFO, A or B.
+    # name of a method below -- and, where what it does is to the CTR2's
+    # VFO, 'vfo': a K4 command then being the sub receiver's for VFO B,
+    # its base followed by $, and a method being given the VFO.
     button_functions = (
         ('none', 'None', None, None),
-    ) + ctr2_both_vfos((
+        ('toggle_vfo', 'Toggle VFO', 'toggle_vfo', None),
+    ) + tuple(entry + ('vfo',) for entry in (
         ('mode_next', 'Mode Next', 'mode_next'),
         ('mode_previous', 'Mode Previous', 'mode_previous'),
         ('mode_cw', 'Mode CW', 'MD3;'),
@@ -19854,8 +19853,8 @@ class Ctr2Controller():
         ('mode_fm', 'Mode FM', 'MD4;'),
         ('mode_data', 'Mode DATA', 'MD6;'),
         ('mode_data_r', 'Mode DATA-R', 'MD9;'),
-        ('band_next', 'Band Next', 'band_next'),
-        ('band_previous', 'Band Previous', 'band_previous'),
+        ('band_next', 'Band+', 'band_next'),
+        ('band_previous', 'Band-', 'band_previous'),
         ('band_160', 'Band 160 m', 'BN00;'),
         ('band_80', 'Band 80 m', 'BN01;'),
         ('band_60', 'Band 60 m', 'BN02;'),
@@ -19899,7 +19898,9 @@ class Ctr2Controller():
     ) + tuple((f'macro_{n}', f'Macro {n}', f'macro_{n}', None) for n in range(1, 13)) + (
         ('commands', 'K4 Commands', None, None),
     )
-    button_actions = {key: (action, vfo) for key, _, action, vfo in button_functions}
+    button_actions = {key: (action, of_vfo) for key, _, action, of_vfo in button_functions}
+    knob_keys = {entry[0] for entry in knob_functions}
+    button_keys = set(button_actions) - {'commands'}
 
     # The default layout.
     default_knobs = {100: 'tune_a', 101: 'af_gain', 102: 'tune_b', 103: 'bandwidth',
@@ -19908,7 +19909,7 @@ class Ctr2Controller():
     default_buttons = {1: 'mode_next', 2: 'mode_fm', 3: 'mute', 4: 'band_previous',
                        5: 'band_next', 6: 'filter_next', 7: 'zoom_in', 8: 'zoom_out',
                        9: 'rit', 10: 'step_up', 11: 'step_down', 12: 'vox', 13: 'nb',
-                       14: 'nr', 19: 'mode_cw', 20: 'mode_lsb', 21: 'mode_usb',
+                       14: 'nr', 15: 'toggle_vfo', 19: 'mode_cw', 20: 'mode_lsb', 21: 'mode_usb',
                        22: 'mode_am', 23: 'mode_fm', 25: 'band_160', 26: 'band_80',
                        27: 'band_40', 28: 'band_30', 29: 'band_20', 30: 'band_17',
                        31: 'band_15', 32: 'band_12', 33: 'band_10', 34: 'band_6',
@@ -19926,7 +19927,17 @@ class Ctr2Controller():
         settings = Server.settings
         if settings == None:
             return default
-        return settings.get(cls.map_section, f'{kind}_{number}', default)
+        return cls.current_key(kind, settings.get(cls.map_section, f'{kind}_{number}', default))
+
+    @classmethod
+    def current_key(cls, kind, value):
+        # The key a function has now: those that came in a VFO A and a VFO
+        # B version, the B one's key with _b added, are now one, for the
+        # CTR2's VFO.
+        keys = cls.knob_keys if kind == 'cc' else cls.button_keys
+        if value not in keys and value.endswith('_b') and value[:-2] in keys:
+            return value[:-2]
+        return value
 
     @classmethod
     def set_assignment(cls, kind, number, value):
@@ -19977,8 +19988,6 @@ class Ctr2Controller():
         if text.lstrip().startswith(cls.lynovation_marker):
             return (f'{name} is a CTR2-Dial settings file, to load into the CTR2 itself; '
                     'it has no K4 Companion map.'), False
-        knob_keys = {entry[0] for entry in cls.knob_functions}
-        button_keys = {entry[0] for entry in cls.button_functions} - {'commands'}
         kinds = {'C': ('cc', cls.controls_used), 'B': ('note', cls.notes_used)}
         mapped = {}
         skipped = []
@@ -19991,10 +20000,12 @@ class Ctr2Controller():
             kind, used = kinds.get(key[:1].upper(), (None, ()))
             number = key[1:]
             ok = equals != '' and number.isdigit() and int(number) in used
+            if ok:
+                value = cls.current_key(kind, value)
             if ok and kind == 'cc':
-                ok = value in knob_keys
+                ok = value in cls.knob_keys
             elif ok:
-                ok = value in button_keys or value.startswith(cls.commands_prefix)
+                ok = value in cls.button_keys or value.startswith(cls.commands_prefix)
             if ok:
                 mapped[(kind, int(number))] = value
             elif not (number.isdigit() and kind == 'note' and value == 'none'):
@@ -20118,11 +20129,10 @@ class Ctr2Controller():
     @classmethod
     def on_control(cls, server, number, value):
         function = cls.assignment('cc', number)
-        vfo = 'B' if function.endswith('_b') else 'A'
-        function = function.removesuffix('_b').removesuffix('_a')
+        vfo = {'tune_a': 'A', 'tune_b': 'B'}.get(function, cls.vfo)
         s = cls.sub(vfo)
         param = server.k4_parameter
-        if function == 'tune':
+        if function in ('tune_a', 'tune_b'):
             steps = cls.wheel_steps(value)
             entry = VFO.instances.get(vfo)
             if steps != 0 and entry != None:
@@ -20185,17 +20195,27 @@ class Ctr2Controller():
         if function.startswith(cls.commands_prefix):
             cls.run_commands(server, function[len(cls.commands_prefix):])
             return
-        action, vfo = cls.button_actions.get(function, (None, None))
+        action, of_vfo = cls.button_actions.get(function, (None, None))
         if action == None:
             return
         if action.endswith(';'):
+            if of_vfo and cls.vfo == 'B':
+                action = action[:2] + '$' + action[2:]
             server.send_cmds(action)
         elif action.startswith('macro_'):
             cls.macro(int(action[len('macro_'):]) - 1)
-        elif vfo != None:
-            getattr(cls, action)(server, vfo)
+        elif of_vfo:
+            getattr(cls, action)(server, cls.vfo)
         else:
             getattr(cls, action)(server)
+
+    @classmethod
+    def toggle_vfo(cls, server):
+        # The CTR2's VFO from A to B or back, and said.
+        cls.vfo = 'B' if cls.vfo == 'A' else 'A'
+        Popup.popup(f'CTR2: VFO {cls.vfo}', timeout=500, color='white')
+        for listener in list(cls.vfo_listeners):
+            listener(cls.vfo)
 
     @staticmethod
     def run_commands(server, text):
