@@ -8196,9 +8196,11 @@ def panadapter_child_main(receiver):
 
 class StreamResampler():
     # One channel of audio from one sample rate to another, a block at a
-    # time, for a device whose rate is not a whole multiple of the K4's:
-    # 44.1 kHz, which is 3.675 times 12 kHz. Whole multiples go on being
-    # resampled as they always were, by repeating and averaging samples.
+    # time: for an output device whose rate is not a whole multiple of the
+    # K4's, 44.1 kHz, which is 3.675 times 12 kHz, whole multiples being
+    # had by repeating samples; and for the microphone at any rate faster
+    # than the K4's, where what is above the K4's half has to be filtered
+    # out on the way down.
     #
     # Each output sample is interpolated linearly between the two input
     # samples either side of where it falls, and where the next block's
@@ -10779,18 +10781,21 @@ class Audio():
                         Popup.warning("No input from audio device:\n  {name}".format(name=Audio.input_device_name()))
                         return
 
-                # A whole multiple of the K4's rate is resampled by
-                # averaging samples; another, 44.1 kHz, by a
-                # StreamResampler, which gives a frame's worth now and
-                # then a sample either side of it: what it gives is
-                # gathered in pending and sent a whole frame at a time.
+                # Anything faster than the K4's rate is brought down to it
+                # by a StreamResampler, which low-passes it first, below
+                # half the K4's rate: averaging samples, as a whole
+                # multiple once was, let through much of what is above
+                # that, folded down into the audio sent. A whole multiple
+                # comes out exactly a sample for each so many, the
+                # resampler's interpolation falling on them. What it
+                # gives, a frame's worth now and then a sample either side
+                # of it, is gathered in pending and sent a whole frame at a
+                # time.
                 rate = Audio.input_device_sample_rate()
-                if rate % Audio.k4_sample_rate == 0:
-                    resample_ratio = rate // Audio.k4_sample_rate
+                if rate == Audio.k4_sample_rate:
                     input_resampler = None
-                    read_frames = Audio.input_frame_size * resample_ratio
+                    read_frames = Audio.input_frame_size
                 else:
-                    resample_ratio = None
                     input_resampler = StreamResampler(rate, Audio.k4_sample_rate)
                     read_frames = round(Audio.input_frame_size * rate / Audio.k4_sample_rate)
                 pending = numpy.zeros(0, dtype=numpy.float32)
@@ -10803,28 +10808,6 @@ class Audio():
             self.report_audio_glitches()
             sampled = sampled.reshape(-1)
 
-            if input_resampler != None:
-                resampled = None
-            elif resample_ratio == 1:
-                resampled = sampled
-            elif resample_ratio == 2:
-                s0 = sampled[0::2]
-                s1 = sampled[1::2]
-                resampled = (s0 + s1) / 2
-
-            elif resample_ratio == 3:
-                s0 = sampled[0::3]
-                s1 = sampled[1::3]
-                s2 = sampled[2::3]
-                resampled = sum((s0, s1, s2)) / 3
-
-            elif resample_ratio == 4:
-                s0 = sampled[0::4]
-                s1 = sampled[1::4]
-                s2 = sampled[2::4]
-                s3 = sampled[3::4]
-                resampled = sum((s0, s1, s2, s3)) / 4
-
             frame_size = Audio.input_frame_size
             if input_resampler != None:
                 pending = numpy.concatenate((pending, input_resampler.process(sampled)))
@@ -10833,7 +10816,7 @@ class Audio():
                     frames.append(pending[:frame_size])
                     pending = pending[frame_size:]
             else:
-                frames = [resampled]
+                frames = [sampled]
 
             for resampled in frames:
                 resampled = resampled * self.mic_gain / 8  # apply some attenuation
