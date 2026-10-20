@@ -17484,9 +17484,10 @@ class VailAdapter():
 
         cls.send_message([0xC0, keyer_mode])
 
-    @classmethod
-    def send_request_midi_timing(cls):
-        cls.send_message([0xB0, 3, 0x7f])
+# Not supported yet
+#    @classmethod
+#    def send_request_midi_timing(cls):
+#        cls.send_message([0xB0, 4, 0x7f])
 
     @classmethod
     def send_initial_state(cls):
@@ -17494,7 +17495,7 @@ class VailAdapter():
         cls.send_pitch()
         cls.send_keyer_speed()
         cls.send_keyer_mode()
-        cls.send_request_midi_timing()
+#        cls.send_request_midi_timing()
 
 class SerialInput():
     singleton = None
