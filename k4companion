@@ -12201,7 +12201,7 @@ class Ctr2Settings():
     def on_export(self):
         path, _ = QFileDialog.getSaveFileName(
             self.map_list.window(), 'Export CTR2 Map',
-            os.path.join(self.map_folder(), 'K4 Companion' + Ctr2Controller.file_suffix),
+            os.path.join(self.map_folder(), 'K4-Companion_CTR2-Dial' + Ctr2Controller.file_suffix),
             self.file_filter())
         if not path:
             return
@@ -19932,31 +19932,33 @@ class Ctr2Controller():
     def set_assignment(cls, kind, number, value):
         Server.settings.put_save(cls.map_section, f'{kind}_{number}', value)
 
-    # A map file, file_suffix: every knob's and button's function, as the
-    # CTR2 tab has them, in the settings' own form under file_section.
-    # Not the CTR2-Dial's own settings exports, .ctr2, which begin
-    # lynovation_marker and hold no K4 commands, and are refused.
-    file_section = 'CTR2 Map'
-    file_suffix = '.ctr2map'
+    # A map file, file_suffix, as the CTR2-Dial's own configurations have
+    # them (FT-Control's, say): under # Controls, a line C<n>=<function>
+    # for each knob, MIDI control n; under # Buttons, B<n>=<function> for
+    # each button, note n; and an empty # LEDs. A function is one of
+    # knob_functions' or button_functions' keys, or for a button its K4
+    # commands after commands_prefix; None is left empty. Not the
+    # CTR2-Dial's settings exports, .ctr2, which begin lynovation_marker
+    # and hold no K4 commands, and are refused.
+    file_suffix = '.map'
     lynovation_marker = '### SOF='
 
     @classmethod
     def export_map(cls, path):
         # Every knob and button, set or by default. None, or what went
         # wrong.
-        parser = configparser.RawConfigParser()
-        parser.optionxform = str
-        parser[cls.file_section] = {}
-        for number in cls.controls_used:
-            parser[cls.file_section][f'cc_{number}'] = cls.assignment('cc', number)
-        for number in cls.notes_used:
-            parser[cls.file_section][f'note_{number}'] = cls.assignment('note', number)
+        def line(prefix, kind, number):
+            value = cls.assignment(kind, number)
+            return f'{prefix}{number}={"" if value == "none" else value}\n'
         try:
             with open(path, 'w') as file:
-                file.write('# K4 Companion CTR2 map: what each knob (cc_100 to cc_117) and\n'
-                           '# button (note_1 to note_60) does, or the K4 commands a button\n'
-                           '# sends (commands:, the text before an & being shown).\n')
-                parser.write(file)
+                file.write('# Controls\n')
+                for number in cls.controls_used:
+                    file.write(line('C', 'cc', number))
+                file.write('# Buttons\n')
+                for number in cls.notes_used:
+                    file.write(line('B', 'note', number))
+                file.write('# LEDs\n')
         except OSError as e:
             return f'{os.path.basename(path)} could not be written: {e.strerror}.'
         return None
@@ -19975,31 +19977,33 @@ class Ctr2Controller():
         if text.lstrip().startswith(cls.lynovation_marker):
             return (f'{name} is a CTR2-Dial settings file, to load into the CTR2 itself; '
                     'it has no K4 Companion map.'), False
-        parser = configparser.RawConfigParser()
-        parser.optionxform = str
-        try:
-            parser.read_string(text)
-        except configparser.Error:
-            return f'{name} is not a CTR2 map file.', False
-        if not parser.has_section(cls.file_section):
-            return f'{name} has no [{cls.file_section}] section: not a CTR2 map file.', False
         knob_keys = {entry[0] for entry in cls.knob_functions}
         button_keys = {entry[0] for entry in cls.button_functions} - {'commands'}
+        kinds = {'C': ('cc', cls.controls_used), 'B': ('note', cls.notes_used)}
         mapped = {}
         skipped = []
-        for key, value in parser[cls.file_section].items():
-            kind, _, number = key.partition('_')
-            used = cls.controls_used if kind == 'cc' else cls.notes_used if kind == 'note' else ()
-            ok = number.isdigit() and int(number) in used
+        for line in text.splitlines():
+            line = line.strip()
+            if line == '' or line.startswith('#'):
+                continue
+            key, equals, value = line.partition('=')
+            key, value = key.strip(), value.strip() or 'none'
+            kind, used = kinds.get(key[:1].upper(), (None, ()))
+            number = key[1:]
+            ok = equals != '' and number.isdigit() and int(number) in used
             if ok and kind == 'cc':
                 ok = value in knob_keys
             elif ok:
                 ok = value in button_keys or value.startswith(cls.commands_prefix)
             if ok:
                 mapped[(kind, int(number))] = value
-            else:
+            elif not (number.isdigit() and kind == 'note' and value == 'none'):
+                # (an empty button the CTR2 has beyond those used, its
+                # paddles' B98 say, is no loss)
                 skipped.append(key)
-        if not mapped:
+        # Its empty entries alone, as in a map made for another program
+        # whose functions are all its own, are not a map to put in place.
+        if all(value == 'none' for value in mapped.values()):
             return f'{name} has nothing this CTR2 map can use.', False
         settings = Server.settings
         settings.clear_section(cls.map_section)
@@ -20010,7 +20014,8 @@ class Ctr2Controller():
         settings.save()
         text = f'Imported {name}.'
         if skipped:
-            text += f' Skipped, not understood: {", ".join(skipped)}.'
+            shown = ', '.join(skipped[:8]) + (f' and {len(skipped) - 8} more' if len(skipped) > 8 else '')
+            text += f' Skipped, not understood: {shown}.'
         return text, True
 
     @classmethod
