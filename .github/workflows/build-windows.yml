@@ -37,8 +37,43 @@ jobs:
       - name: Install the Python packages
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller pillow PyQt6 pyqtgraph pyyaml opuslib numpy sounddevice \
+          pip install pillow PyQt6 pyqtgraph pyyaml opuslib numpy sounddevice \
               PySocks python-rtmidi pyserial hidapi
+
+      # PyInstaller from its source, its bootloader -- the small program
+      # each .exe starts with -- compiled here rather than the prebuilt
+      # one every PyInstaller program shares, malware's included, which
+      # Windows Defender's heuristics have learnt to distrust and which
+      # had k4companion-installer.exe taken for Trojan:Win32/Ulthar.A!ml.
+      # PYINSTALLER_COMPILE_BOOTLOADER has it built with the runner's
+      # Visual C++ rather than the source package's own prebuilt copies.
+      - name: Install PyInstaller with a bootloader of its own
+        env:
+          PYINSTALLER_COMPILE_BOOTLOADER: 1
+        run: pip install --no-binary pyinstaller pyinstaller
+
+      # Stops the build if it wasn't: the bootloader installed is the one
+      # in PyPI's wheel of the same version.
+      - name: Check the bootloader was compiled here
+        run: |
+          python - <<'PYEOF'
+          import hashlib, importlib.metadata, os, pathlib, subprocess, sys, tempfile, zipfile
+          import PyInstaller
+          version = importlib.metadata.version('pyinstaller')
+          ours = pathlib.Path(PyInstaller.__file__).parent / 'bootloader' / 'Windows-64bit-intel' / 'runw.exe'
+          wheels = tempfile.mkdtemp()
+          subprocess.run([sys.executable, '-m', 'pip', 'download', f'pyinstaller=={version}',
+                          '--only-binary=:all:', '--no-deps', '--platform', 'win_amd64', '-d', wheels],
+                         check=True)
+          wheel = next(pathlib.Path(wheels).glob('*.whl'))
+          with zipfile.ZipFile(wheel) as z:
+              stock = z.read('PyInstaller/bootloader/Windows-64bit-intel/runw.exe')
+          mine = ours.read_bytes()
+          print(f'PyInstaller {version}: runw.exe here {hashlib.sha256(mine).hexdigest()}')
+          print(f'                     in the wheel {hashlib.sha256(stock).hexdigest()}')
+          if mine == stock:
+              sys.exit('The bootloader is the prebuilt one: it was not compiled here.')
+          PYEOF
 
       - name: Read the version
         id: version
