@@ -22819,7 +22819,7 @@ config_data = r'''
   label: NB
   contains: #{
     #include main-noise-blanker-enable-togglebutton
-    #include main-noise-blanker-filter-dropdown-button
+    #include main-noise-blanker-filter-togglebutton
     #include main-noise-blanker-dropdown-button
   #}
 #end
@@ -22829,7 +22829,7 @@ config_data = r'''
   label: NB
   contains: #{
     #include sub-noise-blanker-enable-togglebutton
-    #include sub-noise-blanker-filter-dropdown-button
+    #include sub-noise-blanker-filter-togglebutton
     #include sub-noise-blanker-dropdown-button
   #}
 #end
@@ -22850,8 +22850,9 @@ config_data = r'''
   #}
 #end
   
-#define main-noise-blanker-filter-dropdown-button
-- item: dropdownbutton
+#define main-noise-blanker-filter-togglebutton
+- item: togglebutton
+  width: 3
   selections: #{
     - { text: "-", cmd: NB0;, evalcmd: 'f"NB{self.k4param("NB")[0:3]}0;"', evalresponse: 'f"NB{value[5]};"' } 
     - { text: "N", cmd: NB1;, evalcmd: 'f"NB{self.k4param("NB")[0:3]}1;"', evalresponse: 'f"NB{value[5]};"' } 
@@ -22859,8 +22860,9 @@ config_data = r'''
   #}
 #end
   
-#define sub-noise-blanker-filter-dropdown-button
-- item: dropdownbutton
+#define sub-noise-blanker-filter-togglebutton
+- item: togglebutton
+  width: 3
   selections: #{
     - { text: "-", cmd: NB$0;, evalcmd: 'f"NB${self.k4param("NB$")[0:3]}0;"', evalresponse: 'f"NB${value[6]};"' } 
     - { text: "N", cmd: NB$1;, evalcmd: 'f"NB${self.k4param("NB$")[0:3]}1;"', evalresponse: 'f"NB${value[6]};"' } 
