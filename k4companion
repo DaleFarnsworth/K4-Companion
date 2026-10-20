@@ -11588,17 +11588,14 @@ class AppSettings_widget(Widget):
     def audio_tci_tx_level_setting(self):
         # How loud a TCI client's transmit audio goes to the K4 (see
         # TciServer.tx_level): set so that the K4's ALC just shows.
-        current_value = Server.settings.getint('Audio', 'tci_tx_level_percent',
-                                               TciServer.tx_level_default, minimum=1, maximum=100)
-        if current_value not in TciServer.tx_levels:
-            current_value = TciServer.tx_level_default
+        current_value = TciServer.tx_percent()
         return self._labeled_combobox('TCI TX Level %', TciServer.tx_levels, current_value,
             self.on_tci_tx_level_combobox_changed, justify='right')
 
     def on_tci_tx_level_combobox_changed(self, current_value):
         if current_value in ('', None):
             return
-        Server.settings.put_save('Audio', 'tci_tx_level_percent', current_value)
+        Server.settings.put_save('Audio', 'tci_tx_percent', current_value)
         if TciServer.transmission != None:
             TciServer.transmission.level = TciServer.tx_level()
 
@@ -13358,11 +13355,15 @@ class TciServer():
     rx_gain = 10
     rates = (8000, 12000, 24000, 48000)
     default_rate = 48000
-    tx_levels = (1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100)
-    tx_level_default = 5
-    # The transmit level is a percentage of the most the microphone's audio
-    # is ever sent at, an eighth of full scale (see SSTV.tx_full_level).
-    tx_full_level = 1 / 8
+    # The transmit level is a percentage of tx_full_level, a tenth of the
+    # most the microphone's audio is ever sent at (an eighth of full
+    # scale, see SSTV.tx_full_level): FT8 from WSJT-X brought the K4's ALC
+    # where it should be at what is now the default, 50%. Saved as
+    # tci_tx_percent; tci_tx_level_percent, a level saved before, was a
+    # percentage of ten times this, and is taken as ten times what it was.
+    tx_levels = tuple(range(5, 105, 5))
+    tx_level_default = 50
+    tx_full_level = 1 / 80
     # A client's socket with more than this waiting to go is sent no more
     # audio until it has caught up.
     backlog_bytes = 1 << 20
@@ -13787,10 +13788,18 @@ class TciServer():
         return round(-73 + (bars - 18) * (3 if bars <= 18 else 2.5))
 
     @classmethod
+    def tx_percent(cls):
+        # The TCI TX Level % chosen, one of tx_levels (see tx_full_level).
+        settings = Server.settings
+        percent = settings.getint('Audio', 'tci_tx_percent', None, minimum=5, maximum=100)
+        if percent == None:
+            old = settings.getint('Audio', 'tci_tx_level_percent', None, minimum=1, maximum=100)
+            percent = cls.tx_level_default if old == None else old * 10
+        return min(cls.tx_levels, key=lambda level: abs(level - percent))
+
+    @classmethod
     def tx_level(cls):
-        percent = Server.settings.getint('Audio', 'tci_tx_level_percent', cls.tx_level_default,
-                                         minimum=1, maximum=100)
-        return percent / 100 * cls.tx_full_level
+        return cls.tx_percent() / 100 * cls.tx_full_level
 
     @classmethod
     def set_ptt(cls, socket, client, on):
