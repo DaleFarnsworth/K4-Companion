@@ -18492,27 +18492,28 @@ class Keyer():
     def set_dit_up_memory_delay_percent(cls, percent):
         cls.dit_up_memory_delay_percent = percent
 
-    @classmethod
-
+    # The auto spacing settings, for the keyer running; with none, the
+    # next one reads them from the settings, which the Keying tab has
+    # already saved (see Keyer.__init__).
     @classmethod
     def set_auto_char_space(cls, val):
-        self = cls.singleton
-        self.auto_char_space = val
+        if cls.singleton != None:
+            cls.singleton.auto_char_space = val
 
     @classmethod
     def set_auto_char_space_dits(cls, val):
-        self = cls.singleton
-        self.auto_char_space_dits = val
+        if cls.singleton != None:
+            cls.singleton.auto_char_space_dits = val
 
     @classmethod
     def set_auto_word_space(cls, val):
-        self = cls.singleton
-        self.auto_word_space = val
+        if cls.singleton != None:
+            cls.singleton.auto_word_space = val
 
     @classmethod
     def set_auto_word_space_dits(cls, val):
-        self = cls.singleton
-        self.auto_word_space_dits = val
+        if cls.singleton != None:
+            cls.singleton.auto_word_space_dits = val
 
     @classmethod
     def set_weighting(cls, val):
@@ -18539,9 +18540,10 @@ class Keyer():
         self.dah_was_down = False
 
         self.auto_char_space = Server.settings.getbool('CW', 'auto_char_space', False)
-        self.auto_char_space_dits = Server.settings.getfloat('CW', 'auto_char_space_dits', 2.0)
+        # As the Keying tab has them by default (see auto_space_setting).
+        self.auto_char_space_dits = Server.settings.getfloat('CW', 'auto_char_space_dits', 2.5)
         self.auto_word_space = Server.settings.getbool('CW', 'auto_word_space', False)
-        self.auto_word_space_dits = Server.settings.getfloat('CW', 'auto_word_space_dits', 5.5)
+        self.auto_word_space_dits = Server.settings.getfloat('CW', 'auto_word_space_dits', 6.0)
         self.weighting = 1
 
         # for straight_key handling
