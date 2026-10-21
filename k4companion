@@ -5004,22 +5004,38 @@ class Menu_definition():
         self.widget.setPageStep(1)
         self.widget.setFixedHeight(font_height(self.menu.font()) * 9)
         self.widget.setStyleSheet(f'QSlider {{ background-color: {self.menu.bg}; }}')
-        self.widget.setValue(round(float(self.current) / self.slider_resolution))
         self.widget.valueChanged.connect(self.slider_value_changed)
 
         self.frame_grid.addWidget(self.widget, 1, 0)
 
-        self.slider_value_label = QLabel(format_slider_value(float(self.current), self.slider_resolution))
+        self.slider_value_label = QLabel()
         self.slider_value_label.setFont(self.menu.font())
         self.slider_value_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         self.slider_value_label.setStyleSheet(f'QLabel {{ color: {self.menu.fg}; background-color: {self.menu.bg}; }}')
         self.frame_grid.addWidget(self.slider_value_label, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.slider_show_current()
+
+    def slider_show_current(self):
+        # The K4 can give words where the number goes: the reference
+        # oscillator's (REF) is "Ext Ref lock" while an external
+        # reference is locked. They are shown as they are, and the
+        # slider, left where it was, can't be moved until a number
+        # comes again.
+        try:
+            value = float(self.current)
+        except (TypeError, ValueError):
+            self.widget.setEnabled(False)
+            self.slider_value_label.setText(str(self.current))
+            return
+        self.widget.setEnabled(True)
+        self.widget.blockSignals(True)
+        self.widget.setValue(round(value / self.slider_resolution))
+        self.widget.blockSignals(False)
+        self.slider_value_label.setText(format_slider_value(value, self.slider_resolution))
 
     def slider_value_changed(self, position):
         if self.changeable != 'Unlocked':
-            self.widget.blockSignals(True)
-            self.widget.setValue(round(float(self.current) / self.slider_resolution))
-            self.widget.blockSignals(False)
+            self.slider_show_current()
             return
 
         value = position * self.slider_resolution
@@ -5034,10 +5050,7 @@ class Menu_definition():
             if isinstance(current, str) and current.find('-') > 0:
                 current = current.lstrip('0')
             self.current = current
-        self.widget.blockSignals(True)
-        self.widget.setValue(round(float(self.current) / self.slider_resolution))
-        self.widget.blockSignals(False)
-        self.slider_value_label.setText(format_slider_value(float(self.current), self.slider_resolution))
+        self.slider_show_current()
 
     def fixed_text(self):
         self.update_widget = self.fixed_text_update
