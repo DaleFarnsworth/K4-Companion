@@ -1,3 +1,46 @@
+v2.1.1:
+    Describe the SSTV Transmit tab's Frequency dropdown in the manual
+       Add the Transmit tab's Frequency dropdown to the SSTV window's
+       description and to the v2.1 revision history, and say the K-Pod
+       should be plugged into the computer, as the K-Pod tab now does.
+   
+    Say on the K-Pod tab that the K-Pod goes into this computer
+       A user had their K-Pod plugged into the K4, where K4 Companion
+       cannot see it. The K-Pod tab's note now begins by saying that it
+       should be plugged into this computer, not the K4.
+   
+    Correct the User Manual's version, and say where the K-Pod goes
+       Its first page said the current version was 2.0; it is 2.1. The
+       K-Pod Tab section now says that the K-Pod has to be plugged into
+       the computer K4 Companion runs on, not into the K4: a user had it
+       in the K4, where K4 Companion cannot see it.
+   
+    Describe --da kpod's list of HID devices in the User Manual
+
+    List the HID devices hidapi sees when no K-Pod is found, with --da kpod
+       A user had "No K-Pod found" while Windows showed a K-Pod. With
+       --da kpod, where none is found, every HID device hidapi sees is now
+       logged, its VID, PID, usage page, maker and product, so that a
+       K-Pod with other IDs, or one Windows has given another driver,
+       which hidapi can't see at all, can be told from one that isn't
+       there. Logged when it changes, not at every search.
+   
+    Add a Frequency dropdown to the SSTV window's Transmit tab
+       The Transmit tab has the Receive tab's Frequency dropdown too, beside
+       Mode and Level, the two showing the same frequency and tuning the
+       same way; it is disabled while a picture is sent, as Mode is. The
+       Load Picture, Use Received, Transmit and Stop buttons are on a line
+       of their own under them.
+   
+    Fix toggling Auto Char Space, and the auto spacing defaults
+       Keyer.set_auto_char_space had a second @classmethod above it, which
+       left it a classmethod object that could not be called: toggling
+       Auto Char Space on the Keying tab raised a TypeError. The setters
+       now also leave it to the next keyer, which reads the settings, when
+       none is running, rather than failing on it. The keyer's Trigger
+       Dits defaulted to 2.0 and 5.5 where the Keying tab and the manual
+       have 2.5 and 6.0; it now has those too.
+   
 v2.1:
     Describe the CMP dropdown and compression off for SSTV and RTTY in the User Manual
 
