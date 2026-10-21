@@ -15286,7 +15286,7 @@ class CW(Digital):
 
     def keyer_dit_paddle_note(self, note=None):
         if Keyer.device_type_vail_adapter:
-            Keyer.set_dit_paddle_notes([0, 1, 2])
+            Keyer.set_vail_paddle_notes()
             return
 
         setting_name = 'dit_paddle_midi_note'
@@ -15430,22 +15430,32 @@ class CW(Digital):
             self._hide(self.keyer_settings_frame, self.keyer_mode_frame)
             self._hide(self.midi_note_frame, self.keyer_dah_paddle_note_frame)
         elif Keyer.device_type_vail_adapter:
+            # The adapter's own mode, and in Passthrough the app keyer's
+            # under it.
             self._hide(self.midi_note_frame, self.keyer_dit_paddle_note_frame)
-            self.fill_keyer_modes()
-            self._show(self.keyer_settings_frame, self.keyer_mode_frame, 2, 0)
             self._hide(self.midi_note_frame, self.keyer_dah_paddle_note_frame)
+            self.vail_mode_dropdown.value(Keyer.get_vail_keyer_mode())
+            self._show(self.keyer_settings_frame, self.vail_mode_frame, 2, 0)
+            if Keyer.vail_passthrough():
+                self.keyer_mode_dropdown.value(Keyer.get_keyer_mode())
+                self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
+            else:
+                self._hide(self.keyer_settings_frame, self.keyer_mode_frame)
         else:
             self.dit_paddle_note_frame.setTitle('Dit Paddle Note')
             qt_size_tight_groupbox_title(self.dit_paddle_note_frame, 'Dit Paddle Note', self.label_font())
             self._show(self.midi_note_frame, self.keyer_dah_paddle_note_frame, 0, 1)
             self.fill_keyer_modes()
             self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
-        if not Keyer.device_type_vail_adapter and Keyer.keyer_mode == Keyer.MODE_IAMBIC_B:
+        if not Keyer.device_type_vail_adapter:
+            self._hide(self.keyer_settings_frame, self.vail_mode_frame)
+        if Keyer.device_type_internal_keyer and Keyer.keyer_mode == Keyer.MODE_IAMBIC_B:
             self._show(self.keyer_mode_frame, self.memory_delay_percent_frame, 0, 1)
         else:
             self._hide(self.keyer_mode_frame, self.memory_delay_percent_frame)
 
     def disable_midi_device_frame(self):
+        self._hide(self.keyer_settings_frame, self.vail_mode_frame)
         self._hide(self.keyer_settings_frame, self.midi_device_frame)
         self._hide(self.keyer_settings_frame, self.midi_note_frame)
         self._hide(self.serial_signal_frame, self.keyer_dit_paddle_signal_frame)
@@ -15593,18 +15603,25 @@ class CW(Digital):
         keyer_mode = Keyer.get_keyer_mode()
         self.keyer_mode_dropdown.value(keyer_mode)
         self.keyer_memory_delay_percent_settings()
+
+        # A Vail adapter's own keyer mode (see VailAdapter.keyer_modes).
+        self.vail_mode_frame, vail_grid = self._plain_frame()
+        frame, _ = qt_group_box('Vail Mode', self.label_font())
+        vail_grid.addWidget(frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.vail_mode_dropdown = self._dropdown(frame, self.on_select_vail_mode, 'left')
+        self.vail_mode_dropdown.values(VailAdapter.keyer_modes)
+        self.vail_mode_dropdown.value(Keyer.get_vail_keyer_mode())
+        self.vail_mode_frame.hide()
         return self.keyer_mode_frame
 
     def fill_keyer_modes(self):
-        if Keyer.device_type_vail_adapter:
-            keyer_modes = VailAdapter.keyer_modes
-        else:
-            keyer_modes = (
-                Keyer.MODE_IAMBIC,
-                Keyer.MODE_IAMBIC_A,
-                Keyer.MODE_IAMBIC_B,
-                Keyer.MODE_ULTIMATIC,
-            )
+        # The app's keyer's; a Vail adapter's own are vail_mode_dropdown's.
+        keyer_modes = (
+            Keyer.MODE_IAMBIC,
+            Keyer.MODE_IAMBIC_A,
+            Keyer.MODE_IAMBIC_B,
+            Keyer.MODE_ULTIMATIC,
+        )
 
         self.keyer_mode_dropdown.values(keyer_modes)
 
@@ -15612,6 +15629,12 @@ class CW(Digital):
         keyer_mode = self.keyer_mode_dropdown.value()
         Keyer.set_keyer_mode(keyer_mode)
         self.enable_midi_device_frame()
+
+    def on_select_vail_mode(self, event):
+        # Into Passthrough or out of it, the keying and the tab change with
+        # it: the device type is applied again.
+        Keyer.set_vail_keyer_mode(self.vail_mode_dropdown.value())
+        self.keyer_device_type()
 
     def keyer_memory_delay_percent_settings(self):
         # The group box the percentage is typed into. Its own widget
@@ -17434,6 +17457,10 @@ class MidiInput():
 
 class VailAdapter():
     midiout = None
+    # Its keyer mode in which it keys nothing itself, sending the paddles
+    # as they are, the dit as note 1 and the dah as note 2, for the app's
+    # keyer to key (see Keyer.set_vail_paddle_notes).
+    PASSTHROUGH = 'Passthrough'
 
     keyer_modes = (
         'Passthrough',
@@ -17506,7 +17533,7 @@ class VailAdapter():
     @classmethod
     def send_keyer_mode(cls):
         for i, mode in enumerate(cls.keyer_modes):
-            if mode == Keyer.keyer_mode:
+            if mode == Keyer.vail_keyer_mode:
                 keyer_mode = i
                 break
         else:
@@ -18143,6 +18170,7 @@ class Keyer():
     device_type_MIDI = False
     device_type_serial = False
     device_type_vail_adapter = False
+    vail_keyer_mode = 'Iambic B'
     device_type_internal_keyer = False
     straight_keying = False
     keyer_mode = MODE_IAMBIC_B
@@ -18429,23 +18457,46 @@ class Keyer():
 
     @classmethod
     def get_keyer_mode(cls):
-        if cls.device_type_vail_adapter:
-            key = 'vail_adapter_keyer_mode'
-        else:
-            key =  'keyer_mode'
-        mode = Settings.main().get('Keyer', key, cls.MODE_IAMBIC_B)
+        # The app's keyer's mode: for paddles, and a Vail adapter in
+        # Passthrough.
+        mode = Settings.main().get('Keyer', 'keyer_mode', cls.MODE_IAMBIC_B)
         cls.keyer_mode = mode
         return mode
 
     @classmethod
     def set_keyer_mode(cls, mode):
         cls.keyer_mode = mode
-        if cls.device_type_vail_adapter:
-            key = 'vail_adapter_keyer_mode'
-            VailAdapter.send_keyer_mode()
+        Settings.main().put_save('Keyer', 'keyer_mode', mode)
+
+    @classmethod
+    def get_vail_keyer_mode(cls):
+        # A Vail adapter's own, one of VailAdapter.keyer_modes.
+        mode = Settings.main().get('Keyer', 'vail_adapter_keyer_mode', cls.MODE_IAMBIC_B)
+        cls.vail_keyer_mode = mode
+        return mode
+
+    @classmethod
+    def set_vail_keyer_mode(cls, mode):
+        cls.vail_keyer_mode = mode
+        Settings.main().put_save('Keyer', 'vail_adapter_keyer_mode', mode)
+        VailAdapter.send_keyer_mode()
+
+    @classmethod
+    def vail_passthrough(cls):
+        return cls.device_type_vail_adapter and cls.vail_keyer_mode == VailAdapter.PASSTHROUGH
+
+    @classmethod
+    def set_vail_paddle_notes(cls):
+        # In Passthrough the paddles, notes 1 and 2, for the app's keyer;
+        # the note 0 the original adapter sends with each, as its key,
+        # isn't one of them. Otherwise the adapter's own keyer keys, and
+        # whatever note it sends is the key.
+        if cls.vail_passthrough():
+            cls.set_dit_paddle_notes([1])
+            cls.set_dah_paddle_notes([2])
         else:
-            key = 'keyer_mode'
-        Settings.main().put_save('Keyer', key, mode)
+            cls.set_dit_paddle_notes([0, 1, 2])
+            cls.set_dah_paddle_notes([])
 
     @classmethod
     def set_message_callback(cls):
@@ -18466,6 +18517,7 @@ class Keyer():
 
     @classmethod
     def set_device_type(cls, typ = None):
+        was_straight_keying = cls.straight_keying
         if not typ:
             typ = cls.device_type
         else:
@@ -18476,10 +18528,15 @@ class Keyer():
         if typ:
             if 'Vail Adapter' in typ:
                 cls.device_type_vail_adapter = True
-                cls.straight_keying = True
+                # Keyed by the adapter itself, or in Passthrough by the
+                # app's keyer from the paddles it sends.
+                cls.get_vail_keyer_mode()
+                passthrough = cls.vail_passthrough()
+                cls.straight_keying = not passthrough
                 cls.device_type_MIDI = True
                 cls.device_type_serial = False
-                cls.device_type_internal_keyer = False
+                cls.device_type_internal_keyer = passthrough
+                cls.set_vail_paddle_notes()
             else:
                 cls.device_type_vail_adapter = False
                 if 'Straight Key' in typ:
@@ -18519,6 +18576,16 @@ class Keyer():
         # in place: released any earlier and the one being let go could
         # report the paddle closed again on its way out.
         cls.release_paddles()
+
+        # A keyer running, keyed now from paddles where it was a straight
+        # key, or the other way round, a Vail adapter going into
+        # Passthrough or out of it, say: its thread waits for its next
+        # event in the one it was, and would take that event, and drop
+        # it, before seeing it is now the other. Begun again, it starts in
+        # the right one.
+        if cls.singleton != None and cls.straight_keying != was_straight_keying:
+            cls.close()
+            cls.open()
 
     @classmethod
     def set_dit_paddle_notes(cls, notes):
