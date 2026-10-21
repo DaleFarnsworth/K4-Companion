@@ -17960,6 +17960,35 @@ class KpodInput():
         while not cls.stopping and time.monotonic() < until:
             time.sleep(.1)
 
+    # What log_hid_devices last listed, so that a search every few seconds
+    # logs it only when it changes.
+    listed_hid_devices = None
+
+    @classmethod
+    def log_hid_devices(cls):
+        # With --da kpod, where no K-Pod is found: every HID device hidapi
+        # sees, for telling a K-Pod under other IDs, or one Windows has
+        # given another driver (WinUSB, libusb), which hidapi can't see at
+        # all, from one that isn't there.
+        if 'kpod' not in Options.debug_areas:
+            return
+        try:
+            infos = hid.enumerate(0, 0)
+        except Exception as e:
+            lines = [f'K-Pod: listing HID devices failed: {e}']
+        else:
+            lines = [f'K-Pod: none with VID {cls.vendor_id:04X} PID {cls.product_id:04X}; '
+                     f'the {len(infos)} HID devices hidapi sees:']
+            for info in sorted(infos, key=lambda i: (i.get('vendor_id', 0), i.get('product_id', 0))):
+                lines.append(f'  VID {info.get("vendor_id", 0):04X} PID {info.get("product_id", 0):04X}'
+                             f' usage page {info.get("usage_page", 0):04X}'
+                             f' {info.get("manufacturer_string") or "-"}:'
+                             f' {info.get("product_string") or "-"}')
+        if lines != cls.listed_hid_devices:
+            cls.listed_hid_devices = lines
+            for line in lines:
+                dprint_kpod(line)
+
     @classmethod
     def open_device(cls):
         # The K-Pod opened, and what to say about it; or None, and why not.
@@ -17968,7 +17997,9 @@ class KpodInput():
         except Exception as e:
             return None, f'K-Pod search failed: {e}'
         if not infos:
+            cls.log_hid_devices()
             return None, 'No K-Pod found.'
+        cls.listed_hid_devices = None
 
         # Its vendor-defined interface, where it has more than one.
         info = max(infos, key=lambda i: i.get('usage_page', 0) >= 0xff00)
