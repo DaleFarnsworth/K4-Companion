@@ -1,4 +1,9 @@
 v2.1.1:
+    Say v2.1.1 in the User Manual
+       Its first page now gives 2.1.1 as the current version, and its
+       revision history has a v2.1.1 section listing the fixes since
+       v2.1.
+   
     Describe the SSTV Transmit tab's Frequency dropdown in the manual
        Add the Transmit tab's Frequency dropdown to the SSTV window's
        description and to the v2.1 revision history, and say the K-Pod
