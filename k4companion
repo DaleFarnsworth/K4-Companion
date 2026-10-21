@@ -11543,7 +11543,8 @@ class KpodSettings():
         self.rocker_label.setFont(owner.font())
         grid.addWidget(self.rocker_label, 1, 0, Qt.AlignmentFlag.AlignLeft)
 
-        note = QLabel('The rocker picks what the knob tunes: left VFO A, centre VFO B, right RIT.\n'
+        note = QLabel("The K-Pod should be plugged into this computer, not the K4: K4 Companion can't see one plugged into the K4.\n"
+                      'The rocker picks what the knob tunes: left VFO A, centre VFO B, right RIT.\n'
                       'A button runs its Tap commands when tapped and its Hold commands when held.\n'
                       'Commands set on All Modes run in every mode; otherwise those for the current TX mode run\n'
                       "(VFO A's mode, or VFO B's when split).\n"
