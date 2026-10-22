@@ -1,3 +1,36 @@
+v2.1.2:
+    Say v2.1.2 in the User Manual, and describe menu values in words
+       Its first page gives 2.1.2 as the current version, the Menu Tab
+       section says how a menu value the K4 gives as words, such as Ext Ref
+       lock, is shown, and the v2.1.2 revision history lists that fix.
+   
+    Show a menu slider's value when the K4 gives words for it
+       While an external reference is locked, the K4 gives the reference
+       oscillator's menu value (type REF) as "Ext Ref lock", and building
+       its slider failed converting that to a number, so the Menu tab never
+       came up. Words given for a slider's value are now shown as they
+       are, and the slider can't be moved until a number comes again.
+   
+    Describe a Vail adapter's Passthrough in the User Manual
+       The Keying Tab section now says that in Passthrough K4 Companion's
+       own keyer keys the adapter's paddles, in the mode chosen under Vail
+       Mode, and the revision history has it in a v2.1.2 section.
+   
+    Key a Vail adapter's paddles with the app's keyer in Passthrough
+       In Passthrough a Vail adapter keys nothing itself, sending its dit
+       and dah paddles as notes 1 and 2; they were all taken as a straight
+       key. They now go to the app's keyer as paddles, the note 0 the
+       original adapter sends with each ignored, with the app keyer's own
+       mode, shown on the Keying tab under the adapter's Vail Mode while it
+       is in Passthrough and saved apart from it. In its other modes the
+       adapter keys, and every note it sends is the key, as before.
+       
+       A keyer running when the keying went from paddles to a straight key,
+       or back, waited for its next event in the one it was, and dropped
+       it: the first press after changing the device type, or now a Vail
+       adapter's mode, was lost. The keyer is begun again when that
+       changes.
+   
 v2.1.1:
     Say v2.1.1 in the User Manual
        Its first page now gives 2.1.1 as the current version, and its
