@@ -4693,6 +4693,7 @@ class Menu_definition():
         self.values = []
         for value in d[10:]:
             self.values.append(hex_decode(value))
+        self.mult = 1
         self.container = menu.container
         self.server = menu.server
 
@@ -4801,6 +4802,7 @@ class Menu_definition():
         'ZMON': '(-1 = OFF)',
         'ZOFF': '(0 = OFF)',
         'MHz': '(MHz)',
+        'M50Hz': '(Hz)',
         'D10mW': '(mW)',
         'Hz': '(Hz)',
     }
@@ -4897,21 +4899,8 @@ class Menu_definition():
         self.listbox()
 
     def m50hz(self):
-        self.values = ('150 Hz', '200 Hz', '250 Hz', '300 Hz', '350 Hz', '400 Hz', '450 Hz', '500 Hz', '550 Hz', '600 Hz', '650 Hz', '700 Hz')
-        self.high -= self.low
-        self.low = 0
-        self.listbox()
-        self.send_command = self.m50hz_send_command
-        self.update_widget = self.m50hz_update
-
-    def m50hz_send_command(self):
-        value = int(self.current) + 3
-        self.server.send_str('ME{index:04d}.{value:04d};'.format(index=self.index, value=value))
-
-    def m50hz_update(self, current=None):
-        if current != None:
-            self.current = current - 3
-        self.listbox_update()
+        self.mult = 50
+        self.slider()
 
     def aofs(self):
         self.low -= 8
@@ -4984,18 +4973,22 @@ class Menu_definition():
         self.server.send_str('ME{index:04d}.{value:04d};'.format(index=self.index, value=value))
 
     def slider(self):
+        low = self.low * self.mult
+        high = self.high * self.mult
+        increment = self.increment * self.mult
+
         self.update_widget = self.slider_update
         # QSlider only takes integer steps, so (as with SliderWidget
         # elsewhere) the widget works in units of "resolution" internally.
-        self.slider_resolution = float(self.increment) if self.increment else 1
+        self.slider_resolution = float(increment) if increment else 1
 
         self.widget = QSlider(Qt.Orientation.Vertical)
         # low/high/current stay whatever typed_value() gave them (still a
         # raw str for menu type 'REF', since widget_send_command() must
         # echo that string back to the K4 unmodified) -- float() here only
         # to give the widget the numbers it needs, without mutating them.
-        self.widget.setMinimum(round(float(self.low) / self.slider_resolution))
-        self.widget.setMaximum(round(float(self.high) / self.slider_resolution))
+        self.widget.setMinimum(round(float(low) / self.slider_resolution))
+        self.widget.setMaximum(round(float(high) / self.slider_resolution))
         # tk's from_=high (top)/to=low (bottom) is what a vertical QSlider
         # already does by default with setMinimum(low)/setMaximum(high) --
         # no setInverted*() needed (see the matching fix in Equalizers).
@@ -5022,7 +5015,7 @@ class Menu_definition():
         # slider, left where it was, can't be moved until a number
         # comes again.
         try:
-            value = float(self.current)
+            value = float(self.current) * self.mult
         except (TypeError, ValueError):
             self.widget.setEnabled(False)
             self.slider_value_label.setText(str(self.current))
@@ -5041,7 +5034,7 @@ class Menu_definition():
         value = position * self.slider_resolution
         if isinstance(self.low, int) and isinstance(self.high, int):
             value = int(value)
-        self.current = value
+        self.current = value / self.mult
         self.slider_value_label.setText(format_slider_value(value, self.slider_resolution))
         self.send_command()
 
