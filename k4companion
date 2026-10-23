@@ -1246,7 +1246,7 @@ class Server():
             timeout = 2000
             if ov_bits != 0:
                 timeout = 3000
-            Popup.modal(msg, timeout=timeout, color='yellow')
+            Popup.warning(msg, timeout=timeout)
 
     def close(self):
         MidiInput.close()
