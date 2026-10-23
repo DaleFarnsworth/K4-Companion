@@ -75,7 +75,7 @@ import traceback
 import yaml
 
 from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, QRect, pyqtSignal, QThread, qInstallMessageHandler, QCoreApplication, QStandardPaths
-from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat, QCursor, QImage, QPixmap, QPalette, QColor
+from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QFontMetricsF, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat, QCursor, QImage, QPixmap, QPalette, QColor
 from PyQt6.QtNetwork import QTcpServer, QHostAddress
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QStackedWidget, QLabel, QGroupBox,
@@ -83,6 +83,7 @@ from PyQt6.QtWidgets import (
     QButtonGroup, QSlider, QProgressBar, QTabWidget, QDialog, QLineEdit,
     QComboBox, QListWidget, QLayout, QPlainTextEdit, QProxyStyle, QStyle,
     QSplitter, QStyledItemDelegate, QFileDialog, QSizePolicy,
+    QStyleOptionComboBox,
 )
 
 # Modify the path to find opus.dll on Windows, which opuslib looks for
@@ -291,6 +292,36 @@ def qt_fit_combobox_width(combobox, margin=10):
         return
     combobox.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
     combobox.setMinimumWidth(combobox.sizeHint().width() + margin)
+
+def qt_fit_editable_combobox_width(combobox, texts, margin=0):
+    # An editable box shows its value in a line edit, and Qt sizes the
+    # box for its items' text alone, leaving out what the line edit
+    # keeps either side of the text: its 2px, a pixel for the cursor,
+    # and any text margins. The widest item came up a pixel or two
+    # short and was clipped -- SSNR's AC, RF Gain's -10, BW's 2.80. So
+    # the box is given that much room for the widest of texts, and the
+    # arrow and frame around the line edit, as its own style lays them
+    # out. Only ever widened, never narrowed.
+    #
+    # The text is measured unrounded, and rounded up, with 2px to
+    # spare: drawn at fractional widths, it can come to more than the
+    # rounded figure, and with none to spare a box can still cut the
+    # last letter of its widest value.
+    combobox.ensurePolished()
+    metrics = QFontMetricsF(combobox.font())
+    text_width = math.ceil(max((metrics.horizontalAdvance(text) for text in texts),
+                               default=0))
+    line_edit = combobox.lineEdit()
+    margins = line_edit.textMargins()
+    field_width = text_width + 2 * 2 + 1 + 2 + margins.left() + margins.right()
+    option = QStyleOptionComboBox()
+    combobox.initStyleOption(option)
+    option.rect = QRect(0, 0, 200, combobox.sizeHint().height())
+    field = combobox.style().subControlRect(QStyle.ComplexControl.CC_ComboBox, option,
+                                            QStyle.SubControl.SC_ComboBoxEditField, combobox)
+    chrome = 200 - field.width()
+    combobox.setMinimumWidth(max(combobox.minimumWidth(),
+                                 field_width + chrome + margin))
 
 def qt_list_width(listwidget, texts, font):
     # The width that shows a QListWidget's widest item and its
@@ -3794,6 +3825,7 @@ class DropdownWidget():
         qt_tighten_combobox_popup(self.combobox)
 
         if editable:
+            qt_fit_editable_combobox_width(self.combobox, texts)
             line_edit = self.combobox.lineEdit()
             line_edit.setValidator(NoSpaceValidator(line_edit))
             line_edit.setAlignment(qt_justify(justify))
