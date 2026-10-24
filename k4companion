@@ -8494,8 +8494,13 @@ class StreamResampler():
     # Going down, the input is low-passed first, below the lower rate's
     # half: interpolated without, anything above it -- a microphone's
     # hiss and sibilance, at 44.1 kHz -- would come out folded down into
-    # the audio. A windowed sinc, which delays it by half its length.
-    lowpass_taps = 63
+    # the audio. A windowed sinc, which delays it by half its length:
+    # lowpass_taps_per_ratio taps for each time over the lower rate the
+    # higher one is, rounded up, less one -- 63 from 48 or 44.1 kHz to
+    # 12, and 127 from 96. A fixed length would make the filter's
+    # transition twice as wide at twice the rate, letting more of what is
+    # above the lower rate's half through.
+    lowpass_taps_per_ratio = 16
     lowpass_share = .45             # of the lower rate
 
     def __init__(self, from_rate, to_rate):
@@ -8504,6 +8509,7 @@ class StreamResampler():
         self.last = None
         self.taps = None
         if to_rate < from_rate:
+            self.lowpass_taps = self.lowpass_taps_per_ratio * math.ceil(from_rate / to_rate) - 1
             cutoff = self.lowpass_share * to_rate / from_rate
             n = numpy.arange(self.lowpass_taps) - (self.lowpass_taps - 1) / 2
             taps = 2 * cutoff * numpy.sinc(2 * cutoff * n) * numpy.hamming(self.lowpass_taps)
@@ -8541,10 +8547,11 @@ class Audio():
     k4_frames_per_millisecond = k4_sample_rate // 1000
     k4_sample_rate_code = 0
     # The rates a device is tried at, in order, input and output alike:
-    # 48 kHz, a whole multiple of the K4's 12, and 44.1 kHz, which a
-    # device that won't take 48 is likeliest to take, and which is
-    # resampled with StreamResampler.
-    device_sample_rates = (48000, 44100)
+    # 48 kHz, a whole multiple of the K4's 12 and the least work; 96
+    # kHz, a whole multiple too, for a device that won't run at 48; and
+    # 44.1 kHz, which a device that takes neither is likeliest to take,
+    # and which is resampled with StreamResampler.
+    device_sample_rates = (48000, 96000, 44100)
     frames_per_output_buffer = 0    # Set when the device is opened
     encode_mode_raw32 = 0
     encode_mode_raw16 = 1
@@ -8620,7 +8627,9 @@ class Audio():
     # thing to ask with: this is a frame count, and 288 of them is 6ms
     # at the 48000 a device that takes exclusive mode is likeliest to run
     # at. 4ms was asked for before; a tester whose keying was erratic in
-    # exclusive mode found 6ms the best of the blocks tried.
+    # exclusive mode found 6ms the best of the blocks tried. At a whole
+    # multiple of 48000, 96000, it is as many times over, so that it is
+    # 6ms there too -- see exclusive_blocksize_at.
     exclusive_blocksize = 288
 
     # Counted DAC times, for a stream in WASAPI exclusive mode whose
@@ -9286,8 +9295,16 @@ class Audio():
         # of audio at whatever rate the device runs, which is what the
         # sidetone's placement is reasoned about in.
         if extra_settings != None:
-            return cls.exclusive_blocksize
+            return cls.exclusive_blocksize_at(sample_rate)
         return round(sample_rate * cls.output_buffer_time)
+
+    @classmethod
+    def exclusive_blocksize_at(cls, sample_rate):
+        # exclusive_blocksize, at sample_rate: as many times over as it is
+        # a whole multiple of 48000.
+        if sample_rate == None:
+            return cls.exclusive_blocksize
+        return cls.exclusive_blocksize * max(1, sample_rate // 48000)
 
     def choose_output_sample_rate(self, extra_settings):
         # The rate the device was enumerated at was tested in shared
@@ -9760,7 +9777,8 @@ class Audio():
                                 continue
                         return None
 
-                    attempts = self.open_attempts('output', cls.exclusive_blocksize)
+                    attempts = self.open_attempts('output',
+                        cls.exclusive_blocksize_at(cls.output_device_sample_rate()))
                     # Exclusive attempts come first, so the first one says
                     # whether exclusive mode was asked for at all.
                     wanted_exclusive = attempts[0][1] != None
@@ -11007,19 +11025,20 @@ class Audio():
                 # brings nothing in would leave the operator off the air,
                 # with the no-input warning below and this thread gone,
                 # where falling back to shared would have him heard.
-                attempts = self.open_attempts('input', Audio.exclusive_blocksize)
+                attempts = self.open_attempts('input',
+                    Audio.exclusive_blocksize_at(Audio.input_device_sample_rate()))
                 wanted_exclusive = attempts[0][1] != None
                 opened_exclusive = False
                 input_stream = None
-                # A frame's worth, at a whole multiple of the K4's rate.
-                # At 44.1 kHz that is 5.44ms, and 240 frames, as was asked
-                # for, a device was seen to deliver at well under its
-                # rate: 31 reads of 882 frames a second, not 50, so that
-                # what was sent fell further and further behind. Asked
-                # for 10ms, it delivered every one.
+                # 5ms, 240 frames at 48 kHz and 480 at 96, at a whole
+                # multiple of the K4's rate. At 44.1 kHz that is 5.44ms,
+                # and 240 frames, as was asked for, a device was seen to
+                # deliver at well under its rate: 31 reads of 882 frames a
+                # second, not 50, so that what was sent fell further and
+                # further behind. Asked for 10ms, it delivered every one.
                 rate = Audio.input_device_sample_rate()
                 if rate % Audio.k4_sample_rate == 0:
-                    shared_blocksize = Audio.input_frame_size
+                    shared_blocksize = rate // 200
                 else:
                     shared_blocksize = rate // 100
                 for label, extra_settings, blocksize in attempts:
