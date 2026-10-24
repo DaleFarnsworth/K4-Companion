@@ -1,3 +1,55 @@
+v2.2-rc3:
+    Bring the User Manual up to date with v2.1.4
+       The revision history now has the v2.1.4 section released from main,
+       and the Main tab section calls Audio Mix the button it is, saying
+       that clicking it goes on to A, B or A+B from a mix only macros set.
+   
+    Describe Ref's Set in the User Manual
+       The Panadapter Window section now says that Ref's Set sets REF for
+       its own receiver alone, to the noise floor its trace shows, averaged
+       and offset as MENU:AutoRef Averaging and AutoRef Offset say.
+   
+    Have Ref's Set set its own receiver's REF, as the K4's auto-ref does
+       Ref's Set had the K4 apply its auto-ref level once (#ARM;#AR1;), and
+       #AR1 sets both receivers' REF, there being no #AR$: Set in either
+       panadapter moved the other's REF as well. Set now sets its own
+       receiver's REF, #REF or #REF$, from the noise floor its own trace
+       shows, and turns auto-ref off so that it stays. Until the window has
+       drawn a frame, and so has no floor, #AR1 still stands in.
+       
+       It places REF as the K4's auto-ref does, by its settings from #AR
+       (MENU: AutoRef Averaging and AutoRef Offset): the noise averaged over
+       as many frames as the averaging, the medians of the last that many,
+       less the offset -- a positive offset puts REF below the noise,
+       showing more of it, as on the K4. The debounce is not used: it is how
+       far the signals have to change for auto-ref to work REF out again,
+       and Set works it out when asked. And a dB is added,
+       set_ref_correction_db: without it Set came out consistently a dB
+       below the level #AR1 gives for the same noise, -91 where #AR1 gave
+       -90.
+   
+    Describe 96 kHz audio devices in the User Manual
+       The Audio Tab section now says that devices at 48, 96 or 44.1 kHz are
+       listed, each used at the first of those it takes, and the v2.2
+       revision history lists 96 kHz support.
+   
+    Support audio devices at 96 kHz
+       A device was tried at 48 and 44.1 kHz only, and one that runs at 96
+       kHz and not 48 was resampled from 44.1, or not listed at all. 96 kHz
+       is now tried after 48, which stays first as the least work: like 48,
+       it is a whole multiple of the K4's 12, the K4's audio interpolated up
+       eight times rather than four, and the microphone's brought down by
+       the same StreamResampler.
+       
+       What scales with the rate is made to: the exclusive-mode block, 288
+       frames, 6ms at 48 kHz, is twice that at 96, so that it is 6ms there
+       too; the microphone's shared block is 5ms, as it was at 48; and the
+       low-pass filter StreamResampler puts in front of bringing a rate
+       down is as many times longer as the rate is over the lower one, 127
+       taps from 96 kHz rather than 63. Left at 63, a 7 kHz sound into a 96
+       kHz microphone came through folded down to 5 kHz at -23 dB; at 127 it
+       is -54 dB, as from 48.
+   
 v2.2-rc2:
     Describe the panadapter's Ref and Scale dropdowns in the User Manual
        The Panadapter Window section now describes Ref, with its Auto, Set
