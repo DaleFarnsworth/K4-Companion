@@ -1,3 +1,17 @@
+v2.1.4:
+    Say v2.1.4 in the User Manual, and describe the Audio Mix button
+       Its first page gives 2.1.4 as the current version, its revision
+       history has a v2.1.4 section for the Audio Mix fix, and the Main tab
+       section calls Audio Mix the button it is, saying that clicking it
+       goes on to A, B or A+B from a mix only macros set.
+   
+    togglebutton: Fix the breakage for "hidden" options
+       This was noted in the Audio Mix toggle button. Thanks to
+       Art Greenberg, WA2LLN for the report.
+       
+       Also, raise an exception if the toggle selections are impossible
+       to implement.
+   
 v2.1.3:
     Describe Power Off's Disconnected and ADC Overflow's warning
        The Server tab section now says that after Power Off the connection
