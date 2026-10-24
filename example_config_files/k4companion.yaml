@@ -974,9 +974,9 @@
   wraparound: False
   selections: #{
     - { text: 'Connect', bg: yellow, abg: yellow, blink: on }
-    - { text: 'Connecting', cmd: CONNECT!; }
-    - { text: 'Connected', response: PONG;, hidden: True }
-    - { text: 'Disconnected', response: '!DISCONNECTED;', hidden: True }
+    - { text: 'Connecting', cmd: CONNECT!;, readonly: True }
+    - { text: 'Connected', response: PONG;, readonly: True }
+    - { text: 'Disconnected', response: '!DISCONNECTED;', readonly: True }
   #}
 #end
 

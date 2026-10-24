@@ -2510,7 +2510,7 @@ class ToggleWidget():
             selection = {}
 
             required = []
-            optional = ['text', 'cmd', 'evalcmd', 'response', 'evalresponse', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font', 'hidden', 'tooltip']
+            optional = ['text', 'cmd', 'evalcmd', 'response', 'evalresponse', 'bg', 'abg', 'fg', 'afg', 'blink', 'font', 'button_font', 'hidden', 'readonly', 'tooltip']
             validate_options(sel_opt, required, optional, name='togglebutton.selection')
 
             selection['text'] = sel_opt.get('text', '')
@@ -2540,6 +2540,7 @@ class ToggleWidget():
             selection['evalcmd'] = sel_opt.get('evalcmd', None)
             selection['evalresponse'] = sel_opt.get('evalresponse', None)
             selection['hidden'] = true_values(sel_opt.get('hidden', False))
+            selection['readonly'] = true_values(sel_opt.get('readonly', False))
             self.selections.append(selection)
 
         self.frame = frame
@@ -2583,19 +2584,39 @@ class ToggleWidget():
             self.blinkon(selection)
         else:
             self.blinkoff(selection)
-        self.button.setEnabled(not selection['hidden'])
+        self.button.setEnabled(not selection['readonly'])
 
     def next_selection(self):
-        self.index += 1
-        if self.index >= len(self.selections):
-            if self.wraparound:
+        # On to the next selection that isn't hidden. Without wraparound,
+        # where there is none ahead the button stays where it was. With
+        # it, one is found within a round of them all, the one it was on
+        # coming last, unless every selection is hidden, which is a fault
+        # in the configuration: that is raised, the button left as it
+        # was, rather than going round for ever.
+        start = self.index
+        n = len(self.selections)
+        for _ in range(n):
+            self.index += 1
+            if self.index >= n:
+                if not self.wraparound:
+                    self.index = start
+                    break
                 self.index = 0
-            else:
-                self.index = len(self.selections) - 1
+
+            selection = self.selections[self.index]
+            if not selection['hidden']:
+                break
+        else:
+            self.index = start
+            raise Exception('Unterminated toggle selections')
 
         self.configure()
 
     def do_selection(self):
+        selection = self.selections[self.index]
+        readonly = selection['readonly']
+        if readonly:
+            return
         self.button.setFocus()
         self.next_selection()
         self.configure()
@@ -22368,9 +22389,9 @@ config_data = r'''
   wraparound: False
   selections: #{
     - { text: 'Connect', bg: yellow, abg: yellow, blink: on }
-    - { text: 'Connecting', cmd: CONNECT!; }
-    - { text: 'Connected', response: PONG;, hidden: True }
-    - { text: 'Disconnected', response: '!DISCONNECTED;', hidden: True }
+    - { text: 'Connecting', cmd: CONNECT!;, readonly: True }
+    - { text: 'Connected', response: PONG;, readonly: True }
+    - { text: 'Disconnected', response: '!DISCONNECTED;', readonly: True }
   #}
 #end
 
