@@ -735,6 +735,7 @@ class Server():
         '#H': ['#HDPM', '#HDSM', '#HREF', '#HWBS', '#HWFC', '#HWFH'],
         'KZ': ['KZL', 'KZF'],
         'LO': ['LOG'],
+        '!D': ['!DISCONNECTED'],
         '!M': ['!MACROS'],
         '!R': ['!RTTY'],
         '!S': ['!SSTV'],
@@ -893,6 +894,7 @@ class Server():
         self.send_thread = None
         self.recv_thread = None
         self.connected = False
+        self.disconnecting = False
         self.k4_subscriptions = {}
         self.k4_parameters = {}
         self.connect_callbacks = []
@@ -1142,6 +1144,8 @@ class Server():
         except socket.gaierror:
             error = 'Address not found: {addr}'.format(addr=self.address)
         except Exception as e:
+            self.disconnecting - True
+            self.send_cmds('!DISCONNECTED;')
             error = "Failed to connect to {name}, address {addr}, port {port}\n".format(
                 name=self.name, addr=self.address, port=self.port)
             if self.proxy_address != '':
@@ -1419,12 +1423,16 @@ class Server():
                 cmd += ';'
                 self.send_str(cmd)
 
+            if base == 'PS':
+                self.disconnecting = True
+
     def warn_if_not_connected(self):
-        if self.connected:
+        if self.connected or self.disconnecting:
             return False
         if not self.printed_connection_warning and self.received_cat_cmd:
             Popup.warning("Server '{name}' not connected.".format(name=self.name))
         self.printed_connection_warning = True
+        self.disconnecting = False
         return True
 
     def send_loop(self):
@@ -1638,6 +1646,8 @@ class Server():
                     and not CatServer.forwarded_lately(base)):
                 Popup.warning('Received error response from K4: ' + base + response)
             self.update_k4_parameter(base, response)
+            if base.startswith('!'):
+                continue
             CatServer.on_k4_response(base, full_response)
 
     def cat_only_recv_loop(self):
@@ -1857,8 +1867,9 @@ class Server():
             if self.lost_connection_retry_count == 1:
                 dprint1(reason)
             return False
-        if self.received_cat_cmd:
+        if not self.disconnecting and self.received_cat_cmd:
             Popup.error(f'Lost connection to {self.name}\n{reason}', timeout=None)
+        self.send_cmds('!DISCONNECTED;')
         self.connected = False
         return True
 
@@ -2572,19 +2583,15 @@ class ToggleWidget():
             self.blinkon(selection)
         else:
             self.blinkoff(selection)
+        self.button.setEnabled(not selection['hidden'])
 
     def next_selection(self):
-        while True:
-            self.index += 1
-            if self.index >= len(self.selections):
-                if self.wraparound:
-                    self.index = 0
-                else:
-                    self.index = len(self.selections) - 1
-
-            selection = self.selections[self.index]
-            if not selection['hidden']:
-                break
+        self.index += 1
+        if self.index >= len(self.selections):
+            if self.wraparound:
+                self.index = 0
+            else:
+                self.index = len(self.selections) - 1
 
         self.configure()
 
@@ -22358,10 +22365,12 @@ config_data = r'''
 
 #define connect-togglebutton
 - item: togglebutton
+  wraparound: False
   selections: #{
     - { text: 'Connect', bg: yellow, abg: yellow, blink: on }
     - { text: 'Connecting', cmd: CONNECT!; }
     - { text: 'Connected', response: PONG;, hidden: True }
+    - { text: 'Disconnected', response: '!DISCONNECTED;', hidden: True }
   #}
 #end
 

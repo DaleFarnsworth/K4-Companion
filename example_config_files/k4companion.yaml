@@ -971,10 +971,12 @@
 
 #define connect-togglebutton
 - item: togglebutton
+  wraparound: False
   selections: #{
     - { text: 'Connect', bg: yellow, abg: yellow, blink: on }
     - { text: 'Connecting', cmd: CONNECT!; }
     - { text: 'Connected', response: PONG;, hidden: True }
+    - { text: 'Disconnected', response: '!DISCONNECTED;', hidden: True }
   #}
 #end
 
