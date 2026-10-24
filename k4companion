@@ -5581,6 +5581,16 @@ class Panadapter(QDialog):
     auto_ref = None               # Whether the K4's auto-ref is on, from
                                   # #AR; -- one for both receivers, there
                                   # being no #AR$. See on_auto_ref_changed.
+    set_ref_correction_db = 1     # Added to the level Ref's Set works out:
+                                  # without it, Set came out a dB below
+                                  # the level the K4's own #AR1; gives,
+                                  # -91 where #AR1; gave -90, and did so
+                                  # consistently. See set_ref_once.
+    auto_ref_averaging = 12       # The K4's auto-ref averaging (1 to 20)
+    auto_ref_offset_db = 0        # and offset in dB (-8 to 8), from #AR;
+                                  # -- which Ref's Set goes by, as
+                                  # auto-ref does: see set_ref_once.
+                                  # Until #AR; comes, 12 and none.
     ref_min = -200                # #REF's valid range per the K4
     ref_max = 60                  # Programmer's Reference (#REFn;)
     ref_choices_offsets_db = tuple(range(-7, 8))
@@ -5688,13 +5698,21 @@ class Panadapter(QDialog):
     def on_auto_ref_changed(cls, response):
         # #ARaadd+oom; -- the K4's auto-ref settings: averaging,
         # debounce and offset, and last its mode, 1 for on (AUTO) and 0
-        # for off (MAN). Only the mode is used here. #ARA;/#ARM; come
-        # too, from the app's own requests (see on_ref_requested): the
-        # K4 doesn't echo them, and the parent passes on what it sent.
+        # for off (MAN). The settings are kept for Ref's Set (see
+        # set_ref_once). #ARA;/#ARM; come too, from the app's own
+        # requests (see on_ref_requested): the K4 doesn't echo them, and
+        # the parent passes on what it sent.
         parameter = cmd_parameter(response)
         if parameter in ('A', 'M'):
             cls.auto_ref = parameter == 'A'
         elif len(parameter) >= 8 and parameter[-1] in '01':
+            try:
+                averaging = int(parameter[0:2])
+                offset_db = int(parameter[4:-1])
+            except ValueError:
+                return
+            cls.auto_ref_averaging = max(1, averaging)
+            cls.auto_ref_offset_db = offset_db
             cls.auto_ref = parameter[-1] == '1'
         else:
             return
@@ -5992,11 +6010,10 @@ class Panadapter(QDialog):
 
         # Ref (#REF;/#REF$;) -- Auto turns the K4's auto-ref on (#ARA;),
         # which then sets the level itself; a level turns it off (#ARM;)
-        # and sets that. Set turns auto-ref off and has the K4 set REF
-        # once to the level its auto-ref would give it (#ARM;#AR1;),
-        # where it then stays. Shows
-        # Auto while auto-ref is on, and the K4's level otherwise,
-        # however it was set -- see _set_ref_combobox.
+        # and sets that. Set sets this receiver's REF alone to the noise
+        # floor the trace shows, turning auto-ref off so that it stays --
+        # see set_ref_once. Shows Auto while auto-ref is on, and the K4's
+        # level otherwise, however it was set -- see _set_ref_combobox.
         # As on RF Gain, a level can be typed in, and the wheel and
         # Up/Down over the box step it a dB at a time (see step_ref and
         # _PanControlFilter), from Auto too: they start from the level
@@ -6005,6 +6022,10 @@ class Panadapter(QDialog):
         # they suit any radio, band, antenna and span, whether or not the
         # K4's auto-ref has ever set REF -- see _update_ref_choices.
         self.noise_floor_db = None
+        # Each frame's median, the last 20 of them, the most auto-ref
+        # averages: what Ref's Set averages, as many as auto-ref does
+        # (see set_ref_once).
+        self.frame_noise_db = collections.deque(maxlen=20)
         self._ref_choices_center_db = None
         self.ref_combobox = self._make_level_combobox(
             ['Auto', 'Set'], self.on_ref_selected, self.on_ref_edited)
@@ -6016,9 +6037,10 @@ class Panadapter(QDialog):
         self.ref_combobox.setToolTip(
             'The level at the bottom of the trace, in dB: Auto lets the\n'
             'K4 set it from the noise, as its own auto-ref does, and Set\n'
-            'has it do so once and leave it there. Pick a level or type one\n'
-            'in, or step it a dB at a time with the mouse wheel or the Up\n'
-            'and Down keys over this box.')
+            'sets it, for this receiver only, to the noise this trace shows\n'
+            'and leaves it there. Pick a level or type one in, or step it a\n'
+            'dB at a time with the mouse wheel or the Up and Down keys over\n'
+            'this box.')
         # The text last shown, for on_ref_edited to tell a level typed
         # in from the box merely losing the keyboard.
         self._ref_shown_text = None
@@ -7003,18 +7025,36 @@ class Panadapter(QDialog):
             self.request_ref(ref_db)
 
     def set_ref_once(self):
-        # Set: auto-ref goes off, and the K4 sets REF once to its
-        # auto-ref level, where it stays (#ARM;#AR1;). With auto-ref left
-        # on, as #AR1; alone leaves it, Set did nothing to be seen where
-        # Auto was showing, REF being at that level already. The box
-        # shows the level at once, and then the new one as the K4
-        # reports it. Taken from the keyboard first, as Set is shown, so
-        # that losing it isn't taken for Set typed in again.
+        # Set: this receiver's REF alone, at the noise floor this trace
+        # shows, with auto-ref off so that it stays where it is put (see
+        # request_ref). The K4's own one-shot, #AR1;, which Set used,
+        # sets both receivers' REF, there being no #AR$, so that Set in
+        # either window moved the other's as well; the noise floor
+        # here, which came within half a dB of the level #AR1; gave,
+        # is this receiver's alone.
+        #
+        # As the K4's auto-ref places REF, by its settings from #AR;:
+        # the noise averaged over as many frames as its averaging, the
+        # medians of the last auto_ref_averaging of them, less its
+        # offset: a positive offset puts REF below the noise, showing
+        # more of it, as on the K4 -- with set_ref_correction_db, which
+        # brings it to the level #AR1; gives. Its debounce is not used:
+        # it is how far the signals have to change for auto-ref to work
+        # REF out again, and Set works it out when it is asked to.
+        #
+        # Until a frame has been drawn there is no floor, and #AR1;
+        # (with #ARM;) stands in. Taken from the keyboard first, as Set
+        # is shown, so that losing it isn't taken for Set typed in again.
         self._ref_shown_text = self.ref_combobox.currentText()
         self.ref_combobox.lineEdit().clearFocus()
+        if self.frame_noise_db:
+            recent = list(self.frame_noise_db)[-Panadapter.auto_ref_averaging:]
+            floor = sum(recent) / len(recent)
+            self.request_ref(round(floor - Panadapter.auto_ref_offset_db +
+                                   Panadapter.set_ref_correction_db))
+            return
         Panadapter.auto_ref = False
-        for window in Panadapter.windows.values():
-            window._set_ref_combobox()
+        self._set_ref_combobox()
         self._write_to_parent('#PANREF ONCE')
 
     def on_ref_edited(self):
@@ -7073,6 +7113,7 @@ class Panadapter(QDialog):
         # noise, followed smoothly. And the Ref levels moved to follow
         # it, once it has gone far enough from the middle one.
         noise = float(numpy.median(trace_data))
+        self.frame_noise_db.append(noise)
         if self.noise_floor_db == None:
             self.noise_floor_db = noise
         else:
@@ -8235,7 +8276,9 @@ class PanadapterProcess(QObject):
         # "AUTO", "ONCE" or "<ref_db>" -- see Panadapter.on_ref_selected
         # and set_ref_once. Auto-ref is one for both receivers (no
         # #AR$), and is turned off for a level to stay where it is put,
-        # the one Set has the K4 give it as well.
+        # Set's included. ONCE, the K4's own one-shot, sets both
+        # receivers' REF, and is only Set's stand-in until its window
+        # has a noise floor.
         if arg == 'AUTO':
             Server.k4_server.send_cmds('#ARA;')
             return
