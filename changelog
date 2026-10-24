@@ -1,3 +1,107 @@
+v2.2-rc2:
+    Describe the panadapter's Ref and Scale dropdowns in the User Manual
+       The Panadapter Window section now describes Ref, with its Auto, Set
+       and levels around the noise floor, and Scale, with its Set, in place
+       of the Ref and AS buttons; typing and stepping either; the
+       waterfall's colours following the noise floor; and Ref as one of the
+       K4's own settings. The trace's S-units are on its left edge and its
+       dB on the right, not the other way round as it said. The v2.2
+       revision history lists the panadapter changes.
+   
+    Bring the User Manual up to date with v2.1.3
+       The revision history now has the v2.1.3 section released from main,
+       and the Server tab section says that after Power Off the connection
+       status shows Disconnected, and that an ADC overflow, or the COR relay
+       switching, is shown in a warning that goes by itself.
+   
+    Base the panadapter on the K4's REF, with Ref and Scale to set it
+       The panadapter set its own levels, and a user found them restless:
+       the waterfall's colours followed each row's median within a fraction
+       of a second, so a strong signal darkened the whole waterfall; the
+       mini-pan's scale was fitted to every frame, so its trace jumped as a
+       strong signal ended, and with no signal it zoomed in on the noise,
+       which looked unaveraged; and the trace's bottom was pinned to the
+       average of every bin, which put half the noise floor below it. None
+       of it could be turned off.
+       
+       The trace now runs from the K4's REF (#REF/#REF$) up by Scale,
+       agreeing with the K4's own display. The app's own Ref capture goes,
+       and with it the span, antenna, centre and sub receiver changes that
+       set it off. The waterfall's colours are placed by the noise floor the
+       trace shows, the median of the averaged trace followed over a couple
+       of seconds, which a strong signal moves hardly at all. Not by REF:
+       that stands where the K4's auto-ref offset puts it, or where it was
+       last left, and on 20 m auto-ref had left it 7.5 dB below the noise,
+       which then showed yellow. The mini-pan is scaled from the averaged
+       trace it shows, widening at once and narrowing over a few seconds.
+       
+       A Ref dropdown beside Scale sets REF. Auto turns the K4's auto-ref on
+       (#ARA), which then moves REF itself; Set turns it off and has the K4
+       set REF once to its auto-ref level, which then stays (#ARM;#AR1),
+       taking the place of the Ref button; and a level turns auto-ref off
+       and sets that. Auto-ref is one for both receivers, there being no
+       #AR$. It lists 15 levels 1 dB apart, from 7 below the noise floor the
+       trace shows to 7 above, so that they suit any radio, band, antenna
+       and span, with or without auto-ref ever having set REF; they move
+       once the floor has gone 3 dB from the middle one.
+       
+       Scale works the same way. Its Set, taking the place of the AS button,
+       sets it, to the dB, so that the strongest signals of the last few
+       seconds reach about halfway up the trace, and it lists 10 to 150 dB
+       in steps of 10.
+       
+       Both are editable, as RF Gain is: a value can be typed in, the mouse
+       wheel and the Up and Down keys over the box step it a dB at a time,
+       and a value between those listed is shown in the box alone. Each
+       lists every option at once, and the Ref box's group is kept as wide
+       as the box, which in a narrow window had cut off its arrow.
+       
+       A level set from the panadapter now reaches the rest of the app as
+       well. The K4 doesn't echo a command back to the one who sent it, and
+       Server.send_cmds, which keeps what it sends so that the rest of the
+       app hears of it, took the minus sign of every #REF level for a step,
+       as in RG- or UP-, and kept nothing. #REF and #REF$ levels are now
+       kept, as RO's are, and #ARA and #ARM taken as auto-ref on and off.
+   
+    Widen editable dropdowns enough for their widest value
+       An editable dropdown shows its value in a line edit, and Qt sized the
+       box for its items' text alone, leaving out the room the line edit
+       keeps either side of it. The widest value came up a pixel or two
+       short and was clipped: SSNR's AC most visibly, and RF Gain's -10 and
+       BW's 2.80 as well. qt_fit_editable_combobox_width now adds that
+       room, with the arrow and frame as the box's own style lays them out.
+       The text is measured unrounded and rounded up, with 2px to spare,
+       since drawn at fractional widths it can come to more than its rounded
+       width.
+   
+    Bring the User Manual up to date with v2.1.1 and v2.1.2
+       The revision history now has the v2.1.1 and v2.1.2 sections released
+       from main, the SSTV Frequency dropdown and the Vail adapter's
+       Passthrough moved to them from v2.2, and the Menu Tab section says
+       how a menu value the K4 gives as words, such as Ext Ref lock, is
+       shown.
+   
+    Correct the User Manual's version, and say where the K-Pod goes
+       Its first page said the current version was 2.0; on this branch it
+       is 2.2. The K-Pod Tab section now says that the K-Pod has to be
+       plugged into the computer K4 Companion runs on, not into the K4: a
+       user had it in the K4, where K4 Companion cannot see it.
+   
+    Describe --da kpod's list of HID devices in the User Manual
+
+    Describe a Vail adapter's Passthrough in the User Manual
+
+    Describe the SSTV Transmit tab's Frequency dropdown in the User Manual
+
+    Scale TCI TX Level % so that 50, now the default, is the old 5
+       FT8 from WSJT-X brought the K4's ALC where it should be at the old
+       5%, with most of the scale left above it. The level is now a
+       percentage of a tenth of what it was, 5 to 100 in fives, and 50 by
+       default. It is saved as tci_tx_percent; one saved before, as
+       tci_tx_level_percent, is taken as ten times what it was, so that
+       the audio goes out as loud as it did, up to the new 100. The User
+       Manual says 50.
+   
 v2.2-rc1:
     Describe the TCI server in the User Manual
 
