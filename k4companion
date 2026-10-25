@@ -1448,10 +1448,7 @@ class Server():
                 return
             param = cmd[len(base):]
             if len(param) > 0 and param[0] in '+-/^>~\\':
-                # Signed levels, not steps: the K4 doesn't echo a
-                # command back to the one who sent it, so a level left
-                # uncached here would reach nothing else in the app.
-                if base not in ('RO', 'RO$', 'XVO', '#REF', '#REF$'):
+                if base not in ('RO', 'RO$', 'XVO'):
                     adjust = True
             if not Server.k4_set_only_cmd(base, cmd) and not adjust:
                 self.update_k4_parameter(base, param)
@@ -5571,28 +5568,16 @@ class Panadapter(QDialog):
                                   # RTTY tuning lines -- see
                                   # rtty_space_offset_hz.
     rtty_shift_hz = 170
-    ref_level = {'main': None, 'sub': None}
-                                  # The K4's panadapter reference level,
-                                  # from #REF;/#REF$;: the bottom of the
-                                  # trace, which reaches up from it by
-                                  # Scale. The K4 reports it whenever it
-                                  # changes, its auto-ref moving it
-                                  # included -- see on_ref_changed.
-    auto_ref = None               # Whether the K4's auto-ref is on, from
-                                  # #AR; -- one for both receivers, there
-                                  # being no #AR$. See on_auto_ref_changed.
-    set_ref_correction_db = 1     # Added to the level Ref's Set works out:
-                                  # without it, Set came out a dB below
-                                  # the level the K4's own #AR1; gives,
-                                  # -91 where #AR1; gave -90, and did so
-                                  # consistently. See set_ref_once.
-    auto_ref_averaging = 12       # The K4's auto-ref averaging (1 to 20)
-    auto_ref_offset_db = 0        # and offset in dB (-8 to 8), from #AR;
-                                  # -- which Ref's Set goes by, as
-                                  # auto-ref does: see set_ref_once.
-                                  # Until #AR; comes, 12 and none.
-    ref_min = -200                # #REF's valid range per the K4
-    ref_max = 60                  # Programmer's Reference (#REFn;)
+    ref_offset_choices_db = tuple(range(-8, 9))
+    ref_offset_default_db = -2    # The Off dropdown's offsets, and the one
+                                  # a window starts with: see
+                                  # auto_ref_level.
+    auto_ref_interval_ms = 2000   # How often Auto works REF out again,
+    auto_ref_debounce_db = 2      # and how far from REF what it works out
+                                  # has to be for REF to be moved, so
+                                  # that it isn't nudged a dB at a time.
+    ref_min = -200                # The range Ref is held to, the K4's
+    ref_max = 60                  # own REF's (#REFn;) per its Reference
     ref_choices_offsets_db = tuple(range(-7, 8))
                                   # The Ref dropdown's levels, after its
                                   # Auto and Set: these either side of
@@ -5680,44 +5665,6 @@ class Panadapter(QDialog):
         window = cls.windows.get(receiver)
         if window != None:
             window._update_autospot_enabled()
-
-    @classmethod
-    def on_ref_changed(cls, response):
-        # #REF;/#REF$; -- the receiver's reference level, a whole dB,
-        # whether set here, on the K4, or moved by its auto-ref.
-        receiver = cls.receiver_of(response)
-        try:
-            cls.ref_level[receiver] = int(cmd_parameter(response))
-        except ValueError:
-            return
-        window = cls.windows.get(receiver)
-        if window != None:
-            window.apply_ref_level()
-
-    @classmethod
-    def on_auto_ref_changed(cls, response):
-        # #ARaadd+oom; -- the K4's auto-ref settings: averaging,
-        # debounce and offset, and last its mode, 1 for on (AUTO) and 0
-        # for off (MAN). The settings are kept for Ref's Set (see
-        # set_ref_once). #ARA;/#ARM; come too, from the app's own
-        # requests (see on_ref_requested): the K4 doesn't echo them, and
-        # the parent passes on what it sent.
-        parameter = cmd_parameter(response)
-        if parameter in ('A', 'M'):
-            cls.auto_ref = parameter == 'A'
-        elif len(parameter) >= 8 and parameter[-1] in '01':
-            try:
-                averaging = int(parameter[0:2])
-                offset_db = int(parameter[4:-1])
-            except ValueError:
-                return
-            cls.auto_ref_averaging = max(1, averaging)
-            cls.auto_ref_offset_db = offset_db
-            cls.auto_ref = parameter[-1] == '1'
-        else:
-            return
-        for window in cls.windows.values():
-            window._set_ref_combobox()
 
     @classmethod
     def is_cw_mode(cls, receiver):
@@ -6008,45 +5955,75 @@ class Panadapter(QDialog):
         scale_frame = self._combobox_group('Scale', self.scale_combobox)
         self._fit_level_combobox(self.scale_combobox, ('150', 'Set'))
 
-        # Ref (#REF;/#REF$;) -- Auto turns the K4's auto-ref on (#ARA;),
-        # which then sets the level itself; a level turns it off (#ARM;)
-        # and sets that. Set sets this receiver's REF alone to the noise
-        # floor the trace shows, turning auto-ref off so that it stays --
-        # see set_ref_once. Shows Auto while auto-ref is on, and the K4's
-        # level otherwise, however it was set -- see _set_ref_combobox.
-        # As on RF Gain, a level can be typed in, and the wheel and
-        # Up/Down over the box step it a dB at a time (see step_ref and
-        # _PanControlFilter), from Auto too: they start from the level
-        # auto-ref had set.
-        # The levels it lists follow the noise floor the trace shows, so
-        # they suit any radio, band, antenna and span, whether or not the
-        # K4's auto-ref has ever set REF -- see _update_ref_choices.
+        # Ref -- the level at the bottom of this window's trace, its own:
+        # the K4's REF (#REF;/#REF$;) and its auto-ref (#AR;) are neither
+        # sent nor heeded, the K4's own display being left to itself.
+        # The K4's auto-ref is one for both receivers, there being no
+        # #AR$, and its one-shot, #AR1;, set both receivers' REF. Set
+        # works out a level from the noise this trace shows, as the K4's
+        # own auto-ref would (see auto_ref_level). Auto does the same
+        # every auto_ref_interval_ms, for as long as it is on (see
+        # on_auto_ref_timer). A level is that level. Ref, Auto, and the
+        # offset Off picks are kept for each window. Shows Auto while
+        # Auto is on, and the level otherwise -- see _set_ref_combobox. As on RF Gain, a level can be typed in, and
+        # the wheel and Up/Down over the box step it a dB at a time (see
+        # step_ref and _PanControlFilter), from Auto too: they start from
+        # the level Auto had set. The levels it lists follow the noise
+        # floor the trace shows, so they suit any radio, band, antenna
+        # and span -- see _update_ref_choices.
         self.noise_floor_db = None
-        # Each frame's median, the last 20 of them, the most auto-ref
-        # averages: what Ref's Set averages, as many as auto-ref does
-        # (see set_ref_once).
-        self.frame_noise_db = collections.deque(maxlen=20)
+        # The median of the latest frame's trace, as Avg averages it:
+        # what Set and Auto go by (see auto_ref_level).
+        self.frame_noise_db = None
+        self.auto_ref = Server.settings.getbool(
+            'Window', f'Panadapter.{self.receiver}.auto_ref', True)
+        # None until there is one: Auto's first, or one kept from before.
+        self.ref_db = Server.settings.getint(
+            'Window', f'Panadapter.{self.receiver}.ref_db', None,
+            minimum=Panadapter.ref_min, maximum=Panadapter.ref_max)
+        self._auto_ref_started = False
+        self.ref_offset_db = Server.settings.getint(
+            'Window', f'Panadapter.{self.receiver}.ref_offset_db',
+            Panadapter.ref_offset_default_db,
+            minimum=Panadapter.ref_offset_choices_db[0],
+            maximum=Panadapter.ref_offset_choices_db[-1])
         self._ref_choices_center_db = None
         self.ref_combobox = self._make_level_combobox(
             ['Auto', 'Set'], self.on_ref_selected, self.on_ref_edited)
         # Every item at once, Auto, Set and the levels, rather than Qt's
         # 10 and a scroll bar.
         self.ref_combobox.setMaxVisibleItems(len(Panadapter.ref_choices_offsets_db) + 2)
-        level = Panadapter.ref_level[self.receiver]
-        self._set_ref_choices(Panadapter.ref_choices_default_db if level == None else level)
+        self._set_ref_choices(Panadapter.ref_choices_default_db if self.ref_db == None
+                              else self.ref_db)
         self.ref_combobox.setToolTip(
-            'The level at the bottom of the trace, in dB: Auto lets the\n'
-            'K4 set it from the noise, as its own auto-ref does, and Set\n'
-            'sets it, for this receiver only, to the noise this trace shows\n'
-            'and leaves it there. Pick a level or type one in, or step it a\n'
-            'dB at a time with the mouse wheel or the Up and Down keys over\n'
-            'this box.')
+            'The level at the bottom of the trace, in dB, for this panadapter:\n'
+            'Set sets it from the noise this trace shows, and Auto goes on\n'
+            'doing so every few seconds. Pick a level or type one in, or\n'
+            'step it a dB at a time with the mouse wheel or the Up and Down\n'
+            'keys over this box.')
         # The text last shown, for on_ref_edited to tell a level typed
         # in from the box merely losing the keyboard.
         self._ref_shown_text = None
         self._set_ref_combobox()
         ref_frame = self._combobox_group('Ref', self.ref_combobox)
         self._fit_level_combobox(self.ref_combobox, ('-200', 'Auto'))
+        self._auto_ref_timer = QTimer(self)
+        self._auto_ref_timer.timeout.connect(self.on_auto_ref_timer)
+        self._auto_ref_timer.start(Panadapter.auto_ref_interval_ms)
+
+        # Off -- the offset Set and Auto take off the noise floor: a
+        # positive one puts REF below the noise, showing more of it, as
+        # the K4's own AutoRef Offset does. Local and per-window, like
+        # Avg.
+        self.ref_offset_combobox = self._make_combobox(
+            [self._format_offset(v) for v in Panadapter.ref_offset_choices_db],
+            self.on_ref_offset_selected)
+        self.ref_offset_combobox.setMaxVisibleItems(len(Panadapter.ref_offset_choices_db))
+        self.ref_offset_combobox.setCurrentText(self._format_offset(self.ref_offset_db))
+        self.ref_offset_combobox.setToolTip(
+            'How far below the noise, in dB, Set and Auto put Ref: higher\n'
+            'shows more of the noise, lower less of it.')
+        ref_offset_frame = self._combobox_group('Off', self.ref_offset_combobox)
 
         # Span (#SPN;/#SPN$;) selector -- a plain preset-list dropdown,
         # like FPS/Fixed Tune: not editable, not steppable via Up/Down
@@ -6094,8 +6071,9 @@ class Panadapter(QDialog):
         # window's geometry/splitter (see save_geometry). Controls how
         # many frames _rolling_average smooths the trace/mini-pan over.
         self.avg_combobox = self._make_combobox(
-            [str(v) for v in range(1, 11)], self.on_avg_selected)
-        self.avg_count = Server.settings.getint('Window', f'Panadapter.{self.receiver}.avg_count', 3, minimum=1, maximum=10)
+            [str(v) for v in range(1, 21)], self.on_avg_selected)
+        self.avg_combobox.setMaxVisibleItems(20)
+        self.avg_count = Server.settings.getint('Window', f'Panadapter.{self.receiver}.avg_count', 3, minimum=1, maximum=20)
         self.avg_combobox.setCurrentText(str(self.avg_count))
         avg_frame = self._combobox_group('Avg', self.avg_combobox)
 
@@ -6120,7 +6098,7 @@ class Panadapter(QDialog):
         span_fps_row = QWidget()
         span_fps_row_layout = QHBoxLayout(span_fps_row)
         span_fps_row_layout.setContentsMargins(0, 0, 0, 0)
-        for frame in (ref_frame, scale_frame, span_frame, fps_frame, avg_frame, waterfall_threshold_frame):
+        for frame in (ref_frame, ref_offset_frame, scale_frame, span_frame, fps_frame, avg_frame, waterfall_threshold_frame):
             span_fps_row_layout.addWidget(frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         self.controls_frame = QWidget()
@@ -6204,6 +6182,9 @@ class Panadapter(QDialog):
         # range so the plot isn't empty before the first average lands.
         self.trace_plot.enableAutoRange(axis='y', enable=False)
         self.trace_plot.setYRange(-160, 0, padding=0)
+        # Or the Ref kept from before, with Auto off, where there is one.
+        if self.ref_db != None:
+            self.apply_ref_level()
         # Frequency markers, on the trace -- see below for the matching
         # ones on the waterfall. Both VFOs are shown on both the main
         # and sub panadapters -- not just this window's own receiver --
@@ -6385,8 +6366,16 @@ class Panadapter(QDialog):
 
     @staticmethod
     def _combobox_group(title, combobox):
+        # The box never narrower than it asks to be, nor the group than
+        # the box. The group's minimum, set from its title alone (see
+        # qt_size_tight_groupbox_title), stands in for the one its
+        # contents would give it, so where the row was short of room the
+        # groups were squeezed to their titles, and the boxes in them
+        # below their own width: Off's +8 was cramped against its arrow.
         frame, grid = qt_group_box(title, qt_font('Helvetica', 9))
         grid.addWidget(combobox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        combobox.setMinimumWidth(max(combobox.minimumWidth(), combobox.sizeHint().width()))
+        frame.setMinimumWidth(max(frame.minimumWidth(), combobox.minimumWidth() + 2))
         return frame
 
     @staticmethod
@@ -6674,11 +6663,10 @@ class Panadapter(QDialog):
             self.waterfall_plot.setYRange(0, Panadapter.waterfall_rows, padding=0)
 
     def apply_ref_level(self):
-        # The trace from the K4's REF, up by Scale: called as either is
-        # reported. Until Scale is known the top is left where it is,
-        # kept above the bottom -- pyqtgraph silently swaps an inverted
-        # min/max.
-        low = Panadapter.ref_level[self.receiver]
+        # The trace from Ref, up by Scale: called as either changes.
+        # Until Scale is known the top is left where it is, kept above
+        # the bottom -- pyqtgraph silently swaps an inverted min/max.
+        low = self.ref_db
         if low == None:
             return
         if Panadapter.scale_db != None:
@@ -6689,12 +6677,12 @@ class Panadapter(QDialog):
         self._set_ref_combobox()
 
     def _update_vscale(self, data):
-        # Only until the K4's REF is known, which then sets the bottom
-        # (see apply_ref_level). Averaged over 5 seconds rather than fit
+        # Only until there is a Ref, which then sets the bottom (see
+        # apply_ref_level). Averaged over 5 seconds rather than fit
         # to every single frame (pyqtgraph's default auto-range): the
         # noise floor fluctuates enough frame to frame that auto-ranging
         # made the trace's dB scale visibly jitter/rescale continuously.
-        if Panadapter.ref_level[self.receiver] != None:
+        if self.ref_db != None:
             return
         self.vscale_low_sum += float(data.min())
         self.vscale_high_sum += float(data.max())
@@ -7014,8 +7002,9 @@ class Panadapter(QDialog):
 
     def on_ref_selected(self, index):
         if index == 0:
-            self._ref_shown_text = 'Auto'
-            self._write_to_parent('#PANREF AUTO')
+            self.set_auto_ref(True)
+            self._set_ref_combobox()
+            self.on_auto_ref_timer(debounce=False)
             return
         if index == 1:
             self.set_ref_once()
@@ -7025,37 +7014,70 @@ class Panadapter(QDialog):
             self.request_ref(ref_db)
 
     def set_ref_once(self):
-        # Set: this receiver's REF alone, at the noise floor this trace
-        # shows, with auto-ref off so that it stays where it is put (see
-        # request_ref). The K4's own one-shot, #AR1;, which Set used,
-        # sets both receivers' REF, there being no #AR$, so that Set in
-        # either window moved the other's as well; the noise floor
-        # here, which came within half a dB of the level #AR1; gave,
-        # is this receiver's alone.
-        #
-        # As the K4's auto-ref places REF, by its settings from #AR;:
-        # the noise averaged over as many frames as its averaging, the
-        # medians of the last auto_ref_averaging of them, less its
-        # offset: a positive offset puts REF below the noise, showing
-        # more of it, as on the K4 -- with set_ref_correction_db, which
-        # brings it to the level #AR1; gives. Its debounce is not used:
-        # it is how far the signals have to change for auto-ref to work
-        # REF out again, and Set works it out when it is asked to.
-        #
-        # Until a frame has been drawn there is no floor, and #AR1;
-        # (with #ARM;) stands in. Taken from the keyboard first, as Set
-        # is shown, so that losing it isn't taken for Set typed in again.
+        # Set: Ref at the level auto_ref_level works out,
+        # Auto off so that it stays there. Until a frame has been drawn
+        # there is no noise to go by, and the box goes back to what it
+        # showed. Taken from the keyboard first, as Set is shown, so that
+        # losing it isn't taken for Set typed in again.
         self._ref_shown_text = self.ref_combobox.currentText()
         self.ref_combobox.lineEdit().clearFocus()
-        if self.frame_noise_db:
-            recent = list(self.frame_noise_db)[-Panadapter.auto_ref_averaging:]
-            floor = sum(recent) / len(recent)
-            self.request_ref(round(floor - Panadapter.auto_ref_offset_db +
-                                   Panadapter.set_ref_correction_db))
+        level = self.auto_ref_level()
+        if level == None:
+            self._set_ref_combobox()
             return
-        Panadapter.auto_ref = False
-        self._set_ref_combobox()
-        self._write_to_parent('#PANREF ONCE')
+        self.request_ref(level)
+
+    def auto_ref_level(self):
+        # The level Set and Auto put Ref at, as the K4's own auto-ref
+        # places its REF: the noise, the median of the trace as Avg
+        # averages it -- so that it goes by what is shown, with no
+        # averaging of its own on top -- less this window's offset: a
+        # positive one puts Ref below the noise, showing more of it.
+        # None until a frame has been drawn.
+        if self.frame_noise_db == None:
+            return None
+        return round(self.frame_noise_db - self.ref_offset_db)
+
+    def on_auto_ref_timer(self, debounce=True):
+        # Auto: Ref worked out again, and moved where it has gone
+        # auto_ref_debounce_db or more from Ref as it is -- so that the
+        # trace doesn't move a dB at a time -- or wherever it is, without
+        # debounce, as Auto is picked or Off changed, or the first frames
+        # come in (see _update_noise_floor).
+        if not self.auto_ref:
+            return
+        level = self.auto_ref_level()
+        if level == None:
+            return
+        level = max(Panadapter.ref_min, min(Panadapter.ref_max, level))
+        if (debounce and self.ref_db != None and
+                abs(level - self.ref_db) < Panadapter.auto_ref_debounce_db):
+            return
+        self.set_ref_db(level)
+
+    def set_ref_db(self, ref_db):
+        # Ref, kept for next time, and the trace put on it.
+        self.ref_db = ref_db
+        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.ref_db', ref_db)
+        self.apply_ref_level()
+
+    def set_auto_ref(self, on):
+        if on == self.auto_ref:
+            return
+        self.auto_ref = on
+        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.auto_ref', on)
+
+    @staticmethod
+    def _format_offset(offset_db):
+        return f'{offset_db:+d}' if offset_db != 0 else '0'
+
+    def on_ref_offset_selected(self, index):
+        offset_db = self._item_int(self.ref_offset_combobox, index)
+        if offset_db == None:
+            return
+        self.ref_offset_db = offset_db
+        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.ref_offset_db', offset_db)
+        self.on_auto_ref_timer(debounce=False)
 
     def on_ref_edited(self):
         # A level, Auto or Set typed into the box and entered, or left there
@@ -7080,40 +7102,64 @@ class Panadapter(QDialog):
         self.request_ref(ref_db)
 
     def step_ref(self, step):
-        # Up or down a dB from the level shown, or from the level auto-ref
+        # Up or down a dB from the level shown, or from the level Auto
         # had set while Auto is shown.
         try:
             ref_db = int(self.ref_combobox.currentText())
         except ValueError:
-            ref_db = Panadapter.ref_level[self.receiver]
+            ref_db = self.ref_db
             if ref_db == None:
                 return
         self.request_ref(ref_db + step)
 
     def request_ref(self, ref_db):
-        # Shown at once, as Scale is, rather than when the K4 reports it
-        # back -- so that steps in quick succession each go on from the
-        # one before.
+        # A level, picked, typed, stepped to or Set: Auto goes off, so
+        # that it stays there.
+        self.set_auto_ref(False)
         ref_db = max(Panadapter.ref_min, min(Panadapter.ref_max, ref_db))
         self._ref_shown_text = self._show_combobox_text(self.ref_combobox, str(ref_db))
-        self._write_to_parent(f'#PANREF {ref_db}')
+        self.set_ref_db(ref_db)
 
     def _set_ref_combobox(self):
-        # Auto while the K4's auto-ref is on, the level otherwise. Left
-        # alone while a level is being typed into it.
+        # Auto while Auto is on, the level otherwise. Left alone while a
+        # level is being typed into it.
         if self.ref_combobox.lineEdit().hasFocus():
             return
-        level = Panadapter.ref_level[self.receiver]
-        text = 'Auto' if Panadapter.auto_ref or level == None else str(level)
+        level = self.ref_db
+        if self.auto_ref:
+            text = 'Auto'
+        else:
+            text = '' if level == None else str(level)
         self._ref_shown_text = self._show_combobox_text(self.ref_combobox, text)
 
+    # The share of the trace's bins below the level the noise floor is
+    # taken at: so low that signals covering most of the span leave it
+    # at the noise.
+    noise_floor_percentile = 20
+
     def _update_noise_floor(self, trace_data):
-        # The noise floor the trace shows: the median of what it draws,
-        # signals covering few enough of the bins to leave it at the
-        # noise, followed smoothly. And the Ref levels moved to follow
-        # it, once it has gone far enough from the middle one.
-        noise = float(numpy.median(trace_data))
-        self.frame_noise_db.append(noise)
+        # The noise floor the trace shows, for the waterfall's colours
+        # and the Ref list: the level noise_floor_percentile of what it
+        # draws is below, followed smoothly. And the Ref levels moved to
+        # follow it, once it has gone far enough from the middle one.
+        #
+        # Not the median, as it was: on a net in a narrow span, the
+        # stations taking turns cover half of it or more, and as each
+        # came and went the median rose and fell with it, by 4 dB with
+        # half the span covered and 11 with two thirds, and the waterfall
+        # breathed. The 20th percentile moves 0.6 and 1.1 dB. On a quiet
+        # band it sits a dB or so below the median, which only makes WF
+        # a dB less than it says.
+        #
+        # The frame's median is kept as well, for Ref's Set and Auto,
+        # which came within a dB of the K4's own auto-ref level by it.
+        self.frame_noise_db = float(numpy.median(trace_data))
+        if not self._auto_ref_started:
+            # Auto's first Ref, from the first frame rather than at its
+            # first tick, which may be two seconds away.
+            self._auto_ref_started = True
+            self.on_auto_ref_timer(debounce=False)
+        noise = float(numpy.percentile(trace_data, self.noise_floor_percentile))
         if self.noise_floor_db == None:
             self.noise_floor_db = noise
         else:
@@ -7567,9 +7613,9 @@ class Panadapter(QDialog):
     # near the top of it, so that the noise itself was speckled yellow.
     # The default, 6 dB, puts the noise where the lowest and highest
     # did on busy real PAN frames. The noise floor is the one the trace
-    # shows (see _update_noise_floor), the median of the averaged trace
-    # followed over a couple of seconds, rather than each row's median
-    # followed over a fraction of a second, which had a strong signal
+    # shows (see _update_noise_floor), a low percentile of the averaged
+    # trace followed over a couple of seconds, rather than each row's
+    # median followed over a fraction of a second, which had a strong signal
     # darken the whole waterfall and its going brighten it again. Nor is
     # it the K4's REF, which the colours were placed by for a while:
     # REF is the K4's to set, and stands where its auto-ref offset puts
@@ -7780,10 +7826,6 @@ class PanadapterProcess(QObject):
     # Panadapter.request_scale and on_scale_requested below).
     scale_requested = pyqtSignal(str)
 
-    # Emitted the same way as tuned, for the Ref combobox
-    # (see Panadapter.on_ref_selected and on_ref_requested below).
-    ref_requested = pyqtSignal(str)
-
     # Relayed to a newly opened window below, from whatever's already
     # cached, since open_window's subscriptions only ever fire their
     # "here's the current value" callback once, for the very first
@@ -7812,9 +7854,6 @@ class PanadapterProcess(QObject):
     #       line and the mini-pan's centering, neither of which can be
     #       trusted to always equal center_hz (the PAN stream's own
     #       display center).
-    #   #REF/#REF$  reference level, per receiver, the bottom of the
-    #       trace -- see Panadapter.on_ref_changed -- and #AR, the K4's
-    #       auto-ref, one for both -- see Panadapter.on_auto_ref_changed.
     #   DT/DT$  DATA's sub-mode, for the mini-pan's RTTY tuning lines --
     #       see Panadapter.rtty_space_offset_hz.
     #
@@ -7822,7 +7861,7 @@ class PanadapterProcess(QObject):
     # together with which panadapter windows are open, it decides
     # whether a window's mini-pan has real data to show -- see
     # _update_dpm_state.
-    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#SCL', '#FRZ', '#FXA', '#FXT', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', '#REF', '#REF$', '#AR', 'DT', 'DT$')
+    relayed_cat_bases = ('#SPN', '#SPN$', '#FPS', '#SCL', '#FRZ', '#FXA', '#FXT', 'MD', 'MD$', 'BW', 'BW$', 'FA', 'FB', 'DT', 'DT$')
 
     @classmethod
     def open_window(cls, receiver, activate=True):
@@ -7977,7 +8016,6 @@ class PanadapterProcess(QObject):
         self.frz_requested.connect(self.on_frz_requested)
         self.fxa_requested.connect(self.on_fxa_requested)
         self.scale_requested.connect(self.on_scale_requested)
-        self.ref_requested.connect(self.on_ref_requested)
 
         if getattr(sys, 'frozen', False):
             argv = [sys.executable]
@@ -8077,7 +8115,6 @@ class PanadapterProcess(QObject):
             '#PANFRZ': self.frz_requested,
             '#PANFXA': self.fxa_requested,
             '#PANSCL': self.scale_requested,
-            '#PANREF': self.ref_requested,
         }
         alone = {
             '#PANCENTER': self.centered,
@@ -8272,26 +8309,6 @@ class PanadapterProcess(QObject):
         scale_db = max(Panadapter.scale_min, min(Panadapter.scale_max, scale_db))
         Server.k4_server.send_cmds(f'#SCL{scale_db};')
 
-    def on_ref_requested(self, arg):
-        # "AUTO", "ONCE" or "<ref_db>" -- see Panadapter.on_ref_selected
-        # and set_ref_once. Auto-ref is one for both receivers (no
-        # #AR$), and is turned off for a level to stay where it is put,
-        # Set's included. ONCE, the K4's own one-shot, sets both
-        # receivers' REF, and is only Set's stand-in until its window
-        # has a noise floor.
-        if arg == 'AUTO':
-            Server.k4_server.send_cmds('#ARA;')
-            return
-        if arg == 'ONCE':
-            Server.k4_server.send_cmds('#ARM;#AR1;')
-            return
-        ref_db = self._int_argument(arg)
-        if ref_db == None:
-            return
-        ref_db = max(Panadapter.ref_min, min(Panadapter.ref_max, ref_db))
-        base = '#REF$' if self.receiver == 'sub' else '#REF'
-        Server.k4_server.send_cmds(f'#ARM;{base}{ref_db};')
-
     def _close_pipe(self):
         try:
             self.queue.put_nowait(None)
@@ -8385,9 +8402,6 @@ class PanadapterChannel(QObject):
         'BW$': Panadapter.on_bandwidth_changed,
         'FA': Panadapter.on_frequency_changed,
         'FB': Panadapter.on_frequency_changed,
-        '#REF': Panadapter.on_ref_changed,
-        '#REF$': Panadapter.on_ref_changed,
-        '#AR': Panadapter.on_auto_ref_changed,
         'DT': Panadapter.on_data_sub_mode_changed,
         'DT$': Panadapter.on_data_sub_mode_changed,
     }
