@@ -6204,6 +6204,16 @@ class Panadapter(QDialog):
         # pixel (see setXLink below), so the waterfall shows bare ground
         # in both strips rather than in one hanging off the left.
         self.trace_plot.getPlotItem().showAxis('right')
+        # The S-unit axis as wide as its widest mark needs, and no wider:
+        # pyqtgraph starts an axis with 30px for its labels and only ever
+        # widens it, and with the marks a few pixels wide at the most,
+        # the waterfall, inset by the same width, had a margin to its left
+        # half as wide again as it needed.
+        left_axis = self.trace_plot.getPlotItem().getAxis('left')
+        tick_metrics = QFontMetrics(left_axis.style.get('tickFont') or left_axis.font())
+        left_axis.setWidth(max(tick_metrics.horizontalAdvance(label)
+                               for _, label in self.s_unit_ticks())
+                           + left_axis.style['tickTextOffset'][0] + 2)
         # Added before the curve, so the (translucent) shading renders
         # behind it rather than over it.
         self.bw_region = self._add_bw_region(self.trace_plot)
