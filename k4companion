@@ -5396,11 +5396,11 @@ class _PanControlFilter(QObject):
         if self.window.waterfall_plot.underMouse():
             return 10000 if self._in_waterfall_margin() else 1000
         # The whole upper-right area, not just controls_frame's own
-        # widget bounds -- includes minipan_row's stretch to the right
-        # of it, so the button rate covers that empty space too, not
-        # just the buttons/comboboxes themselves. minipan_plot (checked
-        # above) is the only other thing in this row, so this can't
-        # double-count it.
+        # widget bounds -- includes the stretch to the right of it, and
+        # the divider beside the mini-pan, so the button rate covers that
+        # empty space too, not just the buttons/comboboxes themselves.
+        # minipan_plot (checked above) is the only other thing in this
+        # row, so this can't double-count it.
         if self.window.minipan_row.underMouse():
             return 1
         return None
@@ -5475,6 +5475,19 @@ class _PanControlFilter(QObject):
                     self.window.request_vfo_action(f'nudge {delta_hz * mult}')
             return True
         return False
+
+class _MinipanSplitter(QSplitter):
+    # The divider between the panadapter's mini-pan and its controls,
+    # telling the window its new width each time it is resized, after
+    # the splitter has resized its own -- so that the mini-pan's share
+    # of it is set from the width it is now, not the one before.
+    def __init__(self, on_resized):
+        super().__init__(Qt.Orientation.Horizontal)
+        self.on_resized = on_resized
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.on_resized(event.size().width())
 
 class Panadapter(QDialog):
     # Driven by PAN frames only; MINI-PAN is ignored (see push_minipan).
@@ -6144,12 +6157,31 @@ class Panadapter(QDialog):
         controls_layout.addWidget(button_row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         controls_layout.addWidget(span_fps_row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        self.minipan_row = QWidget()
-        minipan_row_layout = QHBoxLayout(self.minipan_row)
-        minipan_row_layout.setContentsMargins(0, 0, 0, 0)
-        minipan_row_layout.addWidget(self.minipan_plot)
-        minipan_row_layout.addWidget(self.controls_frame, 0, Qt.AlignmentFlag.AlignTop)
-        minipan_row_layout.addStretch(1)
+        # The mini-pan and the controls either side of a draggable
+        # divider, as the trace and waterfall are. The mini-pan keeps
+        # its share of the window's width as the window is resized,
+        # minipan_share, a third unless the divider has been dragged,
+        # and remembered for each window -- see _update_minipan_width
+        # and on_minipan_divider_moved.
+        self.minipan_share = Server.settings.getfloat(
+            'Window', f'Panadapter.{self.receiver}.minipan_share',
+            Panadapter.minipan_default_share,
+            minimum=Panadapter.minipan_min_share, maximum=Panadapter.minipan_max_share)
+        controls_side = QWidget()
+        controls_side_layout = QHBoxLayout(controls_side)
+        controls_side_layout.setContentsMargins(0, 0, 0, 0)
+        controls_side_layout.addWidget(self.controls_frame, 0, Qt.AlignmentFlag.AlignTop)
+        controls_side_layout.addStretch(1)
+        # Narrower than pyqtgraph's own minimum, 68px, which the
+        # mini-pan's share, a tenth at the least, came to less than in a
+        # narrow window: there it was held at 68px, and widening the
+        # window left it there until a tenth of it came to more.
+        self.minipan_plot.setMinimumWidth(Panadapter.minipan_min_width)
+        self.minipan_row = _MinipanSplitter(self._update_minipan_width)
+        self.minipan_row.setChildrenCollapsible(False)
+        self.minipan_row.addWidget(self.minipan_plot)
+        self.minipan_row.addWidget(controls_side)
+        self.minipan_row.splitterMoved.connect(self.on_minipan_divider_moved)
         layout.addWidget(self.minipan_row, 1)
 
         # Frequency scale now shown via trace_left/right/center_label
@@ -6407,8 +6439,44 @@ class Panadapter(QDialog):
             center_label.adjustSize()
             center_label.move((widget.width() - center_label.width()) // 2, margin)
 
-    def _update_minipan_width(self):
-        self.minipan_plot.setFixedWidth(max(1, self.width() // 2))
+    # The mini-pan's share of the window's width: a third to start with,
+    # and held between these however far the divider is dragged.
+    minipan_default_share = 1 / 3
+    minipan_min_share = .1
+    minipan_max_share = .8
+    minipan_min_width = 20
+
+    def _update_minipan_width(self, width=None):
+        # The mini-pan at its share of the row's width, and the controls
+        # beside it the rest of it -- or as much less as they need at
+        # the least, which the divider won't go past. Called as the row
+        # itself is resized, with its new width (see _MinipanSplitter):
+        # from the window's own resize the row's width was its old one
+        # still, and the mini-pan could be left at its old width as the
+        # window was widened.
+        if width == None:
+            width = self.minipan_row.width() or self.width()
+        handle = self.minipan_row.handleWidth()
+        minipan = max(1, round(width * self.minipan_share))
+        self.minipan_row.setSizes([minipan, max(1, width - minipan - handle)])
+        self._position_minipan_labels()
+
+    def on_minipan_divider_moved(self, position, index):
+        # The divider dragged: the mini-pan's new share, kept for next
+        # time, for _update_minipan_width to hold it at as the window is
+        # resized. Held between minipan_min_share and minipan_max_share,
+        # and the divider put back on them where it is dragged past one,
+        # so that the mini-pan is always the width its share says.
+        width = self.minipan_row.width()
+        if width > 0:
+            share = self.minipan_plot.width() / width
+            self.minipan_share = max(Panadapter.minipan_min_share,
+                                     min(Panadapter.minipan_max_share, share))
+            Server.settings.put_save('Window', f'Panadapter.{self.receiver}.minipan_share',
+                                     round(self.minipan_share, 4))
+            if self.minipan_share != share:
+                self._update_minipan_width()
+                return
         self._position_minipan_labels()
 
     def _position_minipan_labels(self):
@@ -6513,8 +6581,9 @@ class Panadapter(QDialog):
         self.save_geometry()
 
     def resizeEvent(self, event):
+        # The mini-pan's width follows its row's own resize: see
+        # _MinipanSplitter.
         super().resizeEvent(event)
-        self._update_minipan_width()
         self._position_trace_labels()
         self.save_geometry()
 
