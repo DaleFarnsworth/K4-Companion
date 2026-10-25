@@ -6483,8 +6483,7 @@ class Panadapter(QDialog):
             share = self.minipan_plot.width() / width
             self.minipan_share = max(Panadapter.minipan_min_share,
                                      min(Panadapter.minipan_max_share, share))
-            Server.settings.put_save('Window', f'Panadapter.{self.receiver}.minipan_share',
-                                     round(self.minipan_share, 4))
+            self.save_setting('minipan_share', round(self.minipan_share, 4))
             if self.minipan_share != share:
                 self._update_minipan_width()
                 return
@@ -6551,6 +6550,21 @@ class Panadapter(QDialog):
         w, h, x, y = split_geometry(geometry)
         self.resize(w, h)
         self.move(*qt_place_on_screen(x, y, w, h))
+
+    def save_setting(self, setting, value):
+        # One of this window's own settings, Window's
+        # Panadapter.<receiver>.<setting>. In the subprocess it is sent
+        # to the parent, which alone writes the settings file, as
+        # save_geometry() leaves it to: written here as well, each
+        # process writing back the whole file as it last read it, a
+        # change made in one was put back by whichever saved next --
+        # Off went back to what it had been when the app started.
+        # Sent as it changes, rather than on exit as the geometry is,
+        # so that it is kept however the window goes.
+        if Panadapter.child_mode:
+            self._write_to_parent(f'#PANSET Panadapter.{self.receiver}.{setting} {value}')
+            return
+        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.{setting}', value)
 
     def save_geometry(self):
         geometry = f'{self.width()}x{self.height()}{self.x():+}{self.y():+}'
@@ -7006,14 +7020,14 @@ class Panadapter(QDialog):
         if threshold_db == None:
             return
         self.waterfall_threshold_db = threshold_db
-        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.waterfall_threshold_db', threshold_db)
+        self.save_setting('waterfall_threshold_db', threshold_db)
 
     def on_avg_selected(self, index):
         avg_count = self._item_int(self.avg_combobox, index)
         if avg_count == None:
             return
         self.avg_count = avg_count
-        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.avg_count', avg_count)
+        self.save_setting('avg_count', avg_count)
 
     def on_scale_selected(self, index):
         if self.scale_combobox.itemText(index) == 'Set':
@@ -7138,14 +7152,14 @@ class Panadapter(QDialog):
     def set_ref_db(self, ref_db):
         # Ref, kept for next time, and the trace put on it.
         self.ref_db = ref_db
-        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.ref_db', ref_db)
+        self.save_setting('ref_db', ref_db)
         self.apply_ref_level()
 
     def set_auto_ref(self, on):
         if on == self.auto_ref:
             return
         self.auto_ref = on
-        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.auto_ref', on)
+        self.save_setting('auto_ref', on)
 
     @staticmethod
     def _format_offset(offset_db):
@@ -7156,7 +7170,7 @@ class Panadapter(QDialog):
         if offset_db == None:
             return
         self.ref_offset_db = offset_db
-        Server.settings.put_save('Window', f'Panadapter.{self.receiver}.ref_offset_db', offset_db)
+        self.save_setting('ref_offset_db', offset_db)
         self.on_auto_ref_timer(debounce=False)
 
     def on_ref_edited(self):
@@ -7922,6 +7936,10 @@ class PanadapterProcess(QObject):
     # Panadapter.request_scale and on_scale_requested below).
     scale_requested = pyqtSignal(str)
 
+    # Emitted the same way as tuned, for a setting of the window's own
+    # (see Panadapter.save_setting and on_setting_requested below).
+    setting_requested = pyqtSignal(str)
+
     # Relayed to a newly opened window below, from whatever's already
     # cached, since open_window's subscriptions only ever fire their
     # "here's the current value" callback once, for the very first
@@ -8112,6 +8130,7 @@ class PanadapterProcess(QObject):
         self.frz_requested.connect(self.on_frz_requested)
         self.fxa_requested.connect(self.on_fxa_requested)
         self.scale_requested.connect(self.on_scale_requested)
+        self.setting_requested.connect(self.on_setting_requested)
 
         if getattr(sys, 'frozen', False):
             argv = [sys.executable]
@@ -8211,6 +8230,7 @@ class PanadapterProcess(QObject):
             '#PANFRZ': self.frz_requested,
             '#PANFXA': self.fxa_requested,
             '#PANSCL': self.scale_requested,
+            '#PANSET': self.setting_requested,
         }
         alone = {
             '#PANCENTER': self.centered,
@@ -8404,6 +8424,14 @@ class PanadapterProcess(QObject):
             return
         scale_db = max(Panadapter.scale_min, min(Panadapter.scale_max, scale_db))
         Server.k4_server.send_cmds(f'#SCL{scale_db};')
+
+    def on_setting_requested(self, arg):
+        # "Panadapter.<receiver>.<setting> <value>" -- see
+        # Panadapter.save_setting. Only this window's own settings.
+        key, space, value = arg.partition(' ')
+        if not space or not key.startswith(f'Panadapter.{self.receiver}.'):
+            return
+        Server.settings.put_save('Window', key, value)
 
     def _close_pipe(self):
         try:
