@@ -1,3 +1,73 @@
+v2.2-rc4:
+    Date the User Manual October 25th
+
+    Describe the mini-pan's divider in the User Manual
+       The Panadapter Window section now says that the divider between the
+       mini-pan and the controls can be dragged, the mini-pan keeping its
+       share of the window's width, and the v2.2 revision history lists it.
+   
+    Let the panadapter's mini-pan width be set by dragging a divider
+       The mini-pan took half the window's width, and the controls beside it
+       the other half. They are now either side of a draggable divider, as
+       the trace and waterfall are. The mini-pan keeps its share of the
+       window's width as the window is resized: a third unless the divider
+       has been dragged, held between a tenth and four fifths, and
+       remembered for each panadapter. The divider is put back on a tenth,
+       or four fifths, where it is dragged past one, and goes no further
+       right than leaves the controls the room they need.
+       
+       The mini-pan's width is set as the row it shares with the controls
+       is resized, from its new width: from the window's own resize the row
+       still had its old width. And its minimum is 20px rather than
+       pyqtgraph's 68, which a tenth of a narrow window comes to less than:
+       held there, the mini-pan didn't grow at first as the window was
+       widened.
+   
+    Describe the panadapter's own Ref, Auto and Off in the User Manual
+       The Panadapter Window section now says that Ref is each panadapter's
+       own, neither setting nor following the K4's REF LVL; that Set and
+       Auto work it out from the noise the trace shows, averaged as Avg
+       averages the trace, less the offset Off picks, Auto every two
+       seconds; that Auto and Off are
+       remembered for each panadapter; and that Avg smooths over 1 to 20
+       frames. Ref is no longer listed among the K4's own settings. The
+       v2.2 revision history lists the changes.
+   
+    Make the panadapter's Ref its own, with Auto, Off and a steadier floor
+       Ref was the K4's REF, and its Auto the K4's own auto-ref, which is
+       one for both receivers, there being no #AR$. The K4's REF and
+       auto-ref are now neither sent nor heeded: no #REF, #REF$ or #AR is
+       sent, and what the K4 reports of them is ignored, its own display
+       being left to itself. Each panadapter keeps its own Ref, the bottom
+       of its trace, remembered for it and put back when it opens.
+       
+       Set works Ref out from the noise the trace shows: the median of the
+       trace as Avg averages it, so that it goes by what is shown with no
+       averaging of its own on top, less the offset a new Off dropdown, right
+       of Ref, picks -- -8 to +8 dB, -2 unless changed, a positive one
+       putting Ref below the noise, as the K4's AutoRef Offset does. Auto,
+       now the panadapter's own, does the same every 2 seconds, from the
+       first frame, and moves Ref where that is 2 dB or more from it, so that
+       the trace isn't nudged a dB at a time. Set, a level picked, typed in
+       or stepped to, turns Auto off. Auto and Off are kept for each window.
+       
+       The noise floor the waterfall's colours and the Ref list follow is
+       taken at the 20th percentile of the trace's bins, not the median. A
+       user on a 75 m net still saw the waterfall breathe: in a narrow span
+       the stations taking turns cover half of it or more, and as each came
+       and went the median rose and fell with it, by 4 dB with half the
+       span covered and 11 with two thirds in a simulation, where the 20th
+       percentile moves 0.6 and 1.1 dB; in the app, with stations keying
+       over most of the span, the waterfall's levels swing 2.4 dB rather
+       than 14. On a quiet band it sits a dB or so below the median, which
+       only makes WF a dB less than it says.
+       
+       Avg now goes from 1 to 20 rather than 10. And every dropdown in the
+       panadapter's controls is given at least the width it asks for, and
+       its group at least the box's: each group's minimum came from its
+       title alone, so where the row was short of room the boxes were
+       squeezed below their own width, Off's +8 cramped against its arrow.
+   
 v2.2-rc3:
     Bring the User Manual up to date with v2.1.4
        The revision history now has the v2.1.4 section released from main,
