@@ -6111,7 +6111,7 @@ class Panadapter(QDialog):
         span_fps_row = QWidget()
         span_fps_row_layout = QHBoxLayout(span_fps_row)
         span_fps_row_layout.setContentsMargins(0, 0, 0, 0)
-        for frame in (ref_frame, ref_offset_frame, scale_frame, span_frame, fps_frame, avg_frame, waterfall_threshold_frame):
+        for frame in (ref_frame, scale_frame, span_frame, fps_frame, avg_frame, ref_offset_frame, waterfall_threshold_frame):
             span_fps_row_layout.addWidget(frame, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         self.controls_frame = QWidget()
