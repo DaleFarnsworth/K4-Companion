@@ -6172,11 +6172,10 @@ class Panadapter(QDialog):
         controls_side_layout.setContentsMargins(0, 0, 0, 0)
         controls_side_layout.addWidget(self.controls_frame, 0, Qt.AlignmentFlag.AlignTop)
         controls_side_layout.addStretch(1)
-        # Narrower than pyqtgraph's own minimum, 68px, which the
-        # mini-pan's share, a tenth at the least, came to less than in a
-        # narrow window: there it was held at 68px, and widening the
-        # window left it there until a tenth of it came to more.
-        self.minipan_plot.setMinimumWidth(Panadapter.minipan_min_width)
+        # No narrower than its two frequency labels need, side by side,
+        # without overlapping -- see _minipan_min_width -- rather than
+        # pyqtgraph's own minimum, 68px.
+        self.minipan_plot.setMinimumWidth(self._minipan_min_width())
         self.minipan_row = _MinipanSplitter(self._update_minipan_width)
         self.minipan_row.setChildrenCollapsible(False)
         self.minipan_row.addWidget(self.minipan_plot)
@@ -6454,7 +6453,9 @@ class Panadapter(QDialog):
     minipan_default_share = 1 / 3
     minipan_min_share = .1
     minipan_max_share = .8
-    minipan_min_width = 20
+    minipan_cw_span_hz = 2000     # What the mini-pan spans in CW,
+    minipan_span_hz = 10000       # and in every other mode.
+    minipan_label_gap = 8         # The least room between its two labels.
 
     def _update_minipan_width(self, width=None):
         # The mini-pan at its share of the row's width, and the controls
@@ -7540,7 +7541,8 @@ class Panadapter(QDialog):
         # as Hz/bin was only ever off by ~120 Hz at the edges, which is
         # why the stretch showed up on the trace long before here.
         hz_per_bin = sample_rate * 1000 / len(bins)
-        span_hz = 2000 if Panadapter.is_cw_mode(self.receiver) else 10000
+        span_hz = Panadapter.minipan_cw_span_hz if Panadapter.is_cw_mode(self.receiver) \
+            else Panadapter.minipan_span_hz
         bins = self._crop_bins(bins, hz_per_bin, span_hz)
         data = numpy.array(bins, dtype=numpy.float32)
         bin_count = len(bins)
@@ -7612,6 +7614,21 @@ class Panadapter(QDialog):
             # because nothing about the (frozen, stale) axis_key
             # actually changed since they were last set.
             self.minipan_axis_key = None
+
+    def _minipan_min_width(self):
+        # The width the mini-pan's labels need at each end, in their
+        # margins (see _position_overlay_labels), with minipan_label_gap
+        # between them: of either span's pair, whichever is wider, so
+        # that the minimum doesn't change as the mode or the mini-pan
+        # does, nor while the labels are blank. Measured with a decimal
+        # place, as _format_delta_khz gives them: the span the bins come
+        # to is never quite a whole number of kHz, so -5.0 kHz, not -5.
+        metrics = QFontMetrics(self.minipan_left_label.font())
+        margin = 2
+        return max(metrics.horizontalAdvance(f'{-span_hz / 2000:.1f} kHz') +
+                   metrics.horizontalAdvance(f'{span_hz / 2000:.1f} kHz')
+                   for span_hz in (Panadapter.minipan_cw_span_hz, Panadapter.minipan_span_hz)) \
+            + 2 * margin + Panadapter.minipan_label_gap
 
     def _update_minipan_labels(self, span_hz):
         # xs[0]/xs[-1] are always exactly freq_hz -+ span_hz/2 (see the
