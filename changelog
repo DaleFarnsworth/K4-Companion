@@ -1,3 +1,96 @@
+v2.3-rc1:
+    Date the User Manual, and list the bolder scales in its v2.3 history
+
+    Panadapter: brighten and embolden the trace's S-unit and dB scales
+       Their marks were in pyqtgraph's dim grey, hard to read against the
+       black; they are now bold, in a light grey.
+   
+    Describe the panadapter's Peak button in the User Manual
+       The Panadapter Window section's list of controls now has Peak, and the
+       v2.3 revision history lists it.
+   
+    Add a Peak button to the panadapter, holding the trace's peaks in red
+       A Peak button, right of Freeze, now draws a red line over the trace
+       holding the highest level each frequency has shown, as the trace
+       draws it, Avg's averaging and all, since Peak was turned on; it is
+       yellow while on. The peaks start again when the trace's frequencies
+       change, with the span or a re-centring, and go when Peak is turned
+       off. Whether it is on is kept for each panadapter, as Avg is.
+       
+       When they start again, the line is cleared at once but nothing is
+       held for half a second, since the K4's first frames after a span
+       change still show the old span. Turning Peak on starts it at once.
+   
+    Describe the yellow Freeze button in the User Manual
+       The Panadapter Window section's list of controls now says that Freeze
+       is yellow while the display is stopped, and the v2.3 revision history
+       lists it.
+   
+    Show a frozen panadapter by a yellow Freeze button, not Unfreeze
+       The Freeze button read Unfreeze while the display was frozen. It now
+       always reads Freeze, and is yellow while the display is frozen, as
+       the main window's buttons are while what they stand for is on,
+       whether it was frozen from the button or the K4 reports it so.
+   
+    Describe the mini-pan's height in the User Manual
+       The Panadapter Window section now says that the divider above the
+       trace sets the mini-pan's height, which it keeps as the window's
+       height changes, the trace and waterfall taking the change. The v2.3
+       revision history lists it.
+   
+    Let the panadapter's mini-pan height be set by dragging a divider
+       The mini-pan's row, with the controls beside it, was laid out above
+       the trace and waterfall at a sixth of the window. It is now at the
+       top of the splitter the trace and waterfall share, so that the
+       divider between it and the trace can be dragged as theirs can, no
+       higher than leaves the controls the room they need. The three sizes
+       are kept together; one kept from before, the trace's and waterfall's
+       alone, is taken with the row at its default height.
+       
+       As the window's height changes, the row keeps the height it was given
+       or dragged to, rather than growing and shrinking with the window, and
+       the trace and waterfall share the change, by the trace's share of the
+       two as a divider last left it, kept apart so that a window made too
+       short for either to have its share doesn't lose it. The splitter is
+       told its new height, as the mini-pan's row is told its width, by
+       _ResizingSplitter, which _MinipanSplitter becomes.
+   
+    Describe the panadapter's cursor in the User Manual
+       The Panadapter Window section now says that a red cursor follows the
+       mouse over the trace and the waterfall, with the frequency a click
+       there would tune to at its top and the passband that would give
+       shaded in red, and goes on a click, when the mouse leaves them, or
+       once it has been still for two seconds. The v2.3 revision history
+       lists it.
+   
+    Show a red frequency cursor where the mouse is on the panadapter
+       Over the trace or the waterfall, a red vertical line now follows the
+       mouse down both, the two sharing their X view, with the frequency a
+       click there would tune to at its top on the trace, below the row of
+       frequency labels there, and the line drawn on the trace from the
+       frequency down. The frequency is rounded to 100 Hz on the trace and 1
+       kHz on the waterfall, as their clicks are, and written as the trace's
+       centre frequency is, 14.250.3. The rounding and the VFO's limits a
+       click goes by are one function, tune_frequency, which the parent tunes
+       with and the cursor shows.
+       
+       The cursor goes once the mouse has been still for two seconds, and at
+       once as it leaves the trace or waterfall, goes onto the scales either
+       side of the trace, or into the bare margins either side of the
+       waterfall, beyond the span, where it isn't shown.
+       
+       With it, on the trace and the waterfall, the passband the receiver
+       would have if tuned there by a click is shaded in red, as its own is
+       in blue. Both go when the cursor does, and a click on the trace or
+       the waterfall, tuning there, takes them away at once, until the mouse
+       next moves.
+       
+       The trace's and waterfall's views now repaint whole whenever anything
+       in them changes: repainting only what pyqtgraph reckoned had changed,
+       the moving cursor left trails of itself in the upper part of the
+       trace. The trace is repainted at every frame anyway, and in a process
+       of its own.
+   
 v2.3-rc0:
     Say 2.3 in the User Manual, the CTR2 in its v2.3 history
        The first page gives 2.3 as the version this is for, and the CTR2's
