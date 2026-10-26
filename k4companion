@@ -6167,6 +6167,19 @@ class Panadapter(QDialog):
         self.freeze_button = self._make_button('Freeze', self.on_freeze_button)
         self._set_freeze_button(Panadapter.frozen)
         button_row_layout.addWidget(self.freeze_button, 0, Qt.AlignmentFlag.AlignTop)
+        # Peak -- a red line over the trace holding the highest level
+        # each bin has shown since it was turned on, yellow while on.
+        # Local and per-window, like Avg -- see on_peak_button and
+        # _update_peak.
+        self.peak_enabled = Server.settings.getbool(
+            'Window', f'Panadapter.{self.receiver}.peak', False)
+        self.peak_data = None
+        self.peak_hold_from = 0.0     # see _restart_peak
+        self.peak_button = self._make_button('Peak', self.on_peak_button)
+        self.peak_button.setToolTip('Holds the highest level the trace has shown at each\n'
+                                    'frequency, in red, from when it is turned on.')
+        self._set_peak_button()
+        button_row_layout.addWidget(self.peak_button, 0, Qt.AlignmentFlag.AlignTop)
         # Autospot -- sends SP3;/SP$3; (main/sub) to log the receiver's
         # current frequency as a CW spot; meaningless outside CW/CW-R,
         # so only enabled in those modes -- see _update_autospot_enabled,
@@ -6241,6 +6254,8 @@ class Panadapter(QDialog):
         # behind it rather than over it.
         self.bw_region = self._add_bw_region(self.trace_plot)
         self.trace_curve = self.trace_plot.plot(pen=pyqtgraph.mkPen(color=(80, 220, 120), width=1))
+        # Peak's line, over the trace -- see _update_peak.
+        self.peak_curve = self.trace_plot.plot(pen=pyqtgraph.mkPen(color=Panadapter.peak_color, width=1))
         # Y range is set explicitly (averaged every 5 seconds in
         # push_frame) rather than left to pyqtgraph's default per-frame
         # auto-range -- disable that, and seed a plausible starting
@@ -6902,8 +6917,10 @@ class Panadapter(QDialog):
             self.trace_plot.setXRange(left_edge, right_edge, padding=0)
             self._update_trace_labels(center_hz, span_hz)
             # bin_count changed, so any frames already in trace_history
-            # are the wrong shape to average against this one.
+            # are the wrong shape to average against this one, and the
+            # peaks held are of frequencies no longer shown.
             self.trace_history.clear()
+            self._restart_peak(settle=True)
 
         self._update_freq_line()
         self._update_bw_region()
@@ -6913,6 +6930,7 @@ class Panadapter(QDialog):
         # frame's own full-resolution data.
         trace_data = self._rolling_average(self.trace_history, data)
         self.trace_curve.setData(self.xs, trace_data)
+        self._update_peak(trace_data)
         self.trace_peaks.append((time.perf_counter(), float(trace_data.max())))
         self._update_noise_floor(trace_data)
         self._push_waterfall_row(data)
@@ -7057,6 +7075,42 @@ class Panadapter(QDialog):
         # initial (possibly still-unknown, i.e. disabled) mode.
         self.autospot_button.setEnabled(Panadapter.is_cw_mode(self.receiver))
 
+    peak_color = (255, 40, 40)
+    # How long after the span or the trace's frequencies change Peak
+    # waits to start holding again: the K4's first frames after a span
+    # change still show the old span, drawn as if they were the new.
+    peak_settle_seconds = .5
+
+    def on_peak_button(self):
+        self.peak_enabled = not self.peak_enabled
+        self.save_setting('peak', self.peak_enabled)
+        self._restart_peak(settle=False)
+        self._set_peak_button()
+
+    def _restart_peak(self, settle):
+        # The peaks held let go of, and the line cleared, to start again
+        # -- after peak_settle_seconds where settle, so that what the
+        # K4 sends before it has caught up isn't what is held.
+        self.peak_data = None
+        self.peak_curve.setData([], [])
+        self.peak_hold_from = time.perf_counter() + (Panadapter.peak_settle_seconds if settle else 0)
+
+    def _set_peak_button(self):
+        bg = 'yellow' if self.peak_enabled else 'white'
+        self.peak_button.setStyleSheet(qt_button_stylesheet(bg, 'black', '#ccc', 'black'))
+
+    def _update_peak(self, trace_data):
+        # The highest each bin of the trace has shown, as drawn (Avg's
+        # averaging and all), since Peak was turned on or the trace's
+        # frequencies last changed.
+        if not self.peak_enabled or time.perf_counter() < self.peak_hold_from:
+            return
+        if self.peak_data is None or len(self.peak_data) != len(trace_data):
+            self.peak_data = numpy.array(trace_data, dtype=numpy.float32)
+        else:
+            numpy.maximum(self.peak_data, trace_data, out=self.peak_data)
+        self.peak_curve.setData(self.xs, self.peak_data)
+
     def on_freeze_button(self):
         self.request_freeze(not Panadapter.frozen)
 
@@ -7139,7 +7193,10 @@ class Panadapter(QDialog):
         # self.span_khz in sync too (see request_span) so a later local
         # request compares against the radio's actual last-known span,
         # not a stale value from before this update.
-        self.span_khz = round(span_hz / 1000)
+        new_span_khz = round(span_hz / 1000)
+        if new_span_khz != self.span_khz:
+            self._restart_peak(settle=True)
+        self.span_khz = new_span_khz
         self._set_span_combobox_khz(self.span_khz)
 
     def _set_span_combobox_khz(self, span_khz):
