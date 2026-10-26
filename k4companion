@@ -5495,18 +5495,22 @@ class _PanControlFilter(QObject):
             return True
         return False
 
-class _MinipanSplitter(QSplitter):
-    # The divider between the panadapter's mini-pan and its controls,
-    # telling the window its new width each time it is resized, after
-    # the splitter has resized its own -- so that the mini-pan's share
-    # of it is set from the width it is now, not the one before.
-    def __init__(self, on_resized):
-        super().__init__(Qt.Orientation.Horizontal)
+class _ResizingSplitter(QSplitter):
+    # A splitter of the panadapter's, telling the window its new length,
+    # along its orientation, each time it is resized, after the splitter
+    # has resized its own -- so that what the window sets from it is set
+    # from the length it is now, not the one before: the mini-pan's
+    # share of its row's width, and its row's height held as the window
+    # grows and shrinks.
+    def __init__(self, orientation, on_resized):
+        super().__init__(orientation)
         self.on_resized = on_resized
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.on_resized(event.size().width())
+        size = event.size()
+        self.on_resized(size.width() if self.orientation() == Qt.Orientation.Horizontal
+                        else size.height())
 
 class Panadapter(QDialog):
     # Driven by PAN frames only; MINI-PAN is ignored (see push_minipan).
@@ -6195,12 +6199,14 @@ class Panadapter(QDialog):
         # without overlapping -- see _minipan_min_width -- rather than
         # pyqtgraph's own minimum, 68px.
         self.minipan_plot.setMinimumWidth(self._minipan_min_width())
-        self.minipan_row = _MinipanSplitter(self._update_minipan_width)
+        self.minipan_row = _ResizingSplitter(Qt.Orientation.Horizontal, self._update_minipan_width)
         self.minipan_row.setChildrenCollapsible(False)
         self.minipan_row.addWidget(self.minipan_plot)
         self.minipan_row.addWidget(controls_side)
         self.minipan_row.splitterMoved.connect(self.on_minipan_divider_moved)
-        layout.addWidget(self.minipan_row, 1)
+        # Not added to the layout here: it goes at the top of the
+        # splitter the trace and waterfall share, below, so that its
+        # height can be dragged as theirs can.
 
         # Frequency scale now shown via trace_left/right/center_label
         # instead (see _update_trace_labels) of the bottom axis. Same
@@ -6375,18 +6381,27 @@ class Panadapter(QDialog):
         self.waterfall_plot.scene().sigMouseMoved.connect(
             lambda pos: self.on_cursor_moved(self.waterfall_plot, pos))
 
-        # A draggable divider between the trace and waterfall, in place
-        # of fixed layout stretch factors, so the user can grab and
-        # move it to trade vertical space between the two. Initial
-        # sizes (200/300) match the old 2:3 stretch-factor split;
-        # Qt keeps that ratio on window resize until the user drags it.
-        self.trace_waterfall_splitter = QSplitter(Qt.Orientation.Vertical)
+        # Draggable dividers between the mini-pan's row and the trace,
+        # and between the trace and waterfall, in place of fixed layout
+        # stretch factors, so the user can grab and move them to trade
+        # vertical space between the three. Initial sizes match the old
+        # stretch factors, the row 1 to the other two's 5, and the
+        # trace and waterfall 2:3. As the window's height changes, the
+        # row keeps the height it was given or dragged to, and the trace
+        # and waterfall share the change, keeping their ratio -- see
+        # _hold_minipan_height. The row goes no shorter than its
+        # controls need, and isn't collapsed away.
+        self.minipan_height = Panadapter.minipan_default_height
+        self.trace_share = 2 / 5      # the trace's of what the two have
+        self.trace_waterfall_splitter = _ResizingSplitter(Qt.Orientation.Vertical,
+                                                          self._hold_minipan_height)
+        self.trace_waterfall_splitter.addWidget(self.minipan_row)
         self.trace_waterfall_splitter.addWidget(self.trace_plot)
         self.trace_waterfall_splitter.addWidget(self.waterfall_plot)
-        self.trace_waterfall_splitter.setSizes([200, 300])
-        self.trace_waterfall_splitter.splitterMoved.connect(
-            lambda *_: self.save_splitter_sizes())
-        layout.addWidget(self.trace_waterfall_splitter, 5)
+        self.trace_waterfall_splitter.setCollapsible(0, False)
+        self.trace_waterfall_splitter.setSizes([Panadapter.minipan_default_height, 200, 300])
+        self.trace_waterfall_splitter.splitterMoved.connect(self.on_vertical_divider_moved)
+        layout.addWidget(self.trace_waterfall_splitter, 1)
 
         self.resize(700, 500)
         self.set_geometry()
@@ -6584,6 +6599,8 @@ class Panadapter(QDialog):
     # The mini-pan's share of the window's width: a third to start with,
     # and held between these however far the divider is dragged.
     minipan_default_share = 1 / 3
+    minipan_default_height = 80   # The mini-pan's row's to start with,
+                                  # about the sixth of the window it had.
     minipan_min_share = .1
     minipan_max_share = .8
     minipan_cw_span_hz = 2000     # What the mini-pan spans in CW,
@@ -6594,7 +6611,7 @@ class Panadapter(QDialog):
         # The mini-pan at its share of the row's width, and the controls
         # beside it the rest of it -- or as much less as they need at
         # the least, which the divider won't go past. Called as the row
-        # itself is resized, with its new width (see _MinipanSplitter):
+        # itself is resized, with its new width (see _ResizingSplitter):
         # from the window's own resize the row's width was its old one
         # still, and the mini-pan could be left at its old width as the
         # window was widened.
@@ -6719,13 +6736,46 @@ class Panadapter(QDialog):
             sizes = [int(size) for size in sizes_str.split(':')]
         except ValueError:
             return
-        if len(sizes) != 2:
+        # The mini-pan's row, the trace and the waterfall -- or, kept
+        # from before the row was in the splitter, the trace and the
+        # waterfall alone, the row then taking its default height.
+        if len(sizes) == 2:
+            sizes = [Panadapter.minipan_default_height] + sizes
+        if len(sizes) != 3:
             return
+        self.minipan_height = sizes[0]
+        if sizes[1] + sizes[2] > 0:
+            self.trace_share = sizes[1] / (sizes[1] + sizes[2])
         self.trace_waterfall_splitter.setSizes(sizes)
+
+    def on_vertical_divider_moved(self, position, index):
+        # A divider above or below the trace dragged: the mini-pan's
+        # row's height, and the trace's share of what it and the
+        # waterfall have, as they now are, for _hold_minipan_height to
+        # keep.
+        sizes = self.trace_waterfall_splitter.sizes()
+        self.minipan_height = sizes[0]
+        if sizes[1] + sizes[2] > 0:
+            self.trace_share = sizes[1] / (sizes[1] + sizes[2])
+        self.save_splitter_sizes()
+
+    def _hold_minipan_height(self, height):
+        # The splitter resized, to height: the mini-pan's row kept at
+        # minipan_height, rather than grown and shrunk with the window
+        # as Qt would have it, and what is left shared between the trace
+        # and waterfall by trace_share -- kept from when a divider was
+        # last dragged, so that a window made too short for either to
+        # have its share doesn't lose it.
+        splitter = self.trace_waterfall_splitter
+        rest = height - splitter.handleWidth() * (splitter.count() - 1) - self.minipan_height
+        if rest < 2:
+            return
+        trace = round(rest * self.trace_share)
+        splitter.setSizes([self.minipan_height, trace, rest - trace])
 
     def save_splitter_sizes(self):
         sizes = self.trace_waterfall_splitter.sizes()
-        sizes_str = f'{sizes[0]}:{sizes[1]}'
+        sizes_str = ':'.join(str(size) for size in sizes)
         if Panadapter.child_mode:
             # Same reasoning as save_geometry(): only the parent writes
             # the settings file, so this is remembered here and reported
@@ -6740,7 +6790,7 @@ class Panadapter(QDialog):
 
     def resizeEvent(self, event):
         # The mini-pan's width follows its row's own resize: see
-        # _MinipanSplitter.
+        # _ResizingSplitter.
         super().resizeEvent(event)
         self._position_trace_labels()
         self.save_geometry()
