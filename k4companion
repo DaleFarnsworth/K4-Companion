@@ -6159,13 +6159,12 @@ class Panadapter(QDialog):
             self.fixed_tune_combobox.addItem(text, value)
         qt_fit_combobox_width(self.fixed_tune_combobox, Panadapter.combobox_margin)
         button_row_layout.addWidget(self.fixed_tune_combobox, 0, Qt.AlignmentFlag.AlignTop)
-        # Freeze/Unfreeze (#FRZ;) -- shared between main/sub (no #FRZ$
-        # variant), like FPS/#SCL, so a change here is reflected on
-        # every open window's button the same way. Two-valued: shows
-        # the action available given the current confirmed state ("Freeze"
-        # while running, "Unfreeze" while frozen) -- see on_freeze_button/
-        # _set_freeze_button/on_frz_changed.
-        self.freeze_button = self._make_button('', self.on_freeze_button)
+        # Freeze (#FRZ;) -- shared between main/sub (no #FRZ$ variant),
+        # like FPS/#SCL, so a change here is reflected on every open
+        # window's button the same way. Each click turns it the other
+        # way, and it is yellow while the display is frozen -- see
+        # on_freeze_button/_set_freeze_button/on_frz_changed.
+        self.freeze_button = self._make_button('Freeze', self.on_freeze_button)
         self._set_freeze_button(Panadapter.frozen)
         button_row_layout.addWidget(self.freeze_button, 0, Qt.AlignmentFlag.AlignTop)
         # Autospot -- sends SP3;/SP$3; (main/sub) to log the receiver's
@@ -7078,7 +7077,10 @@ class Panadapter(QDialog):
         # same way every time instead of alternating, until a #FRZ;
         # response happened to come back and correct it.
         Panadapter.frozen = frozen
-        self.freeze_button.setText('Unfreeze' if frozen else 'Freeze')
+        # Yellow while frozen, as the main window's buttons are while
+        # what they stand for is on, rather than reading Unfreeze.
+        bg = 'yellow' if frozen else 'white'
+        self.freeze_button.setStyleSheet(qt_button_stylesheet(bg, 'black', '#ccc', 'black'))
 
     def on_fixed_tune_selected(self, index):
         self.request_fixed_tune(self.fixed_tune_combobox.itemData(index))
