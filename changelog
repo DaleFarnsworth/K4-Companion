@@ -1,3 +1,126 @@
+v2.3-rc0:
+    Say 2.3 in the User Manual, the CTR2 in its v2.3 history
+       The first page gives 2.3 as the version this is for, and the CTR2's
+       revision history entry moves from v2.2, which it is not in, to a new
+       v2.3 section.
+   
+    Describe the CTR2 tab in the User Manual
+       A CTR2 Tab section, after the K-Pod Tab, says what the CTR2-Quad's
+       knobs and buttons can do and how the tab sets them: the MIDI device,
+       the list and Does, the CTR2's VFO and Toggle VFO, the default layout,
+       the attenuator and preamp knobs, and the .map file. The v2.2
+       revision history lists it.
+   
+    Have the CTR2 act on a VFO of its own, switched by Toggle VFO
+       The CTR2's functions that came in a VFO A and a VFO B version are
+       now one, acting on the CTR2's VFO: A to start with, and switched by
+       the new Toggle VFO, on button 15 by default, which says which it is
+       in a popup and on the CTR2 tab. Tune VFO A and Tune VFO B still tune
+       their own VFOs. A map saved or a .map file with a B version's key
+       is taken as the one function.
+       
+       Band Next and Band Previous are now Band+ and Band-.
+   
+    Import and export the CTR2's map in the CTR2-Dial's .map format
+       The map file is now laid out as the CTR2-Dial's own configurations'
+       .map files are, FT-Control's say: C<n>=<function> for each knob
+       under # Controls, B<n>=<function> for each button under # Buttons,
+       and an empty # LEDs, None being left empty. The functions are K4
+       Companion's own, and a button's K4 commands follow commands:. The
+       suffix is .map. A file with nothing usable but empty entries is
+       refused, and no more than eight of what is skipped are named.
+   
+    Call the CTR2's built-in map its default layout
+
+    Import and export the CTR2's map as a .ctr2map file
+       The CTR2 tab's Map File group exports every knob's and button's
+       function, the K4 commands a button sends included, to a .ctr2map
+       file, and imports one in place of the map set, what it doesn't
+       have doing what the default layout has it do. What can't be used
+       is skipped and named, and a CTR2-Dial settings file (.ctr2), which
+       holds no K4 commands, is refused.
+       
+       Settings.clear_section now counts a removed section as a change, so
+       that an import matching the defaults is saved.
+   
+    Remove the CTR2 tab's layout reset button
+
+    Log every MIDI message with --da midi
+       With --da midi, each MIDI message the app is sent or sends is
+       logged: its port, its bytes and what they are, and for one received
+       the time since the last and whether it went to the keyer or the
+       CTR2 controller. The keying device, the CTR2's own port and what is
+       sent to a Vail adapter are all logged.
+   
+    Add the CTR2 buttons All A > B, All B > A, All A/B and the tunes
+       Buttons can now do all A > B, all B > A and all A/B (AB3 to AB5),
+       and ATU TUNE, Tune and Tune LP beside ATU Tune, as the app's own
+       controls do. Each tune is started where the K4 isn't tuning and
+       stopped where it is, ATU Tune now included.
+   
+    Call the SSNR dropdowns' R and AR C and AC
+
+    Call the CTR2's SSNR R and AR buttons SSNR Cal and SSNR AutoCal
+
+    Step the CTR2's ATT and Pre by movement, and add SSNR R and AR
+       A CTR2 knob's attenuator or preamp took so much of the knob's 0 to
+       127 for each level that it had to be turned a long way to change
+       it. Each now moves a level for every 4 counts the knob turns, up or
+       down, from wherever the K4 has it.
+       
+       Buttons can now do the SSNR dropdowns' R and AR, for either VFO.
+   
+    Show the CTR2's RF gain, and keep its preamp to the band's levels
+       A CTR2 knob's RF gain went to the K4 without the app's RF Gain
+       dropdown being told: send_cmds takes RG's leading - for a step down
+       rather than a setting, and so doesn't note the gain it sends. It is
+       now sent as AF gain is, with the app's control told the setting.
+       
+       The preamp's level 3 is only on 12, 10 and 6 m, so elsewhere a CTR2
+       knob's preamp goes no higher than 2, and its Pre On/Off button turns
+       the preamp on at no more than that.
+   
+    Let the CTR2's knobs and buttons be set on the CTR2 tab
+       The Macros window's CTR2-Quad tab, now just CTR2, lists the CTR2's
+       18 knobs and 60 buttons with what each does. A knob or button
+       touched on the CTR2 is selected in the list, and the Does dropdown
+       sets what it does: a function of the app's, or for a button K4
+       commands of the operator's own, as a K-Pod button has. What is set
+       is kept with each radio's settings; what isn't keeps the default
+       layout, which a button restores.
+       
+       Each function that applies to either receiver has a VFO A and a VFO
+       B version: AF gain, bandwidth, RF gain, NB, LMSNR (the old NR),
+       zoom, RIT, mode, band, filter preset, tuning step and mute. Knobs
+       for SSNR level, the attenuator and the preamp are added, and buttons
+       to turn each on and off. The AF gain knobs and mute move the app's
+       AF Gain slider, which wasn't told of a gain the app kept for its own
+       audio and didn't send. The Does dropdown is wide enough for all of
+       its choices, and the commands field is coloured as the K-Pod tab's
+       are, so that it no longer looks disabled when it isn't.
+   
+    Support the CTR2-Quad's knobs and buttons
+       A Lynovation CTR2-Quad, or another CTR2 running the CTR2-Dial firmware,
+       now tunes and runs the K4 from its knobs and buttons; its paddles and
+       key were already the keyer's. The MIDI device it is read from is chosen
+       on the Macros window's new CTR2-Quad tab, whatever the keying device is.
+       
+       By default: knobs 100 and 102 tune VFO A and VFO B a VFO step a
+       count, the offset from 64 being the steps turned; 101, 103, 104, 106,
+       107, 108, 109 and 110 set the AF gain, bandwidth, RF gain, NB and NR
+       levels, zoom, RF power and CW speed, 0 to 127 scaled to each setting's
+       range; and 111 sets the RIT offset about its centre. Buttons 1 to 60
+       step and pick the mode and band, mute, step the filter preset, zoom,
+       turn RIT, VOX, NB, NR and split on and off, step the VFO's tuning step,
+       copy and swap the VFOs, tune the ATU, toggle PTT and send Macros 1 to
+       5. Those with nothing on the K4 to do do nothing.
+       
+       Where the CTR2 is the keying MIDI device too, its port is shared with
+       the keyer rather than opened again, which Windows doesn't allow: the
+       knobs' and buttons' messages go to the controller and the rest to the
+       keyer, the time between them carried on to the keyer's next, so that
+       the knobs' controls are no longer taken for timing by the keyer.
+   
 v2.2:
     Complete the User Manual for v2.2
        The Main tab section now gives the NB filter button, and the v2.2
