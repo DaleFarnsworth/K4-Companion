@@ -6240,6 +6240,15 @@ class Panadapter(QDialog):
         # pixel (see setXLink below), so the waterfall shows bare ground
         # in both strips rather than in one hanging off the left.
         self.trace_plot.getPlotItem().showAxis('right')
+        # Both scales' marks bright and bold enough to read against the
+        # black, rather than pyqtgraph's own dim grey. Set before the
+        # S-unit axis's width is worked out from its font, below.
+        for side in ('left', 'right'):
+            axis = self.trace_plot.getPlotItem().getAxis(side)
+            axis.setTextPen(Panadapter.scale_text_color)
+            scale_font = QFont(axis.style.get('tickFont') or axis.font())
+            scale_font.setBold(True)
+            axis.setStyle(tickFont=scale_font)
         # The S-unit axis as wide as its widest mark needs, and no wider:
         # pyqtgraph starts an axis with 30px for its labels and only ever
         # widens it, and with the marks a few pixels wide at the most,
@@ -6429,6 +6438,9 @@ class Panadapter(QDialog):
         # would be garbage collected out from under it.
         self._control_filter = _PanControlFilter(self)
         QApplication.instance().installEventFilter(self._control_filter)
+
+    # The colour of the trace's S-unit and dB scales' marks.
+    scale_text_color = '#e0e0e0'
 
     # VFO A's marker lines are blue, VFO B's green.
     vfo_a_color = (60, 140, 255)
