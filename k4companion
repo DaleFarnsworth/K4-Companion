@@ -74,7 +74,7 @@ import time
 import traceback
 import yaml
 
-from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, QRect, pyqtSignal, QThread, qInstallMessageHandler, QCoreApplication, QStandardPaths
+from PyQt6.QtCore import Qt, QTimer, QObject, QEvent, QSize, QRect, QPointF, pyqtSignal, QThread, qInstallMessageHandler, QCoreApplication, QStandardPaths
 from PyQt6.QtGui import QFont, QFontDatabase, QFontMetrics, QFontMetricsF, QShortcut, QKeySequence, QValidator, QPainter, QPen, QTextCursor, QTextCharFormat, QCursor, QImage, QPixmap, QPalette, QColor
 from PyQt6.QtNetwork import QTcpServer, QHostAddress
 from PyQt6.QtWidgets import (
@@ -83,7 +83,7 @@ from PyQt6.QtWidgets import (
     QButtonGroup, QSlider, QProgressBar, QTabWidget, QDialog, QLineEdit,
     QComboBox, QListWidget, QLayout, QPlainTextEdit, QProxyStyle, QStyle,
     QSplitter, QStyledItemDelegate, QFileDialog, QSizePolicy,
-    QStyleOptionComboBox,
+    QStyleOptionComboBox, QGraphicsView,
 )
 
 # Modify the path to find opus.dll on Windows, which opuslib looks for
@@ -5325,6 +5325,19 @@ def parse_pan_frame(data, decode_offset=160):
 def parse_minipan_frame(data):
     return parse_pan_frame(data, decode_offset=0)
 
+def tune_frequency(freq_hz, round_to_hz):
+    # The frequency a click on the panadapter tunes to: rounded to
+    # round_to_hz (to the Hz where that is 1), and held within the
+    # VFO's range. The parent tunes to it (see
+    # PanadapterProcess.on_tune_requested), and the cursor shows it (see
+    # Panadapter.on_cursor_moved), so that what is shown is what a
+    # click gives.
+    if round_to_hz > 1:
+        freq_hz = round(freq_hz / round_to_hz) * round_to_hz
+    else:
+        freq_hz = round(freq_hz)
+    return max(VFO.low_frequency_limit, min(VFO.high_frequency_limit, freq_hz))
+
 def format_freq_tick(hz, round_to=100, drop_digits=2):
     # Round to the nearest round_to Hz, zero-pad to always include a
     # megahertz digit even when it's 0, group digits in 3s with '.',
@@ -5436,6 +5449,12 @@ class _PanControlFilter(QObject):
 
     def eventFilter(self, obj, event):
         event_type = event.type()
+        if event_type == QEvent.Type.Leave:
+            # The mouse gone from the trace or the waterfall: their
+            # cursor with it (see Panadapter.on_cursor_moved).
+            if obj in (self.window.trace_plot.viewport(), self.window.waterfall_plot.viewport()):
+                self.window.hide_cursor()
+            return False
         if event_type == QEvent.Type.KeyPress:
             key = event.key()
             if key not in (Qt.Key.Key_Up, Qt.Key.Key_Down,
@@ -6319,6 +6338,43 @@ class Panadapter(QDialog):
         # position is already in the same frequency space.
         self.waterfall_plot.scene().sigMouseClicked.connect(self.on_waterfall_clicked)
 
+        # A red cursor down the trace and the waterfall where the mouse
+        # is over either, with the frequency at its top, gone after
+        # cursor_linger_ms of the mouse being still -- see
+        # on_cursor_moved. The two share their X view, so the one
+        # frequency places it on both.
+        cursor_pen = pyqtgraph.mkPen(color=Panadapter.cursor_color, width=1)
+        # Each repainted whole when anything in it changes, rather than
+        # just the parts that did: the cursor, moving with the mouse,
+        # left trails of itself in the upper part of the trace, where
+        # pyqtgraph's reckoning of what to repaint fell short of what
+        # was drawn there. The trace is repainted at every frame anyway,
+        # and in a process of its own (see PanadapterProcess).
+        for plot in (self.trace_plot, self.waterfall_plot):
+            plot.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
+        self.trace_cursor = pyqtgraph.InfiniteLine(angle=90, pen=cursor_pen)
+        self.waterfall_cursor = pyqtgraph.InfiniteLine(angle=90, pen=cursor_pen)
+        for plot, line in ((self.trace_plot, self.trace_cursor),
+                           (self.waterfall_plot, self.waterfall_cursor)):
+            line.setZValue(20)
+            line.setVisible(False)
+            plot.addItem(line, ignoreBounds=True)
+        # With it, shaded in red as the receiver's own is in blue (see
+        # _update_bw_region), the passband a click there would give.
+        self.trace_cursor_bw = self._add_bw_region(self.trace_plot, Panadapter.cursor_bw_brush)
+        self.waterfall_cursor_bw = self._add_bw_region(self.waterfall_plot, Panadapter.cursor_bw_brush)
+        for region in (self.trace_cursor_bw, self.waterfall_cursor_bw):
+            region.setZValue(19)
+        self.cursor_label = self._make_overlay_label(self.trace_plot)
+        self.cursor_label.setStyleSheet(
+            f'QLabel {{ color: {Panadapter.cursor_text_color}; background: rgba(0, 0, 0, 160); }}')
+        self.cursor_label.hide()
+        self._cursor_timer = self._single_shot_timer(self.hide_cursor)
+        self.trace_plot.scene().sigMouseMoved.connect(
+            lambda pos: self.on_cursor_moved(self.trace_plot, pos))
+        self.waterfall_plot.scene().sigMouseMoved.connect(
+            lambda pos: self.on_cursor_moved(self.waterfall_plot, pos))
+
         # A draggable divider between the trace and waterfall, in place
         # of fixed layout stretch factors, so the user can grab and
         # move it to trade vertical space between the two. Initial
@@ -6364,15 +6420,92 @@ class Panadapter(QDialog):
         return plot
 
     @staticmethod
-    def _add_bw_region(plot):
+    def _add_bw_region(plot, brush=(100, 180, 255, 90)):
         # Receiver bandwidth shading, hidden until there is a bandwidth
         # to shade. See _update_bw_region.
         region = pyqtgraph.LinearRegionItem(values=(0, 0),
-            movable=False, brush=pyqtgraph.mkBrush(100, 180, 255, 90),
+            movable=False, brush=pyqtgraph.mkBrush(*brush),
             pen=pyqtgraph.mkPen(None))
         region.setVisible(False)
         plot.addItem(region)
         return region
+
+    # The cursor's colour, its frequency's, and how long it stays once
+    # the mouse is still.
+    cursor_color = (255, 40, 40)
+    cursor_text_color = '#ff5050'
+    cursor_bw_brush = (255, 40, 40, 95)
+    cursor_linger_ms = 2000
+
+    def on_cursor_moved(self, plot, scene_pos):
+        # The mouse moved over the trace or the waterfall: the cursor to
+        # it, on both, and at the top of it on the trace, below the row
+        # of frequency labels there, the frequency a click there would
+        # tune to. Anywhere else in the widget -- over the scales either
+        # side of the trace, or the bare margins either side of the
+        # waterfall, beyond the span -- there is none, and it goes at
+        # once, as it does when the mouse leaves the trace and the
+        # waterfall altogether (see _PanControlFilter).
+        view_box = plot.getPlotItem().getViewBox()
+        if not view_box.sceneBoundingRect().contains(scene_pos):
+            self.hide_cursor()
+            return
+        freq_hz = view_box.mapSceneToView(scene_pos).x()
+        left_edge, right_edge = self.trace_plot.getPlotItem().getViewBox().viewRange()[0]
+        if not left_edge <= freq_hz <= right_edge:
+            self.hide_cursor()
+            return
+        for line in (self.trace_cursor, self.waterfall_cursor):
+            line.setPos(freq_hz)
+            line.setVisible(True)
+        tune_hz = self._click_tune_frequency(plot, freq_hz)
+        self._place_cursor_label(freq_hz, tune_hz)
+        bw_hz = self._shaded_bandwidth_hz()
+        for region in (self.trace_cursor_bw, self.waterfall_cursor_bw):
+            if bw_hz != None:
+                region.setRegion(self._passband(tune_hz, bw_hz))
+            region.setVisible(bw_hz != None)
+        self._cursor_timer.start(Panadapter.cursor_linger_ms)
+
+    def _click_tune_frequency(self, plot, freq_hz):
+        # What a click at freq_hz, within the span, on plot would tune
+        # to, rounded as on_trace_clicked and on_waterfall_clicked round
+        # it.
+        round_hz = (Panadapter.waterfall_tune_round_hz if plot is self.waterfall_plot
+                    else Panadapter.trace_tune_round_hz)
+        return tune_frequency(freq_hz, round_hz)
+
+    def _place_cursor_label(self, freq_hz, tune_hz):
+        # tune_hz written as the trace's centre frequency is, to 100 Hz
+        # (14.250.3), centred on the cursor at freq_hz where it crosses
+        # the trace, and held within the trace's view.
+        trace_box = self.trace_plot.getPlotItem().getViewBox()
+        label = self.cursor_label
+        label.setText(format_freq_tick(tune_hz))
+        label.adjustSize()
+        x = self.trace_plot.mapFromScene(trace_box.mapViewToScene(QPointF(freq_hz, 0))).x()
+        box = self.trace_plot.mapFromScene(trace_box.sceneBoundingRect()).boundingRect()
+        x = max(box.left(), min(box.right() - label.width(), x - label.width() // 2))
+        top = box.top() + self.trace_center_label.height() + 2
+        label.move(int(x), top)
+        label.show()
+        label.raise_()
+        # The trace's line drawn from the label down, not above it: its
+        # span is the share of the trace's height, from the bottom, that
+        # lies below the label.
+        below = (box.bottom() - (top + label.height())) / max(1, box.height())
+        self.trace_cursor.setSpan(0, max(0.0, min(1.0, below)))
+
+    def hide_cursor(self):
+        # Gone, until the mouse next moves over the trace or the
+        # waterfall: at once when it leaves them, or on a click on
+        # either, or once it has been still for cursor_linger_ms.
+        self._cursor_timer.stop()
+        self.trace_cursor.setVisible(False)
+        self.waterfall_cursor.setVisible(False)
+        self.trace_cursor_bw.setVisible(False)
+        self.waterfall_cursor_bw.setVisible(False)
+        self.cursor_label.hide()
 
     @staticmethod
     def _add_freq_line(plot, color):
@@ -7338,35 +7471,47 @@ class Panadapter(QDialog):
             pass
 
 
-    def _update_bw_region(self):
-        mode = Panadapter.mode[self.receiver]
-        if mode == '4':
+    def _shaded_bandwidth_hz(self):
+        # The width the receiver's passband is shaded, or None while
+        # there is no bandwidth yet to shade.
+        if Panadapter.mode[self.receiver] == '4':
             # FM's channel bandwidth is a fixed 12.5 kHz, not the
             # user-adjustable filter every other mode reports via
             # BW;/BW$; -- so this doesn't wait on (or need) bandwidth_hz.
-            bw_hz = 12500
-        else:
-            bw_hz = Panadapter.bandwidth_hz[self.receiver]
-            if bw_hz == None:
-                return
-            # Shade twice the reported bandwidth in AM mode.
-            if Panadapter.is_am_mode(self.receiver):
-                bw_hz *= 2
-        freq_hz = self._rx_freq_hz()
+            return 12500
+        bw_hz = Panadapter.bandwidth_hz[self.receiver]
+        if bw_hz == None:
+            return None
+        # Shade twice the reported bandwidth in AM mode.
+        if Panadapter.is_am_mode(self.receiver):
+            bw_hz *= 2
+        return bw_hz
+
+    def _passband(self, freq_hz, bw_hz):
+        # The (low, high) frequencies of the passband bw_hz wide that
+        # the receiver, in its mode, has when tuned to freq_hz.
+        mode = Panadapter.mode[self.receiver]
         space_offset_hz = Panadapter.rtty_space_offset_hz(self.receiver)
-        bw_key = (freq_hz, bw_hz, mode, space_offset_hz)
+        if space_offset_hz != None:   # RTTY: centered on the mark and space tones.
+            centre_hz = freq_hz + space_offset_hz / 2
+            return (centre_hz - bw_hz / 2, centre_hz + bw_hz / 2)
+        if mode in ('2', '6'):        # USB, DATA: passband is above center.
+            return (freq_hz, freq_hz + bw_hz)
+        if mode in ('1', '9'):        # LSB, DATA-R: passband is below center.
+            return (freq_hz - bw_hz, freq_hz)
+        return (freq_hz - bw_hz / 2, freq_hz + bw_hz / 2)   # CW/CW-R/AM/FM: centered.
+
+    def _update_bw_region(self):
+        bw_hz = self._shaded_bandwidth_hz()
+        if bw_hz == None:
+            return
+        freq_hz = self._rx_freq_hz()
+        bw_key = (freq_hz, bw_hz, Panadapter.mode[self.receiver],
+                  Panadapter.rtty_space_offset_hz(self.receiver))
         if bw_key == self.bw_key:
             return
         self.bw_key = bw_key
-        if space_offset_hz != None:   # RTTY: centered on the mark and space tones.
-            centre_hz = freq_hz + space_offset_hz / 2
-            region = (centre_hz - bw_hz / 2, centre_hz + bw_hz / 2)
-        elif mode in ('2', '6'):      # USB, DATA: passband is above center.
-            region = (freq_hz, freq_hz + bw_hz)
-        elif mode in ('1', '9'):      # LSB, DATA-R: passband is below center.
-            region = (freq_hz - bw_hz, freq_hz)
-        else:                         # CW/CW-R/AM/FM: centered.
-            region = (freq_hz - bw_hz / 2, freq_hz + bw_hz / 2)
+        region = self._passband(freq_hz, bw_hz)
         self.bw_region.setRegion(region)
         self.bw_region.setVisible(True)
         # Same shading on the mini-pan -- both plots are centered on the
@@ -7432,10 +7577,15 @@ class Panadapter(QDialog):
         else:
             waterfall_timer.stop()
 
+    # What a click on the trace and on the waterfall rounds to.
+    trace_tune_round_hz = 100
+    waterfall_tune_round_hz = 1000
+
     def on_trace_clicked(self, event):
+        self.hide_cursor()
         freq_hz = self._clicked_frequency(self.trace_plot, event)
         if freq_hz != None:
-            self.request_tune(freq_hz, round_to_hz=100)
+            self.request_tune(freq_hz, round_to_hz=Panadapter.trace_tune_round_hz)
 
     def _waterfall_tune_frequency(self, clicked_hz):
         # Where a click on the waterfall means to tune. Within the
@@ -7455,12 +7605,13 @@ class Panadapter(QDialog):
         return tuned_hz + (half_span if clicked_hz > right_edge else -half_span)
 
     def on_waterfall_clicked(self, event):
+        self.hide_cursor()
         freq_hz = self._clicked_frequency(self.waterfall_plot, event)
         if freq_hz != None:
             freq_hz = self._waterfall_tune_frequency(freq_hz)
         if freq_hz == None:
             return
-        self.request_tune(freq_hz, round_to_hz=1000)
+        self.request_tune(freq_hz, round_to_hz=Panadapter.waterfall_tune_round_hz)
         # A click doesn't necessarily change the receiver's rounded
         # frequency (e.g. landing within the same 1 kHz bin it's
         # already on), so _update_freq_line's own change-triggered
@@ -8320,11 +8471,7 @@ class PanadapterProcess(QObject):
             round_to_hz = int(fields[1])
         except ValueError:
             return
-        if round_to_hz > 1:
-            freq_hz = round(freq_hz / round_to_hz) * round_to_hz
-        else:
-            freq_hz = round(freq_hz)
-        freq_hz = max(VFO.low_frequency_limit, min(VFO.high_frequency_limit, freq_hz))
+        freq_hz = tune_frequency(freq_hz, round_to_hz)
         base = 'FA' if self.receiver == 'main' else 'FB'
         Server.k4_server.send_cmds(f'{base}{freq_hz:011.0f};')
 
