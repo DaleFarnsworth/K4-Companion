@@ -1,3 +1,43 @@
+v2.2:
+    Complete the User Manual for v2.2
+       The Main tab section now gives the NB filter button, and the v2.2
+       revision history lists the NB filter button, the microphone's low-pass
+       filter and the K4 audio's interpolation, all new in 2.2, and calls the
+       panadapter's Ref and Scale dropdowns what they now are.
+   
+    Have the parent save the panadapter's settings, so that they're kept
+       A panadapter's Off came back each time it opened as it had been when
+       the app started, -3 for the main and -2 for the sub, and the
+       mini-pan's share was lost the same way. The panadapter saved its own
+       settings in its own process, and each process writes back the whole
+       settings file as it last read it: whichever saved next, the app or
+       the other panadapter, put the change back. A panadapter's own
+       settings -- Ref, Auto, Off, Avg, WF and the mini-pan's share -- are
+       now sent to the parent as they change (#PANSET), which alone writes
+       the file, as the window's geometry already left it to; the parent
+       saves only that window's own.
+   
+    Keep the mini-pan wide enough that its frequency labels don't overlap
+       The mini-pan could be made 20px wide, where its labels, half its span
+       either side, -5.0 kHz and 5.0 kHz, ran into each other. Its minimum
+       is now the width the two need side by side, in their margins and
+       8px apart: of the CW span's labels and the other modes', whichever
+       are wider, measured with the decimal place they are shown with, so
+       that it doesn't change with the mode or while the labels are blank.
+       The 2 and 10 kHz spans are named, push_minipan and the minimum both
+       going by them.
+   
+    Narrow the trace's S-unit axis, and the waterfall's margin with it
+       The trace's left axis, its S-units, was 35px wide, with its widest
+       mark, +10, needing 21: pyqtgraph starts an axis with 30px for its
+       labels and only ever widens it. The waterfall, held to the trace's
+       X view pixel for pixel, was inset by as much on its left. The axis is
+       now as wide as its widest mark needs, with the gap pyqtgraph leaves
+       between mark and axis and 2px to spare: 28px.
+   
+    Move the panadapter's Off dropdown between Avg and WF
+       Off was right of Ref. It is now between Avg and WF.
+   
 v2.2-rc4:
     Date the User Manual October 25th
 
