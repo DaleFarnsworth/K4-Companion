@@ -19966,8 +19966,9 @@ class Rr1274bInput():
     search_seconds = 2.0
     read_timeout_ms = 100
     # How far apart its reports are, for placing ones that arrive
-    # together (see run).
+    # together (see run), and the most taken together.
     report_seconds = .001
+    max_reports = 64
 
     # Its contacts bounce for up to 11 ms, each way. A change is taken
     # at once, with nothing added to the monitoring delay, and whatever
@@ -20087,11 +20088,19 @@ class Rr1274bInput():
     def read_reports(cls, device):
         # The reports waiting: the first waited for, the rest already
         # there.
+        #
+        # Only with the device non-blocking (see open_device). hidapi
+        # reads with no timeout at all where it is given 0, and blocking,
+        # that waits for the next report, which comes a millisecond later
+        # every time: the loop never ended, and nothing it read was ever
+        # acted on. No more than max_reports either way.
         reports = []
         report = device.read(64, cls.read_timeout_ms)
         while report:
             if len(report) >= 3:
                 reports.append(report)
+            if len(reports) >= cls.max_reports:
+                break
             report = device.read(64, 0)
         return reports
 
@@ -20153,6 +20162,7 @@ class Rr1274bInput():
             if sys.platform.startswith('linux'):
                 reason += ': it may need a udev rule giving you access to it'
             return None, reason
+        device.set_nonblocking(1)
         dprint_keying('RR-1274B opened')
         return device, None
 
