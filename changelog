@@ -1,3 +1,17 @@
+v2.3-rc3:
+    Read the RR-1274B non-blocking, so that its reports are acted on
+       Nothing the RR-1274B sent was ever acted on: neither its paddles nor
+       its PTT did anything. Its reports are read by waiting for the first
+       and then taking the rest already there with a read of timeout 0, but
+       hidapi reads with no timeout at all when given 0. With the device
+       left blocking, as it was opened, that read waits for the next report,
+       and the dongle sends one every millisecond, so the loop taking them
+       never ended.
+       
+       The device is opened non-blocking now, as the K-Pod is, so that a
+       read of timeout 0 returns at once with whatever is there, and no more
+       than 64 reports are taken together whatever happens.
+   
 v2.3-rc2:
     Keep serial paddles' own controls when the keyer mode is changed
        Choosing a keyer mode on the Keying tab put up the MIDI device's
