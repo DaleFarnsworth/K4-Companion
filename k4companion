@@ -16639,7 +16639,10 @@ class CW(Digital):
             qt_size_tight_groupbox_title(self.dit_paddle_signal_frame, 'Dit Paddle Signal', self.label_font())
             self._show(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame, 0, 1)
             self.fill_keyer_modes()
+            self.keyer_mode_dropdown.value(Keyer.get_keyer_mode())
             self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
+            if Keyer.keyer_mode == Keyer.MODE_IAMBIC_B:
+                self._show(self.keyer_mode_frame, self.memory_delay_percent_frame, 0, 1)
 
     def disable_serial_device_frame(self):
         self._hide(self.keyer_settings_frame, self.serial_device_frame)
@@ -16789,7 +16792,13 @@ class CW(Digital):
     def on_select_keyer_mode(self, event):
         keyer_mode = self.keyer_mode_dropdown.value()
         Keyer.set_keyer_mode(keyer_mode)
-        self.enable_midi_device_frame()
+        # The device's own frames again, with Dit Mem % for Iambic B:
+        # the MIDI device's put up for serial paddles had them showing
+        # a MIDI device and notes they don't have.
+        if Keyer.device_type_serial:
+            self.enable_serial_device_frame()
+        else:
+            self.enable_midi_device_frame()
 
     def on_select_vail_mode(self, event):
         # Into Passthrough or out of it, the keying and the tab change with
