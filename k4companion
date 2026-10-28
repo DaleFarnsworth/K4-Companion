@@ -16949,6 +16949,8 @@ class CW(Digital):
         typ = Settings.main().get('Keyer', 'device_type', None)
 
         Keyer.set_device_type(typ)
+        if not Keyer.device_type_rr1274b:
+            self._hide(self.keyer_settings_frame, self.rr1274b_device_frame)
         if typ == 'None':
             typ = None
         if not typ:
@@ -16972,6 +16974,8 @@ class CW(Digital):
         if Keyer.device_type_serial:
             self.enable_serial_device_frame()
             self.keyer_dit_paddle_signal()
+        if Keyer.device_type_rr1274b:
+            self.enable_rr1274b_frame()
 
         return typ
 
@@ -17044,6 +17048,7 @@ class CW(Digital):
 
         self.keyer_midi_device_settings(frame)
         self.keyer_serial_device_settings(frame)
+        self.keyer_rr1274b_device_settings()
         self.keyer_mode_settings(frame)
         self.keyer_controls_settings(grid)
 
@@ -17095,6 +17100,8 @@ class CW(Digital):
             'MIDI Paddles',
             'Serial Straight Key',
             'Serial Paddles',
+            'RR-1274B Straight Key',
+            'RR-1274B Paddles',
             'Vail Adapter',
         )
 
@@ -17176,6 +17183,29 @@ class CW(Digital):
         self._hide(self.keyer_settings_frame, self.serial_signal_frame)
         self._hide(self.serial_signal_frame, self.keyer_dit_paddle_signal_frame)
         self._hide(self.serial_signal_frame, self.keyer_dah_paddle_signal_frame)
+
+    def keyer_rr1274b_device_settings(self):
+        # Nothing to choose: the RR-1274B is found by its USB IDs, and
+        # its inputs are its own. Whether it has been, where the others
+        # have their port.
+        self.rr1274b_device_frame, grid = qt_group_box('Device', self.label_font())
+        self.rr1274b_status_label = QLabel(Rr1274bInput.status_text)
+        self.rr1274b_status_label.setFont(self.font())
+        grid.addWidget(self.rr1274b_status_label, 0, 0)
+        Rr1274bInput.add_status_listener(self.rr1274b_status_label.setText)
+
+    def enable_rr1274b_frame(self):
+        # Its status, and the keyer's mode for paddles.
+        self.disable_midi_device_frame()
+        self.disable_serial_device_frame()
+        self._show(self.keyer_settings_frame, self.rr1274b_device_frame, 1, 0)
+        if Keyer.device_type_straight_key:
+            return
+        self.fill_keyer_modes()
+        self.keyer_mode_dropdown.value(Keyer.get_keyer_mode())
+        self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
+        if Keyer.keyer_mode == Keyer.MODE_IAMBIC_B:
+            self._show(self.keyer_mode_frame, self.memory_delay_percent_frame, 0, 1)
 
     def enable_keyer_controls_frame(self):
         self._show(self.keyer_settings_frame, self.keyer_controls_frame, 5, 0)
@@ -17319,7 +17349,10 @@ class CW(Digital):
     def on_select_keyer_mode(self, event):
         keyer_mode = self.keyer_mode_dropdown.value()
         Keyer.set_keyer_mode(keyer_mode)
-        self.enable_midi_device_frame()
+        if Keyer.device_type_rr1274b:
+            self.enable_rr1274b_frame()
+        else:
+            self.enable_midi_device_frame()
 
     def on_select_vail_mode(self, event):
         # Into Passthrough or out of it, the keying and the tab change with
@@ -19896,6 +19929,255 @@ class KpodInput():
             commands += ';'
         server.send_cmds(commands)
 
+class Rr1274bSignals(QObject):
+    # From the RR-1274B's thread to the Qt thread, where the connection
+    # to the K4 is: its PTT closed or open, a warning to give, and what
+    # the Keying tab is to say of it.
+    ptt = pyqtSignal(bool)
+    warning = pyqtSignal(str)
+    status = pyqtSignal(str)
+
+class Rr1274bInput():
+    # A RemoteRig RR-1274B, Microbit Teknik's USB dongle for RRC-Micro:
+    # paddles or a straight key on its paddle jack, and PTT from its red
+    # button and from a foot switch on its PTT jack, which it reports as
+    # one.
+    #
+    # A USB HID device with a vendor-defined report, read with hidapi on
+    # a thread of its own while it is the Keying tab's Device Type. It
+    # sends an 11-byte report every millisecond whether anything has
+    # changed or not, and only the low three bits of the first byte say
+    # anything: PTT, dah and dit, each clear while closed. Looked for
+    # again every few seconds while it is not there, so it can be
+    # plugged in and out at any time.
+    vendor_id = 0x1e3b
+    product_id = 0x1274
+    ptt_bit = 0x01
+    dah_bit = 0x02
+    dit_bit = 0x04
+    search_seconds = 2.0
+    read_timeout_ms = 100
+    # How far apart its reports are, for placing ones that arrive
+    # together (see run).
+    report_seconds = .001
+
+    # Its contacts bounce for up to 11 ms, each way. A change is taken
+    # at once, with nothing added to the monitoring delay, and whatever
+    # that input does for this long after it is not: a paddle is never
+    # closed or open for less, even at 50 WPM. Longer for PTT, which is
+    # not timed at all.
+    paddle_lockout_seconds = .015
+    ptt_lockout_seconds = .030
+
+    thread = None
+    stopping = False
+    signals = None
+    message_callback = None
+    ptt_closed = False
+    status_text = ''
+    status_listeners = []
+
+    @classmethod
+    def start(cls):
+        if cls.signals == None:
+            cls.signals = Rr1274bSignals()
+            cls.signals.ptt.connect(cls.on_ptt)
+            cls.signals.warning.connect(KeyerWarning.warning)
+            cls.signals.status.connect(cls.on_status)
+        if cls.thread != None:
+            return
+        if hid == None or not hasattr(hid, 'device'):
+            problem = 'RR-1274B support needs the hidapi package (pip install hidapi).'
+            cls.on_status(problem)
+            KeyerWarning.warning(problem)
+            return
+        cls.on_status('Looking for the RR-1274B.')
+        cls.stopping = False
+        cls.thread = threading.Thread(target=cls.run, name='rr1274b_thread', daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def stop(cls):
+        cls.stopping = True
+        if cls.thread != None:
+            cls.thread.join(1.0)
+            cls.thread = None
+
+    @classmethod
+    def add_status_listener(cls, listener):
+        cls.status_listeners.append(listener)
+
+    @classmethod
+    def set_message_callback(cls, callback):
+        cls.message_callback = callback
+
+    @classmethod
+    def cancel_message_callback(cls):
+        cls.message_callback = None
+
+    # ---------------------------------------------- on the RR-1274B's thread
+
+    @classmethod
+    def run(cls):
+        device = None
+        warned = None
+        while not cls.stopping:
+            if device == None:
+                device, problem = cls.open_device()
+                if device == None:
+                    if problem != warned:
+                        warned = problem
+                        cls.signals.warning.emit(problem)
+                        cls.signals.status.emit(problem + '.')
+                    cls.pause(cls.search_seconds)
+                    continue
+                warned = None
+                KeyerWarning.clear()
+                cls.signals.status.emit('RR-1274B connected.')
+                inputs = cls.inputs()
+                previous_stamp = None
+            try:
+                reports = cls.read_reports(device)
+            except (OSError, ValueError) as e:
+                dprint_keying(f'RR-1274B lost: {e}')
+                cls.close_device(device)
+                device = None
+                cls.release(inputs)
+                continue
+            if not reports:
+                continue
+
+            # Placed a report apart, back from the last of them. One at a
+            # time is the usual way of it, and that one is placed where it
+            # arrived; several together were held up -- the thread kept
+            # from running -- and arrived at once, as the paddles' events
+            # did after a stall from a MIDI device, which then read a
+            # character's last dit and the next one's first dah as a
+            # squeeze. Never before the report before them.
+            arrived = time.perf_counter()
+            for index, report in enumerate(reports):
+                stamp = arrived - (len(reports) - 1 - index) * cls.report_seconds
+                if previous_stamp != None:
+                    stamp = max(stamp, previous_stamp)
+                previous_stamp = stamp
+                cls.take_report(report, stamp, inputs)
+        if device != None:
+            cls.close_device(device)
+            cls.release(inputs)
+
+    @classmethod
+    def inputs(cls):
+        # Each input as last reported, as [name, bit, lockout, closed,
+        # when it last changed].
+        return [
+            ['dit', cls.dit_bit, cls.paddle_lockout_seconds, False, None],
+            ['dah', cls.dah_bit, cls.paddle_lockout_seconds, False, None],
+            ['ptt', cls.ptt_bit, cls.ptt_lockout_seconds, False, None],
+        ]
+
+    @classmethod
+    def read_reports(cls, device):
+        # The reports waiting: the first waited for, the rest already
+        # there.
+        reports = []
+        report = device.read(64, cls.read_timeout_ms)
+        while report:
+            if len(report) >= 3:
+                reports.append(report)
+            report = device.read(64, 0)
+        return reports
+
+    @classmethod
+    def take_report(cls, report, stamp, inputs):
+        for state in inputs:
+            name, bit, lockout, closed, changed_at = state
+            now_closed = not (report[0] & bit)
+            if now_closed == closed:
+                continue
+            if changed_at != None and stamp - changed_at < lockout:
+                continue            # a bounce
+            state[3] = now_closed
+            state[4] = stamp
+            cls.report(name, now_closed, stamp)
+
+    @classmethod
+    def release(cls, inputs):
+        # Gone, or let go of, with something closed: reported open, so
+        # that the keyer doesn't send for ever and the K4 isn't left
+        # transmitting.
+        now = time.perf_counter()
+        for state in inputs:
+            if state[3]:
+                state[3] = False
+                cls.report(state[0], False, now)
+
+    @classmethod
+    def report(cls, name, closed, stamp):
+        dprint_keying(f'{stamp:.4f} RR-1274B {name} {"closed" if closed else "open"}')
+        if name == 'ptt':
+            cls.signals.ptt.emit(closed)
+            return
+        callback = cls.message_callback
+        if callback:
+            callback(name, closed, stamp)
+
+    @classmethod
+    def pause(cls, seconds):
+        # A sleep that a stop cuts short.
+        until = time.monotonic() + seconds
+        while not cls.stopping and time.monotonic() < until:
+            time.sleep(.1)
+
+    @classmethod
+    def open_device(cls):
+        # The RR-1274B opened; or None, and why not.
+        try:
+            infos = hid.enumerate(cls.vendor_id, cls.product_id)
+        except Exception as e:
+            return None, f'RR-1274B search failed: {e}'
+        if not infos:
+            return None, 'RR-1274B not found'
+        device = hid.device()
+        try:
+            device.open_path(infos[0]['path'])
+        except (OSError, ValueError) as e:
+            reason = f'RR-1274B open failed ({e})'
+            if sys.platform.startswith('linux'):
+                reason += ': it may need a udev rule giving you access to it'
+            return None, reason
+        dprint_keying('RR-1274B opened')
+        return device, None
+
+    @classmethod
+    def close_device(cls, device):
+        try:
+            device.close()
+        except Exception:
+            pass
+
+    # ----------------------------------------------------- on the Qt thread
+
+    @classmethod
+    def on_status(cls, text):
+        cls.status_text = text
+        for listener in cls.status_listeners:
+            listener(text)
+
+    @classmethod
+    def on_ptt(cls, closed):
+        # PTT puts the K4 in transmit while it is held, and back in
+        # receive as it is let go of, unless something else has already
+        # done that.
+        cls.ptt_closed = closed
+        server = Server.k4_server
+        if server == None or not server.connected:
+            return
+        transmitting = server.k4_parameter('TR') == 'T'
+        if closed and not transmitting:
+            server.send_cmds('TRT;')
+        elif not closed and transmitting:
+            server.send_cmds('TRR;')
+
 class Ctr2Signals(QObject):
     # From the CTR2-Quad's MIDI thread to the Qt thread, where the VFOs
     # and the connection to the K4 are: a MIDI message's status and two
@@ -20743,6 +21025,7 @@ class Keyer():
     device_type_straight_key = False
     device_type_MIDI = False
     device_type_serial = False
+    device_type_rr1274b = False
     device_type_vail_adapter = False
     vail_keyer_mode = 'Iambic B'
     device_type_internal_keyer = False
@@ -21083,11 +21366,14 @@ class Keyer():
             MidiInput.set_message_callback(self.midi_message_callback)
         if cls.device_type_serial:
             SerialInput.set_message_callback(self.serial_message_callback)
+        if cls.device_type_rr1274b:
+            Rr1274bInput.set_message_callback(self.rr1274b_message_callback)
 
     @classmethod
     def cancel_message_callback(cls):
         MidiInput.cancel_message_callback()
         SerialInput.cancel_message_callback()
+        Rr1274bInput.cancel_message_callback()
 
     @classmethod
     def set_device_type(cls, typ = None):
@@ -21109,6 +21395,7 @@ class Keyer():
                 cls.straight_keying = not passthrough
                 cls.device_type_MIDI = True
                 cls.device_type_serial = False
+                cls.device_type_rr1274b = False
                 cls.device_type_internal_keyer = passthrough
                 cls.set_vail_paddle_notes()
             else:
@@ -21123,6 +21410,7 @@ class Keyer():
                     cls.straight_keying = False
                 cls.device_type_MIDI = 'MIDI' in typ
                 cls.device_type_serial = 'Serial' in typ
+                cls.device_type_rr1274b = 'RR-1274B' in typ
             cls.set_message_callback()
         else:
             cls.device_type_straight_key = False
@@ -21130,6 +21418,7 @@ class Keyer():
             cls.straight_keying = False
             cls.device_type_MIDI = False
             cls.device_type_serial = False
+            cls.device_type_rr1274b = False
             cls.device_type_vail_adapter = False
             cls.cancel_message_callback()
 
@@ -21143,6 +21432,12 @@ class Keyer():
             SerialInput.release_port()
         if not cls.device_type_MIDI:
             MidiInput.release_port()
+        # The RR-1274B is read whenever it is the device, CW or not: its
+        # PTT is for any mode.
+        if cls.device_type_rr1274b:
+            Rr1274bInput.start()
+        else:
+            Rr1274bInput.stop()
 
         # A paddle held across the change is held on a device the keyer
         # has just stopped listening to, and would read closed for ever.
@@ -21247,6 +21542,9 @@ class Keyer():
         # See midi_event_timestamp.
         self.midi_device_clock = 0.0
         self.midi_clock_offset = None
+        # When each of the RR-1274B's inputs last changed. See
+        # rr1274b_message_callback.
+        self.rr1274b_timestamps = {}
         self.dit_down_timestamp = 0
         self.dit_up_timestamp = 0
         self.dah_down_timestamp = 0
@@ -21435,6 +21733,22 @@ class Keyer():
                 self.send_paddle_event(self.DAH_DOWN_EVENT, delta_time)
             else:
                 self.send_paddle_event(self.DAH_UP_EVENT, delta_time)
+
+    def rr1274b_message_callback(self, name, closed, timestamp):
+        # A paddle, or the straight key on its dit side, as the
+        # RR-1274B's thread reports it (see Rr1274bInput.take_report).
+        # Its interval since that input's last change, for a straight
+        # key's KZD and KZU, is from the same timestamps.
+        if name == 'dit':
+            event = self.DIT_DOWN_EVENT if closed else self.DIT_UP_EVENT
+        elif name == 'dah' and not self.straight_keying:
+            event = self.DAH_DOWN_EVENT if closed else self.DAH_UP_EVENT
+        else:
+            return
+        previous = self.rr1274b_timestamps.get(name)
+        self.rr1274b_timestamps[name] = timestamp
+        delta_time = timestamp - previous if previous != None else 0
+        self.send_paddle_event(event, delta_time, timestamp)
 
     def send_paddle_event(self, event, delta_time, timestamp=None):
         # timestamp is when the paddle moved, where the device can say
@@ -23103,6 +23417,7 @@ def clean_up(exit=False):
     # flag that restore_open_windows() relies on next launch.
     PanadapterProcess.close_all()
     KpodInput.stop()
+    Rr1274bInput.stop()
     Ctr2Input.stop()
     Audio.close()
     Poll.remove_all()
