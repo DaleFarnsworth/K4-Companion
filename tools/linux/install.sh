@@ -10,8 +10,8 @@
 #   ~/.local/bin/k4companion          a link to it, to run from a terminal
 #   ~/.local/share/applications       its entry in the desktop's menu
 # Run with sudo, it installs for everyone, in /opt/k4companion,
-# /usr/local/bin and /usr/share, and adds the udev rule that lets the
-# K-Pod be opened without root. Either way, installing again replaces
+# /usr/local/bin and /usr/share, and adds the udev rules that let the
+# K-Pod and the RR-1274B be opened without root. Either way, installing again replaces
 # what is there, and an uninstall script is left with the program.
 # Settings are in ~/.config/k4companion, which neither touches.
 
@@ -61,7 +61,10 @@ Categories=Network;HamRadio;
 EOF
 
 if [ -n "$udev_rule" ]; then
-	echo 'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="04d8", ATTRS{idProduct}=="f12d", TAG+="uaccess"' > "$udev_rule"
+	{
+		echo 'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="04d8", ATTRS{idProduct}=="f12d", TAG+="uaccess"'
+		echo 'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1e3b", ATTRS{idProduct}=="1274", TAG+="uaccess"'
+	} > "$udev_rule"
 	udevadm control --reload-rules 2>/dev/null || true
 fi
 
