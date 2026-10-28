@@ -1,3 +1,18 @@
+v2.2.1:
+    Say v2.2.1 in the User Manual, and list the serial paddles fix
+       Its first page gives 2.2.1 as the current version and October 28th
+       as its date, and its revision history has a v2.2.1 section for the
+       Keying tab's serial paddles fix.
+   
+    Keep serial paddles' own controls when the keyer mode is changed
+       Choosing a keyer mode on the Keying tab put up the MIDI device's
+       controls whatever the device type, so serial paddles were shown a
+       MIDI device and paddle notes in place of their port and signals. The
+       device's own controls are put up again instead.
+       
+       Serial paddles in Iambic B now show Dit Mem % as well, which they
+       never did, though it applied to them.
+   
 v2.2:
     Complete the User Manual for v2.2
        The Main tab section now gives the NB filter button, and the v2.2
