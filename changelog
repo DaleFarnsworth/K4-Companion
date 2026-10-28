@@ -1,3 +1,38 @@
+v2.3-rc2:
+    Keep serial paddles' own controls when the keyer mode is changed
+       Choosing a keyer mode on the Keying tab put up the MIDI device's
+       controls whatever the device type, so serial paddles were shown a
+       MIDI device and paddle notes in place of their port and signals. The
+       device's own controls are put up again instead.
+       
+       Serial paddles in Iambic B now show Dit Mem % as well, which they
+       never did, though it applied to them.
+   
+    Describe the RR-1274B in the User Manual
+
+    Support RemoteRig's RR-1274B USB dongle as paddles, or a straight key
+       The Keying tab's Device Type gains RR-1274B Paddles and RR-1274B
+       Straight Key: the USB dongle Microbit Teknik makes for RemoteRig's
+       RRC-Micro, with paddles or a key on its paddle jack and PTT from its
+       red button and from a foot switch on its PTT jack.
+       
+       It is a HID device, 1e3b:1274, read with hidapi as the K-Pod is, on a
+       thread of its own. It sends an 11-byte report every millisecond, and
+       the low three bits of its first byte are PTT, dah and dit, each clear
+       while closed. Its contacts bounce for up to 11 ms, so a change is
+       taken at once and that input is then ignored for 15 ms, 30 ms for
+       PTT, which adds nothing to the monitoring delay. Reports that arrive
+       together after a stall are placed a millisecond apart.
+       
+       There is no port to choose: it is found by its IDs, looked for again
+       every two seconds while it isn't there, and the tab says whether it
+       has been. PTT puts the K4 in transmit while held, in any mode, and
+       back in receive as it is let go of. A dongle unplugged with anything
+       held is taken as let go of.
+       
+       Choosing a keyer mode for it no longer puts up the MIDI device's
+       controls. The Linux installer's udev rule now covers it too.
+   
 v2.3-rc1:
     Date the User Manual, and list the bolder scales in its v2.3 history
 
