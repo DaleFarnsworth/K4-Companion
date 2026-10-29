@@ -12639,7 +12639,7 @@ If a value contains &, everything before the & is displayed
 and everything after the & is sent.'''
         info = QLabel(text)
         info.setFont(self.font())
-        info.setStyleSheet(f'background-color: {self.bg};')
+        info.setStyleSheet(f'color: {self.fg}; background-color: {self.bg};')
         info_grid.addWidget(info, 0, 0)
 
         self.config_buttons_frame, config_buttons_grid = self._plain_frame()
@@ -12737,11 +12737,11 @@ and everything after the & is sent.'''
         parent_grid.addWidget(frame, row, col, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         label = QLabel(label_text)
         label.setFont(self.font())
-        label.setStyleSheet(f'background-color: {self.bg};')
+        label.setStyleSheet(f'color: {self.fg}; background-color: {self.bg};')
         frame_grid.addWidget(label, 0, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         entry = QLineEdit(str(value))
         entry.setFont(self.font())
-        entry.setStyleSheet('background-color: yellow;')
+        entry.setStyleSheet('color: black; background-color: yellow;')
         entry.setFixedWidth(width * QFontMetrics(self.font()).averageCharWidth() + 12)
         frame_grid.addWidget(entry, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         return entry
@@ -12760,11 +12760,11 @@ and everything after the & is sent.'''
         button = buttons[index]
         button.setText(value)
         if edit:
-            button.setStyleSheet('background-color: yellow;')
+            button.setStyleSheet('color: black; background-color: yellow;')
             button.setReadOnly(False)
             button.setCursor(Qt.CursorShape.IBeamCursor)
         else:
-            button.setStyleSheet(f'background-color: {self.bg};')
+            button.setStyleSheet(f'color: {self.fg}; background-color: {self.bg};')
             button.setReadOnly(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -12789,7 +12789,7 @@ and everything after the & is sent.'''
             value = label
         button.setReadOnly(False)
         button.setText(value)
-        button.setStyleSheet(f'background-color: {self.bg};')
+        button.setStyleSheet(f'color: {self.fg}; background-color: {self.bg};')
         button.setReadOnly(True)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_settings()
@@ -21730,7 +21730,7 @@ class Popup(QDialog):
         popup = cls(title=title, timeout=timeout, font=font, color=color)
         label = QLabel(msg)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet(f'QLabel {{ background-color: {color}; }}')
+        label.setStyleSheet(f'QLabel {{ color: black; background-color: {color}; }}')
         label.setFont(popup.font_)
         popup.frame.addWidget(label, 0, 0)
         if modal:
@@ -21795,7 +21795,7 @@ class Popup(QDialog):
         size = font.pointSize()
         self.frame = QGridLayout(self)
         self.frame.setContentsMargins(size * 2, size * 2, size * 2, size * 2)
-        self.setStyleSheet(f'QDialog {{ background-color: {color}; }}')
+        self.setStyleSheet(f'QDialog {{ color: black; background-color: {color}; }}')
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         # Shown without taking the keyboard, whatever it says. One that
@@ -21848,11 +21848,11 @@ class Popup(QDialog):
 
         label = QLabel(msg)
         label.setFont(font)
-        label.setStyleSheet(f'QLabel {{ background-color: {color}; }}')
+        label.setStyleSheet(f'QLabel {{ color: black; background-color: {color}; }}')
         popup.frame.addWidget(label, 0, 0, Qt.AlignmentFlag.AlignLeft)
 
         entry_frame = QWidget()
-        entry_frame.setStyleSheet(f'background-color: {color};')
+        entry_frame.setStyleSheet(f'color: black; background-color: {color};')
         entry_layout = QGridLayout(entry_frame)
         entry_layout.setContentsMargins(0, 0, 0, 0)
         popup.frame.addWidget(entry_frame, 1, 0, Qt.AlignmentFlag.AlignLeft)
