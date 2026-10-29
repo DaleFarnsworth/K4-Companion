@@ -1,3 +1,15 @@
+v2.2.2:
+    Say v2.2.2 in the User Manual, and list the text color fix
+       Its first page gives 2.2.2 as the current version and October 29th
+       as its date, and its revision history has a v2.2.2 section for popups
+       and the Text tab showing their text in a color of their own.
+   
+    Give a text color wherever a background color is set
+       Popups, and the Text tab's labels and edit fields, set only a
+       background color, so their text took the system theme's color. With a
+       dark theme that is white, and popups showed white text on yellow.
+       Popups now use black text, and the Text tab its configured fg.
+   
 v2.2.1:
     Say v2.2.1 in the User Manual, and list the serial paddles fix
        Its first page gives 2.2.1 as the current version and October 28th
