@@ -1,3 +1,15 @@
+v2.3-rc4:
+    List v2.2.1 and v2.2.2 in the User Manual's revision history
+       Its revision history now has the v2.2.1 and v2.2.2 sections main's
+       has, the serial paddles fix and the text color fix, and its date is
+       October 29th.
+   
+    Give a text color wherever a background color is set
+       Popups, and the Text tab's labels and edit fields, set only a
+       background color, so their text took the system theme's color. With a
+       dark theme that is white, and popups showed white text on yellow.
+       Popups now use black text, and the Text tab its configured fg.
+   
 v2.3-rc3:
     Read the RR-1274B non-blocking, so that its reports are acted on
        Nothing the RR-1274B sent was ever acted on: neither its paddles nor
