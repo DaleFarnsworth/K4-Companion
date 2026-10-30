@@ -4982,6 +4982,47 @@ def true_values(v):
     v = v.lower()
     return v == 'true' or v == 'on' or v == '1' or v == 'yes'
 
+class MenuNumberEntry(QLineEdit):
+    # A Menu entry's number: typed in, taken (on_commit, with the text)
+    # on Enter or on leaving the box, or stepped (on_step, with how
+    # many increments) by Up/Down and the wheel, and by ten with Page
+    # Up/Down. Not typed into while the menu can't be changed.
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.on_step = None
+        self.on_commit = None
+        self.changeable = lambda: True
+        self.editingFinished.connect(lambda: self.on_commit(self.text()))
+
+    def fit_to(self, texts):
+        # Wide enough for the widest of texts and a digit more, with
+        # what the box keeps either side of its text.
+        fm = QFontMetrics(self.font())
+        width = max(fm.horizontalAdvance(text) for text in texts) + fm.horizontalAdvance('0')
+        margins = self.textMargins()
+        self.setFixedWidth(width + margins.left() + margins.right() + 2 * 2 + 1 + 2 * 3)
+
+    steps = {Qt.Key.Key_Up: 1, Qt.Key.Key_Down: -1, Qt.Key.Key_PageUp: 10, Qt.Key.Key_PageDown: -10}
+
+    def keyPressEvent(self, event):
+        step = self.steps.get(event.key())
+        if step != None:
+            self.on_step(step)
+            event.accept()
+            return
+        typing = (event.text() != '' and event.text().isprintable()
+                  or event.key() in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete))
+        if typing and not self.changeable():
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def wheelEvent(self, event):
+        steps = mouse_wheel_mult(event)
+        if steps:
+            self.on_step(steps)
+        event.accept()
+
 class Menu_definition():
     def __init__(self, menu, d):
         self.menu = menu
@@ -5037,7 +5078,7 @@ class Menu_definition():
         elif self.type == 'D10mW':
             self.d10mw()
         elif self.type in ('DEC', 'REF', 'ms', 'ZOFF', 'MHz', 'Hz'):
-            self.slider()
+            self.number_entry()
         elif self.type in ('IP', 'SN'):
             self.fixed_text()
         elif self.type == 'STR':
@@ -5205,12 +5246,12 @@ class Menu_definition():
 
     def m50hz(self):
         self.mult = 50
-        self.slider()
+        self.number_entry()
 
     def aofs(self):
         self.low -= 8
         self.high -= 8
-        self.slider()
+        self.number_entry()
         self.send_command = self.aofs_send_command
         self.update_widget = self.aofs_update
 
@@ -5221,13 +5262,13 @@ class Menu_definition():
     def aofs_update(self, current=None):
         if current != None:
             self.current = current - 8
-        self.slider_update()
+        self.number_entry_update()
 
     def zmon(self):
         self.current -= 1
         self.low -= 1
         self.high -= 1
-        self.slider()
+        self.number_entry()
         self.send_command = self.zmon_send_command
         self.update_widget = self.zmon_update
 
@@ -5238,13 +5279,13 @@ class Menu_definition():
     def zmon_update(self, current=None):
         if current != None:
             self.current = current - 1
-        self.slider_update()
+        self.number_entry_update()
 
     def d10mw(self):
         self.low = float(self.low) / 10
         self.high = float(self.high) / 10
         self.increment = float(self.increment) / 10
-        self.slider()
+        self.number_entry()
         self.send_command = self.d10mw_send_command
         self.update_widget = self.d10mw_update
 
@@ -5255,7 +5296,7 @@ class Menu_definition():
     def d10mw_update(self, current=None):
         if current != None:
             self.current = float(current) / 10
-        self.slider_update()
+        self.number_entry_update()
 
     def range_listbox(self):
         for i in range(self.low, self.high+1, self.increment):
@@ -5277,78 +5318,100 @@ class Menu_definition():
         value = int(self.values[self.current])
         self.server.send_str('ME{index:04d}.{value:04d};'.format(index=self.index, value=value))
 
-    def slider(self):
+    def number_entry(self):
+        # The value in a box, typed in -- taken on Enter or on leaving
+        # the box -- or stepped an increment at a time by Up/Down and
+        # the wheel, ten by Page Up/Down, within the menu's range. In
+        # place of a slider, which took a long way to cross a wide range
+        # and could be set to a value only by dragging to it.
         low = self.low * self.mult
         high = self.high * self.mult
         increment = self.increment * self.mult
 
-        self.update_widget = self.slider_update
-        # QSlider only takes integer steps, so (as with SliderWidget
-        # elsewhere) the widget works in units of "resolution" internally.
-        self.slider_resolution = float(increment) if increment else 1
-
-        self.widget = QSlider(Qt.Orientation.Vertical)
+        self.update_widget = self.number_entry_update
         # low/high/current stay whatever typed_value() gave them (still a
         # raw str for menu type 'REF', since widget_send_command() must
         # echo that string back to the K4 unmodified) -- float() here only
-        # to give the widget the numbers it needs, without mutating them.
-        self.widget.setMinimum(round(float(low) / self.slider_resolution))
-        self.widget.setMaximum(round(float(high) / self.slider_resolution))
-        # tk's from_=high (top)/to=low (bottom) is what a vertical QSlider
-        # already does by default with setMinimum(low)/setMaximum(high) --
-        # no setInverted*() needed (see the matching fix in Equalizers).
-        # QSlider's default pageStep of 10 makes a groove click jump 10
-        # resolution units instead of tk.Scale's one-unit trough click.
-        self.widget.setPageStep(1)
-        self.widget.setFixedHeight(font_height(self.menu.font()) * 9)
-        self.widget.setStyleSheet(f'QSlider {{ background-color: {self.menu.bg}; }}')
-        self.widget.valueChanged.connect(self.slider_value_changed)
+        # to give the box the numbers it needs, without mutating them.
+        # Positions are counted in increments.
+        self.resolution = float(increment) if increment else 1
+        self.low_position = round(float(low) / self.resolution)
+        self.high_position = round(float(high) / self.resolution)
 
-        self.frame_grid.addWidget(self.widget, 1, 0)
+        self.widget = MenuNumberEntry()
+        self.widget.setFont(self.menu.font())
+        self.widget.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.widget.setStyleSheet(f'QLineEdit {{ color: {self.menu.fg}; background-color: {self.menu.bg}; }}')
+        self.widget.on_step = self.number_entry_step
+        self.widget.on_commit = self.number_entry_commit
+        self.widget.changeable = lambda: self.changeable == 'Unlocked'
+        texts = [format_slider_value(float(value), self.resolution) for value in (low, high)]
+        self.widget.fit_to(texts)
+        self.frame_grid.addWidget(self.widget, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.number_entry_show()
 
-        self.slider_value_label = QLabel()
-        self.slider_value_label.setFont(self.menu.font())
-        self.slider_value_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-        self.slider_value_label.setStyleSheet(f'QLabel {{ color: {self.menu.fg}; background-color: {self.menu.bg}; }}')
-        self.frame_grid.addWidget(self.slider_value_label, 2, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.slider_show_current()
-
-    def slider_show_current(self):
-        # The K4 can give words where the number goes: the reference
-        # oscillator's (REF) is "Ext Ref lock" while an external
-        # reference is locked. They are shown as they are, and the
-        # slider, left where it was, can't be moved until a number
-        # comes again.
+    def number_entry_value(self):
+        # The value shown, or None where the K4 gives words in its
+        # place: the reference oscillator's (REF) is "Ext Ref lock"
+        # while an external reference is locked.
         try:
-            value = float(self.current) * self.mult
+            return float(self.current) * self.mult
         except (TypeError, ValueError):
+            return None
+
+    def number_entry_show(self):
+        # Words are shown as they are, and the box can't be changed
+        # until a number comes again.
+        value = self.number_entry_value()
+        if value == None:
             self.widget.setEnabled(False)
-            self.slider_value_label.setText(str(self.current))
+            self.widget.setText(str(self.current))
             return
         self.widget.setEnabled(True)
-        self.widget.blockSignals(True)
-        self.widget.setValue(round(value / self.slider_resolution))
-        self.widget.blockSignals(False)
-        self.slider_value_label.setText(format_slider_value(value, self.slider_resolution))
+        self.widget.setText(format_slider_value(value, self.resolution))
 
-    def slider_value_changed(self, position):
-        if self.changeable != 'Unlocked':
-            self.slider_show_current()
+    def number_entry_step(self, steps):
+        value = self.number_entry_value()
+        if value == None or self.changeable != 'Unlocked':
             return
+        self.number_entry_set(round(value / self.resolution) + steps)
 
-        value = position * self.slider_resolution
+    def number_entry_commit(self, text):
+        value = self.number_entry_value()
+        try:
+            typed = float(text)
+        except ValueError:
+            typed = None
+        if value == None or typed == None or self.changeable != 'Unlocked':
+            self.number_entry_show()
+            return
+        # Held to the menu's increments, as a step is.
+        self.number_entry_set(round(typed / self.resolution))
+
+    def number_entry_set(self, position):
+        position = max(self.low_position, min(self.high_position, position))
+        value = self.number_entry_value()
+        if value != None and position == round(value / self.resolution):
+            self.number_entry_show()
+            return
+        value = position * self.resolution
         if isinstance(self.low, int) and isinstance(self.high, int):
             value = int(value)
-        self.current = value / self.mult
-        self.slider_value_label.setText(format_slider_value(value, self.slider_resolution))
+        if self.type == 'REF':
+            # Sent as the text it is shown as, in its own decimals: a
+            # float's own, 122.87872299999999 say, is not the K4's.
+            self.current = format_slider_value(value, self.resolution)
+        else:
+            self.current = value / self.mult
+        self.number_entry_show()
         self.send_command()
 
-    def slider_update(self, current=None):
+    def number_entry_update(self, current=None):
         if current != None:
             if isinstance(current, str) and current.find('-') > 0:
                 current = current.lstrip('0')
             self.current = current
-        self.slider_show_current()
+        self.number_entry_show()
 
     def fixed_text(self):
         self.update_widget = self.fixed_text_update
