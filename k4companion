@@ -986,6 +986,7 @@ class Server():
         self.subscribe_received_initial_parameters(
             lambda server: PanadapterProcess.restore_open_windows())
         self.subscribe_received_initial_parameters(BandScale.start)
+        self.subscribe_received_initial_parameters(XvtrBands.start)
 
     def on_error_code(self, response):
         response = response.rstrip(';')
@@ -2828,6 +2829,8 @@ class DigitEntry(QLineEdit):
     def __init__(self, width, parent=None):
         super().__init__(parent)
         self.digit_width = width
+        self.full_font = None        # the font set, before fit_text shrinks it
+        self.full_height = None
         self.step_columns = {}       # step -> set of character column indices
         self.underline_column = None
         self.on_step_click = None
@@ -2846,11 +2849,41 @@ class DigitEntry(QLineEdit):
         # far more than this widget ever displays (digit_width, e.g. 9 for
         # "14100.000"). At VFO's large point size that mismatch is huge,
         # so size to what's actually shown instead.
-        fm = self.fontMetrics()
+        # In the font it was given, not one made smaller to fit a longer
+        # text (see fit_text): the box stays the size it was laid out at.
+        fm = QFontMetrics(self.full_font) if self.full_font != None else self.fontMetrics()
         text_width = fm.horizontalAdvance('0' * self.digit_width)
         frame = 2 * self.style().pixelMetric(QStyle.PixelMetric.PM_DefaultFrameWidth)
         width = text_width + self.LEFT_MARGIN + self.RIGHT_MARGIN + frame + 8
-        return QSize(width, super().sizeHint().height())
+        height = self.full_height if self.full_height != None else super().sizeHint().height()
+        return QSize(width, height)
+
+    def setFont(self, font):
+        self.full_font = QFont(font)
+        super().setFont(font)
+        self.full_height = super().sizeHint().height()
+        self.fit_text()
+
+    def setText(self, text):
+        super().setText(text)
+        self.fit_text()
+
+    def fit_text(self):
+        # A text longer than digit_width -- a transverter band's
+        # frequency, 144100.000 in a VFO nine wide -- drawn small enough
+        # to fit the box, rather than its leading digits scrolling out
+        # of sight.
+        if self.full_font == None:
+            return
+        fm = QFontMetricsF(self.full_font)
+        room = fm.horizontalAdvance('0' * self.digit_width)
+        need = fm.horizontalAdvance(self.text())
+        font = self.full_font
+        if need > room and self.full_font.pointSizeF() > 0:
+            font = QFont(self.full_font)
+            font.setPointSizeF(self.full_font.pointSizeF() * room / need)
+        if font != self.font():
+            super().setFont(font)
 
     def set_step_columns(self, step_columns):
         self.step_columns = step_columns
@@ -2864,8 +2897,14 @@ class DigitEntry(QLineEdit):
         text = self.text()
         return text, [fm.horizontalAdvance(c) for c in text]
 
+    def _extra_columns(self, text):
+        # The columns are digit_width's, counted from the left of a text
+        # that wide: a longer one has its extra digits on the left.
+        return max(0, len(text) - self.digit_width)
+
     def _char_rect(self, column):
         text, widths = self._char_widths()
+        column += self._extra_columns(text)
         total = sum(widths)
         x0 = self.rect().right() - self.RIGHT_MARGIN - total
         x = x0 + sum(widths[:column])
@@ -2874,11 +2913,12 @@ class DigitEntry(QLineEdit):
 
     def _column_at(self, x_pos):
         text, widths = self._char_widths()
+        extra = self._extra_columns(text)
         total = sum(widths)
         x = self.rect().right() - self.RIGHT_MARGIN - total
         for i, w in enumerate(widths):
             if x_pos < x + w:
-                return i
+                return max(0, i - extra)
             x += w
         return max(0, len(text) - 1)
 
@@ -3063,6 +3103,12 @@ class VFO(SteppedEntry):
     step_indexes = {1: 0, 10: 1, 100: 2, 1000: 3, 10000:4}
     low_frequency_limit=100000
     high_frequency_limit=54000000
+    # The most FA's eleven digits carry, which is as far as a frequency
+    # is held on a transverter band: its own range is the K4's to know.
+    xvtr_frequency_limit=99999999999
+    # Above the HF bands by more than a panadapter's span reaches: a
+    # transverter band's frequency (see tune_frequency).
+    xvtr_frequency_floor=55000000
     instances = {}                # AorB ('A'/'B') -> VFO instance, so
                                    # PanadapterProcess can relay the
                                    # panadapter's arrow-key/wheel input to
@@ -3126,21 +3172,40 @@ class VFO(SteppedEntry):
             return
         self.set_frequency(freq, send=send, space=space)
 
-    def set_frequency(self, freq, send=False, space=False):
-        freq = max(VFO.low_frequency_limit, min(VFO.high_frequency_limit, freq))
-        freq_str = f'{freq / 1000:12.3f}'[12-self.width:]
+    def on_xvtr_band(self):
+        return XvtrBands.on_xvtr(self.k4param('BN' + self.suffix))
+
+    def held_frequency(self, freq):
+        # Within the HF bands on one of them. On a transverter band, a
+        # frequency outside it the K4 ignores rather than holding it to
+        # the band, and the frequency is asked for again after being
+        # sent there (see set_frequency), so that what is shown is what
+        # the K4 has.
+        if self.on_xvtr_band():
+            return max(1, min(VFO.xvtr_frequency_limit, freq))
+        return max(VFO.low_frequency_limit, min(VFO.high_frequency_limit, freq))
+
+    def set_frequency(self, freq, send=False, space=False, held=True):
+        # What the K4 reports is shown as it is (held False): on a
+        # transverter band it is far above the HF bands, and its BN can
+        # come after it.
+        if held:
+            freq = self.held_frequency(freq)
+        freq_str = f'{freq / 1000:.3f}'.rjust(self.width)
         if freq_str != self.tb.text():
             self.tb.setText(freq_str)
             self.add_tags()
         if send and freq != self.freq:
             cmd = f'F{self.AorB}{freq:011.0f};'
             self.server.send_cmds(cmd)
+            if self.on_xvtr_band():
+                self.server.send_str(f'F{self.AorB};')
         self.freq = freq
         self.set_bg()
 
     def on_frequency_received(self, response):
         freq = cmd_parameter(response)
-        self.set_frequency(float(freq))
+        self.set_frequency(float(freq), held=False)
 
     def set_step(self, step):
         self.step = step
@@ -3742,45 +3807,26 @@ class DropdownWidget():
 
         self.unexpected_response = options.get('unexpectedresponse', '')
 
+        # The VFO, A or B, whose transverter bands are put in at the top,
+        # as the K4 has them on (see on_xvtr_bands).
+        self.xvtr_vfo = options.get('xvtrbands', None)
+        self.text_font = font
+        self.fit_height = height == 0
+
         width = 0
 
         selection_options = options.get('selections', None)
         for index, sel_opt in enumerate(selection_options):
             index = len(self.selections)
-            selection = {}
-
-            required = []
-            optional = ['text', 'cmd', 'evalcmd', 'response', 'evalresponse', 'bg']
-            validate_options(sel_opt, required, optional, name='dropdownbutton.selection')
-
-            text = sel_opt.get('text', '')
-            selection['text'] = text
+            selection = self.make_selection(sel_opt)
+            text = selection['text']
             texts.append(text)
             self.text_to_index[text] = index
             twidth = QFontMetrics(font).horizontalAdvance(text)
             if twidth > width:
                 width = twidth
-
-            cmd = sel_opt.get('cmd', None)
-            orig_response = sel_opt.get('response', cmd)
-            selection['response'] = orig_response
-
-            selection['parameters'] = {}
-            responses = self.server.expand_server_cmds(orig_response)
-            for response in responses:
-                base = cmd_base(response)
-                response = response[len(base):]
-                selection['parameters'][base] = response
-
-            selection['cmd'] = cmd
-            evalcmd = sel_opt.get('evalcmd', None)
-            selection['evalcmd'] = evalcmd
-            selection['evalresponse'] = sel_opt.get('evalresponse', None)
-            bg = sel_opt.get('bg', None)
-            if bg == None:
-                bg = self.bg
-            selection['bg'] = bg
             self.selections.append(selection)
+        self.config_selections = list(self.selections)
 
         if height == 0:
             height = len(texts)
@@ -3868,6 +3914,70 @@ class DropdownWidget():
         frame.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
 
         self.server.subscribe_received_initial_parameters(self.on_received_initial_parameters)
+        if self.xvtr_vfo != None:
+            XvtrBands.add_listener(self.on_xvtr_bands)
+
+    def make_selection(self, sel_opt):
+        selection = {}
+
+        required = []
+        optional = ['text', 'cmd', 'evalcmd', 'response', 'evalresponse', 'bg']
+        validate_options(sel_opt, required, optional, name='dropdownbutton.selection')
+
+        selection['text'] = sel_opt.get('text', '')
+
+        cmd = sel_opt.get('cmd', None)
+        orig_response = sel_opt.get('response', cmd)
+        selection['response'] = orig_response
+
+        selection['parameters'] = {}
+        responses = self.server.expand_server_cmds(orig_response)
+        for response in responses:
+            base = cmd_base(response)
+            response = response[len(base):]
+            selection['parameters'][base] = response
+
+        selection['cmd'] = cmd
+        evalcmd = sel_opt.get('evalcmd', None)
+        selection['evalcmd'] = evalcmd
+        selection['evalresponse'] = sel_opt.get('evalresponse', None)
+        bg = sel_opt.get('bg', None)
+        if bg == None:
+            bg = self.bg
+        selection['bg'] = bg
+        return selection
+
+    def on_xvtr_bands(self):
+        # The transverter bands the K4 has on, above the config's own
+        # selections, each chosen by XV and shown when BN reports it --
+        # XV itself answers without the leading zero it is sent with.
+        s = '$' if self.xvtr_vfo.upper() == 'B' else ''
+        xvtr = [self.make_selection({'text': text, 'cmd': f'XV{s}{n:02d};',
+                                     'response': f'BN{s}{XvtrBands.band_offset + n:02d};'})
+                for text, n in XvtrBands.selections()]
+        self.selections = xvtr + self.config_selections
+        self.text_to_index = {}
+        for index, selection in enumerate(self.selections):
+            self.text_to_index.setdefault(selection['text'], index)
+        texts = [selection['text'] for selection in self.selections]
+        # Its width followed as the items change: the hint it was laid
+        # out by is otherwise only worked out when the box is first
+        # shown, and a wider name, 144/1 where two bands share 144,
+        # was cut short.
+        self.combobox.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.combobox.clear()
+        self.combobox.addItems(texts)
+        if self.fit_height:
+            self.combobox.setMaxVisibleItems(max(len(texts), 1))
+        width = max(QFontMetrics(self.text_font).horizontalAdvance(text) for text in texts)
+        if sys.platform in ('win32', 'darwin'):
+            width = max(width, self.combobox.sizeHint().width() + 10)   # see __init__
+        self.combobox.setMinimumWidth(max(self.combobox.minimumWidth(), width))
+        self.combobox.setCurrentIndex(-1)
+        base = f'BN{s}'
+        band = self.server.k4_parameter(base)
+        if band != None:
+            self.on_response_received(f'{base}{band};')
 
     def set_bg(self, bg):
         # The tightening qt_combobox_stylesheet carries matters here on
@@ -4036,7 +4146,7 @@ class Dropdownbutton(Widget):
         optional = ['bg', 'abg', 'fg', 'afg',
             'height', 'width', 'justify', 'unexpectedresponse', 'label',
             'leading', 'evalincrement', 'evalcmd', 'from', 'to', 'padx', 'pady',
-            'tooltip']
+            'tooltip', 'xvtrbands']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -5332,10 +5442,16 @@ def tune_frequency(freq_hz, round_to_hz):
     # PanadapterProcess.on_tune_requested), and the cursor shows it (see
     # Panadapter.on_cursor_moved), so that what is shown is what a
     # click gives.
+    #
+    # Above xvtr_frequency_floor, the panadapter is on a transverter
+    # band, whose range the K4 holds to itself (see VFO.held_frequency),
+    # and the subprocess, which draws the cursor, has no BN to tell by.
     if round_to_hz > 1:
         freq_hz = round(freq_hz / round_to_hz) * round_to_hz
     else:
         freq_hz = round(freq_hz)
+    if freq_hz >= VFO.xvtr_frequency_floor:
+        return min(VFO.xvtr_frequency_limit, freq_hz)
     return max(VFO.low_frequency_limit, min(VFO.high_frequency_limit, freq_hz))
 
 def format_freq_tick(hz, round_to=100, drop_digits=2):
@@ -8148,6 +8264,149 @@ class BandScale():
         setting = cls.setting(cls.band)
         if Server.settings.get(Server.k4_section, setting) != str(scale):
             Server.settings.put_save(Server.k4_section, setting, str(scale))
+
+class XvtrBands():
+    # The K4's transverter bands, XVTR1 to XVTR12, which BN numbers 11
+    # to 22: BN11 is XVTR1, as the K4 itself answers, not the 16 to 25
+    # the Programmer's Reference also gives. On one, the K4 reports and
+    # takes the frequency on the air -- FA and FB, and the panadapter's
+    # frames, alike -- so nothing here turns an IF into an RF frequency
+    # or back. What is kept is which bands are on, the RF band each is
+    # set to, to name it by in the Band dropdowns, and its IF.
+    #
+    # Asked for on connecting: XVN chooses which band XVM, XVR and XVI
+    # answer for, so the one it chose is asked for first and put back
+    # after. From then on, followed by the menus the K4 reports as they
+    # change, on the Menu tab or the K4 itself: XVTR Band # Select, and
+    # the mode, RF and IF of the band it selects. The K4 reports each
+    # band the asking chose as well, all together after its answers,
+    # which only says again what was found -- asked for again on those
+    # reports, the K4 was asked for them without end.
+    count = 12
+    band_offset = 10            # BN number = band_offset + XVTR number
+    give_up_ms = 5000
+    select_index = '0086'
+    menu_keys = {'0076': 'XVM', '0077': 'XVR', '0078': 'XVI'}  # mode, RF, IF
+    server = None
+    table = {}                  # XVTR number -> its XVM, XVR and XVI
+    bands = {}                  # XVTR number -> (RF MHz, IF MHz), for those on
+    listeners = []
+    found = {}
+    current = None              # the band XVM, XVR and XVI now answer for
+    original = None             # the band XVN chose before asking
+    asking = 0                  # which asking this is, while one is under way
+    asked = 0
+    menu_band = None            # the band the menus report on
+
+    @classmethod
+    def start(cls, server):
+        cls.server = server
+        for base in ('XVN', 'XVM', 'XVR', 'XVI'):
+            server.subscribe_response(base + ';', cls.on_response, send=False)
+        server.subscribe_response('ME;', cls.on_menu, send=False)
+        cls.asking = 0
+        cls.ask()
+
+    @classmethod
+    def add_listener(cls, callback):
+        cls.listeners.append(callback)
+
+    @classmethod
+    def ask(cls):
+        cls.asked += 1
+        cls.asking = cls.asked
+        cls.found = {}
+        cls.current = None
+        cls.original = None
+        cls.server.send_str('XVN;')
+        asking = cls.asking
+        Poll.call(cls.give_up_ms, lambda: cls.give_up(asking))
+
+    @classmethod
+    def give_up(cls, asking):
+        # A K4 that never answers, or a connection gone meanwhile:
+        # whatever was found before is kept.
+        if cls.asking == asking:
+            cls.asking = 0
+
+    @classmethod
+    def on_response(cls, response):
+        if not cls.asking:
+            return
+        base = cmd_base(response)
+        parameter = cmd_parameter(response)
+        if not parameter.isdigit():
+            return
+        value = int(parameter)
+        if base == 'XVN':
+            if cls.original == None:
+                cls.original = value
+                cmds = ''.join(f'XVN{n};XVN;XVM;XVR;XVI;' for n in range(1, cls.count + 1))
+                cls.server.send_str(cmds + f'XVN{value};XVN;')
+            elif len([band for band in cls.found.values() if len(band) == 3]) == cls.count:
+                cls.finish()
+            else:
+                cls.current = value
+            return
+        if cls.current == None:
+            return
+        cls.found.setdefault(cls.current, {})[base] = value
+
+    @classmethod
+    def finish(cls):
+        cls.asking = 0
+        cls.table = cls.found
+        if cls.menu_band == None:
+            cls.menu_band = cls.original
+        cls.update()
+
+    @classmethod
+    def update(cls):
+        bands = {n: (band['XVR'], band['XVI']) for n, band in cls.table.items()
+                 if len(band) == 3 and band['XVM'] != 0}
+        if bands != cls.bands:
+            cls.bands = bands
+            for callback in cls.listeners:
+                callback()
+
+    @classmethod
+    def on_menu(cls, response):
+        # Not while asking, when what is found is to be had from the
+        # answers, in order.
+        index, _, value = response[2:].rstrip(';').partition('.')
+        if not value.isdigit():
+            return
+        if index == cls.select_index:
+            cls.menu_band = int(value)
+        elif index in cls.menu_keys and not cls.asking and cls.menu_band in cls.table:
+            cls.table[cls.menu_band][cls.menu_keys[index]] = int(value)
+            cls.update()
+
+    @classmethod
+    def number(cls, band):
+        # The XVTR number of BN's band, or None on an HF band.
+        if band == None or not band.isdigit():
+            return None
+        n = int(band) - cls.band_offset
+        return n if 1 <= n <= cls.count else None
+
+    @classmethod
+    def on_xvtr(cls, band):
+        return cls.number(band) != None
+
+    @classmethod
+    def band_numbers(cls):
+        return [cls.band_offset + n for n in sorted(cls.bands)]
+
+    @classmethod
+    def selections(cls):
+        # (text, XVTR number) for each band that is on, highest first,
+        # as the Band dropdowns list the HF bands. Named by the RF band,
+        # and by the XVTR number as well where two share one.
+        rf = [mhz for mhz, _ in cls.bands.values()]
+        ordered = sorted(cls.bands, key=lambda n: (-cls.bands[n][0], n))
+        return [(f'{cls.bands[n][0]:>3}' if rf.count(cls.bands[n][0]) == 1
+                 else f'{cls.bands[n][0]}/{n}', n) for n in ordered]
 
 class PanadapterProcess(QObject):
     # Parent-side handle for one panadapter subprocess.
@@ -14494,12 +14753,31 @@ class TciServer():
 
     @classmethod
     def drive(cls):
-        # The K4's power as a percentage of 100 W, in tenths below 10 W.
+        # The K4's power as a percentage of 100 W, in tenths below 10 W,
+        # and in the milliwatts a transverter is driven with (PCnnnX,
+        # in tenths of a milliwatt) as a percentage of 10 mW.
         pc = cls.param('PC')
         if len(pc) < 4 or not pc[:3].isdigit():
             return '0'
+        if pc[3] == 'X':
+            return str(min(100, int(pc[:3])))
         watts = int(pc[:3]) / 10 if pc[3] == 'L' else int(pc[:3])
         return str(round(min(100, watts)))
+
+    @classmethod
+    def vfo_limit(cls):
+        # A transverter band's frequency is far above the HF bands' 54
+        # MHz: as far as FA carries while the K4 has any on.
+        return VFO.xvtr_frequency_limit if XvtrBands.bands else VFO.high_frequency_limit
+
+    @classmethod
+    def takes_frequency(cls, k4, base, hz):
+        # The HF bands' range, or a transverter band's frequency while
+        # that VFO is on one, whose range the K4 holds itself to.
+        if 10000 <= hz <= VFO.high_frequency_limit:
+            return True
+        band = k4.k4_parameter('BN' + ('$' if base == 'FB' else ''))
+        return XvtrBands.on_xvtr(band) and hz <= VFO.xvtr_frequency_limit
 
     @classmethod
     def rit_offset(cls):
@@ -14549,7 +14827,7 @@ class TciServer():
         # What a TCI server says first, then the K4's state, and whether
         # the radio is running, start or stop, and ready.
         for text in ('protocol:K4 Companion,1.9;', 'device:K4;', 'receive_only:false;',
-                     'trx_count:2;', 'channels_count:2;', 'vfo_limits:10000,54000000;',
+                     'trx_count:2;', 'channels_count:2;', f'vfo_limits:10000,{cls.vfo_limit()};',
                      'if_limits:-24000,24000;',
                      'modulations_list:am,lsb,usb,cw,nfm,digl,digu;',
                      f'audio_samplerate:{client["rate"]};', 'rx_enable:0,true;',
@@ -14593,7 +14871,11 @@ class TciServer():
         tm = cls.param('TM')
         if len(tm) < 12 or not tm[6:12].isdigit():
             return
-        watts = int(tm[6:9]) / 10 if cls.param('PC')[3:4] == 'L' else int(tm[6:9])
+        # In the milliwatt range, taken as tenths of a milliwatt, as the
+        # power it is set to is.
+        power_range = cls.param('PC')[3:4]
+        watts = (int(tm[6:9]) / 10 if power_range == 'L' else int(tm[6:9]) / 10000
+                 if power_range == 'X' else int(tm[6:9]))
         swr = max(1.0, int(tm[9:12]) / 10)
         now = time.monotonic()
         for socket, client in list(cls.clients.items()):
@@ -14627,7 +14909,7 @@ class TciServer():
             base = 'FA' if trx == 0 and channel == 0 else 'FB'
             if len(args) >= 3 and k4:
                 hz = int(float(args[2]))
-                if 10000 <= hz <= 54000000:
+                if cls.takes_frequency(k4, base, hz):
                     k4.send_cmds(f'{base}{hz:011d};')
             cls.send_text(socket, f'vfo:{trx},{channel},{cls.hz(base)};')
         elif name == 'dds':
@@ -14665,7 +14947,11 @@ class TciServer():
             value = args[-1] if args else None
             if value not in (None, '') and k4 and (len(args) == 1 or args[0] == '0'):
                 watts = max(0, min(100, int(float(value))))
-                k4.send_cmds(f'PC{round(watts * 10):03d}L;' if watts <= 10 else f'PC{watts:03d}H;')
+                if cls.param('PC')[3:4] == 'X':
+                    # A percentage of 10 mW, in the milliwatt range it is in.
+                    k4.send_cmds(f'PC{max(1, watts):03d}X;')
+                else:
+                    k4.send_cmds(f'PC{round(watts * 10):03d}L;' if watts <= 10 else f'PC{watts:03d}H;')
             cls.send_text(socket, f'drive:{cls.drive()};')
         elif name == 'rx_enable':
             trx = int(args[0])
@@ -20847,13 +21133,17 @@ class Ctr2Controller():
 
     @classmethod
     def band_step(cls, server, vfo, step):
-        # Through 160 to 6 m, BN00 to BN10.
+        # Through 160 to 6 m, BN00 to BN10, and on through the
+        # transverter bands that are on, chosen by XV as the K4 was
+        # found to answer it.
         s = cls.sub(vfo)
+        bands = list(range(11)) + XvtrBands.band_numbers()
         band = server.k4_parameter('BN' + s) or ''
         band = int(band) if band.isdigit() else 0
-        if band > 10:
-            band = 0
-        server.send_cmds(f'BN{s}{(band + step) % 11:02d};')
+        index = bands.index(band) if band in bands else 0
+        band = bands[(index + step) % len(bands)]
+        n = XvtrBands.number(f'{band:02d}')
+        server.send_cmds(f'XV{s}{n:02d};' if n != None else f'BN{s}{band:02d};')
 
     @classmethod
     def band_previous(cls, server, vfo):
@@ -20975,7 +21265,8 @@ class Ctr2Controller():
     @classmethod
     def preamp_top(cls, server, vfo):
         # The highest preamp level: 3 on 12, 10 and 6 m (BN08 to BN10),
-        # and 2 below them.
+        # and 2 below them and on a transverter band, where the K4 took
+        # PA31 as PA21 with its IF on 10 m.
         band = server.k4_parameter('BN' + cls.sub(vfo)) or ''
         return 3 if band in ('08', '09', '10') else 2
 
@@ -24734,14 +25025,14 @@ config_data = r'''
 - item: bargraph
   id: rfout
   label: Power out
-  evalmaximum: "0 if self.len_k4param('PC') < 4 else 11.7 if self.k4param('PC')[3] == 'L' else 117"
+  evalmaximum: "0 if self.len_k4param('PC') < 4 else 11.7 if self.k4param('PC')[3] in 'LX' else 117"
   lengthpercent: 100
   thicknesspercent: 40
   cmd: TM1;PC;
   font: { family: FixedFont, size: 6, weight: normal }
   lefttext: ''
-  evalbottomtext: "'' if self.len_k4param('PC') < 4 else '0    2    4    6    8   10    ' if self.k4param('PC')[3] == 'L' else '0   20   40   60   80  100    '"
-  evalresponse: "0.0 if len(self.k4param('TM')) < 8 else float(self.k4param('TM')[6:9])/10 if self.k4param('PC')[3] == 'L' else self.k4param('TM')[6:9]"
+  evalbottomtext: "'' if self.len_k4param('PC') < 4 else '0    2    4    6    8   10    ' if self.k4param('PC')[3] in 'LX' else '0   20   40   60   80  100    '"
+  evalresponse: "0.0 if len(self.k4param('TM')) < 8 else float(self.k4param('TM')[6:9])/10 if self.k4param('PC')[3] in 'LX' else self.k4param('TM')[6:9]"
 #end
 
 #define alc-bargraph
@@ -24786,6 +25077,7 @@ config_data = r'''
 #define band-a-dropdown-button
 - item: dropdownbutton
   label: Band
+  xvtrbands: A                  # the K4's transverter bands that are on, above 6
   selections: #{
     - { text: "  6", cmd: BN10; }
     - { text: " 10", cmd: BN09; }
@@ -24994,6 +25286,7 @@ config_data = r'''
 #define band-b-dropdown-button
 - item: dropdownbutton
   label: Band
+  xvtrbands: B
   selections: #{
     - { text: "  6", cmd: BN$10; }
     - { text: " 10", cmd: BN$09; }
