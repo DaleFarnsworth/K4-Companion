@@ -1,3 +1,151 @@
+v2.3-rc5:
+    Describe the transverter bands and the rc5 changes in the Manual
+       The Main tab section names the bands by MHz, with the transverter
+       bands above them, says what the VFOs, the power meter and the antenna
+       selectors show on a transverter band, and how the SSNR, LMSNR and NB
+       levels are picked and stepped. The Menu tab section describes the
+       box a number is set in, and the XVTR Band menus; the CTR2 and TCI
+       sections say what they do on a transverter band. The v2.3 history
+       lists the changes, and the date is October 30th.
+   
+    Set Menu numbers in a box rather than with a slider
+       A Menu entry with a number -- DEC, REF, ms, ZOFF, MHz, Hz, and
+       M50Hz, AOFS, ZMON and D10mW -- was set with a slider, its value shown
+       below it, which took a long way to cross a wide range, an XVTR band's
+       RF to 99999 MHz say, and could be set to a value only by dragging to
+       it.
+       
+       It is now a box showing the value, which can be typed into, taken on
+       Enter or on leaving the box, and stepped an increment at a time by
+       Up/Down and the wheel, ten by Page Up/Down. A value typed is held to
+       the menu's increments and range, and one that isn't a number puts
+       back the value there was. A menu that is locked can't be typed into
+       or stepped, and words the K4 gives in place of the number, REF's Ext
+       Ref lock, are shown as they are, as before. REF is sent in its own
+       decimals.
+   
+    Show the RX antennas again when the TX antenna changes
+       An RX antenna on the TX antenna shows the TX antenna it is on, and
+       was shown by the TX antenna as it was when AR came. Changing band,
+       the K4 reports AR before AN, so going from a transverter band to an
+       HF band the RX antennas went on showing XVTR, the transverter's TX
+       antenna, though they were on the HF TX antenna.
+       
+       Whenever the TX antenna or an antenna's name changes, each selector
+       now shows its antenna again, so a name the K4 reports later is shown
+       at once as well.
+   
+    Focus a stepped dropdown on a click on its value
+       Since SSNR, LMS NR and NB could no longer be typed into, a click on
+       the value opened the list, as on any box that can't be, where before
+       it gave the box the keyboard for Up/Down to step it.
+       
+       A stepped box that can't be typed into now takes the keyboard on a
+       click on its value, and opens its list on a click on its arrow. Its
+       value is framed in the highlight colour while it has the keyboard,
+       the style sheet drawing no focus, as its cursor showed it before.
+       Other boxes open their list on a click anywhere, as before.
+   
+    Make the SSNR, LMS NR and NB dropdowns non-editable
+       A dropdown with an evalcmd could be typed into, and SSNR's, LMS NR's
+       and NB's could, though their selections are every level there is,
+       and the room an editable box keeps beside its text made them wider
+       than they needed to be.
+       
+       A dropdown's new editable option says whether it can be typed into,
+       by default as before, and those are not. Up/Down and the wheel step
+       them as they did, the level stepped to shown at once: a box that
+       can't be typed into shows the selection with that text, or that
+       number -- 5 for the 05 a step gives -- or none. SSNR's is 5 pixels
+       narrower, LMS NR's and NB's 6.
+   
+    Fit the antenna selectors to what they show, not their lists
+       Sized to their lists, the antenna selectors were as wide as the
+       longest item there, 1:6BTV (TX) say, though a selector only ever
+       shows an item without the (TX) the list marks the TX antenna with,
+       and they made their row the Main tab's widest.
+       
+       A selector is now as wide as what it can show -- its items without
+       (TX), or what it shows that isn't one, the TX antenna for =TX ANT or
+       a transverter's -- and its list as wide as its items, as on macOS it
+       already was. The 10 pixels Windows and macOS need beside the text are
+       added there only. With 6BTV as ANT1 the row is 66 pixels narrower.
+   
+    Put less space between the antenna selectors
+       Tx and Sub Rx each had 20 pixels and a space before them, and the
+       row of antenna selectors had become the Main tab's widest, widening
+       the window. They now have 10 pixels and no space, which takes 28
+       pixels off the row and the window's narrowest width.
+   
+    Align dropdown lists of numbers on their decimal points
+       A dropdown's list was left-aligned, with whatever spaces the config
+       put before a number to line it up, and a space is narrower than a
+       digit: Band's 5, 10 and 3.5, NB's 9 and 10, Power's 75 and 100 were
+       ragged.
+       
+       Where a list holds numbers, each one's sign and whole digits are now
+       right-aligned to a column, and what follows them -- .8, .00, /1 --
+       begins after it, so they line up on their decimal points, measured in
+       the list's own font. A text that isn't a number, SSNR's C and AC,
+       begins where the column does. Lists without a number are drawn as
+       before.
+   
+    Name the HF bands by their MHz rather than meters
+       The Band dropdowns list 1.8, 3.5, 5, 7, 10, 14, 18, 21, 24, 28 and
+       50, as the transverter bands above them are already named by MHz,
+       and the CTR2 tab's band functions are Band 1.8 MHz to Band 50 MHz.
+       Their keys in a CTR2 map are unchanged, so maps made before still
+       read the same.
+   
+    Widen the Antenna selectors to what they hold and show
+       An Antenna selector's width was worked out when it was first shown,
+       so antenna names the K4 reported later were cut short, and it fitted
+       its items only, so what it showed in place of one -- the TX antenna
+       for =TX ANT, or a transverter's -- could be cut short as well: Sub Rx
+       showed ":Beverage NE" for "5:Beverage NE".
+       
+       It now follows its items as they change, and is widened further for
+       what it shows where that is wider than they are.
+   
+    Show a transverter's TX antenna rather than failing on it
+       On a transverter band the K4 reports AN5, for XVTR OUT, and the
+       antenna dropdowns knew AN0 to AN3 only: the TX antenna's and the RX
+       antennas' handlers raised IndexError, and the RX antenna there, AR1,
+       was taken for the TX antenna, AN5 being the index of RX2 among the RX
+       antennas.
+       
+       AN4 and AN5 are shown as ANT4 and XVTR, without being offered as
+       choices, and only ANT1 to ANT3 are taken for both an RX and the TX
+       antenna.
+   
+    Support the K4's transverter bands
+       The transverter bands the K4 has on are asked for on connecting, with
+       XVN put back as it was, and after that followed by the menus the K4
+       reports as they change, on the Menu tab or the K4 itself: XVTR Band #
+       Select, and the mode, RF and IF of the band it selects. The K4 also
+       reports, after answering, each band the asking set XVN to; asked for
+       again on those reports, the K4 was asked without end.
+       
+       The bands are listed by RF band at the top of both Band dropdowns,
+       chosen by XV and shown by BN, which numbers XVTR1 to 12 as 11 to 22,
+       and band up and down step on through them after 6 m. The dropdowns
+       widen as the names change, 144/1 where two bands share 144.
+       
+       On a transverter band the K4 reports and takes the frequency on the
+       air, FA, FB and the panadapter's frames alike, so a VFO shows what
+       the K4 reports as it is, rather than holding it to 54 MHz, and asks
+       again after sending one, since the K4 ignores a frequency outside the
+       band. A frequency longer than the VFO's width is drawn smaller to
+       fit, with the step underlined at the same digit. A panadapter click
+       above 55 MHz is held only to what FA carries.
+       
+       TCI programs are told the VFOs go as far as FA carries while a
+       transverter band is on, and a frequency they set is passed on when
+       the VFO is on one. In the milliwatt range a transverter is driven
+       with, PCnnnX, TCI's drive is a percentage of 10 mW, and the Power out
+       meter is scaled to 10. The preamp's top level there is 2, as the K4
+       took PA31 as PA21 on XVTR1.
+   
 v2.3-rc4:
     List v2.2.1 and v2.2.2 in the User Manual's revision history
        Its revision history now has the v2.2.1 and v2.2.2 sections main's
