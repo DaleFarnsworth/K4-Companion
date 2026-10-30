@@ -12710,6 +12710,9 @@ class AppSettings_widget(Widget):
 
     def audio_settings(self):
         frame, grid = qt_group_box('Audio Settings', self.label_font())
+        # Half a line between the groups one above another, which
+        # qt_group_box() otherwise sets right against each other.
+        grid.setVerticalSpacing(QFontMetrics(self.font()).height() // 2)
 
         # Each device with its own exclusive-mode setting under it, and
         # rows counted rather than numbered: anywhere but Windows there
