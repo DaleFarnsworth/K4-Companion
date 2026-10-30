@@ -291,12 +291,27 @@ _tight_combobox_delegate = _TightComboBoxDelegate()
 
 def qt_tighten_combobox_popup(combobox):
     combobox.setItemDelegate(_tight_combobox_delegate)
-    if sys.platform == 'darwin':
-        qt_fit_combobox_popup(combobox)
-        model = combobox.model()
-        refit = lambda *args, combobox=combobox: qt_fit_combobox_popup(combobox)
-        for signal in (model.rowsInserted, model.rowsRemoved, model.modelReset, model.dataChanged):
-            signal.connect(refit)
+    fit = qt_fit_combobox_popup if sys.platform == 'darwin' else qt_fit_combobox_list
+    fit(combobox)
+    model = combobox.model()
+    refit = lambda *args, combobox=combobox, fit=fit: fit(combobox)
+    for signal in (model.rowsInserted, model.rowsRemoved, model.modelReset, model.dataChanged):
+        signal.connect(refit)
+
+def qt_fit_combobox_list(combobox):
+    # Windows and Linux: the list at least as wide as its widest item as
+    # the list draws it, lined up on its decimal point with figure
+    # spaces (see _TightComboBoxDelegate.initStyleOption), which can be
+    # wider than any item's own text that the box is as wide as: on
+    # Windows the list is no wider than the box, and Band's 1.8 and 3.5,
+    # with figure spaces before them, were cut short. Followed as the
+    # items change, through the model's signals (see
+    # qt_tighten_combobox_popup).
+    view = combobox.view()
+    width = view.sizeHintForColumn(0) + 2 * view.frameWidth()
+    if combobox.count() > combobox.maxVisibleItems():
+        width += view.verticalScrollBar().sizeHint().width()
+    view.setMinimumWidth(width)
 
 # Room in a macOS popup beside the text: the check mark's column on the
 # left and a margin on the right.
@@ -313,7 +328,9 @@ def qt_fit_combobox_popup(combobox):
     # qt_tighten_combobox_popup).
     view = combobox.view()
     fm = QFontMetrics(view.font())
-    widest = max((fm.horizontalAdvance(combobox.itemText(i)) for i in range(combobox.count())), default=0)
+    texts = [combobox.itemText(i) for i in range(combobox.count())]
+    # As the list draws them (see _TightComboBoxDelegate.initStyleOption).
+    widest = max((fm.horizontalAdvance(decimal_aligned(text, texts)) for text in texts), default=0)
     width = widest + macos_popup_allowance
     if combobox.count() > combobox.maxVisibleItems():
         width += view.verticalScrollBar().sizeHint().width()
@@ -4076,10 +4093,12 @@ class DropdownWidget():
         # shown, and a wider name, 144/1 where two bands share 144,
         # was cut short.
         self.combobox.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        self.combobox.clear()
-        self.combobox.addItems(texts)
+        # Before the items, for the list to be fitted to them with as
+        # many showing (see qt_fit_combobox_list).
         if self.fit_height:
             self.combobox.setMaxVisibleItems(max(len(texts), 1))
+        self.combobox.clear()
+        self.combobox.addItems(texts)
         width = max(QFontMetrics(self.text_font).horizontalAdvance(text) for text in texts)
         if sys.platform in ('win32', 'darwin'):
             width = max(width, self.combobox.sizeHint().width() + 10)   # see __init__
