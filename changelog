@@ -1,3 +1,64 @@
+v2.3-rc6:
+    List the Menu choices fix in the User Manual's v2.3 history
+       Its v2.3 revision history now says that every choice of a Menu entry
+       is shown on Windows, where a list came up a row short.
+   
+    Fit a dropdown's list to its widest item as the list draws it
+       A list of numbers is lined up with figure spaces, which can make an
+       item wider than any item's own text, which the box is as wide as, and
+       on Windows the list is no wider than the box: Band's 1.8 and 3.5, and
+       144/2 with two transverter bands on 144, were cut short.
+       
+       On Windows and Linux a dropdown's list is now at least as wide as its
+       widest item as the list draws it, followed as the items change, as on
+       macOS, where that width is now measured with the figure spaces too.
+       The Band dropdowns' rows are set before their items, so that the list
+       is fitted with as many showing.
+   
+    Have the style draw a dropdown's list of numbers, lined up by spaces
+       A dropdown's list of numbers, lined up on their decimal points, was
+       drawn by the app itself, the selected item's text in the highlighted
+       text colour, white, which on Windows, whose selected item is light
+       grey, was hard to read: Band's and SSNR's.
+       
+       The numbers are now lined up in the text the style draws, colours and
+       all, as for any list: each one's sign and whole digits put as far over
+       as the longest one's with figure spaces, each a digit wide.
+   
+    Keep the Menu tab no taller than the Main tab
+       The window is as tall as its tallest tab, and on Windows, whose list
+       rows are taller, the Menu tab's list of entries made it taller than
+       the Main tab needs: the window grew to it when the K4's menu came,
+       on the Main tab as well.
+       
+       When the list is put on the tab, with the K4's menu, it now shows as
+       many fewer entries as the tab would be taller than the Main tab, down
+       to 5, the rest scrolling, and the window is fitted again. The sizes
+       from the list up to the window are worked out afresh, before and
+       after: a tab not shown has its layouts, and the window with them,
+       keep what they made of it before, and the window stayed as tall as
+       the list had made it until the Menu tab was shown.
+   
+    Size lists by their own rows, showing every Menu choice on Windows
+       A list's height was the font's height and 2 pixels for each row,
+       and its frame's width, and on Windows the item view pads each item
+       beyond that, so a list came up a row short: a Menu entry with two
+       choices, XVTR Band Mode's, showed only the current one, with arrows
+       to scroll to the other.
+       
+       The Menu's choices, its list of entries and the CTR2 tab's map list
+       are now sized by the list's own measure of a row, where it is the
+       larger, and by its own margins around the rows. A list showing every
+       item, a Menu entry's choices, has no scroll bars, so that being a
+       pixel short can't put up arrows in place of a row.
+   
+    Update the User Manual's Main and Menu tab screenshots
+       The Main tab screenshot, and the VFO, antenna and lower controls
+       crops from it, were of v2.0, with the bands named in meters and the
+       antenna row before its selectors were fitted. They are retaken from
+       v2.3-rc5, as is the Menu tab's, which now shows an entry picked, in
+       pink, with its value in the box that replaced the slider.
+   
 v2.3-rc5:
     Describe the transverter bands and the rc5 changes in the Manual
        The Main tab section names the bands by MHz, with the transverter
