@@ -24953,9 +24953,9 @@ config_data = r'''
 #define antenna-label-tx
 - item: text
   bg: None
-  text: ' Tx:'
+  text: 'Tx:'
   sticky: fill
-  padleft: 20
+  padleft: 10
 #end
 
 #define antenna-label-main
@@ -24968,9 +24968,9 @@ config_data = r'''
 #define antenna-label-sub
 - item: text
   bg: None
-  text: ' Sub Rx:'
+  text: 'Sub Rx:'
   sticky: fill
-  padleft: 20
+  padleft: 10
 #end
 
 #define menu
