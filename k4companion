@@ -20740,17 +20740,17 @@ class Ctr2Controller():
         ('mode_data_r', 'Mode DATA-R', 'MD9;'),
         ('band_next', 'Band+', 'band_next'),
         ('band_previous', 'Band-', 'band_previous'),
-        ('band_160', 'Band 160 m', 'BN00;'),
-        ('band_80', 'Band 80 m', 'BN01;'),
-        ('band_60', 'Band 60 m', 'BN02;'),
-        ('band_40', 'Band 40 m', 'BN03;'),
-        ('band_30', 'Band 30 m', 'BN04;'),
-        ('band_20', 'Band 20 m', 'BN05;'),
-        ('band_17', 'Band 17 m', 'BN06;'),
-        ('band_15', 'Band 15 m', 'BN07;'),
-        ('band_12', 'Band 12 m', 'BN08;'),
-        ('band_10', 'Band 10 m', 'BN09;'),
-        ('band_6', 'Band 6 m', 'BN10;'),
+        ('band_160', 'Band 1.8 MHz', 'BN00;'),
+        ('band_80', 'Band 3.5 MHz', 'BN01;'),
+        ('band_60', 'Band 5 MHz', 'BN02;'),
+        ('band_40', 'Band 7 MHz', 'BN03;'),
+        ('band_30', 'Band 10 MHz', 'BN04;'),
+        ('band_20', 'Band 14 MHz', 'BN05;'),
+        ('band_17', 'Band 18 MHz', 'BN06;'),
+        ('band_15', 'Band 21 MHz', 'BN07;'),
+        ('band_12', 'Band 24 MHz', 'BN08;'),
+        ('band_10', 'Band 28 MHz', 'BN09;'),
+        ('band_6', 'Band 50 MHz', 'BN10;'),
         ('mute', 'Mute', 'mute'),
         ('filter_next', 'Filter Preset Next', 'filter_next'),
         ('zoom_in', 'Zoom In', 'zoom_in'),
@@ -25108,19 +25108,19 @@ config_data = r'''
 #define band-a-dropdown-button
 - item: dropdownbutton
   label: Band
-  xvtrbands: A                  # the K4's transverter bands that are on, above 6
+  xvtrbands: A                  # the K4's transverter bands that are on, above 50
   selections: #{
-    - { text: "  6", cmd: BN10; }
-    - { text: " 10", cmd: BN09; }
-    - { text: " 12", cmd: BN08; }
-    - { text: " 15", cmd: BN07; }
-    - { text: " 17", cmd: BN06; }
-    - { text: " 20", cmd: BN05; }
-    - { text: " 30", cmd: BN04; }
-    - { text: " 40", cmd: BN03; }
-    - { text: " 60", cmd: BN02; }
-    - { text: " 80", cmd: BN01; }
-    - { text: "160", cmd: BN00; }
+    - { text: " 50", cmd: BN10; }
+    - { text: " 28", cmd: BN09; }
+    - { text: " 24", cmd: BN08; }
+    - { text: " 21", cmd: BN07; }
+    - { text: " 18", cmd: BN06; }
+    - { text: " 14", cmd: BN05; }
+    - { text: " 10", cmd: BN04; }
+    - { text: "  7", cmd: BN03; }
+    - { text: "  5", cmd: BN02; }
+    - { text: "3.5", cmd: BN01; }
+    - { text: "1.8", cmd: BN00; }
   #}
 #end
 
@@ -25319,17 +25319,17 @@ config_data = r'''
   label: Band
   xvtrbands: B
   selections: #{
-    - { text: "  6", cmd: BN$10; }
-    - { text: " 10", cmd: BN$09; }
-    - { text: " 12", cmd: BN$08; }
-    - { text: " 15", cmd: BN$07; }
-    - { text: " 17", cmd: BN$06; }
-    - { text: " 20", cmd: BN$05; }
-    - { text: " 30", cmd: BN$04; }
-    - { text: " 40", cmd: BN$03; }
-    - { text: " 60", cmd: BN$02; }
-    - { text: " 80", cmd: BN$01; }
-    - { text: "160", cmd: BN$00; }
+    - { text: " 50", cmd: BN$10; }
+    - { text: " 28", cmd: BN$09; }
+    - { text: " 24", cmd: BN$08; }
+    - { text: " 21", cmd: BN$07; }
+    - { text: " 18", cmd: BN$06; }
+    - { text: " 14", cmd: BN$05; }
+    - { text: " 10", cmd: BN$04; }
+    - { text: "  7", cmd: BN$03; }
+    - { text: "  5", cmd: BN$02; }
+    - { text: "3.5", cmd: BN$01; }
+    - { text: "1.8", cmd: BN$00; }
   #}
 #end
 
