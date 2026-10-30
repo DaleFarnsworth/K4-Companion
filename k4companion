@@ -2502,11 +2502,16 @@ class Group(Container):
         required = ['item', 'contains']
         optional = ['columns', 'column', 'columnspan', 'rowspan', 'childwidth',
             'sticky', 'label_font', 'button_font', 'tabname', 'label', 'leading',
-            'padx', 'pady', 'tooltip']
+            'padx', 'pady', 'tooltip', 'vspacing']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
         self.tabname = config_info.get('tabname', '')
+
+        # Pixels between the group's rows, where the config gives them.
+        vspacing = config_info.get('vspacing', None)
+        if vspacing != None:
+            self.frame.layout().setVerticalSpacing(int(vspacing))
 
         # For the whole group, its label included: Qt hands a hover on
         # anything inside it without a tooltip of its own up to the
@@ -12484,10 +12489,15 @@ class ServerSettings_widget(Widget):
         old_frame.layout().addWidget(self.frame, 0, 0,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
+    # Pixels between the settings one above another, as between the
+    # Server tab's groups (see its columns' vspacing in the config).
+    vspacing = 5
+
     def remote_settings(self):
         frame = QGroupBox('')
         qt_tighten_groupbox(frame, '', self.label_font())
         grid = QGridLayout(frame)
+        grid.setVerticalSpacing(ServerSettings_widget.vspacing)
 
         for row, build in enumerate((self.select_server, self.k4_name,
                                      self.k4_address_settings,
@@ -25228,6 +25238,7 @@ config_data = r'''
 #define server-column1
 - item: group
   columns: 1
+  vspacing: 5                  # pixels between the groups
   contains: #{
     #include app-version
     #include server-settings
@@ -25238,6 +25249,7 @@ config_data = r'''
 #define server-column2
 - item: group
   columns: 1
+  vspacing: 5
   contains: #{
     #include startup-cmds
     #include exit-cmds
@@ -26865,6 +26877,7 @@ config_data = r'''
 #   rowspan: The number of rows this group will occupy.
 #   columnspan: The number of columns this group will occupy.
 #   columns: The number of columns in which contained items will be displayed.
+#   vspacing: The vertical space (in pixels) between contained items.
 #   tabname: Contains the name displayed on this tab of the containing notebook
 #   contains: The list of items this group contains
 

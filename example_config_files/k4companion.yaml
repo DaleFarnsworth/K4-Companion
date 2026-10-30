@@ -287,6 +287,7 @@
 #define server-column1
 - item: group
   columns: 1
+  vspacing: 5                  # pixels between the groups
   contains: #{
     #include app-version
     #include server-settings
@@ -297,6 +298,7 @@
 #define server-column2
 - item: group
   columns: 1
+  vspacing: 5
   contains: #{
     #include startup-cmds
     #include exit-cmds
@@ -1924,6 +1926,7 @@
 #   rowspan: The number of rows this group will occupy.
 #   columnspan: The number of columns this group will occupy.
 #   columns: The number of columns in which contained items will be displayed.
+#   vspacing: The vertical space (in pixels) between contained items.
 #   tabname: Contains the name displayed on this tab of the containing notebook
 #   contains: The list of items this group contains
 
