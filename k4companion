@@ -3838,6 +3838,46 @@ class SteppedComboBox(QComboBox):
             return
         super().wheelEvent(event)
 
+    def mousePressEvent(self, event):
+        # A stepped box that can't be typed into, SSNR's say, takes the
+        # keyboard on a click on its value, for Up/Down to step it, as
+        # one that can be typed into does; its list opens on a click on
+        # the arrow. Clicked anywhere, a plain box opens its list.
+        if (self.on_step != None and not self.isEditable()
+                and event.button() == Qt.MouseButton.LeftButton):
+            option = QStyleOptionComboBox()
+            self.initStyleOption(option)
+            arrow = self.style().subControlRect(QStyle.ComplexControl.CC_ComboBox, option,
+                                                QStyle.SubControl.SC_ComboBoxArrow, self)
+            if not arrow.contains(event.position().toPoint()):
+                self.setFocus(Qt.FocusReason.MouseFocusReason)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event):
+        # Its value framed while it has the keyboard, as one that can be
+        # typed into shows its cursor: the style sheet draws no focus.
+        super().paintEvent(event)
+        if self.on_step == None or self.isEditable() or not self.hasFocus():
+            return
+        option = QStyleOptionComboBox()
+        self.initStyleOption(option)
+        field = self.style().subControlRect(QStyle.ComplexControl.CC_ComboBox, option,
+                                            QStyle.SubControl.SC_ComboBoxEditField, self)
+        painter = QPainter(self)
+        painter.setPen(QPen(self.palette().color(QPalette.ColorRole.Highlight)))
+        painter.drawRect(field.adjusted(0, 0, -1, -1))
+        painter.end()
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.update()
+
 class DropdownWidget():
     def __init__(self, caller, frame, options):
         self.caller = caller
