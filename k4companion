@@ -416,6 +416,19 @@ def qt_list_width(listwidget, texts, font):
     scrollbar_width = listwidget.verticalScrollBar().sizeHint().width()
     return text_width + frame + scrollbar_width + 12
 
+class _TightListDelegate(QStyledItemDelegate):
+    # A list's rows the font's height and 2px, as on Linux. Windows 11's
+    # style pads each item to nearly twice the font's height -- 29px for
+    # a 15px font -- spreading the Menu tab's entries and choices well
+    # apart, and QSS's ::item padding doesn't reach it, as it doesn't a
+    # combobox's popup (see _TightComboBoxDelegate).
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        size.setHeight(QFontMetrics(option.font).height() + 2)
+        return size
+
+_tight_list_delegate = _TightListDelegate()
+
 def qt_list_height(listwidget, rows, font):
     # The height that shows rows of a QListWidget's items. On Windows
     # the item view pads each item beyond the font's height, and a list
@@ -423,11 +436,15 @@ def qt_list_height(listwidget, rows, font):
     # choices, XVTR Band Mode's, showed one, with arrows to scroll to
     # the other. So the list's own measure of a row is taken where it is
     # the larger, with an item put in to measure where it has none yet.
+    # On Windows the rows are first brought in to the font's height (see
+    # _TightListDelegate).
     #
     # Around the rows, the list's own margins, its frame among them,
     # rather than the frame's width alone, which Windows 11's style can
     # add to. And a list showing every item has no scroll bars, so that
     # a pixel short of them can't put up arrows in place of a row.
+    if sys.platform == 'win32':
+        listwidget.setItemDelegate(_tight_list_delegate)
     row_height = QFontMetrics(font).height() + 2
     listwidget.ensurePolished()
     if listwidget.count() == 0:
