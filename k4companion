@@ -5551,6 +5551,46 @@ class Menu(Widget):
         self.listbox.currentRowChanged.connect(self.on_listbox_selected)
         self.server.subscribe_response('MEDF;', self.on_received_definition, send=False)
 
+    min_entries_displayed = 5
+
+    def fit_to_main_tab(self):
+        # Fewer entries shown, where the Menu tab would be taller than
+        # the Main tab: as many fewer as it is taller by, down to
+        # min_entries_displayed, the rest scrolling. The window is as
+        # tall as its tallest tab, and on Windows, whose rows are
+        # taller, the Menu tab made it taller than the Main tab needs.
+        top_page = Page.main()
+        if top_page == None or not top_page.has_tabnames() or 'Main' not in top_page.tabids:
+            return
+        notebook = top_page.notebook
+        pages = [notebook.widget(i) for i in range(notebook.count())]
+        main = [page for page in pages if id(page) == top_page.tabids['Main']]
+        page = [page for page in pages if page.isAncestorOf(self.listbox)]
+        if not main or not page:
+            return
+        self.refit_window()
+        excess = QWidget.sizeHint(page[0]).height() - QWidget.sizeHint(main[0]).height()
+        if excess <= 0:
+            return
+        least = qt_list_height(self.listbox, Menu.min_entries_displayed, self.font())
+        self.listbox.setFixedHeight(max(least, self.listbox.maximumHeight() - excess))
+        self.refit_window()
+
+    def refit_window(self):
+        # The sizes from the list up to the window worked out afresh,
+        # and the window fitted to them. A tab not shown has its layouts
+        # keep what they made of it before, and the window with them:
+        # it opened as tall as the list made the Menu tab before it was
+        # shortened, until the Menu tab was shown.
+        widget = self.listbox
+        while widget != None:
+            widget.updateGeometry()
+            if widget.layout() != None:
+                widget.layout().invalidate()
+            widget = widget.parentWidget()
+        if Page.top != None:
+            Page.top.adjustSize()
+
     def update_definition_list(self):
         self.listbox.clear()
 
@@ -5575,6 +5615,7 @@ class Menu(Widget):
         self.server.send_str('ME0086;ME0078;ME0076;ME0079;ME0098;ME0077;')   # request current transverter band menu settings
 
         self.frame.layout().addWidget(self.listbox, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.fit_to_main_tab()
 
     def on_received_current(self, response):
         index, current_value = response[2:].split('.', 1)
