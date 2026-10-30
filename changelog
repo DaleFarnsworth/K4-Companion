@@ -1,3 +1,31 @@
+v2.3-rc7:
+    Retake the User Manual's EQ tab screenshot
+       It was of v2.0, its equalizer right against the Active Equalizers
+       group above it, and is now of v2.3-rc6, with the space between them.
+   
+    Space the EQ tab's equalizer below its Active Equalizers group
+       On the EQ tab, the group with the equalizer's sliders sat right
+       against the Active Equalizers group above it. Half a line now
+       separates them.
+   
+    Fit the panadapter's Ref and Scale boxes on Windows
+       On Windows, the panadapter's Ref box showed Auto as "uto", scrolled
+       to its end with the A cut off, and the Ref and Scale groups left an
+       empty space to the right of their boxes.
+       
+       An editable box was fitted for its widest value with room for the
+       line edit's own 2px a side, but not for what the style keeps inside
+       the line edit as well, 4px a side on Windows: Auto needed 25px and had
+       24. That inside is now asked of the style. The Main tab's editable
+       boxes, given more than they asked for anyway, had hidden it; Ref and
+       Scale are fitted by this alone.
+       
+       _combobox_group set each group's minimum from its box's first width,
+       combobox_margin and all, and _fit_level_combobox, fitting the box
+       narrower, only ever widened the group. The group's minimum is now set
+       again from its title and the box as fitted. And the boxes are made
+       editable before they are styled and fitted, as the Main tab's are.
+   
 v2.3-rc6:
     List the Menu choices fix in the User Manual's v2.3 history
        Its v2.3 revision history now says that every choice of a Menu entry
