@@ -402,6 +402,34 @@ def qt_list_width(listwidget, texts, font):
     scrollbar_width = listwidget.verticalScrollBar().sizeHint().width()
     return text_width + frame + scrollbar_width + 12
 
+def qt_list_height(listwidget, rows, font):
+    # The height that shows rows of a QListWidget's items. On Windows
+    # the item view pads each item beyond the font's height, and a list
+    # sized by the font alone showed a row short: a Menu entry with two
+    # choices, XVTR Band Mode's, showed one, with arrows to scroll to
+    # the other. So the list's own measure of a row is taken where it is
+    # the larger, with an item put in to measure where it has none yet.
+    #
+    # Around the rows, the list's own margins, its frame among them,
+    # rather than the frame's width alone, which Windows 11's style can
+    # add to. And a list showing every item has no scroll bars, so that
+    # a pixel short of them can't put up arrows in place of a row.
+    row_height = QFontMetrics(font).height() + 2
+    listwidget.ensurePolished()
+    if listwidget.count() == 0:
+        listwidget.addItem('0')
+        row_height = max(row_height, listwidget.sizeHintForRow(0))
+        listwidget.takeItem(0)
+    else:
+        row_height = max(row_height, listwidget.sizeHintForRow(0))
+    if 0 < listwidget.count() <= rows:
+        listwidget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        listwidget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    margins = listwidget.contentsMargins()
+    viewport = listwidget.viewportMargins()
+    around = margins.top() + margins.bottom() + viewport.top() + viewport.bottom()
+    return rows * row_height + max(around, 2 * listwidget.frameWidth()) + 2
+
 def qt_combobox_stylesheet(bg, fg, selectbg, selectfg):
     # The colours every combobox in the app wants, and the tightening
     # that goes with them.
@@ -5210,8 +5238,7 @@ class Menu_definition():
         for value in self.values:
             self.widget.addItem(str(value))
 
-        row_height = QFontMetrics(self.menu.font()).height() + 2
-        self.widget.setFixedHeight(len(self.values) * row_height + 4)
+        self.widget.setFixedHeight(qt_list_height(self.widget, len(self.values), self.menu.font()))
 
         self.widget.setFixedWidth(qt_list_width(self.widget,
             [str(value) for value in self.values], self.menu.font()))
@@ -5517,8 +5544,7 @@ class Menu(Widget):
         self.listbox.setStyleSheet(
             f'QListWidget {{ background-color: {self.bg}; color: {self.fg}; }}'
             f'QListWidget::item:selected {{ background-color: {self.selectbg}; color: {self.selectfg}; }}')
-        row_height = QFontMetrics(self.font()).height() + 2
-        self.listbox.setFixedHeight(entries_displayed * row_height + 4)
+        self.listbox.setFixedHeight(qt_list_height(self.listbox, entries_displayed, self.font()))
         # QListWidget scrolls internally, so no separate scrollbar widget
         # is needed (unlike the tkinter Listbox + Scrollbar pair).
 
@@ -12772,8 +12798,7 @@ class Ctr2Settings():
             f'QListWidget::item:selected {{ background-color: {owner.abg}; color: {owner.afg}; }}')
         for kind, number in self.rows:
             self.map_list.addItem(self.row_text(kind, number))
-        row_height = QFontMetrics(owner.font()).height() + 2
-        self.map_list.setFixedHeight(self.list_rows_shown * row_height + 4)
+        self.map_list.setFixedHeight(qt_list_height(self.map_list, self.list_rows_shown, owner.font()))
         self.map_list.setFixedWidth(qt_list_width(self.map_list,
             [self.row_text(kind, number) for kind, number in self.rows] +
             ['Button 60: K4 Commands: ' + 'X' * 16], owner.font()))
