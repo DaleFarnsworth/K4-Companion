@@ -547,9 +547,13 @@ def qt_tight_groupbox_stylesheet(title, font, selector='QGroupBox'):
     # that ask for a box that way.
     title_height = QFontMetrics(font).height() if title else 0
     margin_top = max(2, title_height)
+    # On Windows the contents started on the line where the title ends,
+    # and the title sat on them -- AGC on its Off button, Main and Sub
+    # on theirs -- so they are put a little below it there.
+    padding_top = 3 if title and sys.platform == 'win32' else 0
     return (
         f'{selector} {{ border: 1px solid palette(mid); border-radius: 3px; '
-        f'margin-top: {margin_top}px; padding-top: 0px; }}'
+        f'margin-top: {margin_top}px; padding-top: {padding_top}px; }}'
         f'{selector}::title {{ subcontrol-origin: margin; subcontrol-position: top left; '
         'left: 4px; top: 0px; padding: 2px 2px; }'
     )
