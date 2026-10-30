@@ -1,4 +1,44 @@
 v2.3-rc7:
+    Retake the User Manual's Server and Audio tab screenshots
+       They were of v2.0, their groups right against each other, and the
+       Audio tab's without TCI TX Level %. They are now of v2.3-rc7, with
+       the space between the groups.
+   
+    Put a group's contents a little below its title on Windows
+       On Windows a titled group's contents started on the line its title
+       ends on, and the title sat on them -- the Receive tab's AGC on its Off
+       button, Main and Sub on theirs, and so throughout the app. Every group
+       titled through qt_tight_groupbox_stylesheet now has 3px of padding
+       above its contents there.
+   
+    Bring a list's rows in to the font's height on Windows
+       On Windows the Menu tab's entries and choices stood well apart: Windows
+       11's style pads each list item to nearly twice the font's height, 29px
+       for a 15px font, and since lists have been sized by their own rows that
+       padding has shown in full. QSS's ::item padding doesn't reach it. The
+       lists qt_list_height sizes -- the Menu's entries and choices and the
+       CTR2 tab's map list -- are now given a delegate that makes each row the
+       font's height and 2px, as on Linux.
+   
+    Space the groups on the Server tab
+       The Server tab's groups sat right against each other one above
+       another: the version, the remote K4's settings, Software Update, and
+       the startup and exit commands, buttons and firmware versions beside
+       them. Five pixels now separate them.
+       
+       A group's new vspacing option gives the pixels between its rows, and
+       the Server tab's two columns have 5; the remote K4's settings, built
+       in the code, are spaced as much.
+   
+    Space the groups on the Audio tab
+       The Audio tab's groups, its devices, Control K4 Audio Settings?,
+       Remote Audio Latency and TCI TX Level %, sat right against each other
+       one above another. Half a line now separates them.
+   
+    Version 2.3-rc7
+
+    Update changelog for v2.3-rc7
+
     Retake the User Manual's EQ tab screenshot
        It was of v2.0, its equalizer right against the Active Equalizers
        group above it, and is now of v2.3-rc6, with the space between them.
