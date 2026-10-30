@@ -1451,6 +1451,7 @@
 
 #define main-noise-blanker-dropdown-button
 - item: dropdownbutton
+  editable: false
   from: 0
   to: 15
   evalincrement: 1
@@ -1478,6 +1479,7 @@
 
 #define sub-noise-blanker-dropdown-button
 - item: dropdownbutton
+  editable: false
   from: 0
   to: 15
   evalincrement: 1
@@ -1541,6 +1543,7 @@
 
 #define main-ssnr-dropdown-button
 - item: dropdownbutton
+  editable: false               # every level is a selection
   from: 1
   to: 20
   evalincrement: 1
@@ -1574,6 +1577,7 @@
 
 #define sub-ssnr-dropdown-button
 - item: dropdownbutton
+  editable: false
   from: 1
   to: 20
   evalincrement: 1
@@ -1641,6 +1645,7 @@
 
 #define main-lmsnr-dropdown-button
 - item: dropdownbutton
+  editable: false
   from: 1
   to: 10
   evalincrement: 1
@@ -1662,6 +1667,7 @@
 
 #define sub-lmsnr-dropdown-button
 - item: dropdownbutton
+  editable: false
   from: 1
   to: 10
   evalincrement: 1

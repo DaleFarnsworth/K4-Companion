@@ -3906,7 +3906,11 @@ class DropdownWidget():
         self.defer_selections = False
         self.deferred_selection = False
 
-        editable = self.evalcmd != None
+        # A value typed in, where evalcmd makes a command of it -- unless
+        # the config says otherwise, its selections being every value
+        # there is: stepping with Up/Down and the wheel is the same
+        # either way, and a box that can't be typed into is narrower.
+        editable = true_values(options.get('editable', self.evalcmd != None))
 
         self.combobox = SteppedComboBox(
             on_step=self.on_increment if self.evalincrement != None else None,
@@ -4130,8 +4134,31 @@ class DropdownWidget():
 
     def set_val(self, value):
         value = str(value)
-        if self.combobox.currentText() != value:
+        if self.combobox.currentText() == value:
+            return
+        if self.combobox.isEditable():
             self.combobox.setCurrentText(value)
+            return
+        # One that can't be typed into shows only its own selections:
+        # the one with this text, or with this number, as a step's
+        # unexpected_response gives it -- 05 for 5, say -- or none.
+        index = self.combobox.findText(value)
+        if index < 0:
+            index = self.number_index(value)
+        self.combobox.setCurrentIndex(index)
+
+    def number_index(self, value):
+        try:
+            number = float(value)
+        except ValueError:
+            return -1
+        for index in range(self.combobox.count()):
+            try:
+                if float(self.combobox.itemText(index)) == number:
+                    return index
+            except ValueError:
+                pass
+        return -1
 
     def undefer_selections(self):
         self.defer_selections = False
@@ -4211,7 +4238,7 @@ class Dropdownbutton(Widget):
         optional = ['bg', 'abg', 'fg', 'afg',
             'height', 'width', 'justify', 'unexpectedresponse', 'label',
             'leading', 'evalincrement', 'evalcmd', 'from', 'to', 'padx', 'pady',
-            'tooltip', 'xvtrbands']
+            'tooltip', 'xvtrbands', 'editable']
         validate_options(config_info, required, optional)
 
         super().__init__(config_info, container)
@@ -26150,6 +26177,7 @@ config_data = r'''
 
 #define main-noise-blanker-dropdown-button
 - item: dropdownbutton
+  editable: false
   from: 0
   to: 15
   evalincrement: 1
@@ -26177,6 +26205,7 @@ config_data = r'''
 
 #define sub-noise-blanker-dropdown-button
 - item: dropdownbutton
+  editable: false
   from: 0
   to: 15
   evalincrement: 1
@@ -26240,6 +26269,7 @@ config_data = r'''
 
 #define main-ssnr-dropdown-button
 - item: dropdownbutton
+  editable: false               # every level is a selection
   from: 1
   to: 20
   evalincrement: 1
@@ -26273,6 +26303,7 @@ config_data = r'''
 
 #define sub-ssnr-dropdown-button
 - item: dropdownbutton
+  editable: false
   from: 1
   to: 20
   evalincrement: 1
@@ -26340,6 +26371,7 @@ config_data = r'''
 
 #define main-lmsnr-dropdown-button
 - item: dropdownbutton
+  editable: false
   from: 1
   to: 10
   evalincrement: 1
@@ -26361,6 +26393,7 @@ config_data = r'''
 
 #define sub-lmsnr-dropdown-button
 - item: dropdownbutton
+  editable: false
   from: 1
   to: 10
   evalincrement: 1
