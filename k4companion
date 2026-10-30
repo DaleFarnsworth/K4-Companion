@@ -13135,6 +13135,11 @@ class Antenna(Widget):
         self.ar_names = ('None', 'RX2', '=TX ANT', 'x', 'RX1', 'ANT1', 'ANT2', 'ANT3')
         self.rx_names = ('None', 'ANT1', 'ANT2', 'ANT3', 'RX1', 'RX2', '=TX ANT')
         self.tx_names = ('x', 'ANT1', 'ANT2', 'ANT3')
+        # What AN reports beyond ANT3, on a transverter band: shown, but
+        # not chosen here, the band deciding. AN5 is XVTR OUT, as the K4
+        # answered on an external transverter's band; ANT4 is what the
+        # Programmer's Reference gives an internal one.
+        self.xvtr_tx_names = {4: 'ANT4', 5: 'XVTR'}
         self.rx_select_bases = {'main':'AR', 'sub':'AR$'}
 
         required = ['item', 'type']
@@ -13152,13 +13157,14 @@ class Antenna(Widget):
         self.kind = config_info['type']
 
         if self.kind in ('main', 'sub', 'tx'):
-            # 'main'/'sub' can display a value (the "=TX ANT" substitution
-            # in on_k4_select_rx) that isn't one of their own selectable
-            # items -- see _DisplayOnlyLineEdit.
+            # Each can display a value that isn't one of its own
+            # selectable items -- the "=TX ANT" substitution in
+            # on_k4_select_rx, and a transverter's antenna (see tx_name)
+            # -- see _DisplayOnlyLineEdit.
             self.dropdown = Dropdown_Widget(self.frame, bd=bd, bg=self.bg,
                 fg=self.fg, abg=self.abg, selectbg=selectbg, selectfg=selectfg,
                 font=self.font(), justify=justify, height=height,
-                display_only=self.kind in ('main', 'sub'))
+                display_only=True)
             self.dropdown.grid(row=0, column=0)
         else:
             raise Exception(f'unknown type: {self.kind} in item antenna.')
@@ -13202,18 +13208,28 @@ class Antenna(Widget):
         value = self.rx_short_names[index]
         tx_index = int(self.k4param('AN'))
 
-        if index == tx_index or value == '=TX ANT':
-            value = self.tx_short_names[tx_index]
+        if self.is_tx_antenna(index, tx_index) or value == '=TX ANT':
+            value = self.tx_name(tx_index)
 
         self.dropdown.value(value)
 
     def on_k4_select_tx(self, response):
         if self.kind == 'tx':
             tx_index = int(self.k4param('AN'))
-            value = self.tx_short_names[tx_index]
-            self.dropdown.value(value)
+            self.dropdown.value(self.tx_name(tx_index))
         else:
             self.set_names()
+
+    def tx_name(self, tx_index):
+        if tx_index < len(self.tx_short_names):
+            return self.tx_short_names[tx_index]
+        return self.xvtr_tx_names.get(tx_index, f'AN{tx_index}')
+
+    def is_tx_antenna(self, rx_index, tx_index):
+        # Whether the RX antenna rx_index (an index of rx_names) is the
+        # TX antenna. Only ANT1 to ANT3 are both: a transverter's AN of
+        # 4 or 5 is no RX antenna, whatever rx_names has there.
+        return rx_index == tx_index and tx_index < len(self.tx_names)
 
     def on_k4_config_rx(self, response):
         self.set_values_rx()
@@ -13234,7 +13250,7 @@ class Antenna(Widget):
         self.rx_short_names = list(self.rx_names)
 
         for i in range(1, 6):
-            tx = ' (TX)' if i == tx_index else ''
+            tx = ' (TX)' if self.is_tx_antenna(i, tx_index) else ''
             name = self.k4param(f'ACN{i}')
             if name != '' and name != self.rx_names[i]:
                 self.rx_short_names[i] = f'{i}:{name}{tx}'
