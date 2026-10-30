@@ -13355,18 +13355,35 @@ class Antenna(Widget):
         self.fit_width()
 
     def fit_width(self):
-        # Wide enough for its widest item, and for what it shows, which
-        # needn't be one of them: the TX antenna in place of =TX ANT, or
-        # a transverter's. 10px wider than the box's own sizeHint, which
-        # is otherwise sized to just fit its widest item -- followed as
-        # the items change, which it was not when first shown, so names
-        # the K4 reported after that were cut short.
+        # The box as wide as what it can show, and its list as wide as
+        # its items. What it shows is an item without the " (TX)" its
+        # list marks the TX antenna with, or one that isn't an item at
+        # all: the TX antenna in place of =TX ANT, or a transverter's.
+        # Followed as the items change, which the box's own sizeHint was
+        # not once it had been shown, so names the K4 reported after
+        # that were cut short; sized to the list, the boxes made theirs
+        # the Main tab's widest row.
         combobox = self.dropdown.combobox
-        combobox.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         fm = QFontMetrics(combobox.font())
-        items = max((fm.horizontalAdvance(text) for text in self.dropdown.values()), default=0)
-        shown = fm.horizontalAdvance(combobox.currentText())
-        combobox.setMinimumWidth(combobox.sizeHint().width() + 10 + max(0, shown - items))
+        items = self.dropdown.values()
+        widest_item = max((fm.horizontalAdvance(text) for text in items), default=0)
+        # The box's own room beside its text, from its sizeHint for the
+        # widest item.
+        combobox.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        chrome = combobox.sizeHint().width() - widest_item
+        if sys.platform in ('win32', 'darwin'):
+            chrome += 10            # see qt_fit_combobox_width
+        shown = [text.removesuffix(' (TX)') for text in items] + [combobox.currentText()]
+        widest_shown = max(fm.horizontalAdvance(text) for text in shown)
+        # From now on sized by its minimum width alone, not by its items.
+        combobox.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        combobox.setMinimumContentsLength(0)
+        combobox.setMinimumWidth(chrome + widest_shown)
+        if sys.platform != 'darwin':
+            # A list is no wider than its box but on macOS, where
+            # qt_fit_combobox_popup has already widened it.
+            view = combobox.view()
+            view.setMinimumWidth(view.sizeHintForColumn(0) + 2 * view.frameWidth())
 
     def set_values_tx(self):
         has_ATU = 'A' in self.k4param('OM')
