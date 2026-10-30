@@ -83,7 +83,7 @@ from PyQt6.QtWidgets import (
     QButtonGroup, QSlider, QProgressBar, QTabWidget, QDialog, QLineEdit,
     QComboBox, QListWidget, QLayout, QPlainTextEdit, QProxyStyle, QStyle,
     QSplitter, QStyledItemDelegate, QFileDialog, QSizePolicy,
-    QStyleOptionComboBox, QStyleOptionViewItem, QGraphicsView,
+    QStyleOptionComboBox, QStyleOptionFrame, QStyleOptionViewItem, QGraphicsView,
 )
 
 # Modify the path to find opus.dll on Windows, which opuslib looks for
@@ -353,11 +353,16 @@ def qt_fit_editable_combobox_width(combobox, texts, margin=0):
     # An editable box shows its value in a line edit, and Qt sizes the
     # box for its items' text alone, leaving out what the line edit
     # keeps either side of the text: its 2px, a pixel for the cursor,
-    # and any text margins. The widest item came up a pixel or two
-    # short and was clipped -- SSNR's AC, RF Gain's -10, BW's 2.80. So
-    # the box is given that much room for the widest of texts, and the
-    # arrow and frame around the line edit, as its own style lays them
-    # out. Only ever widened, never narrowed.
+    # any text margins, and whatever its style keeps inside it. The
+    # widest item came up a pixel or two short and was clipped --
+    # SSNR's AC, RF Gain's -10, BW's 2.80. So the box is given that much
+    # room for the widest of texts, and the arrow and frame around the
+    # line edit, as its own style lays them out. Only ever widened,
+    # never narrowed.
+    #
+    # The style's own inside, asked of it rather than taken as none: on
+    # Windows it is 4px a side, and the panadapter's Ref, fitted by this
+    # alone, scrolled Auto to show its end, cutting off the A.
     #
     # The text is measured unrounded, and rounded up, with 2px to
     # spare: drawn at fractional widths, it can come to more than the
@@ -368,8 +373,26 @@ def qt_fit_editable_combobox_width(combobox, texts, margin=0):
     text_width = math.ceil(max((metrics.horizontalAdvance(text) for text in texts),
                                default=0))
     line_edit = combobox.lineEdit()
+    line_edit.ensurePolished()
     margins = line_edit.textMargins()
-    field_width = text_width + 2 * 2 + 1 + 2 + margins.left() + margins.right()
+    # Filled in as QLineEdit.initStyleOption() would, which, protected,
+    # PyQt allows only on a line edit made in Python, not the one Qt
+    # makes for a combobox.
+    frame_option = QStyleOptionFrame()
+    frame_option.initFrom(line_edit)
+    frame_option.lineWidth = (line_edit.style().pixelMetric(
+        QStyle.PixelMetric.PM_DefaultFrameWidth, frame_option, line_edit)
+        if line_edit.hasFrame() else 0)
+    frame_option.midLineWidth = 0
+    frame_option.state |= QStyle.StateFlag.State_Sunken
+    if line_edit.isReadOnly():
+        frame_option.state |= QStyle.StateFlag.State_ReadOnly
+    frame_option.rect = QRect(0, 0, 200, combobox.sizeHint().height())
+    contents = line_edit.style().subElementRect(QStyle.SubElement.SE_LineEditContents,
+                                                frame_option, line_edit)
+    inside = 200 - contents.width()
+    field_width = (text_width + inside + 2 * 2 + 1 + 2 +
+                   margins.left() + margins.right())
     option = QStyleOptionComboBox()
     combobox.initStyleOption(option)
     option.rect = QRect(0, 0, 200, combobox.sizeHint().height())
@@ -6934,8 +6957,14 @@ class Panadapter(QDialog):
         return timer
 
     @staticmethod
-    def _make_combobox(items, on_activated):
+    def _make_combobox(items, on_activated, editable=False):
         combobox = QComboBox()
+        # Editable, where it is to be, before it is styled and fitted, as
+        # the Main tab's are: made so after, Ref's and Scale's boxes on
+        # Windows were drawn in part of their width, with the rest empty.
+        if editable:
+            combobox.setEditable(True)
+            combobox.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         combobox.addItems(items)
         combobox.setFont(qt_font('Helvetica', 9))
         combobox.view().setFont(qt_font('Helvetica', 9))
@@ -7921,9 +7950,7 @@ class Panadapter(QDialog):
     def _make_level_combobox(self, items, on_selected, on_edited):
         # An editable box, as RF Gain's is, for Ref and Scale: what is
         # typed is sent (on_edited), not kept as an item.
-        box = self._make_combobox(items, on_selected)
-        box.setEditable(True)
-        box.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        box = self._make_combobox(items, on_selected, editable=True)
         box.lineEdit().editingFinished.connect(on_edited)
         return box
 
@@ -7949,10 +7976,16 @@ class Panadapter(QDialog):
         # group was squeezed narrower than the box, and cut off its
         # arrow. With none of combobox_margin: that makes up for
         # sizeHint() coming up short, and this is measured.
+        #
+        # The group's minimum set again, from its title and the box as
+        # fitted: _combobox_group had set it from the box's first width,
+        # combobox_margin and all, and kept to that the group left an
+        # empty space to the right of Ref's box and Scale's.
         box.setMinimumWidth(0)
         qt_fit_editable_combobox_width(box, texts)
         group = box.parentWidget()
         if isinstance(group, QGroupBox):
+            qt_size_tight_groupbox_title(group, group.title(), group.font())
             group.setMinimumWidth(max(group.minimumWidth(), box.minimumWidth() + 2))
 
     def _write_to_parent(self, line):
