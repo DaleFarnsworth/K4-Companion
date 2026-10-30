@@ -13211,12 +13211,12 @@ class Antenna(Widget):
         if self.is_tx_antenna(index, tx_index) or value == '=TX ANT':
             value = self.tx_name(tx_index)
 
-        self.dropdown.value(value)
+        self.show_value(value)
 
     def on_k4_select_tx(self, response):
         if self.kind == 'tx':
             tx_index = int(self.k4param('AN'))
-            self.dropdown.value(self.tx_name(tx_index))
+            self.show_value(self.tx_name(tx_index))
         else:
             self.set_names()
 
@@ -13283,10 +13283,25 @@ class Antenna(Widget):
 
     def _set_dropdown_values(self, values):
         self.dropdown.values(values)
-        # 4px wider than Dropdown_Widget's own natural sizeHint, which
-        # is otherwise sized to just fit its widest current item.
+        self.fit_width()
+
+    def show_value(self, value):
+        self.dropdown.value(value)
+        self.fit_width()
+
+    def fit_width(self):
+        # Wide enough for its widest item, and for what it shows, which
+        # needn't be one of them: the TX antenna in place of =TX ANT, or
+        # a transverter's. 10px wider than the box's own sizeHint, which
+        # is otherwise sized to just fit its widest item -- followed as
+        # the items change, which it was not when first shown, so names
+        # the K4 reported after that were cut short.
         combobox = self.dropdown.combobox
-        combobox.setMinimumWidth(combobox.sizeHint().width() + 10)
+        combobox.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        fm = QFontMetrics(combobox.font())
+        items = max((fm.horizontalAdvance(text) for text in self.dropdown.values()), default=0)
+        shown = fm.horizontalAdvance(combobox.currentText())
+        combobox.setMinimumWidth(combobox.sizeHint().width() + 10 + max(0, shown - items))
 
     def set_values_tx(self):
         has_ATU = 'A' in self.k4param('OM')
