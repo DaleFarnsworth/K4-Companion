@@ -246,47 +246,24 @@ class _TightComboBoxDelegate(QStyledItemDelegate):
         # comboboxes' own previous native height, making things worse
         # rather than better for them.
         size.setHeight(QFontMetrics(option.font).height())
-        # And wide enough for its text laid out as paint lays it out.
-        texts = self.texts(index)
-        fm = QFontMetrics(option.font)
-        columns = decimal_columns(fm, texts)
-        if columns != None:
-            text = index.data() or ''
-            size.setWidth(size.width() + max(0, columns[2] - fm.horizontalAdvance(text)))
         return size
+
+    def initStyleOption(self, option, index):
+        # A list of numbers aligned on their decimal points, rather than
+        # left-aligned with whatever spaces the config put before them
+        # -- narrower than a digit -- which left them ragged: each
+        # number's sign and whole digits put as far over as the longest
+        # one's, with figure spaces, each a digit wide, and what follows
+        # them -- .8, .00, /1 -- after. The text is laid out, and the
+        # style draws it, colours and all: drawn here, the selected one
+        # was white on Windows' light grey.
+        super().initStyleOption(option, index)
+        option.text = decimal_aligned(option.text, self.texts(index))
 
     @staticmethod
     def texts(index):
         model = index.model()
         return [model.index(row, 0).data() or '' for row in range(model.rowCount())]
-
-    def paint(self, painter, option, index):
-        # A list of numbers aligned on their decimal points, as
-        # decimal_columns lays them out, rather than left-aligned with
-        # whatever spaces the config put before them -- narrower than a
-        # digit -- which left them ragged.
-        fm = QFontMetrics(option.font)
-        columns = decimal_columns(fm, self.texts(index))
-        if columns == None:
-            super().paint(painter, option, index)
-            return
-        opt = QStyleOptionViewItem(option)
-        self.initStyleOption(opt, index)
-        widget = opt.widget
-        style = widget.style() if widget != None else QApplication.style()
-        rect = style.subElementRect(QStyle.SubElement.SE_ItemViewItemText, opt, widget)
-        lead, rest = decimal_parts(opt.text)
-        opt.text = ''
-        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
-        x = rect.left() + (columns[0] - fm.horizontalAdvance(lead) if lead else 0)
-        selected = bool(opt.state & QStyle.StateFlag.State_Selected)
-        role = QPalette.ColorRole.HighlightedText if selected else QPalette.ColorRole.Text
-        painter.save()
-        painter.setFont(opt.font)
-        painter.setPen(opt.palette.color(role))
-        painter.drawText(QRect(x, rect.top(), rect.right() - x + 1, rect.height()),
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, lead + rest)
-        painter.restore()
 
 def decimal_parts(text):
     # A number's sign and whole digits, and what follows them: '1.8' is
@@ -298,20 +275,17 @@ def decimal_parts(text):
         return '', text
     return text[:match.end()], text[match.end():]
 
-def decimal_columns(fm, texts):
-    # How texts line up on their decimal points, in fm: the width of the
-    # widest sign and whole digits, which each number's are right-aligned
-    # to, the widest of what follows them, and the whole width -- a text
-    # not starting with a number beginning where the column does. None
-    # where none of them is a number.
-    parts = [decimal_parts(text) for text in texts]
-    numbers = [(lead, rest) for lead, rest in parts if lead]
-    if not numbers:
-        return None
-    lead_width = max(fm.horizontalAdvance(lead) for lead, _ in numbers)
-    rest_width = max(fm.horizontalAdvance(rest) for _, rest in numbers)
-    others = max((fm.horizontalAdvance(rest) for lead, rest in parts if not lead), default=0)
-    return lead_width, rest_width, max(lead_width + rest_width, others)
+figure_space = '\u2007'
+
+def decimal_aligned(text, texts):
+    # text as the list of texts lines it up on its decimal point (see
+    # _TightComboBoxDelegate.initStyleOption). A text not starting with
+    # a number, and every text of a list with none, is left as it is.
+    lead, rest = decimal_parts(text)
+    if not lead:
+        return text
+    longest = max(len(decimal_parts(other)[0]) for other in texts)
+    return figure_space * (longest - len(lead)) + lead + rest
 
 _tight_combobox_delegate = _TightComboBoxDelegate()
 
