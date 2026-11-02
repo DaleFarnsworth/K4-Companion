@@ -1,3 +1,39 @@
+v2.4-rc0:
+    Describe the TCI changes in the User Manual
+       TCI for Digital-Mode Programs now says how split carries the mode to
+       VFO B, that a transverter band's frequency changes to that band, and
+       that K4 Companion plays a program's transmit audio itself at TCI TX
+       Monitor %, which the Audio tab's list and its screenshot now show.
+       The manual is dated November 2nd and gives 2.4 as the current
+       version, with a v2.4 history.
+   
+    TCI: play the client's transmit audio here as a monitor
+       The K4 sends a remote no audio at all while it transmits audio the
+       remote sends, so with a TCI client nothing of the transmission was
+       heard, where the K4's monitor is heard with the program at the K4.
+       The client's audio is now played here as it is sent, mixed into the
+       output by the output callback, at TCI TX Monitor % on the Audio tab
+       (a percentage of a quarter of the client's level; 20 by default, 0
+       for none).
+   
+    TCI: split in DATA mode, and transverter bands
+       With split on, a TCI client's mode now goes to VFO B as well as A,
+       and turning split on puts VFO B in VFO A's mode, as a TCI receiver
+       has one mode for both its VFOs. The K4 allows no split between DATA
+       and another mode, and checks a VFO put in DATA some while after,
+       turning split off again with a warning, so a mode change is made with
+       split off and split turned on 600 ms after.
+       
+       A frequency on a transverter band the VFO isn't on now selects that
+       band (XV) and is sent once the K4 reports the band's frequency, so a
+       client's 2 m band button works. Mode and split commands that come
+       while the band changes are held until a second after, the K4 setting
+       and reporting the band's own meanwhile. vfo_limits is said again when
+       the transverter bands become known.
+       
+       Answers to a client's commands are now noted as what it was told, so
+       that the K4 reporting otherwise after is passed on.
+   
 v2.3:
     Date the User Manual for v2.3
        Its first page gives October 31st as its date, for v2.3, which it
