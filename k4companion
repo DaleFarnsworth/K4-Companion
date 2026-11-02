@@ -10611,6 +10611,14 @@ class Audio():
         # Audio to transmit in place of the microphone's, an SSTV picture
         # (SSTVTransmission), while set: see set_transmission.
         self.transmission = None
+        # A transmission's own audio played here as it is sent, at the
+        # output device's rate, for a TCI client's (see
+        # TciServer.monitor_level): the K4 sends a remote no audio while
+        # it transmits audio the remote sends, so there is no monitor of
+        # it from the K4. Filled by the transmit audio thread, emptied by
+        # the output callback.
+        self.tx_monitor_chunks = collections.deque()
+        self.tx_monitor_leftover = numpy.empty(0, dtype=numpy.float32)
         self.cw_pitch = 600
         self.sidetone_volume = 30
 
@@ -11105,6 +11113,19 @@ class Audio():
         self.mix_spot(outdata, frames)
         self.mix_sidetone(outdata, frames, block_start_frame, time_info,
                           self.callback_dac_time)
+        self.mix_tx_monitor(outdata, frames)
+
+    def mix_tx_monitor(self, outdata, frames):
+        # A transmission's monitor (see tx_monitor_chunks), added to
+        # whatever else is playing, the same in both channels.
+        data = self.tx_monitor_leftover
+        if len(data) == 0 and not self.tx_monitor_chunks:
+            return
+        while len(data) < frames and self.tx_monitor_chunks:
+            data = numpy.concatenate((data, self.tx_monitor_chunks.popleft()))
+        n = min(frames, len(data))
+        outdata[:n] += data[:n].reshape(n, 1)
+        self.tx_monitor_leftover = data[n:]
 
     def key_up_due(self, frames, time_info):
         # Whether the key comes up inside the block about to be filled,
@@ -11962,6 +11983,11 @@ class Audio():
         self.k4_tx_audio_thread = threading.Thread(target=target, name='audio_k4_tx_audio_thread')
         self.k4_tx_audio_thread.start()
 
+    # The most of a transmission's monitor held unplayed, in frames from
+    # the transmit audio thread: a quarter second, should the output
+    # device have stopped taking it.
+    tx_monitor_most_chunks = 12
+
     # How far ahead of when it is due a generated frame is sent: enough
     # for this thread being woken late now and then, as the microphone's
     # frames come with the device's own jitter.
@@ -11977,6 +12003,9 @@ class Audio():
         period = frame_size / Audio.k4_sample_rate
         start = time.perf_counter()
         sent = 0
+        monitor = None
+        if getattr(transmission, 'monitor_level', None) != None and self.output_device_index >= 0:
+            monitor = StreamResampler(Audio.k4_sample_rate, Audio.output_device_sample_rate())
         try:
             while self.transmit_audio:
                 samples = transmission.read(frame_size)
@@ -11987,6 +12016,13 @@ class Audio():
                     time.sleep(delay)
                 if not self.transmit_audio:
                     break
+                if monitor != None:
+                    chunk = monitor.process(samples)
+                    if transmission.monitor_level > 0:
+                        self.tx_monitor_chunks.append(
+                            (chunk * transmission.monitor_level).astype(numpy.float32))
+                        while len(self.tx_monitor_chunks) > self.tx_monitor_most_chunks:
+                            self.tx_monitor_chunks.popleft()
                 samples = (samples * transmission.level).astype(numpy.float32)
                 # Doubled up, as the microphone's are: see k4_tx_audio_loop.
                 audio_packet = opus.encode_float(samples.repeat(2).tobytes(), frame_size)
@@ -12765,6 +12801,8 @@ class AppSettings_widget(Widget):
         grid.addWidget(audio_remote_audio_latency_frame, 1, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         grid.addWidget(self.audio_tci_tx_level_setting(), 2, 1,
                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        grid.addWidget(self.audio_tci_tx_monitor_setting(), 3, 1,
+                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         return frame
 
@@ -12856,6 +12894,20 @@ class AppSettings_widget(Widget):
         Server.settings.put_save('Audio', 'tci_tx_percent', current_value)
         if TciServer.transmission != None:
             TciServer.transmission.level = TciServer.tx_level()
+
+    def audio_tci_tx_monitor_setting(self):
+        # How loud a TCI client's transmit audio is played here while it
+        # is sent (see TciServer.monitor_level), 0 for not at all.
+        current_value = TciServer.monitor_percent()
+        return self._labeled_combobox('TCI TX Monitor %', TciServer.monitor_levels, current_value,
+            self.on_tci_tx_monitor_combobox_changed, justify='right')
+
+    def on_tci_tx_monitor_combobox_changed(self, current_value):
+        if current_value in ('', None):
+            return
+        Server.settings.put_save('Audio', 'tci_monitor_percent', current_value)
+        if TciServer.transmission != None:
+            TciServer.transmission.monitor_level = TciServer.monitor_level()
 
 class Ctr2Settings():
     # The Macros window's CTR2 tab: the MIDI device the CTR2 is read
@@ -14834,9 +14886,10 @@ class TciTransmission():
     request_seconds = .3
     most_seconds = 1.0
 
-    def __init__(self, client_rate, level):
+    def __init__(self, client_rate, level, monitor_level):
         self.client_rate = client_rate
         self.level = level
+        self.monitor_level = monitor_level
         self.lock = threading.Lock()
         self.samples = collections.deque()
         self.buffered = 0
@@ -14944,6 +14997,13 @@ class TciServer():
     tx_levels = tuple(range(5, 105, 5))
     tx_level_default = 50
     tx_full_level = 1 / 80
+    # The client's transmit audio is played here as it is sent, the K4
+    # sending a remote no audio while it transmits (see
+    # Audio.tx_monitor_chunks), at a percentage of monitor_full_level of
+    # the client's own level, 0 being none: saved as tci_monitor_percent.
+    monitor_levels = tuple(range(0, 105, 5))
+    monitor_level_default = 20
+    monitor_full_level = 1 / 4
     # A client's socket with more than this waiting to go is sent no more
     # audio until it has caught up.
     backlog_bytes = 1 << 20
@@ -15562,6 +15622,16 @@ class TciServer():
         return cls.tx_percent() / 100 * cls.tx_full_level
 
     @classmethod
+    def monitor_percent(cls):
+        percent = Server.settings.getint('Audio', 'tci_monitor_percent', cls.monitor_level_default,
+                                         minimum=0, maximum=100)
+        return min(cls.monitor_levels, key=lambda level: abs(level - percent))
+
+    @classmethod
+    def monitor_level(cls):
+        return cls.monitor_percent() / 100 * cls.monitor_full_level
+
+    @classmethod
     def set_ptt(cls, socket, client, on):
         k4 = cls.k4()
         if on:
@@ -15572,7 +15642,7 @@ class TciServer():
                 # set before the K4 is put in transmit, which starts the
                 # transmit audio thread.
                 cls.tx_client = client
-                cls.transmission = TciTransmission(client['rate'], cls.tx_level())
+                cls.transmission = TciTransmission(client['rate'], cls.tx_level(), cls.monitor_level())
                 Audio.set_transmission(cls.transmission)
                 frames = cls.transmission.wanted()
                 if frames:
