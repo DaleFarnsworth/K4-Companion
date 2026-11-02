@@ -15047,7 +15047,7 @@ class TciServer():
     # frames, masked from the client and not to it): commands as text,
     # name:argument,...; several to a message, and audio as binary, a
     # header of 16 32-bit words (receiver, sample rate, format, codec,
-    # crc, length, type and 9 reserved) and float32 stereo samples, the
+    # crc, length, type, channels and 8 reserved) and float32 stereo samples, the
     # length counting the samples, two to a frame, as JTDX and its kin
     # have it: in a receive audio stream, in TX_CHRONO asking for so many,
     # and in TX_AUDIO_STREAM answering with them, whose data can run on
@@ -15094,6 +15094,7 @@ class TciServer():
     backlog_bytes = 1 << 20
     meter_seconds = .2
     stream_rx_audio, stream_tx_audio, stream_tx_chrono = 1, 2, 3
+    most_chrono_frames = 4096
     format_int16, format_int24, format_int32, format_float32 = 0, 1, 2, 3
     guid = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
     # The K4's modes and TCI's modulations: DATA as digu and DATA REV
@@ -15763,8 +15764,11 @@ class TciServer():
 
     @classmethod
     def header(cls, receiver, rate, length, stream_type):
+        # The channels, two, after the type, as TCI 1.9 has it: WSJT-X
+        # 3.2, told the server's protocol is 1.9, takes the 0 a reserved
+        # word had there as no channels, and ignores the stream.
         return struct.pack('<16I', receiver, rate, cls.format_float32, 0, 0, length,
-                           stream_type, *([0] * 9))
+                           stream_type, 2, *([0] * 8))
 
     @classmethod
     def send_rx_audio(cls, stereo):
@@ -15794,19 +15798,31 @@ class TciServer():
         for socket, each in cls.clients.items():
             if each is client:
                 dprint_tci(f'TCI server: asked for {frames} frames of transmit audio')
-                cls.send_frame(socket, 0x2, cls.header(0, client['rate'], frames * 2,
-                                                       cls.stream_tx_chrono))
+                # No more than most_chrono_frames to a TX_CHRONO, WSJT-X 3.2
+                # ignoring one asking for more than 8192 samples.
+                while frames > 0:
+                    ask = min(frames, cls.most_chrono_frames)
+                    cls.send_frame(socket, 0x2, cls.header(0, client['rate'], ask * 2,
+                                                           cls.stream_tx_chrono))
+                    frames -= ask
 
     @classmethod
     def on_binary(cls, socket, client, message):
         if len(message) < 64:
+            dprint_tci(f'TCI server: received {len(message)} bytes of binary, too short for a stream')
             return
         words = struct.unpack('<16I', message[:64])
         rate, sample_format, length, stream_type = words[1], words[2], words[5], words[6]
-        if stream_type != cls.stream_tx_audio or client is not cls.tx_client:
+        dprint_tci(f'TCI server: received stream type {stream_type}, receiver {words[0]}, rate {rate},'
+                   f' format {sample_format}, length {length}, {len(message) - 64} bytes')
+        if stream_type != cls.stream_tx_audio:
+            return
+        if client is not cls.tx_client:
+            dprint_tci('TCI server: transmit audio from a client not transmitting, dropped')
             return
         transmission = cls.transmission
         if transmission == None:
+            dprint_tci('TCI server: transmit audio with no transmission, dropped')
             return
         data = message[64:]
         # Only the length's samples: what follows them is not audio.
