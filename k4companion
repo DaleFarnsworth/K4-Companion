@@ -7348,6 +7348,7 @@ class Panadapter(QDialog):
         axis_key = (center_hz, span_hz, self.bin_count, Panadapter.waterfall_rows)
         axis_changed = axis_key != self.axis_key
         if axis_changed:
+            old_axis_key = self.axis_key
             self.axis_key = axis_key
             left_edge = center_hz - span_hz / 2
             right_edge = center_hz + span_hz / 2
@@ -7363,11 +7364,23 @@ class Panadapter(QDialog):
             # as before -- only the bin positions within it changed.
             self.trace_plot.setXRange(left_edge, right_edge, padding=0)
             self._update_trace_labels(center_hz, span_hz)
-            # bin_count changed, so any frames already in trace_history
-            # are the wrong shape to average against this one, and the
-            # peaks held are of frequencies no longer shown.
-            self.trace_history.clear()
-            self._restart_peak(settle=True)
+            if old_axis_key != None and old_axis_key[1:] == axis_key[1:]:
+                # Only the centre moved, as it does with every tune in
+                # Track: the frames averaged and the peaks held are still
+                # good, moved by as many bins as the centre has. Starting
+                # them afresh, as below, had the trace jump from the
+                # average to one frame's noise and settle again.
+                shift = round((center_hz - old_axis_key[0]) / hz_per_bin)
+                self.trace_history[:] = [self._shift_bins(frame, shift, data)
+                                         for frame in self.trace_history]
+                if self.peak_data is not None and len(self.peak_data) == len(data):
+                    self.peak_data = self._shift_bins(self.peak_data, shift, data)
+            else:
+                # bin_count changed, so any frames already in trace_history
+                # are the wrong shape to average against this one, and the
+                # peaks held are of frequencies no longer shown.
+                self.trace_history.clear()
+                self._restart_peak(settle=True)
 
         self._track_frame(center_hz)
         self._update_freq_line()
@@ -7460,6 +7473,24 @@ class Panadapter(QDialog):
         crop_count = min(full_bin_count, max(1, round(span_hz / hz_per_bin)))
         start = (full_bin_count - crop_count) // 2
         return bins[start:start + crop_count]
+
+    @staticmethod
+    def _shift_bins(frame, shift, fill):
+        # A frame of bins moved for a centre shift bins higher: each bin
+        # then shows what the one shift above it did, and those moved in
+        # from beyond the old edge are fill's, this frame's own.
+        if shift == 0:
+            return frame
+        if abs(shift) >= len(frame):
+            return fill.copy()
+        moved = numpy.empty_like(frame)
+        if shift > 0:
+            moved[:-shift] = frame[shift:]
+            moved[-shift:] = fill[-shift:]
+        else:
+            moved[-shift:] = frame[:shift]
+            moved[:-shift] = fill[:-shift]
+        return moved
 
     def _rolling_average(self, history, data):
         # Rolling per-bin average over the last self.avg_count frames
@@ -8318,6 +8349,7 @@ class Panadapter(QDialog):
 
         axis_key = (freq_hz, actual_span_hz, bin_count)
         if axis_key != self.minipan_axis_key:
+            old_axis_key = self.minipan_axis_key
             self.minipan_axis_key = axis_key
             left_edge = freq_hz - actual_span_hz / 2
             right_edge = freq_hz + actual_span_hz / 2
@@ -8325,13 +8357,21 @@ class Panadapter(QDialog):
             self.minipan_xs = self._bin_centers(left_edge, bin_count, hz_per_bin)
             self.minipan_plot.setXRange(left_edge, right_edge, padding=0)
             self._update_minipan_labels(actual_span_hz)
-            # bin_count changed (or this is the first frame since
-            # set_minipan_enabled(True) forced axis_key to None), so any
-            # frames already in minipan_history are the wrong shape --
-            # or stale from before the mini-pan was disabled -- to
-            # average against this one.
-            self.minipan_history.clear()
-            self.minipan_yrange = None
+            if old_axis_key != None and old_axis_key[1:] == axis_key[1:]:
+                # Only the frequency moved: the frames averaged, moved by
+                # as many bins, and the Y-range fitted to them still
+                # hold, as for the trace (see push_frame).
+                shift = round((freq_hz - old_axis_key[0]) / hz_per_bin)
+                self.minipan_history[:] = [self._shift_bins(frame, shift, data)
+                                           for frame in self.minipan_history]
+            else:
+                # bin_count changed (or this is the first frame since
+                # set_minipan_enabled(True) forced axis_key to None), so
+                # any frames already in minipan_history are the wrong
+                # shape -- or stale from before the mini-pan was disabled
+                # -- to average against this one.
+                self.minipan_history.clear()
+                self.minipan_yrange = None
 
         # The same rolling per-bin average as the trace's own display
         # (see _rolling_average), which the Y-range below is fitted to
