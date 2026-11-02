@@ -14958,6 +14958,35 @@ class TciServer():
     k4_modes = {'lsb': ('1', None), 'usb': ('2', None), 'cw': ('3', None),
                 'nfm': ('4', None), 'fm': ('4', None), 'wfm': ('4', None),
                 'am': ('5', None), 'sam': ('5', None), 'digu': ('6', '0'), 'digl': ('9', '0')}
+    # The K4 allows no split between DATA and another mode, and a VFO
+    # put in DATA is checked against that some while after, split
+    # turned on meanwhile being turned off again, with a warning. So a
+    # mode change made while split is made with split off, and split is
+    # turned on split_ms after VFO B is put in VFO A's mode: 400 ms was
+    # found enough. VFO A's mode is the one the client last gave it, for
+    # mode_seconds, the K4's reports of it lagging what was sent.
+    split_ms = 600
+    split_pending = 0           # which FT1 is waiting to be sent, or 0
+    split_count = 0
+    mode_a = None               # (MD, DT, when given)
+    mode_seconds = 5.0
+    # A frequency on a transverter band the VFO isn't on, sent once the
+    # K4 has changed to that band and reported its frequency there, FA or
+    # FB sent sooner being taken as out of range and ignored, or
+    # overtaken by that report: FA or FB -> [BN or BN$, the band, whether
+    # it is reported yet, the FA or FB command].
+    pending_frequency = {}
+    # A client's mode and split commands that come while the band is
+    # being changed, held until settle_ms after its frequency is sent:
+    # the K4 sets the band's own mode and split, and reports them a good
+    # while after, and so what each VFO is in is not known before. Held
+    # no longer than deferred_ms, should the K4 not report the band. A
+    # change of frequency of a MHz or more is taken as a change of band.
+    deferred = []
+    deferred_ms = 2000
+    settle_ms = 1000
+    settling = 0                # which settling is under way, or 0
+    settle_count = 0
 
     @classmethod
     def start(cls):
@@ -14975,6 +15004,7 @@ class TciServer():
         cls.timer = QTimer()
         cls.timer.timeout.connect(cls.check_connection)
         cls.timer.start(500)
+        XvtrBands.add_listener(cls.on_xvtr_bands)
         dprint_tci(f'TCI server: listening on port {cls.port}')
 
     # ------------------------------------------------ WebSocket
@@ -15110,6 +15140,13 @@ class TciServer():
             cls.send_text(socket, text)
 
     @classmethod
+    def reply(cls, socket, client, text):
+        # An answer to a client's command, noted as what it was told, so
+        # that the K4 reporting otherwise after is said on.
+        client['sent'][text.rsplit(',', 1)[0] if ',' in text else text.partition(':')[0]] = text
+        cls.send_text(socket, text)
+
+    @classmethod
     def broadcast(cls, key, text):
         for socket, client in list(cls.clients.items()):
             if client['handshaken']:
@@ -15166,6 +15203,82 @@ class TciServer():
         return XvtrBands.on_xvtr(band) and hz <= VFO.xvtr_frequency_limit
 
     @classmethod
+    def xvtr_band(cls, hz):
+        # The transverter band that is on whose RF band a frequency above
+        # the HF bands is in, or None: from a MHz below its RF to four
+        # above, the IF range the K4 was found to take on one.
+        mhz = hz / 1000000
+        for n, (rf, _) in sorted(XvtrBands.bands.items()):
+            if rf - 1 <= mhz < rf + 4:
+                return n
+        return None
+
+    @classmethod
+    def set_frequency(cls, k4, base, hz):
+        # A frequency on a transverter band the VFO isn't on is sent after
+        # choosing that band, as a client's band buttons ask for it.
+        cls.pending_frequency.pop(base, None)
+        if cls.takes_frequency(k4, base, hz):
+            band_change = abs(hz - int(cls.hz(base))) >= 1000000
+            k4.send_cmds(f'{base}{hz:011d};')
+            if band_change:
+                cls.settle()
+            return
+        n = cls.xvtr_band(hz) if hz > VFO.high_frequency_limit else None
+        if n != None:
+            s = '$' if base == 'FB' else ''
+            cls.pending_frequency[base] = ['BN' + s, f'{XvtrBands.band_offset + n:02d}', False,
+                                           f'{base}{hz:011d};']
+            k4.send_cmds(f'XV{s}{n:02d};')
+
+    @classmethod
+    def settle(cls):
+        cls.settle_count += 1
+        cls.settling = settling = cls.settle_count
+        Poll.call(cls.settle_ms, lambda: cls.settling == settling and cls.run_deferred())
+
+    @classmethod
+    def run_deferred(cls):
+        cls.pending_frequency = {}
+        cls.settling = 0
+        deferred, cls.deferred = cls.deferred, []
+        for socket, client, name, args in deferred:
+            if socket in cls.clients:
+                cls.on_command(socket, client, name, args)
+
+    @classmethod
+    def split_on(cls):
+        return cls.split_pending != 0 or cls.param('FT') == '1'
+
+    @classmethod
+    def split_later(cls, k4):
+        cls.split_count += 1
+        cls.split_pending = pending = cls.split_count
+        def send():
+            if cls.split_pending == pending:
+                cls.split_pending = 0
+                if cls.k4() is k4:
+                    # Not reported back by the K4, so said here.
+                    k4.send_cmds('FT1;')
+                    for key, text in cls.states('FT'):
+                        cls.broadcast(key, text)
+        Poll.call(cls.split_ms, send)
+
+    @classmethod
+    def vfo_a_mode(cls):
+        if cls.mode_a != None and time.monotonic() - cls.mode_a[2] < cls.mode_seconds:
+            return cls.mode_a[:2]
+        return cls.param('MD'), cls.param('DT')
+
+    @classmethod
+    def in_mode(cls, s, mode, sub_mode):
+        return cls.param('MD' + s) == mode and (sub_mode == None or cls.param('DT' + s) == sub_mode)
+
+    @classmethod
+    def on_xvtr_bands(cls):
+        cls.broadcast('vfo_limits', f'vfo_limits:10000,{cls.vfo_limit()};')
+
+    @classmethod
     def rit_offset(cls):
         ro = cls.param('RO')
         try:
@@ -15213,12 +15326,12 @@ class TciServer():
         # What a TCI server says first, then the K4's state, and whether
         # the radio is running, start or stop, and ready.
         for text in ('protocol:K4 Companion,1.9;', 'device:K4;', 'receive_only:false;',
-                     'trx_count:2;', 'channels_count:2;', f'vfo_limits:10000,{cls.vfo_limit()};',
-                     'if_limits:-24000,24000;',
+                     'trx_count:2;', 'channels_count:2;', 'if_limits:-24000,24000;',
                      'modulations_list:am,lsb,usb,cw,nfm,digl,digu;',
                      f'audio_samplerate:{client["rate"]};', 'rx_enable:0,true;',
                      'split_enable:1,false;', 'trx:1,false;'):
             cls.send_text(socket, text)
+        cls.send_state(socket, client, 'vfo_limits', f'vfo_limits:10000,{cls.vfo_limit()};')
         for key, text in cls.states():
             cls.send_state(socket, client, key, text)
         cls.send_text(socket, 'start;' if cls.k4() else 'stop;')
@@ -15243,6 +15356,16 @@ class TciServer():
     @classmethod
     def on_k4_response(cls, base, response):
         # From the K4, on the Qt thread: what has changed, said on.
+        k4 = cls.k4()
+        for frequency_base, pending in list(cls.pending_frequency.items()):
+            if base == pending[0] and response == pending[1]:
+                pending[2] = True
+            elif base == frequency_base and pending[2]:
+                del cls.pending_frequency[frequency_base]
+                if k4:
+                    k4.send_cmds(pending[3])
+                if not cls.pending_frequency:
+                    cls.settle()
         if not cls.clients:
             return
         for key, text in cls.states(base):
@@ -15290,45 +15413,75 @@ class TciServer():
     def on_command(cls, socket, client, name, args):
         k4 = cls.k4()
         b = cls.bool_text
+        if (name in ('modulation', 'split_enable') and len(args) >= 2
+                and (cls.pending_frequency or cls.settling)):
+            cls.deferred.append((socket, client, name, args))
+            if len(cls.deferred) == 1:
+                Poll.call(cls.deferred_ms, lambda: cls.deferred and cls.run_deferred())
+            return
         if name == 'vfo':
             trx, channel = int(args[0]), int(args[1])
             base = 'FA' if trx == 0 and channel == 0 else 'FB'
             if len(args) >= 3 and k4:
-                hz = int(float(args[2]))
-                if cls.takes_frequency(k4, base, hz):
-                    k4.send_cmds(f'{base}{hz:011d};')
-            cls.send_text(socket, f'vfo:{trx},{channel},{cls.hz(base)};')
+                cls.set_frequency(k4, base, int(float(args[2])))
+            cls.reply(socket, client, f'vfo:{trx},{channel},{cls.hz(base)};')
         elif name == 'dds':
             trx = int(args[0])
             base = 'FA' if trx == 0 else 'FB'
             if len(args) >= 2 and k4:
-                k4.send_cmds(f'{base}{int(float(args[1])):011d};')
-            cls.send_text(socket, f'dds:{trx},{cls.hz(base)};')
+                cls.set_frequency(k4, base, int(float(args[1])))
+            cls.reply(socket, client, f'dds:{trx},{cls.hz(base)};')
         elif name == 'modulation':
             trx = int(args[0])
             s = '$' if trx == 1 else ''
             if len(args) >= 2 and k4:
                 mode, sub_mode = cls.k4_modes.get(args[1].lower(), (None, None))
                 if mode != None:
-                    k4.send_cmds(f'MD{s}{mode};' + (f'DT{s}{sub_mode};' if sub_mode else ''))
-            cls.send_text(socket, f'modulation:{trx},{cls.modulation(s)};')
+                    cmds = lambda v: f'MD{v}{mode};' + (f'DT{v}{sub_mode};' if sub_mode else '')
+                    if trx == 0:
+                        cls.mode_a = (mode, sub_mode, time.monotonic())
+                    if trx == 0 and cls.split_on():
+                        # A TCI receiver has one mode for both its VFOs:
+                        # while split, VFO B, which it transmits on, is set
+                        # as well, with split off unless neither changes.
+                        if cls.in_mode('', mode, sub_mode) and cls.in_mode('$', mode, sub_mode):
+                            k4.send_cmds(cmds('') + cmds('$'))
+                        else:
+                            k4.send_cmds('FT0;' + cmds('') + cmds('$'))
+                            cls.split_later(k4)
+                    else:
+                        k4.send_cmds(cmds(s))
+            cls.reply(socket, client, f'modulation:{trx},{cls.modulation(s)};')
         elif name == 'split_enable':
             if len(args) < 2:
                 return                              # JTDX's opening split_enable:false
             trx = int(args[0])
             if trx == 0 and k4:
-                k4.send_cmds('FT1;' if args[1].lower() == 'true' else 'FT0;')
-            cls.send_text(socket, f'split_enable:{trx},{b(trx == 0 and cls.param("FT") == "1")};')
+                if args[1].lower() != 'true':
+                    cls.split_pending = 0
+                    k4.send_cmds('FT0;')
+                elif not cls.split_on():
+                    # VFO B in VFO A's mode, as receiver 0's one mode.
+                    mode, sub_mode = cls.vfo_a_mode()
+                    sub_mode = sub_mode if mode in ('6', '9') and sub_mode else None
+                    if not mode or cls.in_mode('$', mode, sub_mode):
+                        k4.send_cmds('FT1;')
+                        for key, text in cls.states('FT'):
+                            cls.broadcast(key, text)
+                    else:
+                        k4.send_cmds(f'MD${mode};' + (f'DT${sub_mode};' if sub_mode else ''))
+                        cls.split_later(k4)
+            cls.reply(socket, client, f'split_enable:{trx},{b(trx == 0 and cls.split_on())};')
         elif name == 'trx':
             trx = int(args[0])
             if len(args) >= 2 and trx == 0 and k4:
                 cls.set_ptt(socket, client, args[1].lower() == 'true')
-            cls.send_text(socket, f'trx:{trx},{b(trx == 0 and cls.param("TR") == "T")};')
+            cls.reply(socket, client, f'trx:{trx},{b(trx == 0 and cls.param("TR") == "T")};')
         elif name == 'tune':
             trx = int(args[0])
             if len(args) >= 2 and trx == 0 and k4:
                 k4.send_cmds('TU1;' if args[1].lower() == 'true' else 'TU0;')
-            cls.send_text(socket, f'tune:{trx},{b(cls.param("TU") not in ("", "0"))};')
+            cls.reply(socket, client, f'tune:{trx},{b(cls.param("TU") not in ("", "0"))};')
         elif name == 'drive':
             value = args[-1] if args else None
             if value not in (None, '') and k4 and (len(args) == 1 or args[0] == '0'):
@@ -15338,45 +15491,45 @@ class TciServer():
                     k4.send_cmds(f'PC{max(1, watts):03d}X;')
                 else:
                     k4.send_cmds(f'PC{round(watts * 10):03d}L;' if watts <= 10 else f'PC{watts:03d}H;')
-            cls.send_text(socket, f'drive:{cls.drive()};')
+            cls.reply(socket, client, f'drive:{cls.drive()};')
         elif name == 'rx_enable':
             trx = int(args[0])
             if len(args) >= 2 and trx == 1 and k4:
                 k4.send_cmds('SB1;' if args[1].lower() == 'true' else 'SB0;')
             on = trx == 0 or cls.param('SB') not in ('', '0')
-            cls.send_text(socket, f'rx_enable:{trx},{b(on)};')
+            cls.reply(socket, client, f'rx_enable:{trx},{b(on)};')
         elif name in ('rit_enable', 'xit_enable'):
             base = 'RT' if name == 'rit_enable' else 'XT'
             if len(args) >= 2 and int(args[0]) == 0 and k4:
                 k4.send_cmds(f'{base}{1 if args[1].lower() == "true" else 0};')
-            cls.send_text(socket, f'{name}:0,{b(cls.param(base) == "1")};')
+            cls.reply(socket, client, f'{name}:0,{b(cls.param(base) == "1")};')
         elif name in ('rit_offset', 'xit_offset'):
             if len(args) >= 2 and int(args[0]) == 0 and k4:
                 hz = max(-9999, min(9999, int(float(args[1]))))
                 k4.send_cmds(f'RO{"+" if hz >= 0 else "-"}{abs(hz):04d};')
-            cls.send_text(socket, f'{name}:0,{cls.rit_offset()};')
+            cls.reply(socket, client, f'{name}:0,{cls.rit_offset()};')
         elif name == 'cw_macros_speed':
             if args and k4:
                 k4.send_cmds(f'KS{max(8, min(100, int(float(args[0])))):03d};')
-            cls.send_text(socket, f'cw_macros_speed:{int(cls.param("KS") or 0)};')
+            cls.reply(socket, client, f'cw_macros_speed:{int(cls.param("KS") or 0)};')
         elif name == 'rx_smeter':
             trx = int(args[0])
             channel = int(args[1]) if len(args) >= 2 else 0
-            cls.send_text(socket, f'rx_smeter:{trx},{channel},{cls.smeter_dbm(trx)};')
+            cls.reply(socket, client, f'rx_smeter:{trx},{channel},{cls.smeter_dbm(trx)};')
         elif name == 'audio_samplerate':
             if args and int(args[0]) in cls.rates and int(args[0]) != client['rate']:
                 client['rate'] = int(args[0])
                 client['resamplers'] = {}
-            cls.send_text(socket, f'audio_samplerate:{client["rate"]};')
+            cls.reply(socket, client, f'audio_samplerate:{client["rate"]};')
         elif name == 'audio_start':
             trx = int(args[0]) if args else 0
             client['audio'].add(trx)
-            cls.send_text(socket, f'audio_start:{trx};')
+            cls.reply(socket, client, f'audio_start:{trx};')
         elif name == 'audio_stop':
             trx = int(args[0]) if args else 0
             client['audio'].discard(trx)
             client['resamplers'].pop(trx, None)
-            cls.send_text(socket, f'audio_stop:{trx};')
+            cls.reply(socket, client, f'audio_stop:{trx};')
         elif name == 'start':
             cls.send_text(socket, 'start;' if k4 else 'stop;')
         elif name in ('stop', 'device', 'protocol', 'trx_count', 'channels_count'):
