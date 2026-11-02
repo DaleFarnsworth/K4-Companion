@@ -1,3 +1,46 @@
+v2.4-rc1:
+    Name WSJT-X and WS in the User Manual's TCI section
+       TCI for Digital-Mode Programs now names WSJT-X 3.2 and later and WS
+       among the programs, sets them up as JTDX and WSJT-X Improved are, and
+       says to choose Data/Pkt as the Mode and Rig as the Split Operation,
+       and to connect K4 Companion to the K4 before starting the program.
+       The v2.4 history gives the WSJT-X 3.2 transmit audio, the Track line
+       and the panadapter averaging.
+   
+    TCI: transmit audio with WSJT-X 3.2
+       WSJT-X 3.2.0-rc1 answered none of the TX_CHRONO requests for its
+       transmit audio, so it keyed the K4 with nothing sent. Told the
+       server's protocol is 1.9, it reads a stream's channels from the
+       header's word after its type, where K4 Companion sent 0, and ignores a
+       stream of no channels; and it ignores a request for more than 8192
+       samples, where K4 Companion asked for 4800 frames, 9600 samples.
+       Every stream's header now gives two channels, and a request is sent
+       as several of at most 4096 frames.
+       
+       With --da tci, every binary message a client sends is now logged, and
+       why any transmit audio is dropped.
+   
+    Keep the panadapter's averaging when tuning moves its centre
+       Every change of the display's centre was taken as an axis change,
+       which emptied the trace's rolling average and restarted Peak, so in
+       Track each tune, even of a hertz, had the trace jump from the average
+       to one frame's noise and settle again. The mini-pan, centred on the
+       VFO, emptied its average and reset its Y-range the same way. When only
+       the centre moves, the frames averaged, and the peaks held, are now
+       shifted by as many bins as it has, the bins moved in from beyond the
+       old edge being the new frame's; the mini-pan keeps its Y-range. A
+       change of span or bin count still starts afresh.
+   
+    Hold the VFO line still while tuning in Track
+       In Track the K4 keeps the VFO where it is on the panadapter and moves
+       the display, but its frames come a frame or so behind the frequency it
+       reports, so a line drawn at the new frequency on a frame still centred
+       on the old one jumped off centre and back. While the frequency is
+       changing in Track, the window's own receiver's line and passband are
+       now held as far from the frame's centre as they were when it last held
+       still, and once it has held still three frames they are at the
+       frequency again.
+   
 v2.4-rc0:
     Describe the TCI changes in the User Manual
        TCI for Digital-Mode Programs now says how split carries the mode to
