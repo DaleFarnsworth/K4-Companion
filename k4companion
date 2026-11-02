@@ -6315,6 +6315,12 @@ class Panadapter(QDialog):
         # As (frequency, space offset) -- see _update_freq_line.
         self.freq_line_a_key = None
         self.freq_line_b_key = None
+        # Where this window's own receiver's line is drawn while tuning
+        # in Track -- see _shown_freq_hz.
+        self.shown_freq_hz = None
+        self.track_last_freq_hz = None
+        self.track_still_frames = 0
+        self.track_offset_hz = None
 
         label = 'Sub' if receiver == 'sub' else 'Main'
         if Page.top != None:
@@ -7363,6 +7369,7 @@ class Panadapter(QDialog):
             self.trace_history.clear()
             self._restart_peak(settle=True)
 
+        self._track_frame(center_hz)
         self._update_freq_line()
         self._update_bw_region()
         # The trace displays each bin averaged over the last 3 frames
@@ -8059,7 +8066,7 @@ class Panadapter(QDialog):
         bw_hz = self._shaded_bandwidth_hz()
         if bw_hz == None:
             return
-        freq_hz = self._rx_freq_hz()
+        freq_hz = self._shown_freq_hz(self.receiver) or self._rx_freq_hz()
         bw_key = (freq_hz, bw_hz, Panadapter.mode[self.receiver],
                   Panadapter.rtty_space_offset_hz(self.receiver))
         if bw_key == self.bw_key:
@@ -8083,10 +8090,48 @@ class Panadapter(QDialog):
         freq_hz = Panadapter.rx_freq_hz[self.receiver]
         return freq_hz if freq_hz != None else self.last_center_hz
 
+    # Frames the frequency has to hold still in Track before its line is
+    # drawn at the frequency again rather than held -- see _track_frame.
+    track_settle_frames = 3
+
+    def _track_frame(self, center_hz):
+        # Where this window's own receiver's line and passband go, for a
+        # frame centred at center_hz. In Track the K4 keeps the VFO where
+        # it is on the display and moves the display, but its frames come
+        # a frame or so behind the frequency it reports, and a line drawn
+        # at the new frequency on a frame still centred on the old one
+        # jumped off centre and back. So while the frequency is changing
+        # in Track, the line is held where the K4 keeps it, as far from
+        # the frame's centre as it was when the frequency last held
+        # still; once it has held still track_settle_frames frames, it is
+        # at the frequency again, the frames' centres being only so
+        # exact.
+        freq_hz = Panadapter.rx_freq_hz[self.receiver]
+        if freq_hz != self.track_last_freq_hz:
+            self.track_last_freq_hz = freq_hz
+            self.track_still_frames = 0
+        else:
+            self.track_still_frames += 1
+        if freq_hz == None or Panadapter.fxt == '1':
+            self.track_offset_hz = None
+        elif self.track_still_frames >= Panadapter.track_settle_frames:
+            self.track_offset_hz = freq_hz - center_hz
+        elif self.track_offset_hz != None:
+            self.shown_freq_hz = center_hz + self.track_offset_hz
+            return
+        self.shown_freq_hz = freq_hz
+
+    def _shown_freq_hz(self, receiver):
+        # A receiver's line's frequency: this window's own as
+        # _track_frame has it, the other's as reported.
+        if receiver == self.receiver and self.shown_freq_hz != None:
+            return self.shown_freq_hz
+        return Panadapter.rx_freq_hz[receiver]
+
     def _update_freq_line(self):
         # VFO A's lines follow the main receiver's mode, and VFO B's the
         # sub receiver's.
-        vfo_a_key = (Panadapter.rx_freq_hz['main'],
+        vfo_a_key = (self._shown_freq_hz('main'),
                      Panadapter.rtty_space_offset_hz('main'))
         if vfo_a_key != self.freq_line_a_key:
             self.freq_line_a_key = vfo_a_key
@@ -8095,7 +8140,7 @@ class Panadapter(QDialog):
                                  (self.freq_line_a_waterfall,
                                   self.freq_line_a_waterfall_space),
                                  self.freq_line_a_waterfall_timer)
-        vfo_b_key = (Panadapter.rx_freq_hz['sub'],
+        vfo_b_key = (self._shown_freq_hz('sub'),
                      Panadapter.rtty_space_offset_hz('sub'))
         if vfo_b_key != self.freq_line_b_key:
             self.freq_line_b_key = vfo_b_key
