@@ -7371,7 +7371,8 @@ class Panadapter(QDialog):
                 # them afresh, as below, had the trace jump from the
                 # average to one frame's noise and settle again.
                 shift = round((center_hz - old_axis_key[0]) / hz_per_bin)
-                self.trace_history[:] = [self._shift_bins(frame, shift, data)
+                fill = self._smoothed(data)
+                self.trace_history[:] = [self._shift_bins(frame, shift, fill)
                                          for frame in self.trace_history]
                 if self.peak_data is not None and len(self.peak_data) == len(data):
                     self.peak_data = self._shift_bins(self.peak_data, shift, data)
@@ -7478,7 +7479,7 @@ class Panadapter(QDialog):
     def _shift_bins(frame, shift, fill):
         # A frame of bins moved for a centre shift bins higher: each bin
         # then shows what the one shift above it did, and those moved in
-        # from beyond the old edge are fill's, this frame's own.
+        # from beyond the old edge are fill's (see _smoothed).
         if shift == 0:
             return frame
         if abs(shift) >= len(frame):
@@ -7491,6 +7492,20 @@ class Panadapter(QDialog):
             moved[-shift:] = frame[:shift]
             moved[:-shift] = fill[:-shift]
         return moved
+
+    def _smoothed(self, data):
+        # This frame averaged across self.avg_count neighbouring bins,
+        # for the bins a shift brings in: the frames averaged have
+        # nothing there, and this frame's own bins, in every one of
+        # them, showed as one frame's noise settling at the leading
+        # edge. Averaged across rather than over time, it has the
+        # texture of the rest until frames of its own replace it.
+        if self.avg_count <= 1:
+            return data
+        kernel = numpy.ones(self.avg_count, dtype=numpy.float32)
+        sums = numpy.convolve(data, kernel, mode='same')
+        counts = numpy.convolve(numpy.ones_like(data), kernel, mode='same')
+        return sums / counts
 
     def _rolling_average(self, history, data):
         # Rolling per-bin average over the last self.avg_count frames
@@ -8362,7 +8377,8 @@ class Panadapter(QDialog):
                 # as many bins, and the Y-range fitted to them still
                 # hold, as for the trace (see push_frame).
                 shift = round((freq_hz - old_axis_key[0]) / hz_per_bin)
-                self.minipan_history[:] = [self._shift_bins(frame, shift, data)
+                fill = self._smoothed(data)
+                self.minipan_history[:] = [self._shift_bins(frame, shift, fill)
                                            for frame in self.minipan_history]
             else:
                 # bin_count changed (or this is the first frame since
