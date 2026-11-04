@@ -12311,6 +12311,11 @@ class Audio():
                 return
 
     def generate_sidetone_envelopes(self):
+        # Everything that changes the level comes through here, so the
+        # Vail adapter's own sidetone follows it too.
+        VailAdapter.send_volume(self)
+        volume = self.sidetone_level()
+
         # mix_sidetone needs the rate the envelope walks at and the tone
         # itself, which is rendered here rather than computed a block at
         # a time in the callback. They go into one tuple because a pitch
@@ -12323,7 +12328,6 @@ class Audio():
 
         rise_step = 1 / max(1, round(sample_rate * self.sidetone_rise_time))
         fall_step = 1 / max(1, round(sample_rate * self.sidetone_fall_time))
-        volume = self.sidetone_volume / 16 * self.averaged_left_right_volume()
 
         # One whole repeat of the tone, at the output rate, volume
         # already in it. Not one cycle: a cycle is a whole number of
@@ -12362,6 +12366,22 @@ class Audio():
     def on_sidetone_volume_change(self, response):
         self.sidetone_volume = int(response[3:].rstrip(';'))
         self.generate_sidetone_envelopes()
+
+    # The K4's monitor rises more steeply than in proportion to ML, so
+    # the sidetone level goes as ML to the power sidetone_exponent. At
+    # sidetone_pivot_ml it's the same as the plain ML/16.
+    sidetone_pivot_ml = 30
+    sidetone_exponent = 1.4
+
+    def sidetone_level(self):
+        # The sidetone's peak, where 1 is full scale, set to match the
+        # K4's own sidetone monitor as it comes out of the received
+        # audio at the same ML and AF gain.
+        ml = self.sidetone_volume
+        if ml <= 0:
+            return 0
+        curve = (ml / self.sidetone_pivot_ml) ** (self.sidetone_exponent - 1)
+        return ml / 16 * curve * self.averaged_left_right_volume()
 
 class Settings():
     max_servers = 25
@@ -20257,6 +20277,7 @@ class MidiInput():
 
 class VailAdapter():
     midiout = None
+    volume_sent = None                  # last CC4 value, to skip repeats
     # Its keyer mode in which it keys nothing itself, sending the paddles
     # as they are, the dit as note 1 and the dah as note 2, for the app's
     # keyer to key (see Keyer.set_vail_paddle_notes).
@@ -20293,6 +20314,7 @@ class VailAdapter():
                         best_matching_port = port
                     
         cls.midiout.open_port(best_matching_port)
+        cls.volume_sent = None
         cls.send_initial_state()
 
     @classmethod
@@ -20341,6 +20363,29 @@ class VailAdapter():
 
         cls.send_message([0xC0, keyer_mode])
 
+    # The adapter's sidetone against the app's, matched by ear to the
+    # K4's monitor in the received audio
+    sidetone_scale = 0.7
+
+    @classmethod
+    def send_volume(cls, audio=None):
+        # CC4 is the adapter's sidetone level in half dB steps below full
+        # scale, 127 being full scale, 0 off. The adapter scales it by
+        # the computer's volume for it, as it does the received audio.
+        if audio is None:
+            audio = Audio.get_singleton()
+        level = audio.sidetone_level()
+        if level <= 0:
+            value = 0
+        else:
+            level *= cls.sidetone_scale
+            value = max(1, min(127, round(127 + 40 * math.log10(level))))
+        if value == cls.volume_sent:
+            return
+        if cls.midiout:
+            cls.volume_sent = value
+        cls.send_message([0xB0, 4, value])
+
 # Not supported yet
 #    @classmethod
 #    def send_request_midi_timing(cls):
@@ -20352,6 +20397,7 @@ class VailAdapter():
         cls.send_pitch()
         cls.send_keyer_speed()
         cls.send_keyer_mode()
+        cls.send_volume()
 #        cls.send_request_midi_timing()
 
 class SerialInput():
