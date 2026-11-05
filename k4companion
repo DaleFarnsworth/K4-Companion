@@ -1326,8 +1326,12 @@ class Server():
         except socket.gaierror:
             error = 'Address not found: {addr}'.format(addr=self.address)
         except Exception as e:
-            self.disconnecting - True
+            # Not connected, so send_cmds() would drop !DISCONNECTED;
+            # without this. Cleared after: left set, it would hide the
+            # next connection's lost-connection popup.
+            self.disconnecting = True
             self.send_cmds('!DISCONNECTED;')
+            self.disconnecting = False
             error = "Failed to connect to {name}, address {addr}, port {port}\n".format(
                 name=self.name, addr=self.address, port=self.port)
             if self.proxy_address != '':
