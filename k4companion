@@ -6889,6 +6889,13 @@ class Panadapter(QDialog):
             f'QLabel {{ color: {Panadapter.cursor_text_color}; background: rgba(0, 0, 0, 160); }}')
         self.cursor_label.hide()
         self._cursor_timer = self._single_shot_timer(self.hide_cursor)
+        # This window's receiver's frequency, in its line's colour, at
+        # the top of its line -- see _update_freq_label.
+        vfo_color = self.vfo_a_color if self.receiver == 'main' else self.vfo_b_color
+        self.freq_label = self._make_overlay_label(self.trace_plot)
+        self.freq_label.setStyleSheet(
+            f'QLabel {{ color: rgb{vfo_color}; background: rgba(0, 0, 0, 160); }}')
+        self.freq_label.hide()
         self.trace_plot.scene().sigMouseMoved.connect(
             lambda pos: self.on_cursor_moved(self.trace_plot, pos))
         self.waterfall_plot.scene().sigMouseMoved.connect(
@@ -7009,23 +7016,46 @@ class Panadapter(QDialog):
     def _place_cursor_label(self, freq_hz, tune_hz):
         # tune_hz written as the trace's centre frequency is, to 100 Hz
         # (14.250.3), centred on the cursor at freq_hz where it crosses
-        # the trace, and held within the trace's view.
-        trace_box = self.trace_plot.getPlotItem().getViewBox()
+        # the trace, and held within the trace's view, on the second
+        # row of labels there, below the receiver's frequency's.
         label = self.cursor_label
         label.setText(format_freq_tick(tune_hz))
-        label.adjustSize()
-        x = self.trace_plot.mapFromScene(trace_box.mapViewToScene(QPointF(freq_hz, 0))).x()
-        box = self.trace_plot.mapFromScene(trace_box.sceneBoundingRect()).boundingRect()
-        x = max(box.left(), min(box.right() - label.width(), x - label.width() // 2))
-        top = box.top() + self.trace_center_label.height() + 2
-        label.move(int(x), top)
-        label.show()
-        label.raise_()
+        box = self._place_trace_label(label, freq_hz, row=1)
+        top = label.y()
         # The trace's line drawn from the label down, not above it: its
         # span is the share of the trace's height, from the bottom, that
         # lies below the label.
         below = (box.bottom() - (top + label.height())) / max(1, box.height())
         self.trace_cursor.setSpan(0, max(0.0, min(1.0, below)))
+
+    def _place_trace_label(self, label, freq_hz, row):
+        # label centred on freq_hz, held within the trace's view, on
+        # row (from 0) of the rows of labels below the trace's own
+        # frequency labels. Returns the view's rectangle in the trace's
+        # widget.
+        trace_box = self.trace_plot.getPlotItem().getViewBox()
+        label.adjustSize()
+        x = self.trace_plot.mapFromScene(trace_box.mapViewToScene(QPointF(freq_hz, 0))).x()
+        box = self.trace_plot.mapFromScene(trace_box.sceneBoundingRect()).boundingRect()
+        x = max(box.left(), min(box.right() - label.width(), x - label.width() // 2))
+        top = box.top() + self.trace_center_label.height() + 2
+        top += row * (label.sizeHint().height() + 2)
+        label.move(int(x), int(top))
+        label.show()
+        label.raise_()
+        return box
+
+    def _update_freq_label(self):
+        # The receiver's frequency, to the Hz, at the top of its line,
+        # above where the cursor's frequency goes, following the line
+        # frame by frame. Hidden only while the frequency is not known.
+        freq_hz = Panadapter.rx_freq_hz[self.receiver]
+        line_hz = self._shown_freq_hz(self.receiver)
+        if freq_hz == None or line_hz == None:
+            self.freq_label.hide()
+            return
+        self.freq_label.setText(f'{round(freq_hz):,}'.replace(',', '.'))   # 14.250.312
+        self._place_trace_label(self.freq_label, line_hz, row=0)
 
     def hide_cursor(self):
         # Gone, until the mouse next moves over the trace or the
@@ -7446,6 +7476,7 @@ class Panadapter(QDialog):
 
         self._track_frame(center_hz)
         self._update_freq_line()
+        self._update_freq_label()
         self._update_bw_region()
         # The trace displays each bin averaged over the last 3 frames
         # received for it, rather than this frame's value alone -- the
