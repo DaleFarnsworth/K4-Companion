@@ -1745,6 +1745,8 @@ class Server():
                 self.received_pan(payload)
             elif payload_type == self.payload_type_minipan:
                 self.received_minipan(payload)
+            elif payload_type == Server.lost_connection_marker:
+                self.on_lost_connection(payload)
 
     def received_pan(self, data):
         # Only enough of the frame is decoded here to route it; the
@@ -1786,6 +1788,11 @@ class Server():
             except queue.Empty:
                 Poll.call(Server.receive_poll_interval, self.dequeue_k4_cat)
                 break
+
+            if isinstance(recv_bytes, tuple):
+                marker, lost = recv_bytes
+                self.on_lost_connection(lost)
+                continue
 
             recv_str = recv_bytes.decode()
             responses = recv_str.split(';')
@@ -2055,17 +2062,36 @@ class Server():
             pw = Reversable_hash.unhash(h)
         return pw
 
+    # Put in recv_queue by lost_connection(), in place of a payload type
+    lost_connection_marker = 'lost connection'
+
     def lost_connection(self, reason):
+        # Called from the send and receive threads. What follows a lost
+        # connection is left to on_lost_connection(), on the main thread:
+        # the !DISCONNECTED; subscribers update widgets and stop timers,
+        # which Qt allows only on the thread that owns them.
         self.lost_connection_retry_count += 1
         if self.lost_connection_retry_count <= 10:
             if self.lost_connection_retry_count == 1:
                 dprint1(reason)
             return False
+        try:
+            self.recv_queue.put((Server.lost_connection_marker, (self.socket, reason)))
+        except queue.ShutDown:
+            pass
+        return True
+
+    def on_lost_connection(self, lost):
+        # The send and receive threads can both give up, each queueing
+        # its own marker: only the first one counts, and none from an
+        # earlier connection's socket.
+        sock, reason = lost
+        if not self.connected or sock is not self.socket:
+            return
         if not self.disconnecting and self.received_cat_cmd:
             Popup.error(f'Lost connection to {self.name}\n{reason}', timeout=None)
         self.send_cmds('!DISCONNECTED;')
         self.connected = False
-        return True
 
     def connect_on_start(self):
         if self.address == '':
