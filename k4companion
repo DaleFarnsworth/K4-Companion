@@ -896,6 +896,7 @@ class Server():
         '#H': ['#HDPM', '#HDSM', '#HREF', '#HWBS', '#HWFC', '#HWFH'],
         'KZ': ['KZL', 'KZF'],
         'LO': ['LOG'],
+        '!C': ['!CWSSB'],
         '!D': ['!DISCONNECTED'],
         '!M': ['!MACROS'],
         '!R': ['!RTTY'],
@@ -1572,6 +1573,7 @@ class Server():
             if base in ('TR', 'SDC', 'SDV', 'SDD', 'SB', 'TU', 'ME', 'FA', 'FB', 'IS', 'IS$', '!MACROS', '!SSTV', '!SSTV$', '!RTTY', '!RTTY$') + Server.control_k4_audio_cmd_bases:
                 if base == 'TR':
                     if cmd[2] == 'T':
+                        Audio.cancel_cw_transmit()
                         self.update_k4_parameter('TR', 'T')
                         self.send_str('TX;')
                     else:
@@ -1751,6 +1753,8 @@ class Server():
                 self.received_minipan(payload)
             elif payload_type == Server.lost_connection_marker:
                 self.on_lost_connection(payload)
+            elif payload_type == Server.send_cmds_marker:
+                self.send_cmds(payload)
 
     def received_pan(self, data):
         # Only enough of the frame is decoded here to route it; the
@@ -2068,6 +2072,20 @@ class Server():
 
     # Put in recv_queue by lost_connection(), in place of a payload type
     lost_connection_marker = 'lost connection'
+    # Put there by send_cmds_on_main_thread()
+    send_cmds_marker = 'send cmds'
+
+    def send_cmds_on_main_thread(self, cmds):
+        # send_cmds() from another thread. What a command updates calls
+        # its subscribers, which update widgets, and Qt allows that only
+        # on the thread that owns them.
+        if threading.current_thread() == threading.main_thread():
+            self.send_cmds(cmds)
+            return
+        try:
+            self.recv_queue.put((Server.send_cmds_marker, cmds))
+        except queue.ShutDown:
+            pass
 
     def lost_connection(self, reason):
         # Called from the send and receive threads. What follows a lost
@@ -2126,18 +2144,25 @@ class Server():
         tx_mode = self.tx_mode()
         if tx_mode in ('CW', 'CW-R'):
             return True
-# Commented out because K4 stays in TX.  K4 bug?
-#        if tx_mode in ('LSB', 'USB'):
-#            cw_in_ssb = Menu.entry(104).current == 1
-#            if cw_in_ssb:
-#                return True
+        if tx_mode in ('LSB', 'USB'):
+            return self.k4_parameter('!CWSSB') == '1'
         return False
 
+    # The K4 menu entry that lets CW be sent in LSB and USB, and the
+    # app-only parameter Menu keeps of it, !CWSSB: '1' on, '0' off.
+    # Its own parameter so that turning it on or off reaches the
+    # tx_cw() subscribers -- the keyer, the CW window -- as a change of
+    # mode does, which a subscription to every ME response would do
+    # only by being called for all of them, and before Menu had taken
+    # the new value. It is missing until the menu definitions have
+    # come in, and tx_cw() answers False for SSB until then.
+    cw_in_ssb_menu = 104
+
     def subscribe_tx_cw_changed(self, callback):
-        self.subscribe_responses('MD;MD$;FT;MEDF;', callback)
+        self.subscribe_responses('MD;MD$;FT;MEDF;!CWSSB;', callback)
 
     def unsubscribe_tx_cw_changed(self, callback):
-        self.unsubscribe_responses('MD;MD$;FT;MEDF;', callback)
+        self.unsubscribe_responses('MD;MD$;FT;MEDF;!CWSSB;', callback)
 
 class Widget():
     blink_ms = 500
@@ -5711,8 +5736,17 @@ class Menu(Widget):
         self.listbox.setFixedWidth(qt_list_width(self.listbox,
             [md.desc for md in self.definitions], self.font()))
 
+    def update_cw_in_ssb(self):
+        md = self.lookup_definitions.get(Server.cw_in_ssb_menu, None)
+        if md == None:
+            return
+        value = '1' if md.current == 1 else '0'
+        if self.server.k4_parameter('!CWSSB') != value:
+            self.server.update_k4_parameter('!CWSSB', value)
+
     def received_all_definitions(self):
         self.server.subscribe_response('ME;', self.on_received_current, send=False)
+        self.update_cw_in_ssb()
 
         self.definitions = sorted(self.definitions, key=lambda d:d.current_desc().casefold())
         self.update_definition_list()
@@ -5730,6 +5764,8 @@ class Menu(Widget):
         md = self.lookup_definitions[index]
         current_value = md.typed_value(current_value)
         md.update(current=current_value)
+        if index == Server.cw_in_ssb_menu:
+            self.update_cw_in_ssb()
 
     def on_listbox_selected(self, index):
         if index < 0:
@@ -12134,9 +12170,81 @@ class Audio():
         # landed on.
         self.last_edge_frame = 0
 
+    # CW sent in SSB (menu entry 104 on): the K4's TX; is for the CW,
+    # and the microphone's audio is not to follow it. While that audio
+    # is coming the K4 stays in transmit, past the break-in delay that
+    # would otherwise end it, and passes over every RX; it is sent.
+    #
+    # What is sending CW says so, by name -- 'keyer' from its first key
+    # down, 'text' as the CW window's text goes out -- before the K4's
+    # TX; comes back, and for as long as it has CW to send. The K4
+    # breaks in between the characters, RX; and TX; again with nothing
+    # sent from here for the next one, so each TX; while any of them
+    # is sending is taken for the CW. Each says too when it is done:
+    # the keyer at once, when it ends the transmit itself
+    # (Keyer.end_ssb_transmit); the window when the K4's text buffer
+    # has emptied, which is while its last character is still going
+    # out, so that one is done at the RX; that follows.
+    #
+    # A transmit started here -- TRT;, from the Transmit/Receive
+    # button, the space bar, a PTT -- is never CW, and ends them all
+    # (see cancel_cw_transmit).
+    cw_senders = set()
+    cw_finishing = set()
+    cw_mutex = threading.Lock()
+    cw_transmit = False
+
+    @classmethod
+    def note_cw_transmit(cls, server, sender):
+        if server.tx_mode() not in ('LSB', 'USB'):
+            return
+        with cls.cw_mutex:
+            if sender in cls.cw_senders:
+                cls.cw_finishing.discard(sender)
+            elif server.k4_parameter('TR') != 'T':
+                # Not where the operator was already transmitting: that
+                # transmit is theirs, and its microphone with it.
+                cls.cw_senders.add(sender)
+                dprint_keying(f'cw in ssb: {sender} sending')
+
+    @classmethod
+    def end_cw_transmit(cls, server, sender, at_next_rx=False):
+        with cls.cw_mutex:
+            if sender not in cls.cw_senders:
+                return
+            if at_next_rx:
+                # Even where the K4 isn't in transmit yet: a text short
+                # enough can leave its buffer before its TX; is in.
+                cls.cw_finishing.add(sender)
+                return
+            cls.cw_senders.discard(sender)
+            cls.cw_finishing.discard(sender)
+            dprint_keying(f'cw in ssb: {sender} done')
+
+    @classmethod
+    def cancel_cw_transmit(cls):
+        with cls.cw_mutex:
+            if cls.cw_senders:
+                dprint_keying('cw in ssb: ended by a transmit from here')
+            cls.cw_senders.clear()
+            cls.cw_finishing.clear()
+        Keyer.cancel_ssb_transmit()
+
     def on_transmit_changed(self, server, response):
         transmit = server.k4_parameters.get('TR') == 'T'
         tune = server.k4_parameters.get('TU', "0") != '0'
+        with Audio.cw_mutex:
+            if transmit:
+                Audio.cw_transmit = bool(Audio.cw_senders)
+            else:
+                for sender in Audio.cw_finishing:
+                    Audio.cw_senders.discard(sender)
+                    dprint_keying(f'cw in ssb: {sender} done')
+                Audio.cw_finishing.clear()
+                Audio.cw_transmit = False
+        if transmit and Audio.cw_transmit:
+            dprint_keying('cw in ssb: no microphone audio for this transmit')
+            transmit = False
         if transmit and not tune and self.transmission != None:
             # Audio made here, SSTV's or AFSK's, goes out whatever the mode:
             # in DATA's audio sub-modes the K4 takes it as it takes the
@@ -17574,6 +17682,7 @@ class Digital(TextButtons):
             if self.tx_remaining_count == 0:
                 chunk_len -= 1
             self.tx_remaining_count += chunk_len
+            Audio.note_cw_transmit(self.server, 'text')
             self.server.send_cmds(f'KY {chunk};ACN1;')
             self.sending = True
             Poll.call(self.tx_poll_interval, self.send_text)
@@ -17636,6 +17745,10 @@ class Digital(TextButtons):
             r = int(param[0])
             self.tx_remaining_count = r
             self.update_sending_offset()
+            if r == 0 and self.tx_send_offset >= len(self.tx_text.text()):
+                # All of it handed to the K4, and none left in its
+                # buffer: the last character is going out.
+                Audio.end_cw_transmit(self.server, 'text', at_next_rx=True)
         new_text = param[3:]
         if new_text == '':
             return
@@ -22421,6 +22534,10 @@ class Keyer():
         # ever.
         cls.cancel_message_callback()
         cls.release_paddles(closing=True)
+        # Leaving CW in SSB -- for another mode, or with the menu entry
+        # turned off -- before the break-in delay has run out: the K4
+        # is still held in transmit, and no timer is left to let it go.
+        self.end_ssb_transmit()
         cls.singleton = None
 
     @classmethod
@@ -22811,6 +22928,14 @@ class Keyer():
         self.sidetone_monitor_mutex = threading.Lock()
         self.unmute_sidetone_monitor_timer = None
         self.sidetone_monitor_muted = False
+        # The ML levels mute_sidetone_monitor has set to 0, to be put
+        # back by unmute_sidetone_monitor.
+        self.muted_monitors = []
+        self.remote_monitor_level = None
+        # See note_keying_started.
+        self.ssb_rx_mutex = threading.Lock()
+        self.ssb_rx_timer = None
+        self.ssb_rx_owed = False
 
         if self.keyer_thread:
             self.keyer_thread.join()
@@ -23142,6 +23267,7 @@ class Keyer():
                 delay = self.keydown_initial_delay / 1000
                 delay += Audio.sidetone_delay()
                 delay += ms / 1000
+                self.note_keying_ended(delay)
                 delay += self.unmute_sidetone_monitor_extra_delay
                 self.delayed_unmute_sidetone_monitor(delay)
             Audio.report_glitches(during_sidetone=True)
@@ -23518,6 +23644,7 @@ class Keyer():
                 delay = self.keydown_initial_delay / 1000
                 delay += Audio.sidetone_delay()
                 delay += self.end_element_timestamp - self.element_keyed_start
+                self.note_keying_ended(delay)
                 delay += self.unmute_sidetone_monitor_extra_delay
                 self.delayed_unmute_sidetone_monitor(delay)
 
@@ -24250,19 +24377,128 @@ class Keyer():
     def on_keydown_initial_delay_change(self, response=None):
         self.keydown_initial_delay = int(Server.k4_server.k4_parameter('KZL'))
 
+    # CW in SSB (menu entry 104 on, the transmit VFO in LSB or USB):
+    # the first KZD puts the K4 into transmit, and there it stays. In
+    # CW the K4 drops back to receive by itself when the break-in delay
+    # has run out since the last element, but in SSB nothing does -- it
+    # is held there as a PTT would hold it (see end_ssb_transmit). So
+    # the keyer ends it, once the last element is off the air and the
+    # CW break-in delay (SDC) has passed with no more keying. Only
+    # where keying is what put the K4 into transmit: had the operator
+    # already been transmitting, by PTT say, it is theirs to end.
+    def note_keying_started(self):
+        # Called at each key down: a straight key's, or a burst's first.
+        server = Server.k4_server
+        Audio.note_cw_transmit(server, 'keyer')
+        with self.ssb_rx_mutex:
+            if self.ssb_rx_timer:
+                # More keying inside the break-in delay: the K4 stays
+                # in transmit, and is still owed its TRR; afterwards.
+                self.ssb_rx_timer.cancel()
+                self.ssb_rx_timer = None
+            elif not self.ssb_rx_owed:
+                self.ssb_rx_owed = (server.tx_mode() in ('LSB', 'USB')
+                                    and server.k4_parameter('TR') != 'T')
+                dprint_keying(f'ssb rx: keying started, mode {server.tx_mode()}'
+                              f' TR {server.k4_parameter("TR")} owed {self.ssb_rx_owed}')
+
+    def note_keying_ended(self, on_air_seconds):
+        # Called at each key up that ends a straight key's element or a
+        # burst. on_air_seconds is from now until that element has left
+        # the K4.
+        with self.ssb_rx_mutex:
+            if not self.ssb_rx_owed:
+                return
+            if self.ssb_rx_timer:
+                self.ssb_rx_timer.cancel()
+            delay = on_air_seconds + self.ssb_break_in_delay()
+            dprint_keying(f'ssb rx: keying ended, TRR; in {delay:.3f}s')
+            self.ssb_rx_timer = threading.Timer(delay, self.end_ssb_transmit)
+            self.ssb_rx_timer.start()
+
+    @staticmethod
+    def ssb_break_in_delay():
+        # The K4's CW break-in delay, SDC's last three digits, in
+        # hundredths of a second.
+        param = Server.k4_server.k4_parameter('SDC') or ''
+        digits = param[1:4]
+        return int(digits) / 100 if digits.isdigit() else 0
+
+    def end_ssb_transmit(self):
+        # As the Transmit/Receive button ends it, with TRR;, which is
+        # not the same as sending RX;. In SSB the K4's TX; starts the
+        # microphone's audio streaming to it (Audio.on_transmit_changed),
+        # and for as long as that audio is coming the K4 stays in
+        # transmit, passing over every RX; it is sent. TRR; takes TR to
+        # R here first, which stops the audio, and then sends RX;.
+        with self.ssb_rx_mutex:
+            if self.ssb_rx_timer:
+                self.ssb_rx_timer.cancel()
+                self.ssb_rx_timer = None
+            owed = self.ssb_rx_owed
+            self.ssb_rx_owed = False
+        Audio.end_cw_transmit(Server.k4_server, 'keyer')
+        if owed:
+            dprint_keying('ssb rx: sending TRR;')
+            Server.k4_server.send_cmds_on_main_thread('TRR;')
+
+    @classmethod
+    def cancel_ssb_transmit(cls):
+        # A transmit started from here, during the CW or its break-in
+        # delay: it is the operator's now, and not the keyer's to end.
+        self = cls.singleton
+        if self == None:
+            return
+        with self.ssb_rx_mutex:
+            if self.ssb_rx_timer:
+                self.ssb_rx_timer.cancel()
+                self.ssb_rx_timer = None
+            self.ssb_rx_owed = False
+
+    # Menu entry TX Monitor Level, Remote: what a remote hears of what
+    # the K4 sends in SSB, CW in SSB's sidetone with it. In SSB it is
+    # all that is muted; ML0, the CW modes' own, only in those. 0 is
+    # off.
+    remote_monitor_menu = 114
+
     def mute_sidetone_monitor(self):
+        self.note_keying_started()
         if self.unmute_sidetone_monitor_timer:
             self.unmute_sidetone_monitor_timer.cancel()
+        server = Server.k4_server
+        # Each as the command that sets it, less its value, and the value
+        # it is put back to: taken now, as the K4 may report the 0 back.
+        monitors = []
+        ssb = server.tx_mode() in ('LSB', 'USB')
+        volume = server.k4_parameter('ML0')
+        if volume and not ssb:
+            monitors.append(('ML0', volume, '000'))
+        md = Menu.entry(self.remote_monitor_menu) if Menu.singleton else None
+        if ssb and md != None:
+            level = md.current
+            if level == 0 and self.remote_monitor_level:
+                # The 0 sent last time reported back, and not yet the
+                # level it was put back to since.
+                level = self.remote_monitor_level
+            if level:
+                self.remote_monitor_level = level
+                monitors.append((f'ME{self.remote_monitor_menu:04d}.',
+                                 f'{int(level):04d}', '0000'))
         with self.sidetone_monitor_mutex:
-            was_muted = self.sidetone_monitor_muted
+            held = [m[0] for m in self.muted_monitors]
+            muted = [m for m in monitors if m[0] not in held]
+            self.muted_monitors.extend(muted)
             self.sidetone_monitor_muted = True
-        if not was_muted:
-                Server.k4_server.send_str('ML0000;')
+        for prefix, volume, off in muted:
+            server.send_str(f'{prefix}{off};')
 
     def unmute_sidetone_monitor(self):
         server = Server.k4_server
-        volume = server.k4_parameter('ML0')
-        server.send_str(f'ML0{volume};')
+        with self.sidetone_monitor_mutex:
+            muted = self.muted_monitors
+            self.muted_monitors = []
+        for prefix, volume, off in muted:
+            server.send_str(f'{prefix}{volume};')
         Audio.note_monitor_unmuted()
         with self.sidetone_monitor_mutex:
             self.sidetone_monitor_muted = False
