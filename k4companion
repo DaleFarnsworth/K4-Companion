@@ -20440,8 +20440,11 @@ class VailAdapter():
         if not pitch:
             return
         pitch = int(pitch) * 10
-        note = round(69 + 12 * math.log2(pitch/440))
-        cls.send_message([0xB0, 2, note])
+        if cls.volume_product not in cls.output_port_name:
+            note = round(69 + 12 * math.log2(pitch/440))
+            cls.send_message([0xB0, 2, note])
+        else:
+            cls.send_message([0xB0, 9, pitch // 10])
 
     @classmethod
     def send_keyer_speed(cls):
