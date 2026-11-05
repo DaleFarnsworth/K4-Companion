@@ -20341,7 +20341,11 @@ class MidiInput():
 
 class VailAdapter():
     midiout = None
-    volume_sent = None                  # last CC4 value, to skip repeats
+    output_port_name = ''               # the MIDI port midiout has open
+    volume_sent = None                  # last CC8 value, to skip repeats
+    # What the product string, and so the MIDI port's name, of a device
+    # taking the sidetone level on CC8 contains (see send_volume).
+    volume_product = 'Vail Audio'
     # Its keyer mode in which it keys nothing itself, sending the paddles
     # as they are, the dit as note 1 and the dah as note 2, for the app's
     # keyer to key (see Keyer.set_vail_paddle_notes).
@@ -20378,6 +20382,7 @@ class VailAdapter():
                         best_matching_port = port
                     
         cls.midiout.open_port(best_matching_port)
+        cls.output_port_name = ports[best_matching_port] if best_matching_port != None else ''
         cls.volume_sent = None
         cls.send_initial_state()
 
@@ -20386,6 +20391,7 @@ class VailAdapter():
         if cls.midiout:
             del cls.midiout
         cls.midiout = None
+        cls.output_port_name = ''
 
     @classmethod
     def send_message(cls, msg):
@@ -20433,9 +20439,13 @@ class VailAdapter():
 
     @classmethod
     def send_volume(cls, audio=None):
-        # CC4 is the adapter's sidetone level in half dB steps below full
+        # CC8 is the adapter's sidetone level in half dB steps below full
         # scale, 127 being full scale, 0 off. The adapter scales it by
         # the computer's volume for it, as it does the received audio.
+        # Only a device whose product string has volume_product in it
+        # takes CC8 so.
+        if cls.volume_product not in cls.output_port_name:
+            return
         if audio is None:
             audio = Audio.get_singleton()
         level = audio.sidetone_level()
@@ -20448,7 +20458,7 @@ class VailAdapter():
             return
         if cls.midiout:
             cls.volume_sent = value
-        cls.send_message([0xB0, 4, value])
+        cls.send_message([0xB0, 8, value])
 
 # Not supported yet
 #    @classmethod
