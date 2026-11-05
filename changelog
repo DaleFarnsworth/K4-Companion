@@ -1,3 +1,79 @@
+v2.4-rc2:
+    List v2.4-rc2's changes in the User Manual
+       The Keying tab section says that a Vail Audio keyer is sent its
+       sidetone level, and that the sidetone rises with Sidetone Volume as
+       the K4's monitor does. The revision history's v2.4 section lists the
+       trace's smoothed edge and the sidetone level, and a v2.3.1 section
+       lists that release's fixes. Its first page is dated November 4th.
+   
+    Send the sidetone level on CC8, and only to a Vail Audio device
+       The keyer now takes its sidetone level on CC8 rather than CC4. Send
+       it only when the MIDI port's name, which comes from the device's USB
+       product string, contains "Vail Audio": other Vail adapters don't take
+       it.
+   
+    Fix a typo that left !DISCONNECTED; unsent after a failed connect
+       "self.disconnecting - True" was meant to be an assignment. Without
+       it, send_cmds() dropped the !DISCONNECTED; that follows a failed
+       connect, since the server isn't connected. Set the flag around that
+       one command, then clear it, so that it can't hide the next
+       connection's lost-connection popup.
+   
+    Handle a lost connection on the main thread
+       lost_connection() is called from the send and receive threads, and it
+       sent !DISCONNECTED; there. Its subscribers update widgets and stop
+       timers, which Qt allows only on their own thread: "QObject::killTimer:
+       Timers cannot be stopped from another thread", and a possible crash.
+       
+       lost_connection() now puts a marker in recv_queue, and the main
+       thread's loops that empty it call on_lost_connection(), which shows
+       the popup, sends !DISCONNECTED; and clears connected. Each marker
+       carries its socket, so a second one, or one from an earlier
+       connection, is ignored.
+       
+       Reported by Charles NK8O.
+   
+    Fix crashes from extra RX audio threads and broken 9204 sends
+       The K4 can send more than one SIDU report before SIDU0; takes effect.
+       Each one ran the initial-parameter callbacks again, so a second RX
+       audio thread started. It replaced output_stream without closing it,
+       and PortAudio then called a freed callback: segfault. The callbacks
+       now run once per connection, and start_k4_rx_audio_thread does nothing
+       while a thread is running. The RX audio queue is now kept for the
+       whole run, so that one thread still gets audio after a reconnect.
+       
+       connect() called while a connection was still waiting for its first
+       reply opened a second socket, and two receive loops split its packets
+       ("bad received packet header"). It now returns while one is in
+       progress.
+       
+       An SSLSocket has no sendmsg(), so on port 9204 each packet went out
+       piece by piece through send(), with short writes never checked, and
+       the K4 stopped seeing PING; and closed the connection. Each packet is
+       now sent with one sendall().
+       
+       Reported, with crash logs and a proposed fix, by Charles NK8O.
+   
+    Match the Vail adapter's sidetone level to the K4 monitor
+       Send the Vail adapter its sidetone level on CC4, in the half-dB steps
+       below full scale that it takes, whenever the app's own sidetone level
+       changes and when its MIDI port opens. It was sent only on ML changes,
+       as a linear value that went past 127 at moderate settings.
+       
+       The K4's monitor in the received audio rises more steeply than in
+       proportion to ML, so both sidetones now follow ML to the power
+       sidetone_exponent (1.4), unchanged at sidetone_pivot_ml (30). The
+       adapter's level is scaled by a further sidetone_scale (0.7), set by
+       ear against the monitor.
+   
+    Smooth the bins a tune brings into the trace and mini-pan
+       When the frequency moved, the averaged frames were shifted and the
+       bins brought in at the leading edge were filled from the newest frame
+       alone, showing one frame's noise that settled over the next second.
+       Fill them instead with the newest frame averaged across as many
+       neighbouring bins as the Avg setting, so they match the rest of the
+       trace until frames of their own replace them.
+   
 v2.4-rc1:
     Name WSJT-X and WS in the User Manual's TCI section
        TCI for Digital-Mode Programs now names WSJT-X 3.2 and later and WS
