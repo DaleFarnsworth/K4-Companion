@@ -1084,6 +1084,8 @@ class Server():
         self.subscribe_connect(self.on_server_connect)
 
     def on_server_connect(self):
+        # Each connection waits for its own SIDU report again.
+        self.received_initial_parameters = False
         self.subscribe_responses('OV;OV$;', self.on_ov_received, send=False)
         self.request_initial_parameters()
         self.update_local_audio_parameters()
@@ -1208,6 +1210,12 @@ class Server():
     def connect(self):
         if self.connected and self.received_cat_cmd:
             return True
+        # Still connecting: a second connect() here opened another socket
+        # under the first one's threads, two recv_loops then reading the
+        # same socket and splitting its packets between them.
+        if (self.connected and self.recv_thread != None
+                and self.recv_thread.is_alive()):
+            return True
 
         if self.address == '':
             Popup.error("No server address. Add the address to the Server tab.")
@@ -1282,7 +1290,19 @@ class Server():
 
                     self.send_str('PING;')               # Trigger a response: PONG;
                 else:
-                    self.k4_raw_rx_audio_queue = queue.Queue(self.k4_raw_rx_audio_queue_size)
+                    # One queue for the whole run: the RX audio thread,
+                    # also one for the whole run, waits on it, and after
+                    # a reconnect it would be left waiting on a queue
+                    # nothing fills any more. Emptied of the last
+                    # connection's audio instead.
+                    if self.k4_raw_rx_audio_queue == None:
+                        self.k4_raw_rx_audio_queue = queue.Queue(self.k4_raw_rx_audio_queue_size)
+                    else:
+                        while True:
+                            try:
+                                self.k4_raw_rx_audio_queue.get_nowait()
+                            except queue.Empty:
+                                break
 
                     if not use_tls:
                         if not self.ensure_password():
@@ -1374,6 +1394,12 @@ class Server():
 
     def on_received_initial_parameters(self, response):
         self.send_str('SIDU0;')              # Disable AI4 delivery of DUC info reports
+        # The K4 can send another SIDU report before SIDU0 takes effect.
+        # Running the callbacks again started a second RX audio thread,
+        # whose stream replaced the first without closing it: PortAudio
+        # then called back into a freed cffi callback (segfault 11).
+        if self.received_initial_parameters:
+            return
         self.received_initial_parameters = True
         for callback in self.received_initial_parameters_callbacks:
             callback(self)
@@ -1603,17 +1629,22 @@ class Server():
             if not self.connected:
                 return
 
+            if not isinstance(bs, tuple):
+                continue
+
+            # One whole packet, all of it. An SSLSocket (port 9204) has no
+            # sendmsg(), so each packet went out piece by piece through
+            # send(), whose count of bytes actually written -- which on a
+            # TLS socket can be fewer than given -- was never checked:
+            # packets reached the K4 split across TLS records, or short,
+            # and it stopped seeing PING; and SIDU0; and hung up.
+            # sendmsg()'s own count wasn't checked either.
             try:
-                self.socket.sendmsg(bs)
+                self.socket.sendall(b''.join(bs))
             except:
-                for b in bs:
-                    try:
-                        self.socket.send(b)
-                    except:
-                        if self.lost_connection('Socket send error'):
-                            return
-                        else:
-                            continue
+                if self.lost_connection('Socket send error'):
+                    return
+                continue
 
             if Options.debug >= 1:
                 cmds = None
@@ -10828,7 +10859,10 @@ class Audio():
     def start_k4_rx_audio_thread(self):
         # Whatever the output device, None included: the thread opens
         # whichever one is chosen later, and decodes the K4's audio for
-        # RTTY and SSTV with none to play it on.
+        # RTTY and SSTV with none to play it on. Only one: a second
+        # loop would replace output_stream without closing it.
+        if self.k4_rx_audio_thread != None and self.k4_rx_audio_thread.is_alive():
+            return
         self.k4_rx_audio_thread = threading.Thread(target=self.k4_rx_audio_loop, name='audio_k4_rx_audio_thread')
         self.k4_rx_audio_thread.start()
 
