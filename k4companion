@@ -6974,6 +6974,7 @@ class Panadapter(QDialog):
     cursor_text_color = '#ff5050'
     cursor_bw_brush = (255, 40, 40, 95)
     cursor_linger_ms = 2000
+    trace_label_gap = 3       # pixels between rows of digits on the trace
 
     def on_cursor_moved(self, plot, scene_pos):
         # The mouse moved over the trace or the waterfall: the cursor to
@@ -7038,8 +7039,13 @@ class Panadapter(QDialog):
         x = self.trace_plot.mapFromScene(trace_box.mapViewToScene(QPointF(freq_hz, 0))).x()
         box = self.trace_plot.mapFromScene(trace_box.sceneBoundingRect()).boundingRect()
         x = max(box.left(), min(box.right() - label.width(), x - label.width() // 2))
-        top = box.top() + self.trace_center_label.height() + 2
-        top += row * (label.sizeHint().height() + 2)
+        # Right under the trace's own frequency labels, and each row
+        # under the one above, by the digits' height rather than the
+        # label's: a label is the font's full height, half again the
+        # digits', and rows of them stood well apart.
+        center = self.trace_center_label
+        step = label.fontMetrics().tightBoundingRect('0123456789').height() + Panadapter.trace_label_gap
+        top = center.y() + (row + 1) * step
         label.move(int(x), int(top))
         label.show()
         label.raise_()
