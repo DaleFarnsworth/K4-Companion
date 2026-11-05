@@ -5274,6 +5274,21 @@ class Menu_definition():
 
         self.update()
 
+    def k4_value(self):
+        # current as the K4 has it, which for some types is not how it
+        # is shown here: ZMON one down, so that OFF is -1, AOFS eight
+        # down, D10mW in tenths, BIN's an index into its values. What
+        # each one's send_command undoes.
+        if self.type == 'ZMON':
+            return int(self.current) + 1
+        if self.type == 'AOFS':
+            return int(self.current) + 8
+        if self.type == 'D10mW':
+            return int(self.current * 10)
+        if self.type == 'BIN' and len(self.values) > 0 and self.send_command == self.range_listbox_send_command:
+            return int(self.values[self.current])
+        return self.current
+
     def update(self, locked=None, current=None):
         self.update_widget(current=current)
 
@@ -5740,7 +5755,7 @@ class Menu(Widget):
         md = self.lookup_definitions.get(Server.cw_in_ssb_menu, None)
         if md == None:
             return
-        value = '1' if md.current == 1 else '0'
+        value = '1' if md.k4_value() == 1 else '0'
         if self.server.k4_parameter('!CWSSB') != value:
             self.server.update_k4_parameter('!CWSSB', value)
 
@@ -24475,7 +24490,7 @@ class Keyer():
             monitors.append(('ML0', volume, '000'))
         md = Menu.entry(self.remote_monitor_menu) if Menu.singleton else None
         if ssb and md != None:
-            level = md.current
+            level = md.k4_value()
             if level == 0 and self.remote_monitor_level:
                 # The 0 sent last time reported back, and not yet the
                 # level it was put back to since.
