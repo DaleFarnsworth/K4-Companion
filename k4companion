@@ -7514,16 +7514,17 @@ class Panadapter(QDialog):
             self._update_trace_labels(center_hz, span_hz)
             if old_axis_key != None and old_axis_key[1:] == axis_key[1:]:
                 # Only the centre moved, as it does with every tune in
-                # Track: the frames averaged and the peaks held are still
-                # good, moved by as many bins as the centre has. Starting
-                # them afresh, as below, had the trace jump from the
-                # average to one frame's noise and settle again.
+                # Track: the frames averaged are still good, moved by as
+                # many bins as the centre has. Starting them afresh, as
+                # below, had the trace jump from the average to one
+                # frame's noise and settle again.
                 shift = round((center_hz - old_axis_key[0]) / hz_per_bin)
                 fill = self._smoothed(data)
                 self.trace_history[:] = [self._shift_bins(frame, shift, fill)
                                          for frame in self.trace_history]
-                if self.peak_data is not None and len(self.peak_data) == len(data):
-                    self.peak_data = self._shift_bins(self.peak_data, shift, data)
+                # The peaks held are started afresh all the same: held
+                # over the shift, they showed what was there before it.
+                self._restart_peak(settle=True, seconds=Panadapter.peak_shift_settle_seconds)
             else:
                 # bin_count changed, so any frames already in trace_history
                 # are the wrong shape to average against this one, and the
@@ -7723,6 +7724,10 @@ class Panadapter(QDialog):
     # waits to start holding again: the K4's first frames after a span
     # change still show the old span, drawn as if they were the new.
     peak_settle_seconds = .5
+    # And after only the centre has moved, as it does with every tune in
+    # Track: the frames are of the span shown, and the wait is the line
+    # gone from the trace while tuning.
+    peak_shift_settle_seconds = .25
 
     def on_peak_button(self):
         self.peak_enabled = not self.peak_enabled
@@ -7730,13 +7735,16 @@ class Panadapter(QDialog):
         self._restart_peak(settle=False)
         self._set_peak_button()
 
-    def _restart_peak(self, settle):
+    def _restart_peak(self, settle, seconds=None):
         # The peaks held let go of, and the line cleared, to start again
-        # -- after peak_settle_seconds where settle, so that what the
-        # K4 sends before it has caught up isn't what is held.
+        # -- after peak_settle_seconds, or seconds where given, where
+        # settle, so that what the K4 sends before it has caught up isn't
+        # what is held.
         self.peak_data = None
         self.peak_curve.setData([], [])
-        self.peak_hold_from = time.perf_counter() + (Panadapter.peak_settle_seconds if settle else 0)
+        if seconds == None:
+            seconds = Panadapter.peak_settle_seconds
+        self.peak_hold_from = time.perf_counter() + (seconds if settle else 0)
 
     def _set_peak_button(self):
         bg = 'yellow' if self.peak_enabled else 'white'
