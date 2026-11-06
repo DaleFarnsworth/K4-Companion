@@ -1,3 +1,56 @@
+v2.4-rc3:
+    List v2.4-rc3's changes in the User Manual
+       The Panadapter Window section says the receiver's frequency is shown
+       at its line, in its VFO's colour, with the mouse's under it, and its
+       screenshots are retaken from v2.4-rc3 to show them. The CW Window
+       section says CW can be sent in LSB and USB with the K4's CW TX in SSB
+       Mode on, sending no microphone audio and muting the monitor with TX
+       Monitor Level, Remote, and the Keying tab section that the keyer works
+       there too. The revision history's v2.4 section lists both. Its first
+       page is dated November 6th.
+   
+    Restore the remote monitor level as the K4 has it
+       The keyer put menu entry TX Monitor Level, Remote back to the value
+       Menu shows, which for a ZMON entry is one less than the K4's, so the
+       level dropped by one each time it was restored. Menu_definition's
+       k4_value() gives the value as the K4 has it, undoing what each type's
+       send command undoes, and the keyer and the CW in SSB check use it.
+   
+    Send CW in SSB with the keyer and the CW window
+       With menu entry CW TX in SSB Mode (104) on, the transmit VFO in LSB
+       or USB now counts as CW: the keyer is enabled and the CW window can
+       send. Menu keeps the entry's value as !CWSSB, so turning it on or off
+       reaches the tx_cw() subscribers as a mode change does.
+       
+       The K4's TX; in SSB started the microphone's audio streaming to it,
+       and while that audio comes the K4 stays in transmit and passes over
+       every RX;. The keyer and the CW window now say when they are sending
+       CW, and a transmit while either is sends no microphone audio; the
+       K4's own break-in then ends it. A transmit started here with TRT; is
+       never CW and ends them. The keyer also ends its transmit with TRR;,
+       on the main thread, once the break-in delay has passed.
+       
+       In SSB the keyer mutes menu entry TX Monitor Level, Remote (114) in
+       place of ML0 while keying, as that is the monitor a remote hears there.
+   
+    Move the panadapter's frequency rows up under its top labels
+       The receiver's frequency and the mouse cursor's below it were placed
+       a label's full height apart, from the top of the trace's view: a
+       label is the font's whole height, half again the digits', so the rows
+       stood well apart. Place each row by the digits' height and a gap of
+       trace_label_gap (3) pixels, from the top labels' own position.
+   
+    Send a Vail Audio device its sidetone pitch on CC9
+       A device whose MIDI port's name contains Vail Audio is now sent the
+       CW pitch on CC9, in 10 Hz steps, rather than as the nearest note on
+       CC2. Other Vail adapters are still sent the note.
+   
+    Show the receiver's frequency at its line on the panadapter
+       The receiver's frequency, to the Hz, is now shown in its line's
+       colour, blue for the main receiver and green for the sub, at the top
+       of its line on the trace, following the line frame by frame. The
+       mouse cursor's frequency moves down a row, below it.
+   
 v2.4-rc2:
     List v2.4-rc2's changes in the User Manual
        The Keying tab section says that a Vail Audio keyer is sent its
