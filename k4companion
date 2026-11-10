@@ -9851,8 +9851,10 @@ class Audio():
 
     # How much decoded K4 audio may wait to be played, as a duration,
     # since the length of the K4's packets follows its remote audio
-    # latency setting, from 20 ms at SL0 to 120 ms at SL7: two packets
-    # were 40 ms at one and 240 ms at the other. They come in bursts,
+    # latency setting -- 20 ms at SL0 and SL1, 40 ms at SL2 and SL3,
+    # 60 ms at SL4 and SL5, 120 ms at SL6 and SL7, as measured -- two
+    # packets were 40 ms at one end and 240 ms at the other. They come
+    # in bursts,
     # with gaps of over 100 ms between them, and 40 ms ran dry in every
     # gap and overflowed in every burst after it.
     #
@@ -9867,6 +9869,28 @@ class Audio():
     # (frames_per_buffer) keeps playing.
     k4_decoded_rx_audio_max_seconds = .240
     k4_decoded_rx_audio_max_packets = 2
+
+    # The jitter buffer: where the K4's audio runs out with the key up,
+    # the output stays silent until this much is waiting again, and
+    # then fades back in, rather than playing each packet as it comes
+    # with nothing in hand for the next one to be late by. The same at
+    # the start of a stream. How much is the Audio tab's Receive Audio
+    # Latency, in milliseconds, set apart from the K4's own SL; never
+    # less than one of the K4's packets. For comparison, the K4's own
+    # latency, measured as the time from TRT; to its TX;, ran from
+    # 117 ms at SL0 to 593 ms at SL7.
+    receive_audio_latencies_ms = (0, 20, 40, 60, 80, 100, 120, 160, 200, 240,
+                                  300, 360, 420, 480, 600, 720, 840, 960)
+    receive_audio_latency_default_ms = 160
+    receive_audio_latency_ms = receive_audio_latency_default_ms
+    # Not while the K4 is transmitting, when the audio it sends is its
+    # monitor of the transmit, nor within this long of the key coming
+    # up: the audio after an element has to be current, and is what the
+    # sidetone hands back to. When the K4 goes back to receive, though,
+    # the buffer fills again before the audio resumes: kept short
+    # through the transmit, it would play a packet or two and then run
+    # dry and wait anyway, a burst and then a silence.
+    k4_jitter_key_up_hold_seconds = 1.0
 
     # The block the output callback fills, and with it two thirds of
     # what stands between the paddle and the sidetone: an edge is picked
@@ -10194,6 +10218,9 @@ class Audio():
         self = cls.get_singleton()
         latency = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
         cls.set_remote_audio_latency(latency)
+        cls.set_receive_audio_latency(Server.settings.getint('Audio', 'receive_audio_latency',
+            cls.receive_audio_latency_default_ms, minimum=0,
+            maximum=cls.receive_audio_latencies_ms[-1]))
         self.start_k4_rx_audio_thread()
 
     @classmethod
@@ -10201,6 +10228,15 @@ class Audio():
         self = cls.get_singleton()
         if self.server and self.server.connected:
             self.server.send_str(f'SL{latency};')
+
+    @classmethod
+    def set_receive_audio_latency(cls, milliseconds):
+        # The jitter buffer's (see k4_jitter_frames). The Audio tab's
+        # dropdown gives it as text.
+        try:
+            cls.receive_audio_latency_ms = max(0, int(milliseconds))
+        except ValueError:
+            pass
 
     @classmethod
     def stream_time(cls):
@@ -10828,11 +10864,22 @@ class Audio():
         # padded with silence and faded back in: the K4's stream pausing,
         # not the callback being late, so no underflow is flagged for it.
         self.k4_starved_count = 0
+        # The jitter buffer (see k4_jitter_frames): whether the output
+        # is waiting for it to fill, as it does at the start; how full,
+        # in frames, set by the decoding thread from
+        # Receive Audio Latency; how long after a
+        # key up it waits for nothing; and how many times it has had to.
+        self.k4_rebuffering = True
+        # Whether the K4 is transmitting.
+        self.k4_transmitting = False
+        self.k4_jitter_frames = 0
+        self.k4_jitter_hold_frames = 0
+        self.k4_rebuffer_count = 0
         # Milliseconds of decoded K4 audio thrown away for the queue
         # being past what may wait: a burst after a pause, say. What is
         # played jumps from the audio before to the audio after it.
         self.k4_dropped_ms = 0.0
-        self.reported_glitch_counts = (0, 0, 0, 0, 0, 0)
+        self.reported_glitch_counts = (0, 0, 0, 0, 0, 0, 0)
         self.glitch_report_time = 0.0
         # Whether the output stream opened in exclusive mode, which is
         # where counted DAC times can be taken up (see dac_stray_seconds);
@@ -11143,13 +11190,13 @@ class Audio():
                     if self.output_stream != None:
                         warned = False
                         self.reset_sidetone()
+                        # A new stream starts from a full jitter buffer too.
+                        self.k4_rebuffering = True
                     else:
                         if not warned:
                             Popup.warning('Failed to open: ' + self.output_device_name())
                             warned = True
                         continue
-
-                current_value = Server.settings.getint('Audio', 'remote_audio_latency', 3, minimum=0, maximum=7)
 
             self.report_audio_glitches()
 
@@ -11207,9 +11254,14 @@ class Audio():
             stereo = numpy.empty((left.size + right.size,), dtype=numpy.float32)
             stereo[0::2] = left
             stereo[1::2] = right
+            packet_frames = len(stereo) // cls.output_channels
+            rate = cls.output_device_sample_rate()
+            if rate != None:
+                self.k4_jitter_frames = max(packet_frames,
+                                            round(cls.receive_audio_latency_ms / 1000 * rate))
+                self.k4_jitter_hold_frames = round(cls.k4_jitter_key_up_hold_seconds * rate)
             self.k4_decoded_rx_audio_queue.put(stereo)
-            self.trim_decoded_rx_audio_queue(len(stereo) // cls.output_channels,
-                                             cls.output_device_sample_rate())
+            self.trim_decoded_rx_audio_queue(packet_frames, rate)
 
     def trim_decoded_rx_audio_queue(self, packet_frames, sample_rate):
         # Drops the oldest audio past what may wait (see
@@ -11217,8 +11269,12 @@ class Audio():
         # a packet at a time, since a packet can be 120 ms.
         cls = self.__class__
         maximum = packet_frames * cls.k4_decoded_rx_audio_max_packets
-        if not self.sidetone_keyed and sample_rate != None:
-            maximum = max(maximum, round(cls.k4_decoded_rx_audio_max_seconds * sample_rate))
+        # Two packets while transmitting as well: what the K4 sends then
+        # is its monitor of the transmit, which has to be current.
+        if not self.sidetone_keyed and not self.k4_transmitting and sample_rate != None:
+            maximum = max(maximum, round(cls.k4_decoded_rx_audio_max_seconds * sample_rate),
+                          # Room for the jitter buffer and a burst on top.
+                          self.k4_jitter_frames + packet_frames * cls.k4_decoded_rx_audio_max_packets)
         channels = cls.output_channels
         queue_ = self.k4_decoded_rx_audio_queue
         dropped = 0
@@ -11353,7 +11409,13 @@ class Audio():
             # K4's alone.
             data = numpy.empty(0, dtype=numpy.float32)
             self.output_stream_leftover = data
+        elif (self.k4_rebuffering and not self.k4_transmitting
+                and not self.k4_jitter_filled(len(data))):
+            # Silent, and nothing taken, until the jitter buffer has
+            # filled (see k4_jitter_frames).
+            data = numpy.empty(0, dtype=numpy.float32)
         else:
+            self.k4_rebuffering = False
             while len(data) < needed:
                 try:
                     chunk = self.k4_decoded_rx_audio_queue.get_nowait()
@@ -11363,8 +11425,16 @@ class Audio():
             self.output_stream_leftover = data[needed:]
 
         written = min(frames, data[:needed].size // self.output_channels)
-        if written < frames and not self.sidetone_keyed:
+        if written < frames and not self.sidetone_keyed and not self.k4_rebuffering:
             self.k4_starved_count += 1
+            # Not while transmitting, nor just after a key up: what
+            # follows it has to be current.
+            since_key_up = (None if self.last_key_up_frame == None
+                            else block_start_frame - self.last_key_up_frame)
+            if (not self.k4_transmitting
+                    and (since_key_up == None or since_key_up >= self.k4_jitter_hold_frames)):
+                self.k4_rebuffering = True
+                self.k4_rebuffer_count += 1
         self.write_outdata(outdata, data[:needed])
         self.fade_in_k4(outdata, frames, written)
 
@@ -11487,6 +11557,18 @@ class Audio():
             outdata[:written] *= self.k4_fade_gain(ramp).reshape(written, 1)
         if written < frames:
             self.k4_fade_position = 0.0
+
+    def k4_jitter_filled(self, leftover_samples):
+        # Whether the jitter buffer holds k4_jitter_frames: what the
+        # queue holds, and what was drawn from it and left over. Under
+        # the queue's own lock, as trim_decoded_rx_audio_queue changes
+        # it from the decoding thread.
+        if self.k4_jitter_frames <= 0:
+            return False                    # nothing decoded yet to size it
+        queue_ = self.k4_decoded_rx_audio_queue
+        with queue_.mutex:
+            samples = sum(len(chunk) for chunk in queue_.queue)
+        return (samples + leftover_samples) // self.output_channels >= self.k4_jitter_frames
 
     def write_outdata(self, outdata, samples):
         # PortAudio hands in a (frames, channels) array; the queue carries
@@ -11869,7 +11951,8 @@ class Audio():
 
         counts = (self.output_underflow_count, self.output_status_count,
                   self.input_overflow_count, self.k4_starved_count,
-                  round(self.k4_dropped_ms), Server.k4_server.raw_audio_dropped)
+                  round(self.k4_dropped_ms), Server.k4_server.raw_audio_dropped,
+                  self.k4_rebuffer_count)
         # Counted DAC times: see dac_stray_seconds. Taken and cleared
         # together; a callback that runs between the two only goes
         # unreported.
@@ -11884,7 +11967,7 @@ class Audio():
                    ' counted ones in use')
         if counts == self.reported_glitch_counts:
             return
-        underflows, statuses, overflows, starved, dropped_ms, raw_dropped = (
+        underflows, statuses, overflows, starved, dropped_ms, raw_dropped, rebuffers = (
                 new - old for new, old in zip(counts, self.reported_glitch_counts))
         self.reported_glitch_counts = counts
 
@@ -11901,6 +11984,10 @@ class Audio():
             report.append(f'{dropped_ms}ms of K4 audio dropped, too much waiting')
         if raw_dropped:
             report.append(f'{raw_dropped} packet(s) of K4 audio dropped before decoding')
+        if rebuffers:
+            frames, rate = self.k4_jitter_frames, Audio.output_device_sample_rate()
+            held = f'{frames / rate * 1000:.0f}ms' if rate else f'{frames} frames'
+            report.append(f'{rebuffers} wait(s) for {held} of K4 audio, the jitter buffer')
         dprint('audio glitches since the last report:', ', '.join(report))
 
         sample_rate = Audio.output_device_sample_rate()
@@ -12256,6 +12343,12 @@ class Audio():
     def on_transmit_changed(self, server, response):
         transmit = server.k4_parameters.get('TR') == 'T'
         tune = server.k4_parameters.get('TU', "0") != '0'
+        # For the jitter buffer, which holds back nothing while the K4
+        # transmits, and fills again when it goes back to receive (see
+        # k4_jitter_frames).
+        if self.k4_transmitting and not transmit:
+            self.k4_rebuffering = True
+        self.k4_transmitting = transmit
         with Audio.cw_mutex:
             if transmit:
                 Audio.cw_transmit = bool(Audio.cw_senders)
@@ -13152,9 +13245,11 @@ class AppSettings_widget(Widget):
         grid.addWidget(audio_k4_control_frame, 0, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         audio_remote_audio_latency_frame = self.audio_remote_audio_latency_setting()
         grid.addWidget(audio_remote_audio_latency_frame, 1, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        grid.addWidget(self.audio_tci_tx_level_setting(), 2, 1,
+        grid.addWidget(self.audio_receive_audio_latency_setting(), 2, 1,
                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        grid.addWidget(self.audio_tci_tx_monitor_setting(), 3, 1,
+        grid.addWidget(self.audio_tci_tx_level_setting(), 3, 1,
+                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        grid.addWidget(self.audio_tci_tx_monitor_setting(), 4, 1,
                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         return frame
@@ -13233,6 +13328,22 @@ class AppSettings_widget(Widget):
     def on_remote_audio_latency_combobox_changed(self, current_value):
         Server.settings.put_save('Audio', 'remote_audio_latency', current_value)
         Audio.set_remote_audio_latency(current_value)
+
+    def audio_receive_audio_latency_setting(self):
+        # The jitter buffer's, in milliseconds (see Audio.k4_jitter_frames).
+        values = Audio.receive_audio_latencies_ms
+        current_value = Server.settings.getint('Audio', 'receive_audio_latency',
+            Audio.receive_audio_latency_default_ms, minimum=0, maximum=values[-1])
+        if current_value not in values:
+            current_value = Audio.receive_audio_latency_default_ms
+        return self._labeled_combobox('Receive Audio Latency (ms)', values, current_value,
+            self.on_receive_audio_latency_combobox_changed, justify='right')
+
+    def on_receive_audio_latency_combobox_changed(self, current_value):
+        if current_value in ('', None):
+            return
+        Server.settings.put_save('Audio', 'receive_audio_latency', current_value)
+        Audio.set_receive_audio_latency(current_value)
 
     def audio_tci_tx_level_setting(self):
         # How loud a TCI client's transmit audio goes to the K4 (see
