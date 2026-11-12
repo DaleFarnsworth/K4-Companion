@@ -1070,6 +1070,10 @@ class Server():
         self.printed_connection_warning = False
         self.last_tune_cmd = Server.settings.get(section, 'tune_cmd', 'TU3;')
         self.received_cat_cmd = False
+        # A TX; sent from here that the K4 hasn't yet answered with its
+        # own: until it does, what it sends is still receive audio, up
+        # to SL's latency old (see Audio.k4_rx_mute_deadline).
+        self.tx_pending = False
         self.previous_ov_bits = 0
         self.lost_connection_retry_count = 0
 
@@ -1139,8 +1143,10 @@ class Server():
     def update_k4_parameter(self, base, parameter):
         if base in ('TX', 'RX', 'SD0', 'SD1', 'ES', 'TB', 'TB$', 'SB', 'NB', 'NB$'):
             if base == 'TX':
+                self.tx_pending = False
                 self.update_k4_parameter('TR', 'T')
             elif base == 'RX':
+                self.tx_pending = False
                 self.update_k4_parameter('TR', 'R')
             elif base in ('SD0', 'SD1'):   # Differentiate between the variants
                 base, parameter = base[0:2] + parameter[0], base[2] + parameter[1:]
@@ -1574,9 +1580,11 @@ class Server():
                 if base == 'TR':
                     if cmd[2] == 'T':
                         Audio.cancel_cw_transmit()
+                        self.tx_pending = True
                         self.update_k4_parameter('TR', 'T')
                         self.send_str('TX;')
                     else:
+                        self.tx_pending = False
                         self.update_k4_parameter('TR', 'R')
                         self.send_str('RX;')
                     return
@@ -9891,6 +9899,13 @@ class Audio():
     # through the transmit, it would play a packet or two and then run
     # dry and wait anyway, a burst and then a silence.
     k4_jitter_key_up_hold_seconds = 1.0
+    # The longest receive audio is dropped after a TX; sent from here
+    # while waiting for the K4's own (see k4_rx_mute_deadline): past
+    # SL7's .593 s, with room for the network.
+    k4_rx_mute_max_seconds = 1.5
+    # How long each side of a cut in the K4's audio is faded over (see
+    # crossfade_k4_cut).
+    k4_cut_fade_seconds = .005
 
     # The block the output callback fills, and with it two thirds of
     # what stands between the paddle and the sidetone: an edge is picked
@@ -10872,6 +10887,19 @@ class Audio():
         self.k4_rebuffering = True
         # Whether the K4 is transmitting.
         self.k4_transmitting = False
+        # The receive audio stops the moment the transmit starts here,
+        # not when the K4 gets round to it. Until the K4's TX; comes
+        # back -- SL's latency later, up to .6 s at SL7 -- the packets
+        # it sends are receive audio still, and are dropped; this is
+        # when to stop dropping them if its TX; never comes. And a
+        # flag for the output callback to throw away what is queued.
+        self.k4_rx_mute_deadline = None
+        self.k4_rx_flush = False
+        # For trim_decoded_rx_audio_queue: to cut the queue to two
+        # packets the next time, as the K4 goes into transmit; and
+        # that it has cut it, for the output callback to crossfade.
+        self.k4_trim_to_packets = False
+        self.k4_rx_cut = False
         self.k4_jitter_frames = 0
         self.k4_jitter_hold_frames = 0
         self.k4_rebuffer_count = 0
@@ -11260,6 +11288,9 @@ class Audio():
                 self.k4_jitter_frames = max(packet_frames,
                                             round(cls.receive_audio_latency_ms / 1000 * rate))
                 self.k4_jitter_hold_frames = round(cls.k4_jitter_key_up_hold_seconds * rate)
+            deadline = self.k4_rx_mute_deadline
+            if deadline != None and time.perf_counter() < deadline:
+                continue
             self.k4_decoded_rx_audio_queue.put(stereo)
             self.trim_decoded_rx_audio_queue(packet_frames, rate)
 
@@ -11269,12 +11300,20 @@ class Audio():
         # a packet at a time, since a packet can be 120 ms.
         cls = self.__class__
         maximum = packet_frames * cls.k4_decoded_rx_audio_max_packets
-        # Two packets while transmitting as well: what the K4 sends then
-        # is its monitor of the transmit, which has to be current.
-        if not self.sidetone_keyed and not self.k4_transmitting and sample_rate != None:
-            maximum = max(maximum, round(cls.k4_decoded_rx_audio_max_seconds * sample_rate),
-                          # Room for the jitter buffer and a burst on top.
-                          self.k4_jitter_frames + packet_frames * cls.k4_decoded_rx_audio_max_packets)
+        # Two packets once as the K4 goes into transmit: what it sends
+        # then is its monitor of the transmit, which has to be current,
+        # and the receive audio the jitter buffer had in hand ahead of
+        # it goes. After that, while it transmits, room for a burst as
+        # before the jitter buffer: held to two packets throughout, the
+        # monitor's own network jitter had it cut again and again.
+        to_packets = self.k4_trim_to_packets
+        self.k4_trim_to_packets = False
+        if not self.sidetone_keyed and not to_packets and sample_rate != None:
+            maximum = max(maximum, round(cls.k4_decoded_rx_audio_max_seconds * sample_rate))
+            if not self.k4_transmitting:
+                # Room for the jitter buffer and a burst on top.
+                maximum = max(maximum, self.k4_jitter_frames
+                              + packet_frames * cls.k4_decoded_rx_audio_max_packets)
         channels = cls.output_channels
         queue_ = self.k4_decoded_rx_audio_queue
         dropped = 0
@@ -11293,6 +11332,10 @@ class Audio():
                     chunks[0] = chunks[0][excess * channels:]
                     dropped += excess
                     excess = 0
+            if dropped:
+                # The waveform steps where the audio was cut: crossfaded
+                # by the output callback (see crossfade_k4_cut).
+                self.k4_rx_cut = True
         if dropped and sample_rate != None:
             self.k4_dropped_ms += dropped / sample_rate * 1000
 
@@ -11372,6 +11415,23 @@ class Audio():
         self.callback_dac_time = self.counted_dac_time(time_info, block_start_frame)
 
         needed = frames * self.output_channels
+        if self.k4_rx_flush:
+            # Transmitting: the receive audio queued stops here (see
+            # k4_rx_mute_deadline), faded out over the same few
+            # milliseconds it fades in over, not cut off mid-waveform.
+            self.k4_rx_flush = False
+            channels = self.output_channels
+            tail = self.output_stream_leftover
+            fade_frames = max(1, round(1 / self.k4_fade_step))
+            with self.k4_decoded_rx_audio_queue.mutex:
+                chunks = self.k4_decoded_rx_audio_queue.queue
+                while len(tail) < fade_frames * channels and chunks:
+                    tail = numpy.concatenate((tail, chunks.popleft()))
+                chunks.clear()
+            fade_frames = min(fade_frames, len(tail) // channels)
+            gain = numpy.repeat(numpy.linspace(1, 0, fade_frames, dtype=numpy.float32),
+                                channels)
+            self.output_stream_leftover = tail[:fade_frames * channels] * gain
         data = self.output_stream_leftover
 
         if (self.sidetone_keyed and self.sidetone_envelope_position >= 1
@@ -11409,6 +11469,8 @@ class Audio():
             # K4's alone.
             data = numpy.empty(0, dtype=numpy.float32)
             self.output_stream_leftover = data
+            # Nothing drawn is kept, so no cut to crossfade either.
+            self.k4_rx_cut = False
         elif (self.k4_rebuffering and not self.k4_transmitting
                 and not self.k4_jitter_filled(len(data))):
             # Silent, and nothing taken, until the jitter buffer has
@@ -11416,6 +11478,8 @@ class Audio():
             data = numpy.empty(0, dtype=numpy.float32)
         else:
             self.k4_rebuffering = False
+            if self.k4_rx_cut:
+                data = self.crossfade_k4_cut(data)
             while len(data) < needed:
                 try:
                     chunk = self.k4_decoded_rx_audio_queue.get_nowait()
@@ -11557,6 +11621,35 @@ class Audio():
             outdata[:written] *= self.k4_fade_gain(ramp).reshape(written, 1)
         if written < frames:
             self.k4_fade_position = 0.0
+
+    def crossfade_k4_cut(self, data):
+        # Where trim_decoded_rx_audio_queue has dropped audio from the
+        # front of the queue, the waveform would step from the end of
+        # what was drawn from it already, data, to what is at the front
+        # now: a click. The one faded out and the other in, over a few
+        # milliseconds each. Under the queue's lock, so that the flag
+        # and the queue are seen together.
+        cls = self.__class__
+        channels = cls.output_channels
+        fade_frames = max(1, round(cls.k4_cut_fade_seconds / cls.k4_fade_in_time
+                                   / cls.k4_fade_step))
+        with self.k4_decoded_rx_audio_queue.mutex:
+            self.k4_rx_cut = False
+            chunks = self.k4_decoded_rx_audio_queue.queue
+            head = numpy.empty(0, dtype=numpy.float32)
+            while len(head) < fade_frames * channels and chunks:
+                head = numpy.concatenate((head, chunks.popleft()))
+        tail_frames = min(fade_frames, len(data) // channels)
+        if tail_frames:
+            data = data.copy()
+            data[len(data) - tail_frames * channels:] *= numpy.repeat(
+                numpy.linspace(1, 0, tail_frames, dtype=numpy.float32), channels)
+        head_frames = min(fade_frames, len(head) // channels)
+        if head_frames:
+            head = head.copy()
+            head[:head_frames * channels] *= numpy.repeat(
+                numpy.linspace(0, 1, head_frames, dtype=numpy.float32), channels)
+        return numpy.concatenate((data, head))
 
     def k4_jitter_filled(self, leftover_samples):
         # Whether the jitter buffer holds k4_jitter_frames: what the
@@ -12348,6 +12441,29 @@ class Audio():
         # k4_jitter_frames).
         if self.k4_transmitting and not transmit:
             self.k4_rebuffering = True
+        if transmit:
+            # Receive audio stops now (see k4_rx_mute_deadline): what is
+            # queued, and from a TX; sent from here, what the K4 sends
+            # until its own TX; comes back.
+            #
+            # Only a transmit started here, though. One the K4 starts
+            # itself -- a CW macro's KY, say -- has its TX; come back
+            # with its monitor of the transmit already queued, and
+            # throwing that away cut short the first element and
+            # clicked. Nor when the K4's TX; does come back: nothing was
+            # queued while waiting for it, and what is queued by then is
+            # the monitor.
+            if not self.k4_transmitting:
+                self.k4_trim_to_packets = True
+            if server.tx_pending:
+                if not self.k4_transmitting:
+                    self.k4_rx_flush = True
+                    self.k4_rx_mute_deadline = (time.perf_counter()
+                                                + Audio.k4_rx_mute_max_seconds)
+            else:
+                self.k4_rx_mute_deadline = None
+        else:
+            self.k4_rx_mute_deadline = None
         self.k4_transmitting = transmit
         with Audio.cw_mutex:
             if transmit:
