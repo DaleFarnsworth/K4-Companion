@@ -1,3 +1,77 @@
+v2.4-rc4:
+    List v2.4-rc4's changes in the User Manual
+       The Audio Tab section lists Receive Audio Latency (ms) and says what
+       it does: how much of the K4's audio is held before playing it, 0 to
+       960 ms, 160 ms by default, apart from the K4's own Remote Audio
+       Latency, holding nothing back while the K4 transmits, and that the
+       received audio stops straight away on a transmit from K4 Companion.
+       Its screenshot is retaken to show it. The Panadapter Window section
+       says the peaks start again when the panadapter's centre moves. The
+       revision history's v2.4 section lists the three. Its first page is
+       dated November 12th.
+   
+    Don't count blocks short of K4 audio while it transmits
+       With --da audio, the glitch report counted some 250 blocks short of
+       K4 audio every report through a transmit. The K4 sends no receive
+       audio then, and its monitor of the transmit only if that is turned
+       up, so short blocks are what to expect, and are no longer counted.
+   
+    Stop the K4's receive audio as soon as a transmit starts here
+       Going into transmit from the Transmit/Receive button, the space bar,
+       a PTT or the like, receive audio kept playing for up to about a
+       second at SL7: what was queued in the jitter buffer, and what the K4
+       went on sending until its TX; came back, SL's latency after ours.
+       
+       Now a TX; sent from here fades out the queued receive audio over a
+       few milliseconds and throws the rest away, and the K4's packets are
+       dropped until its own TX; arrives, or for at most 1.5 s. A transmit
+       the K4 starts itself, a CW macro's KY say, is left alone: its TX;
+       comes back with the monitor of the transmit already queued, and
+       throwing that away cut short the first element and clicked.
+       
+       That monitor audio clicked as well, and its first element was
+       sometimes cut short, from the queue being held to two packets while
+       the K4 transmits, 40 ms at SL0 and SL1, where the monitor's network
+       jitter had it trimmed again and again. Now it is cut to two packets
+       just once as the K4 goes into transmit, dropping the receive audio
+       the jitter buffer had in hand ahead of the monitor, and after that
+       may hold up to 240 ms again, as before the jitter buffer. Wherever
+       audio is dropped, the output fades out over 5 ms before the cut and
+       back in over 5 ms after it.
+   
+    Buffer the K4's receive audio against network jitter
+       The output played each decoded packet as it came, padding with
+       silence when the audio ran out, so with nothing in hand every late
+       packet was a gap. Where it runs out with the key up, the output now
+       stays silent until the Audio tab's new Receive Audio Latency is
+       waiting, and then fades back in. The same at the start of a stream
+       and when the K4 goes back to receive. The choices run from 0 to
+       960 ms, 160 ms by default, and it is never less than one packet. The
+       queue may hold that much and two packets more before its oldest
+       audio is dropped.
+       
+       It is set apart from the K4's own SL. For comparison, the K4's
+       latency, measured as the time from TRT; to its TX;, all of it
+       receive audio still coming in, runs from 117 ms at SL0 to 593 ms at
+       SL7.
+       
+       While the K4 transmits, the audio it sends is its monitor of the
+       transmit, CW window text say, so the queue is kept to two packets
+       then and nothing is waited for. Nor within a second of a key up. The
+       packets' lengths, also measured, are corrected in a comment: 20 ms at
+       SL0 and SL1, 40 ms at SL2 and SL3, 60 ms at SL4 and SL5, 120 ms at
+       SL6 and SL7.
+       
+       The audio glitch report counts the waits.
+   
+    Clear the panadapter's peaks when its centre moves
+       The peaks held were shifted with the centre, as the averaged frames
+       are, so after a shift Peak still showed what was there before it.
+       Start them afresh instead, holding again after
+       peak_shift_settle_seconds (.25), shorter than the half second a span
+       change waits, as the frames after a shift are already of the span
+       shown. The averaged frames are still shifted.
+   
 v2.4-rc3:
     List v2.4-rc3's changes in the User Manual
        The Panadapter Window section says the receiver's frequency is shown
