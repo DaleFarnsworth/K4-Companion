@@ -10875,8 +10875,8 @@ class Audio():
         self.output_status_count = 0
         self.output_underflow_count = 0
         self.input_overflow_count = 0
-        # Blocks the K4's audio ran out partway through with the key up,
-        # padded with silence and faded back in: the K4's stream pausing,
+        # Blocks the K4's audio ran out partway through with the key up
+        # and the K4 receiving, padded with silence and faded back in: the K4's stream pausing,
         # not the callback being late, so no underflow is flagged for it.
         self.k4_starved_count = 0
         # The jitter buffer (see k4_jitter_frames): whether the output
@@ -11490,7 +11490,11 @@ class Audio():
 
         written = min(frames, data[:needed].size // self.output_channels)
         if written < frames and not self.sidetone_keyed and not self.k4_rebuffering:
-            self.k4_starved_count += 1
+            # Not counted while the K4 transmits: it sends no receive
+            # audio then, and its monitor of the transmit only if that
+            # is turned up, so short blocks are what to expect.
+            if not self.k4_transmitting:
+                self.k4_starved_count += 1
             # Not while transmitting, nor just after a key up: what
             # follows it has to be current.
             since_key_up = (None if self.last_key_up_frame == None
