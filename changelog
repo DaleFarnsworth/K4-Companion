@@ -1,4 +1,18 @@
 v2.4-rc5:
+    Say in the User Manual that Weight is the K4's own
+       The Keying Tab section says Weight is the K4's own weight setting, so
+       a weight set on the K4 is shown there too, and the revision history's
+       v2.4 section lists it.
+   
+    Follow the K4's keyer weight on the Keying tab and in the keyer
+       The weight was only ever sent to the K4, when chosen on the Keying
+       tab, so a weight set on the K4, KP's nnn, left the tab showing the
+       one chosen last and the keyer here forming its elements by that.
+       Now the Weight dropdown shows the K4's, without sending it back, and
+       saves it as the setting for when there is no K4; the keyer takes it
+       as it comes and starts from it, falling back on the setting until
+       the K4 has said.
+   
     List v2.4-rc5's changes in the User Manual
        The Keying Tab section says what Paddle Swap does: Normal or Reverse,
        the K4's own paddle orientation, which K4 Companion's keyer follows
