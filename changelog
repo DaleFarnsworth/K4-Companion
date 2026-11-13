@@ -1,3 +1,20 @@
+v2.4-rc5:
+    List v2.4-rc5's changes in the User Manual
+       The Keying Tab section says what Paddle Swap does: Normal or Reverse,
+       the K4's own paddle orientation, which K4 Companion's keyer follows
+       as paddles plugged into the K4 do. Its screenshot is retaken to show
+       it, and the revision history's v2.4 section lists it.
+   
+    Add Paddle Swap to the Keying tab, set by the K4's KP
+       Above Mode, for paddles, a Paddle Swap toggle between Normal and
+       Reverse shows the K4's paddle orientation, the N or R of KPionnn;,
+       and follows it as the K4 changes it. Clicking it sends KP with the
+       other orientation, keeping the iambic mode and weight it has. The
+       keyer here follows it too, as it keys the K4 itself: in Reverse the
+       dit paddle's events are taken as the dah paddle's and the dah's as
+       the dit's, for MIDI, serial and RR-1274B paddles and a Vail adapter
+       in Passthrough. Dit Mem % moves down a row to stay beside Mode.
+   
 v2.4-rc4:
     List v2.4-rc4's changes in the User Manual
        The Audio Tab section lists Receive Audio Latency (ms) and says what
