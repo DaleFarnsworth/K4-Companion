@@ -18648,7 +18648,7 @@ class CW(Digital):
         if not Keyer.device_type_vail_adapter:
             self._hide(self.keyer_settings_frame, self.vail_mode_frame)
         if Keyer.device_type_internal_keyer and Keyer.keyer_mode == Keyer.MODE_IAMBIC_B:
-            self._show(self.keyer_mode_frame, self.memory_delay_percent_frame, 0, 1)
+            self._show(self.keyer_mode_frame, self.memory_delay_percent_frame, 1, 1)
         else:
             self._hide(self.keyer_mode_frame, self.memory_delay_percent_frame)
 
@@ -18679,7 +18679,7 @@ class CW(Digital):
             self.keyer_mode_dropdown.value(Keyer.get_keyer_mode())
             self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
             if Keyer.keyer_mode == Keyer.MODE_IAMBIC_B:
-                self._show(self.keyer_mode_frame, self.memory_delay_percent_frame, 0, 1)
+                self._show(self.keyer_mode_frame, self.memory_delay_percent_frame, 1, 1)
 
     def disable_serial_device_frame(self):
         self._hide(self.keyer_settings_frame, self.serial_device_frame)
@@ -18708,7 +18708,7 @@ class CW(Digital):
         self.keyer_mode_dropdown.value(Keyer.get_keyer_mode())
         self._show(self.keyer_settings_frame, self.keyer_mode_frame, 3, 0)
         if Keyer.keyer_mode == Keyer.MODE_IAMBIC_B:
-            self._show(self.keyer_mode_frame, self.memory_delay_percent_frame, 0, 1)
+            self._show(self.keyer_mode_frame, self.memory_delay_percent_frame, 1, 1)
 
     def enable_keyer_controls_frame(self):
         self._show(self.keyer_settings_frame, self.keyer_controls_frame, 5, 0)
@@ -18816,8 +18816,10 @@ class CW(Digital):
 
     def keyer_mode_settings(self, frame):
         self.keyer_mode_frame, mode_grid = self._plain_frame()
+        mode_grid.addWidget(self.paddle_swap_settings(), 0, 0,
+                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         frame, mode_box_grid = qt_group_box('Mode', self.label_font())
-        mode_grid.addWidget(frame, 0, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        mode_grid.addWidget(frame, 1, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         self.keyer_mode_dropdown = self._dropdown(frame, self.on_select_keyer_mode,
                                                   'left')
@@ -18837,6 +18839,27 @@ class CW(Digital):
         self.vail_mode_dropdown.value(Keyer.get_vail_keyer_mode())
         self.vail_mode_frame.hide()
         return self.keyer_mode_frame
+
+    def paddle_swap_settings(self):
+        # The K4's own paddle orientation, the N or R of KPionnn; (see
+        # Keyer.paddles_reversed), which the keyer here follows too.
+        # Each selection sends KP with the iambic mode and the weight it
+        # has already, changing only the orientation.
+        frame, _ = qt_group_box('Paddle Swap', self.label_font())
+        selections = []
+        for text, orientation in (('Normal', 'N'), ('Reverse', 'R')):
+            selections.append({
+                'text': text,
+                'response': f'KP{orientation};',
+                'evalcmd': f'"KP{{i}}{orientation}{{w}};".format('
+                           f'i=self.k4param("KP")[0], w=self.k4param("KP")[2:5])',
+                'evalresponse': '"KP"+self.k4param("KP")[1]+";"',
+            })
+        ToggleWidget(self, frame, {
+            'selections': selections,
+            'width': 7, 'bg': self.bg, 'fg': self.fg, 'font': self.font(),
+        })
+        return frame
 
     def fill_keyer_modes(self):
         # The app's keyer's; a Vail adapter's own are vail_mode_dropdown's.
@@ -23065,6 +23088,15 @@ class Keyer():
         if cls.singleton != None:
             cls.singleton.auto_word_space_dits = val
 
+    @staticmethod
+    def paddles_reversed():
+        # The K4's paddle orientation, the R of KPionnn;, as the Keying
+        # tab's Paddle Swap sets it: the dit paddle keys dahs and the
+        # dah paddle dits, here as on the K4's own paddle jack.
+        server = Server.k4_server
+        kp = server.k4_parameter('KP') if server != None else None
+        return kp != None and len(kp) > 1 and kp[1] == 'R'
+
     @classmethod
     def set_weighting(cls, val):
         self = cls.singleton
@@ -23082,6 +23114,13 @@ class Keyer():
         self.DAH_UP_EVENT = 'dah_up'
         self.STRAIGHT_KEY_DOWN_EVENT = self.DIT_DOWN_EVENT
         self.STRAIGHT_KEY_UP_EVENT = self.DIT_UP_EVENT
+        # Each paddle's event as the other's, for Paddle Swap's Reverse.
+        self.reversed_paddle_events = {
+            self.DIT_DOWN_EVENT: self.DAH_DOWN_EVENT,
+            self.DIT_UP_EVENT: self.DAH_UP_EVENT,
+            self.DAH_DOWN_EVENT: self.DIT_DOWN_EVENT,
+            self.DAH_UP_EVENT: self.DIT_UP_EVENT,
+        }
         self.CLOSE_EVENT = 'close'
 
         self.delta = 0
@@ -23328,6 +23367,8 @@ class Keyer():
         # timestamp is when the paddle moved, where the device can say
         # (see midi_event_timestamp), and otherwise when the event got
         # here.
+        if not self.straight_keying and Keyer.paddles_reversed():
+            event = self.reversed_paddle_events.get(event, event)
         if self.straight_keying:
             # The straight key's own edge, keyed here on the thread its
             # device reports on, ahead of everything else this does.
