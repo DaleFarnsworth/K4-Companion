@@ -19041,8 +19041,28 @@ class CW(Digital):
     def weighting_setting(self):
         current_value = Server.settings.getfloat('CW', 'weighting', 1.00, .90, 1.25)
         values = ('0.90', '0.95', '1.00', '1.05', '1.10', '1.15', '1.20', '1.25')
-        return self._labeled_combobox('Weight', values, f'{current_value:.2f}',
+        frame, self.weighting_combobox = qt_labeled_readonly_combobox(
+            'Weight', self.label_font(), self.font(), values, f'{current_value:.2f}',
+            self.bg, self.fg, self.bg, self.fg,
             self.on_weighting_combobox_changed, justify='left')
+        # The K4's own weight, the nnn of KPionnn;, set on the K4 or from
+        # here: shown as it comes, and kept for when there is no K4.
+        self.server.subscribe_response('KP;', self.on_kp_weighting)
+        return frame
+
+    def on_kp_weighting(self, response=None):
+        weighting = Keyer.k4_weighting()
+        if weighting == None:
+            return
+        text = f'{weighting:.2f}'
+        combobox = self.weighting_combobox
+        if combobox.currentText() != text and combobox.findText(text) >= 0:
+            # Not sent back to the K4: it is the K4's already.
+            combobox.blockSignals(True)
+            combobox.setCurrentText(text)
+            combobox.blockSignals(False)
+        if Server.settings.get('CW', 'weighting', None) != text:
+            Server.settings.put_save('CW', 'weighting', text)
 
     def on_weighting_combobox_changed(self, current_value):
         if current_value == '':
@@ -22751,6 +22771,7 @@ class Keyer():
             cls.singleton = Keyer()
             cls.set_device_type()
             Server.k4_server.subscribe_response('KS;', cls.singleton.on_speed_change)
+            Server.k4_server.subscribe_response('KP;', cls.singleton.on_kp_change)
 
         return cls.singleton
 
@@ -22781,6 +22802,7 @@ class Keyer():
             return
         server = Server.k4_server
         server.unsubscribe_response('KS;', self.on_speed_change)
+        server.unsubscribe_response('KP;', self.on_kp_change)
         server.unsubscribe_response('KZL;', self.on_keydown_initial_delay_change)
 
         if self.keyer_thread:
@@ -23097,6 +23119,25 @@ class Keyer():
         kp = server.k4_parameter('KP') if server != None else None
         return kp != None and len(kp) > 1 and kp[1] == 'R'
 
+    @staticmethod
+    def k4_weighting():
+        # The K4's weight, the nnn of KPionnn;, as a ratio: 105 is 1.05.
+        # None until the K4 has said.
+        server = Server.k4_server
+        kp = server.k4_parameter('KP') if server != None else None
+        try:
+            return int(kp[2:5]) / 100
+        except (TypeError, ValueError):
+            return None
+
+    def on_kp_change(self, response=None):
+        # The weight set on the K4, or from here and come back: the
+        # keyer's elements follow it.
+        weighting = Keyer.k4_weighting()
+        if weighting != None and weighting != self.weighting:
+            self.weighting = weighting
+            self.on_speed_change()
+
     @classmethod
     def set_weighting(cls, val):
         self = cls.singleton
@@ -23242,7 +23283,11 @@ class Keyer():
         server.subscribe_response('KZL;', self.on_keydown_initial_delay_change)
 
     def on_received_initial_parameters(self, response):
-        self.weighting = Server.settings.getfloat('CW', 'weighting', 1.0)
+        # The K4's own weight, and the one last seen only where it has
+        # not said.
+        self.weighting = Keyer.k4_weighting()
+        if self.weighting == None:
+            self.weighting = Server.settings.getfloat('CW', 'weighting', 1.0)
         self.on_speed_change()
 
     def midi_message_callback(self, event, data=None):
