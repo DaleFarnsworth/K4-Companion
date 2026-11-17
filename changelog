@@ -1,3 +1,24 @@
+v2.4-rc6:
+    List v2.4-rc6's change in the User Manual
+       The revision history's v2.4 section lists that the panadapter's VFO
+       line is kept at the VFO over a remote connection, where it could be
+       left behind and disappear. Its first page is dated November 16th.
+   
+    Never drop a frequency relayed to a panadapter window
+       A user on a remote connection, tuning from a K4/0, found the
+       panadapter's VFO A line kept disappearing until the window was
+       opened again. The CAT responses relayed to a window's process, FA;
+       and FB; among them, shared a queue of four with the PAN and MINI-PAN
+       frames: one waited up to a second for room and was then dropped, and
+       with frames coming in bursts it could lose that race. The window's
+       line then stayed at the old frequency, off the display once it moved
+       on.
+       
+       Now the frames and everything else wait apart, under one lock. The
+       frames are still held to relay_frame_queue_length (4), dropping the
+       oldest for the newest, and the rest is never dropped and is written
+       ahead of them. Nor does send() block the main thread any more.
+   
 v2.4-rc5:
     Say in the User Manual that Weight is the K4's own
        The Keying Tab section says Weight is the K4's own weight setting, so
