@@ -6084,6 +6084,10 @@ class Panadapter(QDialog):
                                   # with a plausible default so push_frame
                                   # has something to crop to even before
                                   # the first #SPN;/#SPN$; is seen.
+    # How many PAN and MINI-PAN frames may wait to be relayed to a
+    # window's process, the oldest dropped past that (see
+    # PanadapterProcess.send).
+    relay_frame_queue_length = 4
     freq_line_waterfall_stable_ms = 2000
                                   # How long a VFO frequency must hold
                                   # steady before its waterfall marker
@@ -9275,11 +9279,16 @@ class PanadapterProcess(QObject):
         self.process = subprocess.Popen(argv, stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=child_stderr, env=env)
 
-        # Bounded, and dropped rather than blocked on when full: writing
-        # straight from received_pan() would put the pipe's flow control
-        # on the main thread, which is exactly the stall this whole
-        # arrangement exists to avoid. PAN frames are disposable.
-        self.queue = queue.Queue(4)
+        # What waits for the writer thread: writing straight from
+        # received_pan() would put the pipe's flow control on the main
+        # thread, which is exactly the stall this whole arrangement
+        # exists to avoid. Two queues, under one lock: PAN and MINI-PAN
+        # frames, bounded, the oldest dropped when full -- they are
+        # disposable -- and everything else, kept whole and written
+        # first (see send).
+        self.queue_condition = threading.Condition()
+        self.frame_queue = collections.deque(maxlen=Panadapter.relay_frame_queue_length)
+        self.control_queue = collections.deque()
         self.writer_thread = threading.Thread(target=self.writer_loop,
             name=f'panadapter_{receiver}_writer', daemon=True)
         self.writer_thread.start()
@@ -9289,35 +9298,33 @@ class PanadapterProcess(QObject):
     def send(self, msg_type, payload):
         # PAN/MINI-PAN frames are the only high-frequency traffic here
         # (up to ~12/second) and are genuinely disposable -- another one
-        # is always seconds away, which is the whole reason this queue
-        # is small and drops rather than blocks (see its comment above).
-        # Everything else (CAT relay, mini-pan enable/disable) is
-        # low-frequency and one-shot: dropping e.g. a BW; relay because
-        # a burst of other messages (open_window's seeding of a newly
-        # opened window, in particular -- easily more than 4 messages at
-        # once) happened to fill the queue first silently loses it for
-        # good, since nothing will naturally resend it. Block briefly
-        # for room instead; the writer thread only ever does a queue.get
-        # plus a pipe write, so it drains fast enough that this is not a
-        # real stall outside of a wedged child process, and even then is
-        # capped rather than indefinite.
+        # is always moments away -- so where the child is behind, the
+        # oldest waiting is dropped for the newest. Everything else (the
+        # CAT relay, mini-pan enable/disable, raise) is low-frequency
+        # and one-shot, and nothing resends it: none of it is dropped,
+        # and all of it goes ahead of the frames. These shared one small
+        # queue, a CAT message waiting up to a second for room and then
+        # dropped, and with frames coming in a burst, as over a remote
+        # connection, an FA; could lose that race: the window's VFO line
+        # stayed at the old frequency, off the display once it moved
+        # on, until the window was opened again. Never blocks.
         encoded = panadapter_encode_msg(msg_type, payload)
-        if msg_type in (panadapter_msg_pan, panadapter_msg_minipan):
-            try:
-                self.queue.put_nowait(encoded)
-            except queue.Full:
-                pass
-            return
-        try:
-            self.queue.put(encoded, timeout=1)
-        except queue.Full:
-            pass
+        with self.queue_condition:
+            if msg_type in (panadapter_msg_pan, panadapter_msg_minipan):
+                self.frame_queue.append(encoded)
+            else:
+                self.control_queue.append(encoded)
+            self.queue_condition.notify()
 
     def writer_loop(self):
         while True:
-            msg = self.queue.get()
-            if msg == None:
-                return
+            with self.queue_condition:
+                while not self.control_queue and not self.frame_queue:
+                    self.queue_condition.wait()
+                if self.control_queue:
+                    msg = self.control_queue.popleft()
+                else:
+                    msg = self.frame_queue.popleft()
             try:
                 self.process.stdin.write(msg)
                 self.process.stdin.flush()
