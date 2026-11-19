@@ -1,3 +1,17 @@
+v2.4:
+    Date the User Manual for v2.4, with v2.4 screenshots
+       Its first page gives November 19th as its date, for v2.4, which it
+       already gives as the current version. The Main and Sub panadapter,
+       Audio tab and Keying tab screenshots are retaken from v2.4, so that
+       their title bars say 2.4.
+   
+    Stop a panadapter's writer thread with the new queues
+       Closing a panadapter window, from the app or as it exits, raised an
+       AttributeError: _close_pipe still put the writer thread's None on the
+       single queue that the frame and control queues replaced. It now goes
+       on the control queue, behind what is already there, with the frames
+       waiting dropped, and the writer thread stops when it reaches it.
+   
 v2.4-rc6:
     List v2.4-rc6's change in the User Manual
        The revision history's v2.4 section lists that the panadapter's VFO
