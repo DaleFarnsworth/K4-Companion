@@ -9325,6 +9325,8 @@ class PanadapterProcess(QObject):
                     msg = self.control_queue.popleft()
                 else:
                     msg = self.frame_queue.popleft()
+            if msg == None:             # see _close_pipe
+                return
             try:
                 self.process.stdin.write(msg)
                 self.process.stdin.flush()
@@ -9551,10 +9553,12 @@ class PanadapterProcess(QObject):
         Server.settings.put_save('Window', key, value)
 
     def _close_pipe(self):
-        try:
-            self.queue.put_nowait(None)
-        except queue.Full:
-            pass
+        # None tells the writer thread to stop, after what is ahead of
+        # it of the app's own messages; frames still waiting go unsent.
+        with self.queue_condition:
+            self.frame_queue.clear()
+            self.control_queue.append(None)
+            self.queue_condition.notify()
         try:
             self.process.stdin.close()
         except (BrokenPipeError, ValueError, OSError):
