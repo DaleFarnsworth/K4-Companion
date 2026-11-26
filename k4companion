@@ -8877,7 +8877,8 @@ class XvtrBands():
     server = None
     table = {}                  # XVTR number -> its XVM, XVR and XVI
     bands = {}                  # XVTR number -> (RF MHz, IF MHz), for those on
-    listeners = []
+    listeners = []              # widgets', removed on a restart
+    lasting_listeners = []      # those kept for as long as the app runs
     found = {}
     current = None              # the band XVM, XVR and XVI now answer for
     original = None             # the band XVN chose before asking
@@ -8895,8 +8896,20 @@ class XvtrBands():
         cls.ask()
 
     @classmethod
-    def add_listener(cls, callback):
-        cls.listeners.append(callback)
+    def add_listener(cls, callback, lasting=False):
+        (cls.lasting_listeners if lasting else cls.listeners).append(callback)
+
+    @classmethod
+    def reset(cls):
+        # On a restart. The widgets that listened are deleted, and called
+        # after they were, raised RuntimeError. What was found is
+        # forgotten too: found the same again, it reached none of the
+        # widgets put in their place, whose Band dropdowns were left
+        # without the transverter bands.
+        cls.listeners = []
+        cls.table = {}
+        cls.bands = {}
+        cls.menu_band = None
 
     @classmethod
     def ask(cls):
@@ -8953,7 +8966,7 @@ class XvtrBands():
                  if len(band) == 3 and band['XVM'] != 0}
         if bands != cls.bands:
             cls.bands = bands
-            for callback in cls.listeners:
+            for callback in cls.lasting_listeners + cls.listeners:
                 callback()
 
     @classmethod
@@ -15664,7 +15677,7 @@ class TciServer():
         cls.timer = QTimer()
         cls.timer.timeout.connect(cls.check_connection)
         cls.timer.start(500)
-        XvtrBands.add_listener(cls.on_xvtr_bands)
+        XvtrBands.add_listener(cls.on_xvtr_bands, lasting=True)
         dprint_tci(f'TCI server: listening on port {cls.port}')
 
     # ------------------------------------------------ WebSocket
@@ -25198,6 +25211,7 @@ def clean_up(exit=False):
     # appeared where the VFO was as it opened, and stayed there.
     PanadapterProcess.subscribed = False
     KeyerWarning.subscribed = False
+    XvtrBands.reset()
     if exit:
         server.exit()
     else:
