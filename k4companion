@@ -20820,7 +20820,7 @@ class VailAdapter():
     volume_sent = None                  # last CC8 value, to skip repeats
     # What the product string, and so the MIDI port's name, of a device
     # taking the sidetone level on CC8 contains (see send_volume).
-    volume_product = 'Vail Audio'
+    vail_audio_adapter = 'Vail Audio'
     # Its keyer mode in which it keys nothing itself, sending the paddles
     # as they are, the dit as note 1 and the dah as note 2, for the app's
     # keyer to key (see Keyer.set_vail_paddle_notes).
@@ -20884,7 +20884,7 @@ class VailAdapter():
         if not pitch:
             return
         pitch = int(pitch) * 10
-        if cls.volume_product not in cls.output_port_name:
+        if cls.vail_audio_adapter not in cls.output_port_name:
             note = round(69 + 12 * math.log2(pitch/440))
             cls.send_message([0xB0, 2, note])
         else:
@@ -20920,9 +20920,9 @@ class VailAdapter():
         # CC8 is the adapter's sidetone level in half dB steps below full
         # scale, 127 being full scale, 0 off. The adapter scales it by
         # the computer's volume for it, as it does the received audio.
-        # Only a device whose product string has volume_product in it
+        # Only a device whose product string has vail_audio_adapter in it
         # takes CC8 so.
-        if cls.volume_product not in cls.output_port_name:
+        if cls.vail_audio_adapter not in cls.output_port_name:
             return
         if audio is None:
             audio = Audio.get_singleton()
