@@ -8998,7 +8998,10 @@ class XvtrBands():
 class PanadapterProcess(QObject):
     # Parent-side handle for one panadapter subprocess.
     processes = {}               # receiver ('main'/'sub') -> PanadapterProcess
-    subscribed = False
+    subscribed = False           # whether open_window has subscribed to
+                                  # what it relays; False again once a
+                                  # restart has cancelled every
+                                  # subscription (see clean_up)
     dpm_state = None             # last '#DPM' value sent to the radio
                                   # ('0' or '1'), or None -- see
                                   # _update_dpm_state/_send_dpm.
@@ -9061,7 +9064,8 @@ class PanadapterProcess(QObject):
     # Relayed to a newly opened window below, from whatever's already
     # cached, since open_window's subscriptions only ever fire their
     # "here's the current value" callback once, for the very first
-    # window opened in the app's lifetime (see the cls.subscribed guard)
+    # window opened since the app started or restarted (see the
+    # cls.subscribed guard)
     # -- and even that one delivery is too early to help, since it runs
     # before this receiver has been added to cls.processes. Without this,
     # a window opened after the first one (or a window re-opened later)
@@ -25188,6 +25192,12 @@ def clean_up(exit=False):
 
     server = Server.k4_server
     server.cancel_k4_subscriptions()
+    # Those that subscribe only the first time they are needed have to
+    # again after a restart. The panadapter's relay, left thinking it
+    # had, sent a window opened after one no FA; or FB;: its VFO line
+    # appeared where the VFO was as it opened, and stayed there.
+    PanadapterProcess.subscribed = False
+    KeyerWarning.subscribed = False
     if exit:
         server.exit()
     else:
